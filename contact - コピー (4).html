@@ -132,10 +132,10 @@
                         <div class="col-lg-7 px-md-4">
                             <h3 class="fw-bold mb-4" style="border-left: 5px solid var(--primary-blue); padding-left: 15px;">Inquiry Form</h3>
                             
-                            <form action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
+                            <form action="https://formspree.io/f/https://formspree.io/f/mojqjwnr" method="POST">
                                 <div class="mb-4">
                                     <label class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
-                                    <select name="種類" class="form-select" required>
+                                    <select name="type" class="form-select" required>
                                         <option value="" selected disabled>選択してください</option>
                                         <option value="PAレンタル">PAレンタル・イベント音響</option>
                                         <option value="学園祭パック">学園祭パック（PA・照明・ステージ）</option>
@@ -147,19 +147,19 @@
                                 </div>
                                 <div class="mb-4">
                                     <label class="form-label">お名前 / 貴社名<span class="required-badge">必須</span></label>
-                                    <input type="text" name="お名前" class="form-control" placeholder="例：山田 太郎 / 株式会社◯◯制作" required>
+                                    <input type="text" name="name" class="form-control" placeholder="例：山田 太郎 / 株式会社◯◯制作" required autocomplete="name">
                                 </div>
                                 <div class="mb-4">
                                     <label class="form-label">メールアドレス<span class="required-badge">必須</span></label>
-                                    <input type="email" name="email" class="form-control" placeholder="example@mail.com" required>
+                                    <input type="email" name="email" class="form-control" placeholder="example@mail.com" required autocomplete="email">
                                 </div>
                                 <div class="mb-4">
                                     <label class="form-label">電話番号</label>
-                                    <input type="tel" name="電話番号" class="form-control" placeholder="080-1234-5678">
+                                    <input type="tel" name="tel" class="form-control" placeholder="080-1234-5678" autocomplete="tel">
                                 </div>
                                 <div class="mb-4">
                                     <label class="form-label">ご相談内容<span class="required-badge">必須</span></label>
-                                    <textarea name="メッセージ" class="form-control" rows="6" placeholder="開催日時、場所、予定人数、ご予算など、わかる範囲でご記入ください。" required></textarea>
+                                    <textarea name="message" class="form-control" rows="6" placeholder="開催日時、場所、予定人数、ご予算などをご記入ください。" required></textarea>
                                 </div>
                                 <div class="text-center mt-5">
                                     <button type="submit" class="btn-submit shadow">内容を送信する</button>
