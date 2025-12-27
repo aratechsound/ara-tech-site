@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <title>店舗音響・設備施工 | ARA-TECH（広島）- ショークラブからカフェまで対応</title>
+    <meta name="description" content="広島の店舗音響・設備施工ならARA-TECHにお任せください。ライブハウス、クラブ、ショークラブ、ナイトクラブ、フィリピンパブ、ホストクラブ、カフェ、アパレル店舗などの音響設計・施工・保守を一貫サポート。店舗のコンセプトに合わせた最適な音響システムをご提案します。">
+    <meta name="keywords" content="店舗音響, 設備施工, 広島, 音響設計, スピーカー設置, クラブ音響, カフェBGM, 音響保守, 演出照明">
+
+    <meta property="og:title" content="店舗音響・設備施工 | ARA-TECH">
+    <meta property="og:description" content="「空間」と「音」の最適解を。設計からメンテナンスまでプロの視点でサポート。">
+    <meta property="og:image" content="https://your-domain.com/img/INSTALLATION.jpg">
+    <meta property="og:type" content="article">
+
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root { --primary-blue: #007bff; --dark-text: #1d1d1f; }
+        body { font-family: 'Noto Sans JP', sans-serif; margin: 0; color: var(--dark-text); line-height: 1.8; }
+
+        /* ナビゲーション */
+        .navbar { background-color: var(--primary-blue) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+        .navbar-brand img { height: 40px; width: auto; }
+        .nav-link { color: white !important; font-weight: 700; margin-left: 15px; font-size: 0.9rem; }
+        .nav-link:hover { opacity: 0.8; }
+
+        /* ページヘッダー */
+        .page-header {
+            position: relative;
+            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/INSTALLATION.jpg');
+            background-size: cover; background-position: center;
+            padding: 120px 0 160px 0; color: white; text-align: center; overflow: hidden;
+        }
+        .page-header h1 { font-size: clamp(2.5rem, 8vw, 4rem); font-weight: 900; letter-spacing: 4px; position: relative; z-index: 3; }
+        .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
+        .wave-container svg { display: block; width: 100%; height: 60px; }
+        .wave-fill { fill: #ffffff; }
+
+        /* セクション共通 */
+        .section-title { font-weight: 900; font-size: 2.2rem; margin-bottom: 60px; text-align: center; }
+        .section-title::after { content: ""; display: block; width: 60px; height: 4px; background: var(--primary-blue); margin: 20px auto; }
+
+        /* ワークフローカード */
+        .service-card { border: none; border-radius: 15px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); transition: 0.3s; height: 100%; background: #fff; text-align: center; }
+        .service-card:hover { transform: translateY(-10px); }
+        .card-body { padding: 40px; }
+        .icon-box { font-size: 3.5rem; color: var(--primary-blue); margin-bottom: 25px; }
+
+        /* 実績紹介 */
+        .showcase-row { align-items: center; margin-bottom: 100px; }
+        .showcase-img { width: 100%; border-radius: 10px; box-shadow: 0 15px 35px rgba(0,0,0,0.15); transition: 0.5s; cursor: pointer; }
+        .showcase-img:hover { transform: scale(1.02); filter: brightness(1.1); }
+        .img-caption { font-size: 0.85rem; color: #666; margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--primary-blue); font-weight: bold; }
+        .showcase-content { padding: 30px; }
+        .showcase-content h3 { font-weight: 900; font-size: 1.8rem; margin-bottom: 15px; color: var(--primary-blue); }
+
+        /* ライトボックス */
+        #lightbox {
+            display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.95); justify-content: center; align-items: center;
+        }
+        #lightbox-img { max-width: 90%; max-height: 80%; border: 3px solid white; border-radius: 5px; }
+        #lightbox-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; z-index: 2001; }
+
+        /* CTAセクション */
+        .cta-section { 
+            position: relative; background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
+            background-size: cover; background-position: center; background-attachment: fixed;
+            padding: 100px 0; text-align: center; border-radius: 20px; margin-bottom: 60px; color: white; overflow: hidden;
+        }
+        .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; transition: 0.3s; display: inline-block; }
+        .btn-back:hover { background: var(--primary-blue); color: white; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="index.html"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto text-center">
+                    <a class="nav-link" href="index.html">HOME</a>
+                    <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
+                    <a class="nav-link" href="stage-production.html">STAGE</a>
+                    <a class="nav-link" href="tour-pa.html">TOUR PA</a>
+                    <a class="nav-link" href="installation.html">INSTALLATION</a>
+                    <a class="nav-link" href="contact.html">CONTACT</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container position-relative" style="z-index: 3;">
+            <h1 class="display-3">INSTALLATION</h1>
+            <p class="lead fw-bold">「空間」と「音」の最適解を設計・施工・保守まで一貫サポート。</p>
+        </div>
+        <div class="wave-container">
+            <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
+        </div>
+    </header>
+
+    <main class="container my-5 py-5">
+        
+        <div class="text-center mb-5">
+            <h2 class="section-title">Our Solutions</h2>
+            <p class="lead">大規模なショークラブから、落ち着いたカフェのBGMまで。<br>プロの視点で「現場の使いやすさ」と「音のクオリティ」を両立させます。</p>
+        </div>
+
+        <div class="row g-4 mb-5 pb-5">
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-pencil-ruler"></i></div>
+                        <h4 class="fw-bold">Design</h4>
+                        <p class="text-muted small">用途に合わせたシステム設計。カフェ等の簡易システムから、ダンスフロアを備えた本格設計まで、店舗の構造と予算に合わせた最適なプランをご提案します。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-tools"></i></div>
+                        <h4 class="fw-bold">Execution</h4>
+                        <p class="text-muted small">現場を知り尽くしたスタッフによる確実な施工。配線の一本まで美しく仕上げ、耐久性が高くトラブルのない安定した運用環境を構築します。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-shield-alt"></i></div>
+                        <h4 class="fw-bold">Maintenance</h4>
+                        <p class="text-muted small">導入後の定期点検や、万が一のトラブル時の迅速なフォロー。常にベストなコンディションで営業を続けられるよう、地域密着で徹底サポートします。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="section-title">Execution Case</h2>
+
+        <div class="row showcase-row">
+            <div class="col-lg-7">
+                <img src="img/inst-1.jpg" class="showcase-img zoom-single" alt="ショークラブ・ナイトクラブ音響施工事例">
+                <p class="img-caption">ショークラブ・フィリピンパブ・Club - 迫力ある音響と演出照明</p>
+            </div>
+            <div class="col-lg-5 showcase-content">
+                <h3>Show & Night Club</h3>
+                <p>ステージパフォーマンスが主役となるショークラブやフィリピンパブ、重低音が響くClubまで、店舗のコンセプトに合わせた最適なシステムを構築。華やかなライティング演出との連動もスムーズに行えるよう設計し、キャストとお客様の満足度を最大化します。</p>
+            </div>
+        </div>
+
+        <div class="row showcase-row flex-lg-row-reverse">
+            <div class="col-lg-7">
+                <img src="img/inst-2.jpg" class="showcase-img zoom-single" alt="カフェ・アパレル店舗音響設計事例">
+                <p class="img-caption">カフェ・アパレル・小規模店舗 - 低予算で始める高品質システム</p>
+            </div>
+            <div class="col-lg-5 showcase-content">
+                <h3>Cafe & Simple System</h3>
+                <p>「大がかりな設備は不要だが、音の良さにはこだわりたい」というカフェや個人商店様へ、予算に合わせた高品位システムをご提案。内装デザインを損なわないスピーカー配置や、スタッフが直感的に扱える操作性など、日々の営業に寄り添った設計を行います。</p>
+            </div>
+        </div>
+
+        <section class="cta-section container text-center">
+            <div class="position-relative" style="z-index: 3;">
+                <h3 class="fw-bold mb-4">「理想の音」を、その場所に。</h3>
+                <p class="mb-5 lead">新規開店、リニューアル、既存設備の改善など、<br>広島を拠点に最適な機材選定と音響設計でお応えします。</p>
+                <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold" style="border: 2px solid white;">無料相談・お見積り依頼</a>
+            </div>
+        </section>
+
+        <div class="text-center mb-5">
+            <a href="index.html" class="btn-back"><i class="fas fa-arrow-left me-2"></i>トップページへ戻る</a>
+        </div>
+    </main>
+
+    <div id="lightbox">
+        <span id="lightbox-close" onclick="closeLightbox()">&times;</span>
+        <img id="lightbox-img" src="">
+    </div>
+
+    <footer class="py-4 border-top text-center text-muted">
+        <div class="container">
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+
+        document.querySelectorAll('.zoom-single').forEach(img => {
+            img.addEventListener('click', function() {
+                lightboxImg.src = this.src;
+                lightbox.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            });
+        });
+
+        function closeLightbox() {
+            lightbox.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) closeLightbox();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeLightbox();
+        });
+    </script>
+</body>
+</html>

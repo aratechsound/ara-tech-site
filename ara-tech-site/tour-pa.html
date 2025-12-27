@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <title>ツアーPA・サウンドエンジニア派遣 | ARA-TECH（広島）- 全国ライブハウス・ホール対応</title>
+    <meta name="description" content="広島から全国へ。アーティストの理想を形にするツアーPA・ライブオペレートを提供。F.O.H、モニターエンジニア、システムエンジニアが、ライブハウスからアリーナまで最適なサウンド環境を構築します。">
+    <meta name="keywords" content="ツアーPA, ライブ音響, PAエンジニア 派遣, 広島, サウンドエンジニア, ライブオペレート, モニターエンジニア, 音響設計">
+
+    <meta property="og:title" content="ツアーPA・サウンドエンジニア派遣 | ARA-TECH">
+    <meta property="og:description" content="アーティストの想いを、全国のファンへ届けるサウンドパートナー。">
+    <meta property="og:image" content="https://your-domain.com/img/tour-pa.jpg">
+    <meta property="og:type" content="article">
+
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root { --primary-blue: #007bff; --dark-text: #1d1d1f; }
+        body { font-family: 'Noto Sans JP', sans-serif; margin: 0; color: var(--dark-text); line-height: 1.8; }
+
+        /* ナビゲーション */
+        .navbar { background-color: var(--primary-blue) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+        .navbar-brand img { height: 40px; width: auto; }
+        .nav-link { color: white !important; font-weight: 700; margin-left: 15px; font-size: 0.9rem; }
+        .nav-link:hover { opacity: 0.8; }
+
+        /* ページヘッダー */
+        .page-header {
+            position: relative;
+            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/TOUR PA.jpg');
+            background-size: cover; background-position: center;
+            padding: 120px 0 160px 0; color: white; text-align: center; overflow: hidden;
+        }
+        .page-header h1 { font-size: clamp(2.5rem, 8vw, 4rem); font-weight: 900; letter-spacing: 4px; position: relative; z-index: 3; }
+        .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
+        .wave-container svg { display: block; width: 100%; height: 60px; }
+        .wave-fill { fill: #ffffff; }
+
+        /* セクション共通 */
+        .section-title { font-weight: 900; font-size: 2.2rem; margin-bottom: 60px; text-align: center; }
+        .section-title::after { content: ""; display: block; width: 60px; height: 4px; background: var(--primary-blue); margin: 20px auto; }
+
+        /* サービスカード */
+        .service-card { border: none; border-radius: 15px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); transition: 0.3s; height: 100%; background: #fff; text-align: center; }
+        .service-card:hover { transform: translateY(-10px); }
+        .card-body { padding: 40px; }
+        .icon-box { font-size: 3.5rem; color: var(--primary-blue); margin-bottom: 25px; }
+
+        /* 実績紹介 */
+        .showcase-row { align-items: center; margin-bottom: 100px; }
+        .showcase-img { width: 100%; border-radius: 10px; box-shadow: 0 15px 35px rgba(0,0,0,0.15); transition: 0.5s; cursor: pointer; }
+        .showcase-img:hover { transform: scale(1.02); filter: brightness(1.1); }
+        .img-caption { font-size: 0.85rem; color: #666; margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--primary-blue); font-weight: bold; }
+        .showcase-content { padding: 30px; }
+        .showcase-content h3 { font-weight: 900; font-size: 1.8rem; margin-bottom: 15px; color: var(--primary-blue); }
+
+        /* ライトボックス */
+        #lightbox {
+            display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.95); justify-content: center; align-items: center;
+        }
+        #lightbox-img { max-width: 90%; max-height: 80%; border: 3px solid white; border-radius: 5px; }
+        #lightbox-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; z-index: 2001; }
+
+        /* CTAセクション */
+        .cta-section { 
+            position: relative; background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
+            background-size: cover; background-position: center; background-attachment: fixed;
+            padding: 100px 0; text-align: center; border-radius: 20px; margin-bottom: 60px; color: white; overflow: hidden;
+        }
+        .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; transition: 0.3s; display: inline-block; }
+        .btn-back:hover { background: var(--primary-blue); color: white; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="index.html"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto text-center">
+                    <a class="nav-link" href="index.html">HOME</a>
+                    <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
+                    <a class="nav-link" href="stage-production.html">STAGE</a>
+                    <a class="nav-link" href="tour-pa.html">TOUR PA</a>
+                    <a class="nav-link" href="installation.html">INSTALLATION</a>
+                    <a class="nav-link" href="contact.html">CONTACT</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container position-relative" style="z-index: 3;">
+            <h1 class="display-3">TOUR PA</h1>
+            <p class="lead fw-bold">アーティストの想いを、全国のファンへ届けるパートナー。</p>
+        </div>
+        <div class="wave-container">
+            <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
+        </div>
+    </header>
+
+    <main class="container my-5 py-5">
+        
+        <div class="text-center mb-5">
+            <h2 class="section-title">Support Services</h2>
+            <p class="lead">ライブハウスからホール、アリーナまで。<br>アーティストが最高のパフォーマンスを発揮できる「音の土台」を支えます。</p>
+        </div>
+
+        <div class="row g-4 mb-5 pb-5">
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-sliders-h"></i></div>
+                        <h4 class="fw-bold">F.O.H Engineer</h4>
+                        <p class="text-muted small">客席へのメインサウンドを統括。楽曲の熱量を最大限に引き出し、観客の心に響く圧倒的な音響空間を構築します。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-headphones"></i></div>
+                        <h4 class="fw-bold">Monitor Engineer</h4>
+                        <p class="text-muted small">ステージ上の「やりやすさ」を追求。アーティスト一人ひとりに合わせた繊細なモニタリング環境を整え、演奏に没頭できる環境を提供します。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="service-card">
+                    <div class="card-body">
+                        <div class="icon-box"><i class="fas fa-network-wired"></i></div>
+                        <h4 class="fw-bold">System Engineer</h4>
+                        <p class="text-muted small">会場ごとの音響特性を解析。どんな環境でも「アーティスト本来の音」を忠実かつ均一に再現するためのシステム設計・調整を行います。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="section-title">Touring Experience</h2>
+
+        <div class="row showcase-row">
+            <div class="col-lg-7">
+                <img src="img/tour-live-1.jpg" class="showcase-img zoom-single" alt="全国ライブハウスツアー サウンドオペレート">
+                <p class="img-caption">全国ライブハウスツアー - タイトなスケジュールでも安定した音作りを提供</p>
+            </div>
+            <div class="col-lg-5 showcase-content">
+                <h3>Live House Circuit</h3>
+                <p>機材の制約が多いライブハウスでも、ARA-TECHの豊富なノウハウを投入。アーティストの個性を殺さず、箱の特性を最大限に活かした迫力のサウンドを実現します。地方公演の搬入出から現場対応まで一貫してサポート。</p>
+            </div>
+        </div>
+
+        <div class="row showcase-row flex-lg-row-reverse">
+            <div class="col-lg-7">
+                <img src="img/tour-hall-1.jpg" class="showcase-img zoom-single" alt="ホール・劇場公演 音響オペレート">
+                <p class="img-caption">ホール・市民会館クラス - 反響の多い会場でも明瞭なサウンドを実現</p>
+            </div>
+            <div class="col-lg-5 showcase-content">
+                <h3>Hall & Theater Shows</h3>
+                <p>繊細なダイナミクス表現が求められるホール公演。クラシックからロックまで、会場の残響を緻密に計算したチューニングを行い、全客席へクリアなサウンドを届けます。最新のデジタルコンソールによる効率的なリハーサル進行を支援します。</p>
+            </div>
+        </div>
+
+        <section class="cta-section container text-center">
+            <div class="position-relative" style="z-index: 3;">
+                <h3 class="fw-bold mb-4">ツアーのサウンドパートナーをお探しですか？</h3>
+                <p class="mb-5 lead">単発のライブから数ヶ月にわたる全国ツアーまで、規模を問わず柔軟に対応します。<br>広島を拠点に、日本全国どこへでも派遣可能です。</p>
+                <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold" style="border: 2px solid white;">お問い合わせ・スケジュール確認</a>
+            </div>
+        </section>
+
+        <div class="text-center mb-5">
+            <a href="index.html" class="btn-back"><i class="fas fa-arrow-left me-2"></i>トップページへ戻る</a>
+        </div>
+    </main>
+
+    <div id="lightbox">
+        <span id="lightbox-close" onclick="closeLightbox()">&times;</span>
+        <img id="lightbox-img" src="">
+    </div>
+
+    <footer class="py-4 border-top text-center text-muted">
+        <div class="container">
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+
+        document.querySelectorAll('.zoom-single').forEach(img => {
+            img.addEventListener('click', function() {
+                lightboxImg.src = this.src;
+                lightbox.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            });
+        });
+
+        function closeLightbox() {
+            lightbox.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) closeLightbox();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeLightbox();
+        });
+    </script>
+</body>
+</html>
