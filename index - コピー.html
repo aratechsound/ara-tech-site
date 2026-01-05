@@ -10,7 +10,7 @@
 
     <meta property="og:title" content="ARA-TECH | 広島の音響・PA・ステージ制作">
     <meta property="og:description" content="格安PAレンタルから大規模イベントまで。広島の音響のプロ, ARA-TECH（アラテック）。">
-    <meta property="og:image" content="https://your-domain.com/img/ogp-main.jpg"> <meta property="og:type" content="website">
+    <meta property="og:image" content="img/ogp-main.jpg"> <meta property="og:type" content="website">
 
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -85,23 +85,23 @@
         .section-title { position: relative; display: inline-block; padding-bottom: 15px; margin-bottom: 30px; }
         .section-title::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 3px; background: var(--primary-blue); }
 
-        /* 統一されたCTAセクション（PA RENTALページ等と同じ仕様） */
+        /* 統一された角丸カード型の背景画像付きセクション */
         .cta-section { 
             position: relative; 
             background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
             background-size: cover; 
             background-position: center; 
             background-attachment: fixed;
-            padding: 120px 0; 
+            padding: 100px 0; 
             text-align: center; 
             color: white; 
             overflow: hidden;
-            border-radius: 30px; /* 他ページと合わせた角丸 */
-            margin-bottom: 80px; /* フッターとの余白 */
+            border-radius: 30px; 
+            margin-bottom: 80px;
         }
 
         @media (max-width: 767px) {
-            .cta-section { background-attachment: scroll; padding: 80px 20px; }
+            .cta-section { background-attachment: scroll; padding: 60px 20px; }
         }
     </style>
 </head>
