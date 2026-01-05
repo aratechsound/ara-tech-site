@@ -3,16 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>広島のPA機材レンタル・音響運営｜格安プランから大型イベントまで対応｜ARA-TECH</title>
-    <meta name="description" content="広島市内・近郊のPAレンタルならARA-TECH。学割・お祭りパックなど地域最安値圏のプランをご用意。ライブ、文化祭、企業イベント、講演会の音響設営・オペレートをプロのエンジニアがサポートします。広島市内運搬費無料キャンペーン中。">
-    
+    <title>PA RENTAL | ARA-TECH</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
-    <link rel="icon" href="img/favicon.ico">
-    <link rel="canonical" href="https://ara-tech.cc/pa-rental.html">
-
     <style>
         :root { 
             --primary-blue: #007bff; 
@@ -22,6 +16,7 @@
             --matsuri-orange: #ff6d00;
             --campaign-orange: #ff9f1c; 
             --deep-dark: #0b111a; 
+            /* ゴールド系の色定義 */
             --advisor-gold-border: linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
             --advisor-gold-bg: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(255, 255, 255, 1) 100%);
             --advisor-text: #4a3b00;
@@ -78,53 +73,148 @@
         .plan-list li { margin-bottom: 12px; display: flex; align-items: flex-start; }
         .plan-list i { margin-top: 4px; margin-right: 12px; color: var(--primary-blue); flex-shrink: 0; }
 
-        /* Advisor Premium Section */
-        .advisor-outer-wrap { padding: 15px; background: var(--advisor-gold-border); border-radius: 40px; box-shadow: 0 25px 50px rgba(184, 134, 11, 0.3); position: relative; }
-        .advisor-outer-wrap::before, .advisor-outer-wrap::after { content: ""; position: absolute; width: 50px; height: 50px; border: 4px solid #f9f0b3; z-index: 5; pointer-events: none; }
+        /* Advisor Premium Section - ゴージャスなゴールド装飾 */
+        .advisor-outer-wrap {
+            padding: 15px;
+            background: var(--advisor-gold-border);
+            border-radius: 40px;
+            box-shadow: 0 25px 50px rgba(184, 134, 11, 0.3);
+            position: relative;
+        }
+        /* 四隅の飾りパーツ */
+        .advisor-outer-wrap::before, .advisor-outer-wrap::after {
+            content: "";
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f9f0b3;
+            z-index: 5;
+            pointer-events: none;
+        }
         .advisor-outer-wrap::before { top: 30px; left: 30px; border-right: 0; border-bottom: 0; }
         .advisor-outer-wrap::after { bottom: 30px; right: 30px; border-left: 0; border-top: 0; }
-        .advisor-premium-card { background: #fff; border-radius: 30px; overflow: hidden; position: relative; z-index: 2; }
-        .advisor-visual { background: linear-gradient(45deg, rgba(0,0,0,0.7), rgba(0,0,0,0.3)), url('img/plan-advisor.jpg'); background-size: cover; background-position: center; min-height: 300px; display: flex; align-items: center; justify-content: center; padding: 40px; color: white; text-align: center; }
-        .advisor-title-label { background: var(--advisor-gold-border); padding: 8px 30px; border-radius: 50px; color: #4a3b00; font-weight: 900; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.2); margin-bottom: 15px; }
-        .advisor-content { padding: 50px; background: var(--advisor-gold-bg); position: relative; }
-        .advisor-case { background: rgba(255, 255, 255, 0.7); border-radius: 15px; padding: 20px; margin-top: 25px; border: 1px solid rgba(212, 175, 55, 0.3); backdrop-filter: blur(5px); position: relative; z-index: 1; }
 
-        /* 特徴・選ばれる理由セクション */
-        .feature-box { background: #fdfdfd; padding: 40px; border-radius: 20px; border: 1px solid #eee; margin-bottom: 30px; }
-        .feature-icon { font-size: 2.5rem; color: var(--primary-blue); margin-bottom: 20px; }
-
-        /* FAQ */
-        .faq-item { border-bottom: 1px solid #eee; padding: 20px 0; }
-        .faq-q { font-weight: 900; color: var(--primary-blue); display: flex; align-items: flex-start; }
-        .faq-a { padding-top: 10px; padding-left: 25px; font-size: 0.95rem; color: #555; }
+        .advisor-premium-card {
+            background: #fff;
+            border-radius: 30px;
+            overflow: hidden;
+            position: relative;
+            z-index: 2;
+        }
+        .advisor-visual {
+            background: linear-gradient(45deg, rgba(0,0,0,0.7), rgba(0,0,0,0.3)), url('img/plan-advisor.jpg');
+            background-size: cover;
+            background-position: center;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: white;
+            text-align: center;
+        }
+        .advisor-title-label {
+            background: var(--advisor-gold-border);
+            padding: 8px 30px;
+            border-radius: 50px;
+            color: #4a3b00;
+            font-weight: 900;
+            display: inline-block;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            margin-bottom: 15px;
+        }
+        .advisor-content {
+            padding: 50px;
+            background: var(--advisor-gold-bg);
+            position: relative;
+        }
+        .advisor-content::before {
+            content: "\f3ed";
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 10rem;
+            color: rgba(184, 134, 11, 0.04);
+            z-index: 0;
+        }
+        .advisor-case { 
+            background: rgba(255, 255, 255, 0.7); 
+            border-radius: 15px; 
+            padding: 20px; 
+            margin-top: 25px; 
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            backdrop-filter: blur(5px);
+            position: relative;
+            z-index: 1;
+        }
 
         /* 料金構造 */
-        .cost-structure-outer { background: linear-gradient(rgba(0, 30, 60, 0.85), rgba(0, 30, 60, 0.85)), url('img/plan-bg.jpg'); background-size: cover; background-position: center; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; color: white; }
+        .cost-structure-outer {
+            background: linear-gradient(rgba(0, 30, 60, 0.85), rgba(0, 30, 60, 0.85)), url('img/plan-bg.jpg');
+            background-size: cover; background-position: center; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; color: white;
+        }
         .cost-box { background: rgba(255, 255, 255, 0.95); padding: 30px 15px; border-radius: 15px; color: var(--dark-text); height: 100%; position: relative; }
         .plus-icon { font-size: 1.5rem; color: #fff; display: flex; align-items: center; justify-content: center; }
         .campaign-badge { background: var(--campaign-orange); color: white; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 4px; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
 
         /* 利用の流れ */
         .flow-card { background: #f8f9fa; border-radius: 15px; padding: 25px; text-align: center; position: relative; height: 100%; border: 1px solid #eee; }
-        .flow-number { width: 40px; height: 40px; background: var(--primary-blue); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; font-weight: 900; }
+        .flow-number { 
+            width: 40px; height: 40px; background: var(--primary-blue); color: white; 
+            border-radius: 50%; display: flex; align-items: center; justify-content: center; 
+            margin: 0 auto 15px; font-weight: 900; 
+        }
 
         /* マイクラインナップ */
-        .mic-section { background-color: var(--deep-dark); border-radius: 40px; padding: 80px 40px; margin-bottom: 80px; color: white; position: relative; }
+        .mic-section { 
+            background-color: var(--deep-dark); 
+            background-image: radial-gradient(circle at 20% 30%, rgba(0, 123, 255, 0.15) 0%, transparent 40%),
+                              radial-gradient(circle at 80% 70%, rgba(0, 123, 255, 0.1) 0%, transparent 40%);
+            border-radius: 40px; padding: 80px 40px; margin-bottom: 80px; color: white; position: relative;
+        }
         .mic-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; max-width: 1200px; margin: 0 auto; position: relative; z-index: 2; }
-        .mic-tag { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 25px; border-radius: 15px; font-size: 0.95rem; font-weight: 700; flex: 1 1 calc(33.333% - 20px); min-width: 300px; text-align: left; }
+        .mic-tag { 
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); 
+            backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; font-size: 0.95rem; font-weight: 700; 
+            flex: 1 1 calc(33.333% - 20px); min-width: 300px; text-align: left; transition: 0.3s;
+        }
         .mic-tag.special { border-color: var(--bright-blue); background: rgba(0, 123, 255, 0.15); }
+        .mic-tag span { 
+            color: var(--bright-blue); 
+            font-size: 0.85rem; 
+            display: block; 
+            margin-bottom: 8px; 
+            text-transform: uppercase; 
+            letter-spacing: 1.5px;
+            text-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+        }
+        .mic-desc { display: block; font-size: 0.85rem; font-weight: normal; margin-top: 10px; opacity: 0.9; line-height: 1.6; color: #f8f9fa; }
 
-        /* 規約 */
+        /* レンタル規約 */
         .notes-section { background: #fdfdfd; border: 1px solid #eee; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; }
         .notes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
         .note-item h6 { font-weight: 900; color: var(--primary-blue); margin-bottom: 20px; border-left: 5px solid var(--primary-blue); padding-left: 15px; font-size: 1.1rem; }
+        .note-item p, .note-item li { font-size: 0.9rem; color: #555; margin-bottom: 8px; }
 
-        .cta-section { position: relative; background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg'); background-size: cover; background-position: center; background-attachment: fixed; padding: 120px 0; text-align: center; border-radius: 30px; margin-bottom: 80px; color: white; overflow: hidden; }
+        .cta-section { 
+            position: relative; background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
+            background-size: cover; background-position: center; background-attachment: fixed;
+            padding: 120px 0; text-align: center; border-radius: 30px; margin-bottom: 80px; color: white; overflow: hidden;
+        }
         .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; }
         
+        @media (max-width: 991px) {
+            .mic-tag { flex: 1 1 calc(50% - 20px); }
+            .advisor-visual { min-height: 200px; }
+        }
         @media (max-width: 767px) {
-            .page-header h1 { font-size: 2.5rem; }
+            .page-header, .cta-section { background-attachment: scroll; }
             .plus-icon { transform: rotate(90deg); padding: 10px 0; }
+            .mic-tag { flex: 1 1 100%; }
+            .advisor-content { padding: 30px; }
+            .advisor-outer-wrap::before, .advisor-outer-wrap::after { display: none; }
         }
     </style>
 </head>
@@ -133,11 +223,13 @@
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container">
         <a class="navbar-brand" href="index.html">
-            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH 広島 音響レンタル">
+            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH">
         </a>
+
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
         </button>
+
         <div class="collapse navbar-collapse" id="navbarNav">
             <div class="navbar-nav ms-auto text-center">
                 <a class="nav-link" href="index.html">HOME</a>
@@ -149,60 +241,28 @@
             </div>
         </div>
     </div>
-</nav>
-
-<header class="page-header">
-    <div class="container">
-        <h1 class="display-3">PA RENTAL HIROSHIMA</h1>
-        <p class="lead fw-bold">広島のイベントを音で支える。機材レンタルからプロのオペレートまで。</p>
-    </div>
-    <div class="wave-container">
-        <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
-    </div>
-</header>
-
-<main class="container my-5">
-    
-    <section class="py-5">
-        <div class="text-center mb-5">
-            <h2 class="section-title">Why ARA-TECH?</h2>
-            <p class="lead">広島でARA-TECHのPAレンタルが選ばれる3つの理由</p>
+</nav>    </nav>
+    <header class="page-header">
+        <div class="container">
+            <h1 class="display-3">PA RENTAL</h1>
+            <p class="lead fw-bold">現場に合わせた最適なシステムを、明朗会計で提供します。</p>
         </div>
-        <div class="row g-4 text-center">
-            <div class="col-md-4">
-                <div class="feature-box h-100">
-                    <i class="fas fa-truck-moving feature-icon"></i>
-                    <h4 class="fw-bold">広島市内 運搬・設営無料</h4>
-                    <p class="small text-muted">中区、東区、南区、西区、安佐南区、安佐北区、安芸区、佐伯区の広島市内全域、運搬費無料キャンペーン中。廿日市市や東広島市も低価格で対応します。</p>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="feature-box h-100">
-                    <i class="fas fa-user-check feature-icon"></i>
-                    <h4 class="fw-bold">現役プロによる高品質な音</h4>
-                    <p class="small text-muted">数万人規模のフェスを手がける現役のサウンドエンジニアが機材を選定・オペレート。格安レンタルでも音質には一切妥協しません。</p>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="feature-box h-100">
-                    <i class="fas fa-coins feature-icon"></i>
-                    <h4 class="fw-bold">明朗会計・地域最安値圏</h4>
-                    <p class="small text-muted">機材代・人件費・諸経費を明確に切り分け。学割やお祭りパックなど、広島の地域イベントを応援する特別プランを多数ご用意しています。</p>
-                </div>
-            </div>
+        <div class="wave-container">
+            <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
         </div>
-    </section>
+    </header>
 
-    <section id="plans" class="py-5">
+    <main class="container my-5 py-5">
+        
         <div class="text-center mb-5">
             <h2 class="section-title">Price & Plan</h2>
-            <p class="lead">用途に合わせて選べる、シンプルで分かりやすいパッケージプラン</p>
+            <p class="lead">イベントの成功から、現場スタッフの育成まで幅広くサポートします。</p>
         </div>
 
         <div class="row g-4 mb-5">
             <div class="col-lg-4 col-md-6">
                 <div class="plan-card">
-                    <div class="plan-img-wrapper"><img src="img/plan-compact.jpg" class="plan-img" alt="広島 会議用 PAレンタル"></div>
+                    <div class="plan-img-wrapper"><img src="img/plan-compact.jpg" class="plan-img" alt="Compact PA"></div>
                     <div class="plan-header bg-compact">
                         <h5 class="mb-0 fw-bold">Compact PA</h5>
                         <p class="small mb-0 opacity-75">会議・プレゼン・小規模イベント</p>
@@ -210,8 +270,9 @@
                     <div class="plan-body">
                         <span class="price-tag text-dark">¥22,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
                         <ul class="plan-list">
-                            <li><i class="fas fa-check-circle"></i><div>パワードスピーカー(ミキサー内蔵) ×2</div></li>
-                            <li><i class="fas fa-check-circle"></i><div>有線マイク ×2 / スタンド一式</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>パワードスタンドスピーカー(ミキサー内臓) ×2</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>有線マイク ×2</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>スタンド/ケーブル一式</div></li>
                         </ul>
                     </div>
                 </div>
@@ -219,7 +280,7 @@
 
             <div class="col-lg-4 col-md-6">
                 <div class="plan-card" style="border: 2px solid var(--primary-blue);">
-                    <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="広島 ライブ 音響レンタル"></div>
+                    <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="Standard LIVE"></div>
                     <div class="plan-header bg-standard">
                         <h5 class="mb-0 fw-bold">Standard LIVE</h5>
                         <p class="small mb-0 opacity-75">中規模ライブ・本格イベント</p>
@@ -227,8 +288,45 @@
                     <div class="plan-body">
                         <span class="price-tag text-primary">¥44,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
                         <ul class="plan-list">
-                            <li><i class="fas fa-check-circle"></i><div>高出力メインスピーカー ×2 / モニター ×2</div></li>
-                            <li><i class="fas fa-check-circle"></i><div>デジタルミキサー一式 / ワイヤレス 2本</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>高出力パワードスタンドスピーカー ×2</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>サイドモニター用パワードスタンドスピーカー ×2</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>デジタルミキサー一式</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>ワイヤレスマイク 2本</div></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 col-md-6">
+                <div class="plan-card">
+                    <div class="plan-img-wrapper"><img src="img/plan-custom.jpg" class="plan-img" alt="Large Scale"></div>
+                    <div class="plan-header bg-custom">
+                        <h5 class="mb-0 fw-bold">Large Scale</h5>
+                        <p class="small mb-0 opacity-75">大規模フェス・ホール公演</p>
+                    </div>
+                    <div class="plan-body">
+                        <span class="price-tag text-muted">お見積り</span>
+                        <p class="small mb-2 text-muted">ラインアレイ・システムを導入。広大な会場の隅々まで解像度の高い音を届けます。</p>
+                        <ul class="plan-list fw-bold">
+                            <li><i class="fas fa-star text-warning"></i><div>Line Array System 導入</div></li>
+                            <li><i class="fas fa-star text-warning"></i><div>フルシステム・カスタマイズ</div></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 col-md-6">
+                <div class="plan-card" style="border: 2px solid #2c3e50;">
+                    <div class="plan-img-wrapper"><img src="img/plan-engineer.jpg" class="plan-img" alt="PA Operator"></div>
+                    <div class="plan-header bg-engineer">
+                        <h5 class="mb-0 fw-bold">PA Operator Only</h5>
+                        <p class="small mb-0 opacity-75">技術提供・エンジニア派遣</p>
+                    </div>
+                    <div class="plan-body">
+                        <span class="price-tag" style="color: #2c3e50;">¥27,500 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
+                        <ul class="plan-list">
+                            <li><i class="fas fa-user-tie"></i><div>プロPAエンジニア 1名派遣</div></li>
+                            <li><i class="fas fa-sliders-h"></i><div>ゲストライブ・重要式典対応</div></li>
                         </ul>
                     </div>
                 </div>
@@ -237,26 +335,25 @@
             <div class="col-lg-4 col-md-6">
                 <div class="plan-card" style="border: 2px solid var(--gakuwari-red);">
                     <div class="gakuwari-stamp">学割</div>
-                    <div class="plan-img-wrapper"><img src="img/plan-gakuwari.jpg" class="plan-img" alt="広島 文化祭 PAレンタル"></div>
+                    <div class="plan-img-wrapper"><img src="img/plan-gakuwari.jpg" class="plan-img" alt="School Festival"></div>
                     <div class="plan-header bg-gakuwari">
                         <h5 class="mb-0 fw-bold">School Festival Pack</h5>
                         <p class="small mb-0 opacity-75">広島の学生限定・文化祭ライブ等</p>
                     </div>
                     <div class="plan-body">
                         <span class="price-tag" style="color: var(--gakuwari-red);">¥66,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)</small></span>
-                        <p class="small text-muted text-center mb-3">軽音部や文化祭実行委員会の皆様へ！</p>
                         <ul class="plan-list">
-                            <li><i class="fas fa-check-circle"></i><div>バンド演奏フル対応機材セット</div></li>
-                            <li><i class="fas fa-check-circle"></i><div>広島市内運搬・設営・オペレート込</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>高出力スピーカー×4 / モニター×2</div></li>
+                            <li><i class="fas fa-check-circle"></i><div>デジタルミキサー / ワイヤレス×2</div></li>
                         </ul>
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-lg-4 col-md-6">
                 <div class="plan-card" style="border: 2px solid var(--matsuri-orange);">
                     <div class="recommend-badge">地域祭りに最適</div>
-                    <div class="plan-img-wrapper"><img src="img/plan-matsuri.jpg" class="plan-img" alt="広島 お祭り 音響設営"></div>
+                    <div class="plan-img-wrapper"><img src="img/plan-matsuri.jpg" class="plan-img" alt="Matsuri Pack"></div>
                     <div class="plan-header bg-matsuri">
                         <h5 class="mb-0 fw-bold">Matsuri Pack</h5>
                         <p class="small mb-0 opacity-75">お祭り・屋外イベントパック</p>
@@ -277,95 +374,191 @@
                 <div class="row g-0">
                     <div class="col-lg-5 advisor-visual">
                         <div>
-                            <div class="advisor-title-label"><h5>Technical Advisor</h5></div>
-                            <h3 class="fw-black display-5 mb-3 text-white">Training</h3>
-                            <p class="lead fw-bold mb-0">技術指導・スタッフ育成</p>
+                            <div class="advisor-title-label">
+                                <h5 class="mb-0">Technical Advisor</h5>
+                            </div>
+                            <h3 class="fw-black display-5 mb-3 text-white" style="letter-spacing: 2px;">Training</h3>
+                            <p class="lead fw-bold mb-0">「プロがいなくても安心」と言えるクオリティへ</p>
                         </div>
                     </div>
                     <div class="col-lg-7 advisor-content">
-                        <p class="small mb-4">式場スタッフや学生向けに、正しい機材知識とトラブル回避のノウハウを伝授します。広島県内の施設への定期訪問も承ります。</p>
-                        <ul class="plan-list">
-                            <li><i class="fas fa-crown" style="color: #b8860b;"></i><div>式場スタッフ向け：BGM・ハウリング対策講習</div></li>
-                            <li><i class="fas fa-tools" style="color: #b8860b;"></i><div>施設機材の保守・メンテナンス相談</div></li>
-                        </ul>
+                        <div class="row">
+                            <div class="col-md-7">
+                                <p class="small fw-bold text-muted mb-2">式場スタッフ・学生向け技術指導ワークショップ</p>
+                                <p class="small mb-4">現場のノウハウを伝授します。正しい機材知識を持つことで、トラブルを未然に防ぎ、音響クオリティを底上げします。</p>
+                                
+                                <ul class="plan-list mb-0">
+                                    <li><i class="fas fa-crown" style="color: #b8860b;"></i><div><strong>式場スタッフ向け：</strong>感動を作るBGM・マイク講習・ハウリング対策</div></li>
+                                    <li><i class="fas fa-graduation-cap" style="color: #b8860b;"></i><div><strong>学生サークル向け：</strong>現役プロによる実践的なミキシング指導</div></li>
+                                    <li><i class="fas fa-tools" style="color: #b8860b;"></i><div><strong>保守・メンテナンス：</strong>不具合の早期発見・機材の正しい保管方法講習</div></li>
+                                    <li><i class="fas fa-shopping-cart" style="color: #b8860b;"></i><div><strong>機材導入アドバイス：</strong>施設規模と予算に合わせた最適な機材選定相談</div></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-5 mt-4 mt-md-0 ps-md-4 border-start" style="border-color: rgba(184, 134, 11, 0.2) !important;">
+                                <div class="text-center">
+                                    <span class="price-tag text-secondary mb-1" style="font-size: 1rem;">現場に合わせた構成で</span>
+                                    <h4 class="fw-black mb-1" style="color: #8a6d3b; font-size: 2rem;">16,500円<small class="small text-muted" style="font-size: 0.9rem;">(税込)〜</small></h4>
+                                    <p class="small text-muted border-top pt-2 mt-3" style="border-color: rgba(184, 134, 11, 0.2) !important;">※顧問契約は別途お見積り</p>
+                                </div>
+
+                                <div class="advisor-case">
+                                    <h6 class="fw-bold mb-2" style="font-size: 0.85rem; color: #8a6d3b;"><i class="fas fa-calendar-alt me-2"></i>年間顧問契約の例</h6>
+                                    <p style="font-size: 0.75rem; line-height: 1.5; color: #666;" class="mb-0">月1回の定期訪問レクチャーを通じて、現場スタッフによる機材トラブルの自己解決能力を向上させます。急な不具合発生時の電話サポートも付帯し、施設全体の運営をバックアップします。</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="cost-structure-outer text-center">
-            <h4 class="fw-bold mb-5">料金の仕組み</h4>
-            <div class="row g-3 align-items-stretch justify-content-center">
-                <div class="col-12 col-md-3">
-                    <div class="cost-box"><div class="h6 fw-bold mb-2">機材費</div><div class="small text-muted">構成に応じた料金</div></div>
-                </div>
-                <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
-                <div class="col-12 col-md-3">
-                    <div class="cost-box"><div class="h6 fw-bold mb-2">人件費</div><div class="small text-muted">25,000円(税別)〜 / 1名</div></div>
-                </div>
-                <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
-                <div class="col-12 col-md-3">
-                    <div class="cost-box" style="border: 2px solid var(--campaign-orange);">
-                        <div class="campaign-badge">CAMPAIGN</div>
-                        <div class="h6 fw-bold mb-2">諸経費</div>
-                        <div class="small text-muted"><strong class="text-danger">広島市内 運搬費無料！</strong></div>
+        <div class="row justify-content-center mb-5 pb-5">
+            <div class="col-lg-12">
+                <div class="cost-structure-outer text-center">
+                    <h4 class="fw-bold mb-5" style="color: white; letter-spacing: 2px;">料金の仕組み</h4>
+                    <div class="row g-3 align-items-stretch justify-content-center">
+                        <div class="col-12 col-md-3">
+                            <div class="cost-box"><div class="h6 fw-bold mb-2">機材費</div><div class="small text-muted">構成に応じた料金</div></div>
+                        </div>
+                        <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
+                        <div class="col-12 col-md-3">
+                            <div class="cost-box"><div class="h6 fw-bold mb-2">人件費</div><div class="small text-muted">25,000円(税別)〜 / 1名</div></div>
+                        </div>
+                        <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
+                        <div class="col-12 col-md-3">
+                            <div class="cost-box" style="border: 2px solid var(--campaign-orange);">
+                                <div class="campaign-badge">CAMPAIGN</div>
+                                <div class="h6 fw-bold mb-2">諸経費</div>
+                                <div class="small text-muted"><strong class="text-danger">広島市内 運搬費無料！</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-5 p-3" style="background: rgba(255,255,255,0.1); border-radius: 15px; border: 1px dashed rgba(255,255,255,0.3);">
+                        <p class="mb-0 fw-bold" style="letter-spacing: 1px;">
+                            <i class="fas fa-info-circle me-2"></i>機材のみの直接お引き取りも大歓迎！その場合、<span style="color: var(--campaign-orange);">人件費・運搬費は一切かかりません。</span>
+                        </p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <section class="py-5">
+        <section class="mb-5 pb-5">
             <div class="text-center mb-5">
-                <h3 class="fw-bold section-title">FAQ</h3>
-                <p class="lead">PAレンタルに関するよくある質問</p>
+                <h2 class="section-title">Rental Flow</h2>
+                <p class="lead">お問い合わせから当日まで、スムーズな進行をお約束します。</p>
             </div>
-            <div class="row justify-content-center">
-                <div class="col-lg-8">
-                    <div class="faq-item">
-                        <div class="faq-q">Q. 広島市外でも対応可能ですか？</div>
-                        <div class="faq-a">A. はい、可能です。廿日市市、東広島市、呉市、安芸郡などはもちろん、岡山や島根など中国地方全域への出張実績がございます。市外の場合は別途交通費（実費程度）を頂戴いたします。</div>
+            <div class="row g-4">
+                <div class="col-md-3">
+                    <div class="flow-card">
+                        <div class="flow-number">1</div>
+                        <h6 class="fw-bold">お問い合わせ</h6>
+                        <p class="small text-muted mb-0">フォームまたはお電話にて、日程と内容をお知らせください。</p>
                     </div>
-                    <div class="faq-item">
-                        <div class="faq-q">Q. 雨天時の屋外イベントはどうなりますか？</div>
-                        <div class="faq-a">A. 精密機械のため、基本的にはテント等の雨よけが必要です。やむを得ず中止となる場合のキャンセル規定については、お見積り時に詳しくご説明いたします。</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="flow-card">
+                        <div class="flow-number">2</div>
+                        <h6 class="fw-bold">ヒアリング・見積</h6>
+                        <p class="small text-muted mb-0">会場規模や内容に合わせ、最適な機材構成をご提案します。</p>
                     </div>
-                    <div class="faq-item">
-                        <div class="faq-q">Q. 予算に合わせて機材を組んでもらえますか？</div>
-                        <div class="faq-a">A. もちろんです。「予算〇〇円以内でマイク3本使いたい」等のご相談に合わせ、最適な機材構成をプロの視点でご提案します。</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="flow-card">
+                        <div class="flow-number bg-success"><i class="fas fa-check"></i></div>
+                        <h6 class="fw-bold">ご成約</h6>
+                        <p class="small text-muted mb-0">お見積り内容にご承諾いただけましたら、正式に予約確定となります。</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="flow-card">
+                        <div class="flow-number">4</div>
+                        <h6 class="fw-bold">当日 搬入・本番</h6>
+                        <p class="small text-muted mb-0">搬入から設営、オペレート、撤収まで全てお任せください。</p>
                     </div>
                 </div>
             </div>
         </section>
 
-    </section>
+        <section class="mic-section">
+            <div class="text-center mb-5">
+                <h3 class="fw-bold mb-2">MICROPHONE LINEUP</h3>
+                <p class="text-white-50">ライブから企業イベント、各種レッスンまで幅広く対応するセレクション。</p>
+            </div>
+            <div class="mic-grid">
+                <div class="mic-tag special">
+                    <span>SHURE / SM35 (Headset)</span>
+                    <i class="fas fa-headset me-1" style="color: var(--bright-blue);"></i>ヘッドセット・ワイヤレス
+                    <span class="mic-desc">両手が自由に使えるため、ダンスレッスン、メイクアップ講座、実演販売などに最適です。</span>
+                </div>
+                <div class="mic-tag">
+                    <span>SHURE / SM58・SM57</span>
+                    Vocal & Instrument
+                    <span class="mic-desc">世界標準のダイナミックマイク。ボーカル、スピーチ、楽器収音の定番。</span>
+                </div>
+                <div class="mic-tag">
+                    <span>Sennheiser / e900 Series</span>
+                    High-End Dynamic
+                    <span class="mic-desc">e904 / e604 / e906。ドラムのタムやギターアンプ等、よりクリアな収音に。</span>
+                </div>
+                <div class="mic-tag">
+                    <span>SHURE / β52・β91</span>
+                    Kick Drum / Low-Frequency
+                    <span class="mic-desc">バスドラムやカホン、低音楽器の力強いサウンドを捉えます。</span>
+                </div>
+                <div class="mic-tag">
+                    <span>AKG / C451 ・ SHURE / SM81</span>
+                    Condenser Mic
+                    <span class="mic-desc">アコースティック楽器やシンバルの繊細なニュアンスを再現します。</span>
+                </div>
+                <div class="mic-tag">
+                    <span>Audio-Technica / ATM25</span>
+                    Instrument Dynamic
+                    <span class="mic-desc">太くパンチのあるサウンドが特徴。ドラム収音の隠れた名機。</span>
+                </div>
+            </div>
+        </section>
 
-    <section class="mb-5 pb-5">
-        <div class="text-center mb-5">
-            <h2 class="section-title">Rental Flow</h2>
-            <p class="lead">お問い合わせから当日まで</p>
-        </div>
-        <div class="row g-4 text-center">
-            <div class="col-md-3"><div class="flow-card"><div class="flow-number">1</div><h6 class="fw-bold">お問い合わせ</h6></div></div>
-            <div class="col-md-3"><div class="flow-card"><div class="flow-number">2</div><h6 class="fw-bold">ヒアリング・見積</h6></div></div>
-            <div class="col-md-3"><div class="flow-card"><div class="flow-number bg-success"><i class="fas fa-check"></i></div><h6 class="fw-bold">ご成約</h6></div></div>
-            <div class="col-md-3"><div class="flow-card"><div class="flow-number">4</div><h6 class="fw-bold">当日 搬入・本番</h6></div></div>
-        </div>
-    </section>
+        <section class="notes-section">
+            <h2 class="section-title">Rental Notes</h2>
+            <div class="notes-grid">
+                <div class="note-item">
+                    <h6>キャンセル規定</h6>
+                    <p>正式予約確定後、お客様都合でのキャンセルの場合は以下の料金を申し受けます。</p>
+                    <ul class="list-unstyled">
+                        <li>・7日前〜4日前：お見積り金額の 30%</li>
+                        <li>・3日前〜2日前：お見積り金額の 50%</li>
+                        <li>・前日・当日：お見積り金額の 100%</li>
+                    </ul>
+                </div>
+                <div class="note-item">
+                    <h6>機材の取扱い・破損</h6>
+                    <p>機材は常にメンテナンスを行っておりますが、通常使用の範囲を超えた破損、過失（飲み物をこぼす、落下させる等）、紛失が発生した場合は、修理費用または機材購入代金を実費請求させていただきます。</p>
+                </div>
+                <div class="note-item">
+                    <h6>深夜・早朝対応</h6>
+                    <p>22:00以降、またはAM8:00以前の設営・撤収作業が必要な現場については、別途深夜早朝手当を申し受ける場合がございます。詳しくはお見積り時にご相談ください。</p>
+                </div>
+                <div class="note-item">
+                    <h6>お支払い・諸経費</h6>
+                    <p>原則、イベント終了後1週間以内の銀行振込をお願いしております。広島市内は運搬費無料ですが、市外や県外、または有料駐車場が必要な会場の場合は別途実費をご負担いただきます。</p>
+                </div>
+            </div>
+        </section>
 
-    <section class="cta-section container">
-        <div style="z-index: 3; position: relative;">
-            <h4 class="fw-bold mb-4">広島での音響・PAのご相談はARA-TECHへ</h4>
-            <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold shadow">無料見積もり・相談をする</a>
-        </div>
-    </section>
+        <section class="cta-section container text-center">
+            <div style="z-index: 3; position: relative;">
+                <h4 class="fw-bold mb-4">お見積り・構成のご相談は無料です。</h4>
+                <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold shadow">空き状況・お見積りを相談する</a>
+            </div>
+        </section>
 
-    <div class="text-center mb-5"><a href="index.html" class="btn-back"><i class="fas fa-arrow-left me-2"></i>トップページへ戻る</a></div>
-</main>
+        <div class="text-center mb-5"><a href="index.html" class="btn-back"><i class="fas fa-arrow-left me-2"></i>トップページへ戻る</a></div>
+    </main>
 
-<footer class="py-4 border-top text-center text-muted">
-    <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
-</footer>
+    <footer class="py-4 border-top text-center text-muted">
+        <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
+    </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
