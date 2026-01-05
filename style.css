@@ -58,3 +58,63 @@ footer { background: #222; color: #777; padding: 40px 0; text-align: center; }
     .hero h1 { font-size: 2.2rem; }
     nav { display: none; }
 }
+
+
+/* --- FAQ Section Styles --- */
+.faq-section {
+    padding: 100px 0;
+    background: #fff;
+}
+
+/* アコーディオン全体の枠組み */
+.accordion-item {
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+    transition: 0.3s;
+}
+
+.accordion-item:hover {
+    border-color: #007bff !important;
+}
+
+/* 質問部分のボタン */
+.accordion-button {
+    padding: 20px;
+    font-size: 1.1rem;
+    background-color: #fdfdfd;
+    box-shadow: none !important;
+}
+
+/* 展開時のボタンのデザイン */
+.accordion-button:not(.collapsed) {
+    background-color: rgba(0, 123, 255, 0.05);
+    color: #007bff;
+}
+
+/* アイコン（プラス・マイナス）の色調整 */
+.accordion-button::after {
+    filter: grayscale(1);
+}
+.accordion-button:not(.collapsed)::after {
+    filter: none;
+}
+
+/* 回答部分のテキスト */
+.accordion-body {
+    padding: 25px;
+    line-height: 1.8;
+    color: #555;
+    background-color: #fff;
+    border-top: 1px solid #eee;
+}
+
+/* フォントアイコンの調整 */
+.accordion-button i {
+    width: 24px;
+    text-align: center;
+}
+
+/* --- 下部余白の調整 --- */
+.mb-5 { margin-bottom: 3rem !important; }
+.pb-5 { padding-bottom: 3rem !important; }
