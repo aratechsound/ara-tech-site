@@ -83,6 +83,10 @@
             transform: translateY(-3px);
             background: #0056b3;
         }
+        .btn-submit:disabled { cursor: wait; opacity: .72; transform: none; }
+        .form-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; display: none; font-size: .9rem; font-weight: 700; margin-bottom: 20px; padding: 12px 14px; }
+        .form-error[data-fs-active] { display: block; }
+        [data-fs-field][aria-invalid="true"] { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .12); }
 
         .info-box { background: #eef6ff; border-radius: 15px; padding: 30px; height: 100%; }
         .info-item { display: flex; align-items: flex-start; margin-bottom: 25px; }
@@ -96,6 +100,14 @@
             .contact-wrapper { margin-top: 0; }
         }
     </style>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){ dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-K8VZM111TY');
+    </script>
 </head>
 <body>
 
@@ -139,10 +151,11 @@
                         <div class="col-lg-7 px-md-4">
                             <h3 class="fw-bold mb-4" style="border-left: 5px solid var(--primary-blue); padding-left: 15px;">Inquiry Form</h3>
                             
-                            <form action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
+                            <div class="form-error" data-fs-error role="alert"></div>
+                            <form id="contact-form" action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
                                 <div class="mb-4">
                                     <label for="inquiry-type" class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
-                                    <select id="inquiry-type" name="種類" class="form-select" required>
+                                    <select id="inquiry-type" name="種類" class="form-select" data-fs-field required>
                                         <option value="" selected disabled>選択してください</option>
                                         <option value="PAレンタル">PAレンタル・イベント音響</option>
                                         <option value="学園祭パック">学園祭パック（PA・照明・ステージ）</option>
@@ -154,22 +167,22 @@
                                 </div>
                                 <div class="mb-4">
                                     <label for="name" class="form-label">お名前 / 貴社名<span class="required-badge">必須</span></label>
-                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" required>
+                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" data-fs-field required>
                                 </div>
                                 <div class="mb-4">
                                     <label for="email" class="form-label">メールアドレス<span class="required-badge">必須</span></label>
-                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" required>
+                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" data-fs-field required>
                                 </div>
                                 <div class="mb-4">
                                     <label for="tel" class="form-label">電話番号</label>
-                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678">
+                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678" data-fs-field>
                                 </div>
                                 <div class="mb-4">
                                     <label for="message" class="form-label">ご相談内容<span class="required-badge">必須</span></label>
-                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="開催日時、場所、予定人数、ご予算など、わかる範囲でご記入ください。" required></textarea>
+                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="開催日時、場所、予定人数、ご予算など、わかる範囲でご記入ください。" data-fs-field required></textarea>
                                 </div>
                                 <div class="text-center mt-5">
-                                    <button type="submit" class="btn-submit shadow">内容を送信する</button>
+                                    <button type="submit" class="btn-submit shadow" data-fs-submit-btn>内容を送信する</button>
                                 </div>
                             </form>
                         </div>
@@ -212,10 +225,23 @@
 
     <footer class="py-4 border-top text-center text-muted bg-white">
         <div class="container">
-            <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        window.formspree = window.formspree || function () {
+            (window.formspree.q = window.formspree.q || []).push(arguments);
+        };
+        window.formspree('initForm', {
+            formElement: '#contact-form',
+            formId: 'mojqjwnr',
+            onSuccess: function () {
+                window.location.assign('thanks.html?sent=1');
+            }
+        });
+    </script>
+    <script src="https://unpkg.com/@formspree/ajax@1" defer></script>
 </body>
 </html>
