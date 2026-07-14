@@ -60,6 +60,9 @@ const renderDetail = (supabase, post) => {
     }
 
     const title = document.createElement('h1');
+    title.className = 'detail-title';
+    if (post.title.length > 60) title.classList.add('detail-title--long');
+    else if (post.title.length > 34) title.classList.add('detail-title--medium');
     title.textContent = post.title;
     body.append(title);
 
