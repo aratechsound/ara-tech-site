@@ -26,7 +26,11 @@
         .navbar-brand img { height: 40px; width: auto; }
         .nav-link { color: white !important; font-size: .88rem; font-weight: 700; margin-left: 14px; }
         .nav-link:hover, .nav-link[aria-current="page"] { opacity: .75; }
-        .page-hero { background: linear-gradient(110deg, rgba(0, 43, 92, .88), rgba(0, 123, 255, .72)), url('img/cta-bg.jpg') center / cover; color: white; padding: clamp(72px, 12vw, 130px) 0; }
+        .page-hero { background: linear-gradient(110deg, rgba(0, 43, 92, .88), rgba(0, 123, 255, .72)), url('img/cta-bg.jpg') center / cover; color: white; overflow: hidden; padding: clamp(72px, 12vw, 130px) 0 clamp(120px, 16vw, 180px); position: relative; }
+        .page-hero .container { position: relative; z-index: 1; }
+        .wave-container { bottom: -1px; left: 0; line-height: 0; position: absolute; width: 100%; }
+        .wave-container svg { display: block; height: clamp(56px, 8vw, 100px); width: 100%; }
+        .wave-fill { fill: var(--surface); }
         .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; }
         .page-hero h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
         .page-hero p { max-width: 620px; font-size: 1.05rem; }
@@ -75,6 +79,11 @@
             <p class="eyebrow mb-2">FIELD REPORTS</p>
             <h1>WORKS</h1>
             <p class="mb-0">音響・照明・ステージ制作の現場を、イベントフライヤーとともにご紹介します。企画の規模やジャンルを問わず、心を動かす空間づくりを支えています。</p>
+        </div>
+        <div class="wave-container" aria-hidden="true">
+            <svg viewBox="0 0 500 150" preserveAspectRatio="none">
+                <path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path>
+            </svg>
         </div>
     </header>
 
