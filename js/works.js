@@ -35,12 +35,17 @@ if (grid && emptyState && isSupabaseConfigured) {
         meta.className = 'work-card__meta';
         meta.textContent = [formatDate(post.event_date), post.venue].filter(Boolean).join(' ｜ ');
 
+        const artists = document.createElement('p');
+        artists.className = 'work-card__artist';
+        artists.textContent = `担当アーティスト：${post.artists}`;
+
         const description = document.createElement('p');
         description.className = 'mt-3';
         description.textContent = post.description;
 
         body.append(tag, title);
         if (meta.textContent) body.append(meta);
+        if (post.artists) body.append(artists);
         if (post.description) body.append(description);
         card.append(image, body);
         return card;
@@ -49,7 +54,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     const loadWorks = async () => {
         const { data, error } = await supabase
             .from('work_posts')
-            .select('id, title, category, event_date, venue, description, flyer_path, flyer_alt')
+            .select('id, title, category, event_date, venue, artists, description, flyer_path, flyer_alt')
             .eq('is_published', true)
             .order('event_date', { ascending: false, nullsFirst: false })
             .order('created_at', { ascending: false });

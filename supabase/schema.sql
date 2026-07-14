@@ -28,10 +28,12 @@ create table if not exists public.work_posts (
   category text not null default 'WORKS' check (char_length(category) <= 60),
   event_date date,
   venue text check (char_length(venue) <= 120),
-  description text not null check (char_length(description) <= 1000),
+  artists text check (char_length(artists) <= 240),
+  description text check (char_length(description) <= 1000),
   flyer_path text not null,
   flyer_alt text,
-  is_published boolean not null default false
+  is_published boolean not null default false,
+  publish_at timestamptz
 );
 
 create or replace function public.set_updated_at()
@@ -58,7 +60,7 @@ using (user_id = auth.uid());
 
 create policy "Anyone can read published work posts"
 on public.work_posts for select
-using (is_published = true);
+using (is_published = true and (publish_at is null or publish_at <= now()));
 
 create policy "Work admins manage all posts"
 on public.work_posts for all to authenticated

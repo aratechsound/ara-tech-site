@@ -15,6 +15,12 @@ const flyerPreview = $('#flyer-preview');
 const cancelEdit = $('#cancel-edit');
 const formTitle = $('#form-title');
 const saveButton = $('#save-post');
+const templateSelect = $('#post-template');
+const titleHistory = $('#title-history');
+const artistsHistory = $('#artists-history');
+const venueHistory = $('#venue-history');
+const publishAtInput = $('#post-publish-at');
+const publishedInput = $('#post-published');
 
 let supabase;
 let posts = [];
@@ -31,8 +37,29 @@ const clearMessage = (element) => {
 };
 
 const formatDate = (date) => date ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00`)) : '開催日未設定';
+const formatDateTime = (dateTime) => dateTime ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(dateTime)) : '';
+const toLocalDateTimeInput = (dateTime) => {
+    if (!dateTime) return '';
+    const date = new Date(dateTime);
+    const pad = (number) => String(number).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+const toIsoDateTime = (localDateTime) => localDateTime ? new Date(localDateTime).toISOString() : null;
 
 const fileUrl = (path) => supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl;
+
+const getPublicationState = (post) => {
+    if (!post.is_published) return { className: 'draft', label: '下書き' };
+    if (post.publish_at && new Date(post.publish_at).getTime() > Date.now()) return { className: 'scheduled', label: '予約中' };
+    return { className: 'published', label: '公開中' };
+};
+
+const updateSaveButton = () => {
+    if (editingPost) { saveButton.textContent = '変更を保存'; return; }
+    if (!publishedInput.checked) { saveButton.textContent = '下書き保存'; return; }
+    if (publishAtInput.value && new Date(publishAtInput.value).getTime() > Date.now()) { saveButton.textContent = '予約して保存'; return; }
+    saveButton.textContent = '公開して保存';
+};
 
 const isAdmin = async (user) => {
     const { data, error } = await supabase.from('work_admins').select('user_id').eq('user_id', user.id).maybeSingle();
@@ -43,13 +70,15 @@ const resetPostForm = () => {
     editingPost = null;
     postForm.reset();
     $('#post-category').value = 'WORKS';
-    $('#post-published').checked = true;
+    publishedInput.checked = true;
+    templateSelect.value = '';
+    publishAtInput.value = '';
     flyerPreview.removeAttribute('src');
     flyerPreview.classList.add('hidden');
     formTitle.textContent = '新しい実績を追加';
-    saveButton.textContent = '公開して保存';
     cancelEdit.classList.add('hidden');
     clearMessage(postStatus);
+    updateSaveButton();
 };
 
 const setPreview = (source) => {
@@ -70,6 +99,56 @@ const uploadFlyer = async (file) => {
     return path;
 };
 
+const addHistoryOptions = (datalist, values) => {
+    datalist.replaceChildren();
+    [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja')).forEach((value) => {
+        const option = document.createElement('option');
+        option.value = value;
+        datalist.append(option);
+    });
+};
+
+const populateHistories = () => {
+    addHistoryOptions(titleHistory, posts.map((post) => post.title));
+    addHistoryOptions(artistsHistory, posts.map((post) => post.artists));
+    addHistoryOptions(venueHistory, posts.map((post) => post.venue));
+    templateSelect.replaceChildren();
+    const initial = document.createElement('option');
+    initial.value = '';
+    initial.textContent = '過去の投稿を選んで入力内容をコピー';
+    templateSelect.append(initial);
+    posts.forEach((post) => {
+        const option = document.createElement('option');
+        option.value = post.id;
+        const details = [post.artists ? `担当：${post.artists}` : '', post.event_date ? formatDate(post.event_date) : ''].filter(Boolean).join(' ｜ ');
+        option.textContent = details ? `${post.title}（${details}）` : post.title;
+        templateSelect.append(option);
+    });
+};
+
+const copyFromPost = (id) => {
+    const source = posts.find((post) => post.id === Number(id));
+    if (!source) return;
+    if (editingPost && !window.confirm('編集中の投稿をやめて、過去の投稿を複製しますか？')) { templateSelect.value = ''; return; }
+    editingPost = null;
+    $('#post-title').value = source.title || '';
+    $('#post-date').value = source.event_date || '';
+    $('#post-category').value = source.category || 'WORKS';
+    $('#post-artists').value = source.artists || '';
+    $('#post-venue').value = source.venue || '';
+    $('#post-description').value = source.description || '';
+    publishedInput.checked = false;
+    publishAtInput.value = '';
+    flyerInput.value = '';
+    setPreview('');
+    formTitle.textContent = '過去の投稿を元に新しい実績を追加';
+    cancelEdit.classList.remove('hidden');
+    updateSaveButton();
+    setMessage(postStatus, '入力内容をコピーしました。開催日を確認し、新しいフライヤーを選択してから保存してください。');
+    templateSelect.value = '';
+    postForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 const renderPosts = () => {
     postList.replaceChildren();
     if (!posts.length) { postList.textContent = 'まだ登録された実績はありません。'; return; }
@@ -82,14 +161,24 @@ const renderPosts = () => {
         const body = document.createElement('div');
         const title = document.createElement('h3');
         title.textContent = post.title;
+        const publication = getPublicationState(post);
         const status = document.createElement('span');
-        status.className = `status ${post.is_published ? 'status--published' : 'status--draft'}`;
-        status.textContent = post.is_published ? '公開中' : '下書き';
+        status.className = `status status--${publication.className}`;
+        status.textContent = publication.label;
         title.append(status);
         const meta = document.createElement('p');
         meta.className = 'post-meta';
-        meta.textContent = [post.category, formatDate(post.event_date), post.venue].filter(Boolean).join(' ｜ ');
-        body.append(title, meta);
+        const metaItems = [post.category, formatDate(post.event_date), post.venue].filter(Boolean);
+        if (publication.className === 'scheduled') metaItems.push(`公開予定：${formatDateTime(post.publish_at)}`);
+        meta.textContent = metaItems.join(' ｜ ');
+        body.append(title);
+        if (post.artists) {
+            const artists = document.createElement('p');
+            artists.className = 'post-artists';
+            artists.textContent = `担当アーティスト：${post.artists}`;
+            body.append(artists);
+        }
+        body.append(meta);
         const actions = document.createElement('div');
         actions.className = 'post-actions';
         const edit = document.createElement('button');
@@ -108,6 +197,7 @@ const loadPosts = async () => {
     const { data, error } = await supabase.from('work_posts').select('*').order('event_date', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
     if (error) { setMessage(postStatus, '投稿一覧を読み込めませんでした。設定を確認してください。', 'error'); return; }
     posts = data || [];
+    populateHistories();
     renderPosts();
 };
 
@@ -117,13 +207,17 @@ const beginEdit = (id) => {
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
     $('#post-category').value = editingPost.category || 'WORKS';
+    $('#post-artists').value = editingPost.artists || '';
     $('#post-venue').value = editingPost.venue || '';
     $('#post-description').value = editingPost.description || '';
-    $('#post-published').checked = editingPost.is_published;
+    publishedInput.checked = editingPost.is_published;
+    publishAtInput.value = toLocalDateTimeInput(editingPost.publish_at);
+    templateSelect.value = '';
     setPreview(fileUrl(editingPost.flyer_path));
     formTitle.textContent = '実績を編集';
-    saveButton.textContent = '変更を保存';
     cancelEdit.classList.remove('hidden');
+    clearMessage(postStatus);
+    updateSaveButton();
     postForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
@@ -177,6 +271,10 @@ if (!isSupabaseConfigured) {
         setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
     });
 
+    templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
+    publishedInput.addEventListener('change', updateSaveButton);
+    publishAtInput.addEventListener('input', updateSaveButton);
+
     postForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         clearMessage(postStatus);
@@ -185,17 +283,21 @@ if (!isSupabaseConfigured) {
         saveButton.disabled = true;
         try {
             const flyerPath = file ? await uploadFlyer(file) : editingPost.flyer_path;
+            const isPublished = publishedInput.checked;
             const payload = {
                 title: $('#post-title').value.trim(), event_date: $('#post-date').value || null, category: $('#post-category').value,
-                venue: $('#post-venue').value.trim() || null, description: $('#post-description').value.trim(), flyer_path: flyerPath,
-                flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: $('#post-published').checked
+                artists: $('#post-artists').value.trim() || null, venue: $('#post-venue').value.trim() || null,
+                description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
+                flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: isPublished,
+                publish_at: isPublished ? toIsoDateTime(publishAtInput.value) : null
             };
             const result = editingPost ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id) : await supabase.from('work_posts').insert(payload);
             if (result.error) throw result.error;
             if (file && editingPost?.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([editingPost.flyer_path]);
+            const publication = getPublicationState(payload);
             resetPostForm();
             await loadPosts();
-            setMessage(postStatus, '保存しました。公開にした投稿はWORKSページへ表示されます。');
+            setMessage(postStatus, publication.className === 'scheduled' ? '予約投稿を保存しました。指定した日時にWORKSページへ表示されます。' : publication.className === 'draft' ? '下書きを保存しました。' : '保存しました。WORKSページへ表示されます。');
         } catch (error) {
             setMessage(postStatus, error.message || '保存できませんでした。', 'error');
         } finally { saveButton.disabled = false; }
