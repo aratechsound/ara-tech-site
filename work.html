@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#007bff">
+    <meta name="robots" content="noindex, follow">
+    <title>実績詳細 | ARA-TECH</title>
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root { --primary: #007bff; --ink: #1d1d1f; --surface: #f5f8fc; --navy: #173d68; }
+        body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.7; }
+        a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
+        .navbar { background: var(--primary) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+        .navbar-brand img { height: 40px; width: auto; }
+        .nav-link { color: white !important; font-size: .88rem; font-weight: 700; margin-left: 14px; }
+        .nav-link:hover, .nav-link[aria-current="page"] { opacity: .75; }
+        .detail-shell { margin: 0 auto; max-width: 1180px; min-height: 60vh; padding: clamp(36px, 6vw, 76px) 24px 84px; }
+        .back { color: #1764a2; display: inline-flex; font-size: .86rem; font-weight: 900; gap: 8px; margin-bottom: 22px; text-decoration: none; }
+        .detail-card { background: white; border-radius: 22px; box-shadow: 0 16px 44px rgba(17, 54, 88, .12); overflow: hidden; }
+        .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .95fr); }
+        .detail-flyer { align-items: center; background: #e9f1f8; display: flex; justify-content: center; margin: 0; min-height: 100%; padding: clamp(22px, 4vw, 48px); }
+        .detail-flyer img { box-shadow: 0 15px 32px rgba(16, 42, 70, .22); display: block; max-height: 760px; max-width: 100%; object-fit: contain; }
+        .detail-body { align-self: center; padding: clamp(28px, 5vw, 58px); }
+        .eyebrow { color: #146dc0; font-size: .76rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 12px; }
+        .detail-tag, .detail-role { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
+        .detail-tag { background: #e8f3ff; color: #0069d9; }
+        .detail-role { margin-left: 6px; }
+        .detail-role--operation { background: #0c75dc; color: white; }
+        .detail-role--support { border: 1px solid #315ca8; color: #315ca8; }
+        h1 { font-size: clamp(2rem, 4.4vw, 3.6rem); font-weight: 900; letter-spacing: .02em; line-height: 1.25; margin: 20px 0; }
+        .artist { color: var(--navy); font-size: 1.06rem; font-weight: 900; margin: 0 0 24px; }
+        .role-description { color: #315ca8; font-size: .9rem; font-weight: 700; margin: 12px 0 0; }
+        .detail-meta { border-top: 1px solid #dce6ef; margin: 26px 0 0; padding-top: 22px; }
+        .detail-meta div { display: grid; gap: 8px; grid-template-columns: 7.5em 1fr; margin: 10px 0; }
+        .detail-meta dt { color: #617487; font-size: .8rem; font-weight: 900; letter-spacing: .08em; }
+        .detail-meta dd { font-weight: 700; margin: 0; }
+        .description { border-top: 1px solid #dce6ef; margin-top: 26px; padding-top: 22px; }
+        .description h2 { font-size: 1rem; font-weight: 900; margin: 0 0 10px; }
+        .description p { color: #4d5b68; margin: 0; white-space: pre-wrap; }
+        .loading, .not-found { background: white; border-radius: 18px; color: #57708a; padding: 44px; text-align: center; }
+        footer { background: white; color: #65717c; }
+        @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } .detail-grid { grid-template-columns: 1fr; } .detail-flyer { min-height: 0; } .detail-flyer img { max-height: none; width: min(100%, 620px); } }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く"><span class="navbar-toggler-icon"></span></button>
+            <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+                <div class="navbar-nav ms-auto text-center">
+                    <a class="nav-link" href="./">HOME</a>
+                    <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
+                    <a class="nav-link" href="stage-production.html">STAGE</a>
+                    <a class="nav-link" href="tour-pa.html">TOUR PA</a>
+                    <a class="nav-link" href="installation.html">INSTALLATION</a>
+                    <a class="nav-link" href="works.html" aria-current="page">WORKS</a>
+                    <a class="nav-link" href="contact.html">CONTACT</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="detail-shell">
+        <a class="back" href="works.html">← WORKS一覧へ戻る</a>
+        <section id="work-detail" class="loading" aria-live="polite">実績を読み込んでいます。</section>
+    </main>
+
+    <footer class="py-4 border-top text-center"><small>&copy; 2025 ARA-TECH. All Rights Reserved.</small></footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="js/work-detail.js"></script>
+</body>
+</html>

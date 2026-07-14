@@ -4,6 +4,11 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } f
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
 
+const roleLabels = {
+    artist_pa_operation: 'ARTIST PA OPERATION',
+    local_technical_support: 'LOCAL TECHNICAL SUPPORT'
+};
+
 if (grid && emptyState && isSupabaseConfigured) {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -13,8 +18,10 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const createCard = (post) => {
-        const card = document.createElement('article');
-        card.className = 'work-card';
+        const card = document.createElement('a');
+        card.className = 'work-card work-card--link';
+        card.href = `work.html?id=${encodeURIComponent(post.id)}`;
+        card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
         const image = document.createElement('img');
         image.src = supabase.storage.from(WORKS_BUCKET).getPublicUrl(post.flyer_path).data.publicUrl;
@@ -43,10 +50,22 @@ if (grid && emptyState && isSupabaseConfigured) {
         description.className = 'mt-3';
         description.textContent = post.description;
 
-        body.append(tag, title);
+        const link = document.createElement('span');
+        link.className = 'work-card__link';
+        link.textContent = 'VIEW REPORT →';
+
+        body.append(tag);
+        if (roleLabels[post.role_type]) {
+            const role = document.createElement('span');
+            role.className = `work-card__role work-card__role--${post.role_type === 'artist_pa_operation' ? 'operation' : 'support'}`;
+            role.textContent = roleLabels[post.role_type];
+            body.append(role);
+        }
+        body.append(title);
         if (meta.textContent) body.append(meta);
         if (post.artists) body.append(artists);
         if (post.description) body.append(description);
+        body.append(link);
         card.append(image, body);
         return card;
     };
@@ -54,7 +73,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     const loadWorks = async () => {
         const { data, error } = await supabase
             .from('work_posts')
-            .select('id, title, category, event_date, venue, artists, description, flyer_path, flyer_alt')
+            .select('id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt')
             .eq('is_published', true)
             .order('event_date', { ascending: false, nullsFirst: false })
             .order('created_at', { ascending: false });

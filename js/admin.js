@@ -26,6 +26,11 @@ let supabase;
 let posts = [];
 let editingPost = null;
 
+const roleLabels = {
+    artist_pa_operation: 'ARTIST PA OPERATION ｜ アーティストPA・音響オペレート',
+    local_technical_support: 'LOCAL TECHNICAL SUPPORT ｜ 乗り込みPA対応・現場技術サポート'
+};
+
 const setMessage = (element, message, type = 'info') => {
     element.textContent = message;
     element.className = `alert alert--${type}`;
@@ -70,6 +75,7 @@ const resetPostForm = () => {
     editingPost = null;
     postForm.reset();
     $('#post-category').value = 'WORKS';
+    $('#post-role').value = '';
     publishedInput.checked = true;
     templateSelect.value = '';
     publishAtInput.value = '';
@@ -134,6 +140,7 @@ const copyFromPost = (id) => {
     $('#post-title').value = source.title || '';
     $('#post-date').value = source.event_date || '';
     $('#post-category').value = source.category || 'WORKS';
+    $('#post-role').value = source.role_type || '';
     $('#post-artists').value = source.artists || '';
     $('#post-venue').value = source.venue || '';
     $('#post-description').value = source.description || '';
@@ -172,6 +179,12 @@ const renderPosts = () => {
         if (publication.className === 'scheduled') metaItems.push(`公開予定：${formatDateTime(post.publish_at)}`);
         meta.textContent = metaItems.join(' ｜ ');
         body.append(title);
+        if (roleLabels[post.role_type]) {
+            const role = document.createElement('p');
+            role.className = 'post-role';
+            role.textContent = roleLabels[post.role_type];
+            body.append(role);
+        }
         if (post.artists) {
             const artists = document.createElement('p');
             artists.className = 'post-artists';
@@ -207,6 +220,7 @@ const beginEdit = (id) => {
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
     $('#post-category').value = editingPost.category || 'WORKS';
+    $('#post-role').value = editingPost.role_type || '';
     $('#post-artists').value = editingPost.artists || '';
     $('#post-venue').value = editingPost.venue || '';
     $('#post-description').value = editingPost.description || '';
@@ -286,6 +300,7 @@ if (!isSupabaseConfigured) {
             const isPublished = publishedInput.checked;
             const payload = {
                 title: $('#post-title').value.trim(), event_date: $('#post-date').value || null, category: $('#post-category').value,
+                role_type: $('#post-role').value || null,
                 artists: $('#post-artists').value.trim() || null, venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
                 flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: isPublished,

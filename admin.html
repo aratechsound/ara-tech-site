@@ -60,6 +60,7 @@
         .status--published { background: #dff8ea; color: #13733c; }
         .status--draft { background: #fff2cc; color: #855800; }
         .status--scheduled { background: #e6edff; color: #315ca8; }
+        .post-role { color: #315ca8; font-size: .74rem; font-weight: 900; letter-spacing: .04em; margin: 6px 0 0; }
         .post-artists { color: #1b5d99; font-size: .83rem; font-weight: 900; margin: 5px 0 0; }
         .post-actions { display: flex; gap: 8px; }
         .post-actions .button { font-size: .8rem; padding: 8px 10px; }
@@ -102,6 +103,7 @@
                         <div class="form-field form-field--full"><label for="post-title">イベント名 <span class="help">必須・過去の入力候補から選べます</span></label><input id="post-title" type="text" maxlength="120" list="title-history" placeholder="例：SUMMER SOUND FES 2026" required><datalist id="title-history"></datalist></div>
                         <div class="form-field"><label for="post-date">開催日</label><input id="post-date" type="date"></div>
                         <div class="form-field"><label for="post-category">カテゴリ</label><select id="post-category"><option value="WORKS">WORKS</option><option value="PA RENTAL">PA RENTAL</option><option value="STAGE PRODUCTION">STAGE PRODUCTION</option><option value="TOUR PA">TOUR PA</option><option value="INSTALLATION">INSTALLATION</option></select></div>
+                        <div class="form-field form-field--full"><label for="post-role">現場での担当 <span class="help">ライブハウス現場では、役割に合わせて選択してください</span></label><select id="post-role"><option value="">未設定（通常の実績表示）</option><option value="artist_pa_operation">ARTIST PA OPERATION ｜ アーティストPA・音響オペレート</option><option value="local_technical_support">LOCAL TECHNICAL SUPPORT ｜ 乗り込みPA対応・現場技術サポート</option></select></div>
                         <div class="form-field form-field--full"><label for="post-artists">担当アーティスト名 <span class="help">任意・複数いる場合は「、」で区切って入力</span></label><input id="post-artists" type="text" maxlength="240" list="artists-history" placeholder="例：ARA BAND、広島シンガーズ"><datalist id="artists-history"></datalist></div>
                         <div class="form-field form-field--full"><label for="post-venue">会場 <span class="help">過去の入力候補から選べます</span></label><input id="post-venue" type="text" maxlength="120" list="venue-history" placeholder="例：広島市〇〇公園"><datalist id="venue-history"></datalist></div>
                         <div class="form-field form-field--full"><label for="post-description">紹介文 <span class="help">任意・空欄でも投稿できます</span></label><textarea id="post-description" maxlength="1000" placeholder="現場について補足したいときだけ入力してください。"></textarea></div>

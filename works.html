@@ -38,14 +38,20 @@
         .section-heading::after { background: var(--primary); content: ''; display: block; height: 4px; margin-top: 16px; width: 52px; }
         .works-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
         .work-card { background: white; border: 0; border-radius: 18px; box-shadow: 0 12px 30px rgba(17, 54, 88, .1); height: 100%; overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
+        .work-card--link { color: inherit; display: block; text-decoration: none; }
         .work-card:hover { box-shadow: 0 20px 36px rgba(17, 54, 88, .16); transform: translateY(-6px); }
         .work-card img { aspect-ratio: 4 / 3; display: block; object-fit: cover; width: 100%; }
+        .work-card--link img { aspect-ratio: 3 / 4; background: #e9f1f8; object-fit: contain; }
         .work-card__body { padding: 24px; }
         .work-card__meta { color: #53708d; font-size: .82rem; font-weight: 700; }
         .work-card__artist { color: #17639f !important; font-size: .82rem !important; font-weight: 900; letter-spacing: .02em; margin: 10px 0 0 !important; }
         .work-card__tag { background: #e8f3ff; border-radius: 999px; color: #0069d9; display: inline-block; font-size: .74rem; font-weight: 900; letter-spacing: .04em; padding: 4px 10px; }
+        .work-card__role { border: 1px solid #315ca8; border-radius: 999px; color: #315ca8; display: inline-block; font-size: .68rem; font-weight: 900; letter-spacing: .05em; margin-left: 6px; padding: 4px 9px; }
+        .work-card__role--operation { background: #0c75dc; border-color: #0c75dc; color: white; }
+        .work-card__role--support { background: #f6f9fd; }
         .work-card h3 { font-size: 1.38rem; font-weight: 900; margin: 14px 0 8px; }
         .work-card p { color: #53606c; font-size: .94rem; margin-bottom: 0; }
+        .work-card__link { color: #0069d9; display: inline-block; font-size: .78rem; font-weight: 900; letter-spacing: .08em; margin-top: 20px; }
         .notice { background: white; border: 2px dashed #b7cce2; border-radius: 18px; color: #48647d; padding: 36px; text-align: center; }
         .notice strong { color: var(--ink); display: block; font-size: 1.1rem; margin-bottom: 8px; }
         .contact-panel { background: #10233b; border-radius: 20px; color: white; padding: clamp(28px, 6vw, 56px); }

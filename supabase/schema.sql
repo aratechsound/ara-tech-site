@@ -33,7 +33,8 @@ create table if not exists public.work_posts (
   flyer_path text not null,
   flyer_alt text,
   is_published boolean not null default false,
-  publish_at timestamptz
+  publish_at timestamptz,
+  role_type text check (role_type in ('artist_pa_operation', 'local_technical_support'))
 );
 
 create or replace function public.set_updated_at()
