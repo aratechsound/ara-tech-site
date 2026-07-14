@@ -237,6 +237,114 @@
             padding: 120px 0; text-align: center; border-radius: 30px; margin-bottom: 80px; color: white; overflow: hidden;
         }
         .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; }
+
+        /* PA rental page refresh */
+        .rental-intro {
+            max-width: 1000px;
+            margin: 0 auto 3.5rem;
+            padding: 3.2rem 2.5rem;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #f5faff 0%, #ffffff 62%);
+            border: 1px solid #dceaf8;
+            border-radius: 28px;
+            box-shadow: 0 18px 45px rgba(18, 98, 178, 0.08);
+        }
+        .rental-intro::before {
+            content: "";
+            position: absolute;
+            width: 280px;
+            height: 280px;
+            right: -120px;
+            top: -170px;
+            border: 42px solid rgba(0, 123, 255, 0.07);
+            border-radius: 50%;
+        }
+        .rental-intro > * { position: relative; z-index: 1; }
+        .rental-kicker,
+        .plan-kicker {
+            color: var(--primary-blue);
+            font-size: .76rem;
+            font-weight: 900;
+            letter-spacing: .18em;
+        }
+        .rental-intro h2 { font-size: clamp(1.55rem, 3vw, 2.2rem); }
+        .rental-guide {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1px;
+            overflow: hidden;
+            margin: 0 auto 5rem;
+            background: #d9e7f5;
+            border: 1px solid #d9e7f5;
+            border-radius: 22px;
+            box-shadow: 0 15px 35px rgba(16, 50, 85, 0.07);
+        }
+        .rental-guide-card {
+            min-height: 180px;
+            padding: 2rem 1.8rem;
+            background: #fff;
+            position: relative;
+        }
+        .rental-guide-card:nth-child(2) { background: #f6faff; }
+        .rental-guide-icon {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            margin-bottom: 1rem;
+            border-radius: 12px;
+            background: #e8f3ff;
+            color: var(--primary-blue);
+            font-size: 1.05rem;
+        }
+        .rental-guide-card h3 { font-size: 1rem; font-weight: 900; margin-bottom: .45rem; }
+        .rental-guide-card p { color: #627386; font-size: .86rem; line-height: 1.7; margin: 0; }
+        .plan-section-heading { margin-bottom: 2.3rem; }
+        .plan-section-heading .section-title { margin-bottom: 1.2rem; }
+        .plan-card {
+            border: 1px solid #d9e6f2 !important;
+            border-radius: 18px;
+            box-shadow: 0 12px 30px rgba(15, 47, 79, 0.08);
+        }
+        .plan-card:hover { box-shadow: 0 22px 45px rgba(15, 72, 127, 0.17); }
+        .plan-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #0a72dc, #63b5ff);
+            z-index: 3;
+        }
+        .plan-card.is-featured { border-color: #1988f7 !important; box-shadow: 0 16px 38px rgba(0, 123, 255, 0.16); }
+        .plan-card.is-featured::before { height: 5px; background: linear-gradient(90deg, #006bd6, #73c4ff); }
+        .plan-img-wrapper { height: 205px; }
+        .plan-img-wrapper::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, transparent 48%, rgba(5, 24, 44, 0.2));
+            pointer-events: none;
+        }
+        .plan-header { background: linear-gradient(135deg, #102c49, #155d9f) !important; padding: 17px 20px 18px; }
+        .plan-card.is-featured .plan-header { background: linear-gradient(135deg, #0878de, #0066c9) !important; }
+        .plan-header h5 { font-size: 1.08rem; letter-spacing: .01em; }
+        .plan-header p { color: rgba(255, 255, 255, .75); }
+        .plan-body { padding: 24px 25px 27px; }
+        .price-tag { font-size: 1.48rem; letter-spacing: -.02em; }
+        .plan-card .price-tag { color: #112c47 !important; }
+        .plan-card.is-featured .price-tag { color: var(--primary-blue) !important; }
+        .plan-list { color: #445568; font-size: .9rem; }
+        .plan-list li { margin-bottom: 10px; }
+        .plan-list i { color: var(--primary-blue) !important; }
+        .gakuwari-stamp {
+            border-color: var(--primary-blue);
+            color: var(--primary-blue);
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.92), 0 7px 16px rgba(0, 80, 160, 0.14);
+        }
+        .recommend-badge { color: var(--primary-blue); font-size: .7rem; letter-spacing: .04em; }
         
         @media (max-width: 991px) {
             .mic-tag { flex: 1 1 calc(50% - 20px); }
@@ -248,6 +356,10 @@
             .mic-tag { flex: 1 1 100%; }
             .advisor-content { padding: 30px; }
             .advisor-outer-wrap::before, .advisor-outer-wrap::after { display: none; }
+            .rental-intro { padding: 2.2rem 1.35rem; border-radius: 20px; }
+            .rental-guide { grid-template-columns: 1fr; margin-bottom: 3.5rem; }
+            .rental-guide-card { min-height: auto; padding: 1.5rem; }
+            .plan-img-wrapper { height: 190px; }
         }
     </style>
 </head>
@@ -289,14 +401,33 @@
 </header>
 
 <main class="container my-5 py-5">
-    <section class="text-center mx-auto mb-5" style="max-width: 900px;">
-        <p class="text-primary fw-bold small mb-2" style="letter-spacing: .12em;">SOUND RENTAL IN HIROSHIMA</p>
+    <section class="rental-intro text-center">
+        <p class="rental-kicker mb-2">SOUND RENTAL IN HIROSHIMA</p>
         <h2 class="fw-bold mb-3">広島の音響レンタル・PA機材レンタルならARA-TECH</h2>
         <p class="lead mb-3">スピーカー、マイク、ミキサーなどのPA機材レンタルはもちろん、運搬・設営・撤収、PAオペレーターの手配まで一括で対応します。イベントの規模や会場に合わせて、必要な機材構成をご提案します。</p>
         <p class="text-muted mb-0">企業イベント・式典・ライブ・学園祭・地域のお祭り・屋外イベントなど、広島県内を中心に幅広くご相談いただけます。</p>
     </section>
-    
-    <div class="text-center mb-5">
+
+    <section class="rental-guide" aria-label="PAレンタルの対応内容">
+        <article class="rental-guide-card">
+            <div class="rental-guide-icon"><i class="fas fa-volume-up"></i></div>
+            <h3>機材レンタル</h3>
+            <p>必要なスピーカー・マイク・ミキサーを、会場と用途に合わせてご提案します。</p>
+        </article>
+        <article class="rental-guide-card">
+            <div class="rental-guide-icon"><i class="fas fa-truck-loading"></i></div>
+            <h3>運搬・設営・撤収</h3>
+            <p>搬入からセッティング、終演後の撤収まで、現場の流れに合わせて対応します。</p>
+        </article>
+        <article class="rental-guide-card">
+            <div class="rental-guide-icon"><i class="fas fa-sliders-h"></i></div>
+            <h3>PAオペレーター派遣</h3>
+            <p>ライブや式典など、当日の進行に必要な音響オペレートもお任せいただけます。</p>
+        </article>
+    </section>
+
+    <div class="text-center plan-section-heading">
+        <p class="plan-kicker mb-2">CHOOSE YOUR PLAN</p>
         <h2 class="section-title">PA機材レンタルの料金・プラン</h2>
         <p class="lead">必要な機材だけのレンタルから、設営・オペレート込みのプランまで対応します。</p>
     </div>
@@ -321,7 +452,7 @@
     </div>
 
     <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid var(--primary-blue);">
+        <div class="plan-card is-featured" style="border: 2px solid var(--primary-blue);">
             <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="Standard LIVE"></div>
             <div class="plan-header bg-standard">
                 <h5 class="mb-0 fw-bold">Standard LIVE</h5>
