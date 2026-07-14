@@ -1,0 +1,206 @@
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
+
+const $ = (selector) => document.querySelector(selector);
+const configMessage = $('#config-message');
+const loginPanel = $('#login-panel');
+const dashboard = $('#dashboard');
+const loginForm = $('#login-form');
+const loginStatus = $('#login-status');
+const postForm = $('#post-form');
+const postStatus = $('#post-status');
+const postList = $('#admin-posts');
+const flyerInput = $('#post-flyer');
+const flyerPreview = $('#flyer-preview');
+const cancelEdit = $('#cancel-edit');
+const formTitle = $('#form-title');
+const saveButton = $('#save-post');
+
+let supabase;
+let posts = [];
+let editingPost = null;
+
+const setMessage = (element, message, type = 'info') => {
+    element.textContent = message;
+    element.className = `alert alert--${type}`;
+};
+
+const clearMessage = (element) => {
+    element.textContent = '';
+    element.className = 'alert hidden';
+};
+
+const formatDate = (date) => date ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00`)) : '開催日未設定';
+
+const fileUrl = (path) => supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl;
+
+const isAdmin = async (user) => {
+    const { data, error } = await supabase.from('work_admins').select('user_id').eq('user_id', user.id).maybeSingle();
+    return Boolean(data && !error);
+};
+
+const resetPostForm = () => {
+    editingPost = null;
+    postForm.reset();
+    $('#post-category').value = 'WORKS';
+    $('#post-published').checked = true;
+    flyerPreview.removeAttribute('src');
+    flyerPreview.classList.add('hidden');
+    formTitle.textContent = '新しい実績を追加';
+    saveButton.textContent = '公開して保存';
+    cancelEdit.classList.add('hidden');
+    clearMessage(postStatus);
+};
+
+const setPreview = (source) => {
+    if (!source) { flyerPreview.removeAttribute('src'); flyerPreview.classList.add('hidden'); return; }
+    flyerPreview.src = source;
+    flyerPreview.classList.remove('hidden');
+};
+
+const uploadFlyer = async (file) => {
+    if (!file) return null;
+    if (file.size > 10 * 1024 * 1024) throw new Error('画像は10MB以下にしてください。');
+    const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const safeExtension = ['png', 'jpg', 'jpeg', 'webp'].includes(extension) ? extension : 'jpg';
+    const filename = `${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
+    const path = `flyers/${filename}`;
+    const { error } = await supabase.storage.from(WORKS_BUCKET).upload(path, file, { cacheControl: '31536000', upsert: false });
+    if (error) throw error;
+    return path;
+};
+
+const renderPosts = () => {
+    postList.replaceChildren();
+    if (!posts.length) { postList.textContent = 'まだ登録された実績はありません。'; return; }
+    posts.forEach((post) => {
+        const row = document.createElement('article');
+        row.className = 'post-row';
+        const image = document.createElement('img');
+        image.src = fileUrl(post.flyer_path);
+        image.alt = post.flyer_alt || `${post.title}のフライヤー`;
+        const body = document.createElement('div');
+        const title = document.createElement('h3');
+        title.textContent = post.title;
+        const status = document.createElement('span');
+        status.className = `status ${post.is_published ? 'status--published' : 'status--draft'}`;
+        status.textContent = post.is_published ? '公開中' : '下書き';
+        title.append(status);
+        const meta = document.createElement('p');
+        meta.className = 'post-meta';
+        meta.textContent = [post.category, formatDate(post.event_date), post.venue].filter(Boolean).join(' ｜ ');
+        body.append(title, meta);
+        const actions = document.createElement('div');
+        actions.className = 'post-actions';
+        const edit = document.createElement('button');
+        edit.className = 'button button--secondary'; edit.type = 'button'; edit.textContent = '編集';
+        edit.addEventListener('click', () => beginEdit(post.id));
+        const remove = document.createElement('button');
+        remove.className = 'button button--danger'; remove.type = 'button'; remove.textContent = '削除';
+        remove.addEventListener('click', () => deletePost(post.id));
+        actions.append(edit, remove);
+        row.append(image, body, actions);
+        postList.append(row);
+    });
+};
+
+const loadPosts = async () => {
+    const { data, error } = await supabase.from('work_posts').select('*').order('event_date', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
+    if (error) { setMessage(postStatus, '投稿一覧を読み込めませんでした。設定を確認してください。', 'error'); return; }
+    posts = data || [];
+    renderPosts();
+};
+
+const beginEdit = (id) => {
+    editingPost = posts.find((post) => post.id === id);
+    if (!editingPost) return;
+    $('#post-title').value = editingPost.title;
+    $('#post-date').value = editingPost.event_date || '';
+    $('#post-category').value = editingPost.category || 'WORKS';
+    $('#post-venue').value = editingPost.venue || '';
+    $('#post-description').value = editingPost.description || '';
+    $('#post-published').checked = editingPost.is_published;
+    setPreview(fileUrl(editingPost.flyer_path));
+    formTitle.textContent = '実績を編集';
+    saveButton.textContent = '変更を保存';
+    cancelEdit.classList.remove('hidden');
+    postForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+const deletePost = async (id) => {
+    const post = posts.find((item) => item.id === id);
+    if (!post || !window.confirm(`「${post.title}」を削除しますか？`)) return;
+    const { error } = await supabase.from('work_posts').delete().eq('id', id);
+    if (error) { setMessage(postStatus, '削除できませんでした。', 'error'); return; }
+    await supabase.storage.from(WORKS_BUCKET).remove([post.flyer_path]);
+    if (editingPost?.id === id) resetPostForm();
+    await loadPosts();
+};
+
+const showDashboard = async (user) => {
+    loginPanel.classList.add('hidden');
+    dashboard.classList.remove('hidden');
+    $('#session-email').textContent = user.email || '';
+    await loadPosts();
+};
+
+const restoreSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    if (await isAdmin(session.user)) await showDashboard(session.user);
+    else await supabase.auth.signOut();
+};
+
+if (!isSupabaseConfigured) {
+    configMessage.classList.remove('hidden');
+    configMessage.className = 'card alert alert--info';
+    configMessage.textContent = '管理画面を有効にする準備中です。Supabaseの接続情報を設定するとログイン・投稿が利用できます。';
+    loginPanel.classList.add('hidden');
+} else {
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    restoreSession();
+
+    loginForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearMessage(loginStatus);
+        const submit = loginForm.querySelector('button[type="submit"]');
+        submit.disabled = true;
+        const { data, error } = await supabase.auth.signInWithPassword({ email: $('#login-email').value.trim(), password: $('#login-password').value });
+        submit.disabled = false;
+        if (error || !data.user) { setMessage(loginStatus, 'メールアドレスまたはパスワードを確認してください。', 'error'); return; }
+        if (!await isAdmin(data.user)) { await supabase.auth.signOut(); setMessage(loginStatus, 'このアカウントには管理権限がありません。', 'error'); return; }
+        await showDashboard(data.user);
+    });
+
+    flyerInput.addEventListener('change', () => {
+        const file = flyerInput.files?.[0];
+        setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
+    });
+
+    postForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearMessage(postStatus);
+        const file = flyerInput.files?.[0];
+        if (!editingPost && !file) { setMessage(postStatus, 'フライヤー画像を選択してください。', 'error'); return; }
+        saveButton.disabled = true;
+        try {
+            const flyerPath = file ? await uploadFlyer(file) : editingPost.flyer_path;
+            const payload = {
+                title: $('#post-title').value.trim(), event_date: $('#post-date').value || null, category: $('#post-category').value,
+                venue: $('#post-venue').value.trim() || null, description: $('#post-description').value.trim(), flyer_path: flyerPath,
+                flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: $('#post-published').checked
+            };
+            const result = editingPost ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id) : await supabase.from('work_posts').insert(payload);
+            if (result.error) throw result.error;
+            if (file && editingPost?.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([editingPost.flyer_path]);
+            resetPostForm();
+            await loadPosts();
+            setMessage(postStatus, '保存しました。公開にした投稿はWORKSページへ表示されます。');
+        } catch (error) {
+            setMessage(postStatus, error.message || '保存できませんでした。', 'error');
+        } finally { saveButton.disabled = false; }
+    });
+
+    cancelEdit.addEventListener('click', resetPostForm);
+    $('#sign-out').addEventListener('click', async () => { await supabase.auth.signOut(); location.reload(); });
+}

@@ -107,9 +107,10 @@
         <section aria-labelledby="latest-title" class="mb-5">
             <p class="eyebrow text-primary mb-2">LATEST WORKS</p>
             <h2 id="latest-title" class="section-heading mb-4">最新の現場</h2>
-            <div class="notice">
+            <div id="latest-works" class="works-grid" aria-live="polite"></div>
+            <div id="latest-empty" class="notice">
                 <strong>新しい実績を順次掲載します。</strong>
-                イベントフライヤーをいただければ、開催日・会場・担当内容とともに、このページへ追加します。
+                管理画面からフライヤーと紹介文を登録すると、ここに最新の現場として掲載されます。
             </div>
         </section>
 
@@ -127,5 +128,6 @@
 
     <footer class="py-4 border-top text-center"><small>&copy; 2025 ARA-TECH. All Rights Reserved.</small></footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="js/works.js"></script>
 </body>
 </html>

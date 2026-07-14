@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#007bff">
+    <title>WORKS 管理 | ARA-TECH</title>
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --blue: #007bff; --ink: #18212b; --muted: #5e6d7c; --surface: #f3f7fb; --line: #d8e3ee; }
+        * { box-sizing: border-box; }
+        body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.6; margin: 0; }
+        button, input, select, textarea { font: inherit; }
+        button { cursor: pointer; }
+        button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+        .admin-header { align-items: center; background: var(--blue); color: white; display: flex; justify-content: space-between; min-height: 68px; padding: 12px clamp(20px, 5vw, 72px); }
+        .brand { align-items: center; display: flex; gap: 16px; text-decoration: none; color: white; }
+        .brand img { height: 36px; width: auto; }
+        .brand span { border-left: 1px solid rgba(255,255,255,.45); font-size: .8rem; font-weight: 900; letter-spacing: .12em; padding-left: 16px; }
+        .back-link { color: white; font-size: .88rem; font-weight: 700; }
+        main { margin: 0 auto; max-width: 1180px; padding: 48px 24px 80px; }
+        .eyebrow { color: var(--blue); font-size: .78rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 4px; }
+        h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.2; margin: 0 0 10px; }
+        .intro { color: var(--muted); margin: 0; }
+        .card { background: white; border-radius: 18px; box-shadow: 0 12px 34px rgba(31, 66, 97, .09); margin-top: 32px; padding: clamp(24px, 4vw, 40px); }
+        .hidden { display: none !important; }
+        .alert { border-radius: 12px; font-size: .92rem; margin: 20px 0 0; padding: 14px 16px; }
+        .alert--info { background: #eaf4ff; color: #14456e; }
+        .alert--error { background: #fff0f1; color: #a12431; }
+        .login-card { margin: 48px auto 0; max-width: 520px; }
+        .form-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .form-field { display: grid; gap: 7px; }
+        .form-field--full { grid-column: 1 / -1; }
+        label { font-size: .9rem; font-weight: 900; }
+        .help { color: var(--muted); font-size: .78rem; font-weight: 400; }
+        input, select, textarea { background: white; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 11px 12px; width: 100%; }
+        textarea { min-height: 150px; resize: vertical; }
+        input[type="file"] { background: #f8fbfe; padding: 10px; }
+        .checkbox { align-items: center; display: flex; gap: 10px; font-weight: 700; }
+        .checkbox input { accent-color: var(--blue); height: 18px; width: 18px; }
+        .actions { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+        .button { background: var(--blue); border: 2px solid var(--blue); border-radius: 9px; color: white; font-weight: 900; padding: 12px 18px; }
+        .button:hover { background: #0067d5; border-color: #0067d5; }
+        .button--secondary { background: white; color: var(--blue); }
+        .button--danger { background: white; border-color: #d33b4b; color: #b52636; }
+        .button[disabled] { cursor: wait; opacity: .65; }
+        .dashboard-head { align-items: end; display: flex; justify-content: space-between; gap: 20px; }
+        .session-email { color: var(--muted); font-size: .86rem; margin: 0; }
+        .preview { border-radius: 12px; display: block; margin-top: 12px; max-height: 260px; object-fit: contain; object-position: left; width: auto; }
+        .posts { display: grid; gap: 14px; margin-top: 20px; }
+        .post-row { align-items: center; background: #f8fbfe; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 16px; grid-template-columns: 72px 1fr auto; padding: 12px; }
+        .post-row img { border-radius: 8px; height: 72px; object-fit: cover; width: 72px; }
+        .post-row h3 { font-size: 1rem; margin: 0; }
+        .post-meta { color: var(--muted); font-size: .8rem; margin: 4px 0 0; }
+        .status { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; margin-left: 8px; padding: 3px 8px; }
+        .status--published { background: #dff8ea; color: #13733c; }
+        .status--draft { background: #fff2cc; color: #855800; }
+        .post-actions { display: flex; gap: 8px; }
+        .post-actions .button { font-size: .8rem; padding: 8px 10px; }
+        @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } }
+    </style>
+</head>
+<body>
+    <header class="admin-header">
+        <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>WORKS ADMIN</span></a>
+        <a class="back-link" href="works.html">公開ページを見る</a>
+    </header>
+
+    <main>
+        <p class="eyebrow">PRIVATE ADMINISTRATION</p>
+        <h1>実績を管理する</h1>
+        <p class="intro">フライヤーと現場情報を登録すると、公開済みの投稿がWORKSページの「最新の現場」に表示されます。</p>
+
+        <section id="config-message" class="card hidden" aria-live="polite"></section>
+
+        <section id="login-panel" class="card login-card">
+            <h2>ログイン</h2>
+            <p class="intro">登録済みの管理者アカウントでログインしてください。</p>
+            <form id="login-form" class="form-grid" novalidate>
+                <div class="form-field form-field--full"><label for="login-email">メールアドレス</label><input id="login-email" type="email" autocomplete="email" required></div>
+                <div class="form-field form-field--full"><label for="login-password">パスワード</label><input id="login-password" type="password" autocomplete="current-password" required></div>
+                <div class="form-field form-field--full"><button class="button" type="submit">ログインする</button></div>
+            </form>
+            <p id="login-status" class="alert hidden" aria-live="polite"></p>
+        </section>
+
+        <section id="dashboard" class="hidden">
+            <div class="card">
+                <div class="dashboard-head">
+                    <div><p class="eyebrow">WORKS POST</p><h2 id="form-title">新しい実績を追加</h2></div>
+                    <div><p id="session-email" class="session-email"></p><button id="sign-out" class="button button--secondary" type="button">ログアウト</button></div>
+                </div>
+                <form id="post-form" novalidate>
+                    <div class="form-grid">
+                        <div class="form-field form-field--full"><label for="post-title">イベント名 <span class="help">必須</span></label><input id="post-title" type="text" maxlength="120" placeholder="例：SUMMER SOUND FES 2026" required></div>
+                        <div class="form-field"><label for="post-date">開催日</label><input id="post-date" type="date"></div>
+                        <div class="form-field"><label for="post-category">カテゴリ</label><select id="post-category"><option value="WORKS">WORKS</option><option value="PA RENTAL">PA RENTAL</option><option value="STAGE PRODUCTION">STAGE PRODUCTION</option><option value="TOUR PA">TOUR PA</option><option value="INSTALLATION">INSTALLATION</option></select></div>
+                        <div class="form-field form-field--full"><label for="post-venue">会場</label><input id="post-venue" type="text" maxlength="120" placeholder="例：広島市〇〇公園"></div>
+                        <div class="form-field form-field--full"><label for="post-description">紹介文 <span class="help">必須</span></label><textarea id="post-description" maxlength="1000" placeholder="担当した内容や、現場の見どころをご紹介ください。" required></textarea></div>
+                        <div class="form-field form-field--full"><label for="post-flyer">フライヤー画像 <span class="help">新規投稿では必須・PNG/JPG/WebP・10MBまで</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択したフライヤーのプレビュー"></div>
+                        <div class="form-field form-field--full"><label class="checkbox" for="post-published"><input id="post-published" type="checkbox" checked>今すぐ公開する</label></div>
+                    </div>
+                    <div class="actions"><button id="save-post" class="button" type="submit">公開して保存</button><button id="cancel-edit" class="button button--secondary hidden" type="button">編集をやめる</button><p id="post-status" class="alert hidden" aria-live="polite"></p></div>
+                </form>
+            </div>
+
+            <section class="card">
+                <p class="eyebrow">SAVED POSTS</p>
+                <h2>登録済みの実績</h2>
+                <div id="admin-posts" class="posts" aria-live="polite"></div>
+            </section>
+        </section>
+    </main>
+    <script type="module" src="js/admin.js"></script>
+</body>
+</html>
