@@ -5,10 +5,11 @@ const root = document.querySelector('#work-detail');
 const postId = Number(new URLSearchParams(window.location.search).get('id'));
 
 const roleDetails = {
-    artist_pa_operation: { label: 'ARTIST PA OPERATION', description: 'アーティストPA・音響オペレート' },
-    local_technical_support: { label: 'LOCAL TECHNICAL SUPPORT', description: '乗り込みPA対応・現場技術サポート' }
+    artist_pa_operation: { label: 'ARTIST PA OPERATION', description: 'アーティストPA・音響オペレート', artistLabel: 'オペレート担当' },
+    local_technical_support: { label: 'LOCAL TECHNICAL SUPPORT', description: '乗り込みPA対応・現場技術サポート', artistLabel: '乗り込みPA対応' }
 };
 
+const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
 const formatDate = (date) => date ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(`${date}T00:00:00`)) : '';
 
 const showMessage = (message) => {
@@ -25,6 +26,25 @@ const appendMeta = (list, label, value) => {
     definition.textContent = value;
     row.append(term, definition);
     list.append(row);
+};
+
+const appendRoleAssignment = (container, roleType, artists) => {
+    const detail = roleDetails[roleType];
+    if (!detail) return;
+    const assignment = document.createElement('section');
+    assignment.className = `role-assignment role-assignment--${roleType === 'artist_pa_operation' ? 'operation' : 'support'}`;
+    const heading = document.createElement('h2');
+    heading.textContent = detail.label;
+    const description = document.createElement('p');
+    description.textContent = detail.description;
+    assignment.append(heading, description);
+    if (artists) {
+        const names = document.createElement('p');
+        names.className = 'assignment-artists';
+        names.textContent = `${detail.artistLabel}：${artists}`;
+        assignment.append(names);
+    }
+    container.append(assignment);
 };
 
 const renderDetail = (supabase, post) => {
@@ -51,13 +71,15 @@ const renderDetail = (supabase, post) => {
     tag.textContent = post.category || 'WORKS';
     body.append(eyebrow, tag);
 
-    const role = roleDetails[post.role_type];
-    if (role) {
+    const roleTypes = getRoleTypes(post);
+    roleTypes.forEach((roleType) => {
+        const role = roleDetails[roleType];
+        if (!role) return;
         const roleTag = document.createElement('span');
-        roleTag.className = `detail-role detail-role--${post.role_type === 'artist_pa_operation' ? 'operation' : 'support'}`;
+        roleTag.className = `detail-role detail-role--${roleType === 'artist_pa_operation' ? 'operation' : 'support'}`;
         roleTag.textContent = role.label;
         body.append(roleTag);
-    }
+    });
 
     const title = document.createElement('h1');
     title.className = 'detail-title';
@@ -66,25 +88,25 @@ const renderDetail = (supabase, post) => {
     title.textContent = post.title;
     body.append(title);
 
-    if (post.artists) {
+    const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
+    const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
+    if (roleTypes.length) {
+        const assignments = document.createElement('div');
+        assignments.className = 'role-assignments';
+        roleTypes.forEach((roleType) => appendRoleAssignment(assignments, roleType, roleType === 'artist_pa_operation' ? operationArtists : supportArtists));
+        body.append(assignments);
+    } else if (post.artists) {
         const artists = document.createElement('p');
         artists.className = 'artist';
         artists.textContent = `担当アーティスト：${post.artists}`;
         body.append(artists);
     }
 
-    if (role) {
-        const roleDescription = document.createElement('p');
-        roleDescription.className = 'role-description';
-        roleDescription.textContent = role.description;
-        body.append(roleDescription);
-    }
-
     const meta = document.createElement('dl');
     meta.className = 'detail-meta';
     appendMeta(meta, '開催日', formatDate(post.event_date));
     appendMeta(meta, '会場', post.venue);
-    body.append(meta);
+    if (meta.children.length) body.append(meta);
 
     if (post.description) {
         const description = document.createElement('section');
@@ -108,11 +130,10 @@ const loadDetail = async () => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
     });
-    const { data, error } = await supabase
-        .from('work_posts')
-        .select('id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt')
-        .eq('id', postId)
-        .maybeSingle();
+    const newFields = 'id, title, category, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
+    const legacyFields = 'id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt';
+    let { data, error } = await supabase.from('work_posts').select(newFields).eq('id', postId).maybeSingle();
+    if (error) ({ data, error } = await supabase.from('work_posts').select(legacyFields).eq('id', postId).maybeSingle());
     if (error || !data) { showMessage('この実績は公開されていないか、見つかりませんでした。'); return; }
     renderDetail(supabase, data);
 };

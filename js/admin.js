@@ -17,8 +17,15 @@ const formTitle = $('#form-title');
 const saveButton = $('#save-post');
 const templateSelect = $('#post-template');
 const titleHistory = $('#title-history');
-const artistsHistory = $('#artists-history');
+const operationArtistsHistory = $('#operation-artists-history');
+const supportArtistsHistory = $('#support-artists-history');
 const venueHistory = $('#venue-history');
+const operationRoleInput = $('#post-role-operation');
+const supportRoleInput = $('#post-role-support');
+const operationArtistsField = $('#operation-artists-field');
+const supportArtistsField = $('#support-artists-field');
+const operationArtistsInput = $('#post-operation-artists');
+const supportArtistsInput = $('#post-support-artists');
 const publicationMode = $('#post-publication-mode');
 const publishAtField = $('#publish-at-field');
 const publishAtInput = $('#post-publish-at');
@@ -30,6 +37,24 @@ let editingPost = null;
 const roleLabels = {
     artist_pa_operation: 'ARTIST PA OPERATION ｜ アーティストPA・音響オペレート',
     local_technical_support: 'LOCAL TECHNICAL SUPPORT ｜ 乗り込みPA対応・現場技術サポート'
+};
+
+const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
+
+const updateRoleFields = () => {
+    operationArtistsField.classList.toggle('hidden', !operationRoleInput.checked);
+    supportArtistsField.classList.toggle('hidden', !supportRoleInput.checked);
+    operationArtistsInput.disabled = !operationRoleInput.checked;
+    supportArtistsInput.disabled = !supportRoleInput.checked;
+};
+
+const loadRoleAssignment = (post) => {
+    const roleTypes = getRoleTypes(post);
+    operationRoleInput.checked = roleTypes.includes('artist_pa_operation');
+    supportRoleInput.checked = roleTypes.includes('local_technical_support');
+    operationArtistsInput.value = post.operation_artists || (operationRoleInput.checked ? post.artists || '' : '');
+    supportArtistsInput.value = post.support_artists || (supportRoleInput.checked ? post.artists || '' : '');
+    updateRoleFields();
 };
 
 const setMessage = (element, message, type = 'info') => {
@@ -84,7 +109,9 @@ const resetPostForm = () => {
     editingPost = null;
     postForm.reset();
     $('#post-category').value = 'WORKS';
-    $('#post-role').value = '';
+    operationRoleInput.checked = false;
+    supportRoleInput.checked = false;
+    updateRoleFields();
     publicationMode.value = 'draft';
     templateSelect.value = '';
     updatePublicationControls();
@@ -125,7 +152,8 @@ const addHistoryOptions = (datalist, values) => {
 
 const populateHistories = () => {
     addHistoryOptions(titleHistory, posts.map((post) => post.title));
-    addHistoryOptions(artistsHistory, posts.map((post) => post.artists));
+    addHistoryOptions(operationArtistsHistory, posts.map((post) => post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null)));
+    addHistoryOptions(supportArtistsHistory, posts.map((post) => post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null)));
     addHistoryOptions(venueHistory, posts.map((post) => post.venue));
     templateSelect.replaceChildren();
     const initial = document.createElement('option');
@@ -135,7 +163,7 @@ const populateHistories = () => {
     posts.forEach((post) => {
         const option = document.createElement('option');
         option.value = post.id;
-        const details = [post.artists ? `担当：${post.artists}` : '', post.event_date ? formatDate(post.event_date) : ''].filter(Boolean).join(' ｜ ');
+        const details = [post.operation_artists || post.support_artists || post.artists ? '担当情報あり' : '', post.event_date ? formatDate(post.event_date) : ''].filter(Boolean).join(' ｜ ');
         option.textContent = details ? `${post.title}（${details}）` : post.title;
         templateSelect.append(option);
     });
@@ -149,8 +177,7 @@ const copyFromPost = (id) => {
     $('#post-title').value = source.title || '';
     $('#post-date').value = source.event_date || '';
     $('#post-category').value = source.category || 'WORKS';
-    $('#post-role').value = source.role_type || '';
-    $('#post-artists').value = source.artists || '';
+    loadRoleAssignment(source);
     $('#post-venue').value = source.venue || '';
     $('#post-description').value = source.description || '';
     publicationMode.value = 'draft';
@@ -188,13 +215,28 @@ const renderPosts = () => {
         if (publication.className === 'scheduled') metaItems.push(`公開予定：${formatDateTime(post.publish_at)}`);
         meta.textContent = metaItems.join(' ｜ ');
         body.append(title);
-        if (roleLabels[post.role_type]) {
+        getRoleTypes(post).forEach((roleType) => {
+            if (!roleLabels[roleType]) return;
             const role = document.createElement('p');
             role.className = 'post-role';
-            role.textContent = roleLabels[post.role_type];
+            role.textContent = roleLabels[roleType];
             body.append(role);
+        });
+        const operationArtists = post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null);
+        const supportArtists = post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null);
+        if (operationArtists) {
+            const artists = document.createElement('p');
+            artists.className = 'post-artists';
+            artists.textContent = `OPERATION：${operationArtists}`;
+            body.append(artists);
         }
-        if (post.artists) {
+        if (supportArtists) {
+            const artists = document.createElement('p');
+            artists.className = 'post-artists';
+            artists.textContent = `SUPPORT：${supportArtists}`;
+            body.append(artists);
+        }
+        if (!operationArtists && !supportArtists && post.artists) {
             const artists = document.createElement('p');
             artists.className = 'post-artists';
             artists.textContent = `担当アーティスト：${post.artists}`;
@@ -229,8 +271,7 @@ const beginEdit = (id) => {
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
     $('#post-category').value = editingPost.category || 'WORKS';
-    $('#post-role').value = editingPost.role_type || '';
-    $('#post-artists').value = editingPost.artists || '';
+    loadRoleAssignment(editingPost);
     $('#post-venue').value = editingPost.venue || '';
     $('#post-description').value = editingPost.description || '';
     publicationMode.value = !editingPost.is_published ? 'draft' : (editingPost.publish_at && new Date(editingPost.publish_at).getTime() > Date.now() ? 'scheduled' : 'now');
@@ -275,6 +316,7 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    updateRoleFields();
     restoreSession();
 
     loginForm.addEventListener('submit', async (event) => {
@@ -295,6 +337,8 @@ if (!isSupabaseConfigured) {
     });
 
     templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
+    operationRoleInput.addEventListener('change', updateRoleFields);
+    supportRoleInput.addEventListener('change', updateRoleFields);
     publicationMode.addEventListener('change', updatePublicationControls);
     publishAtInput.addEventListener('input', updateSaveButton);
 
@@ -315,10 +359,14 @@ if (!isSupabaseConfigured) {
         try {
             const flyerPath = file ? await uploadFlyer(file) : editingPost.flyer_path;
             const isPublished = publicationMode.value !== 'draft';
+            const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
+            const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
+            const supportArtists = supportRoleInput.checked ? supportArtistsInput.value.trim() || null : null;
             const payload = {
                 title: $('#post-title').value.trim(), event_date: $('#post-date').value || null, category: $('#post-category').value,
-                role_type: $('#post-role').value || null,
-                artists: $('#post-artists').value.trim() || null, venue: $('#post-venue').value.trim() || null,
+                role_type: roleTypes.length === 1 ? roleTypes[0] : null, role_types: roleTypes,
+                operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
+                venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
                 flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: isPublished,
                 publish_at: publicationMode.value === 'scheduled' ? toIsoDateTime(publishAtInput.value) : null
