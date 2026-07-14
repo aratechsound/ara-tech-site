@@ -43,7 +43,11 @@ if (grid && emptyState && isSupabaseConfigured) {
 
         const meta = document.createElement('p');
         meta.className = 'work-card__meta';
-        meta.textContent = [formatDate(post.event_date), post.venue].filter(Boolean).join(' ｜ ');
+        meta.textContent = formatDate(post.event_date);
+
+        const venue = document.createElement('p');
+        venue.className = 'work-card__venue';
+        venue.textContent = post.venue;
 
         const artists = document.createElement('p');
         artists.className = 'work-card__artist';
@@ -66,6 +70,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         }
         body.append(title);
         if (meta.textContent) body.append(meta);
+        if (post.venue) body.append(venue);
         if (post.artists) body.append(artists);
         if (post.description) body.append(description);
         body.append(link);
