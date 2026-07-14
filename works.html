@@ -36,6 +36,12 @@
         .page-hero p { max-width: 620px; font-size: 1.05rem; }
         .section-heading { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 900; letter-spacing: .04em; }
         .section-heading::after { background: var(--primary); content: ''; display: block; height: 4px; margin-top: 16px; width: 52px; }
+        .works-section-header { align-items: end; display: flex; gap: 24px; justify-content: space-between; margin-bottom: 1.5rem; }
+        .works-section-header .section-heading { margin-bottom: 0; }
+        .year-tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: end; padding-bottom: 4px; }
+        .year-tab { background: transparent; border: 1px solid #b8cbe0; border-radius: 999px; color: #42617d; font-size: .83rem; font-weight: 900; letter-spacing: .05em; min-width: 62px; padding: 8px 13px; transition: background .2s ease, border-color .2s ease, color .2s ease; }
+        .year-tab:hover { border-color: var(--primary); color: var(--primary); }
+        .year-tab[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: white; }
         .works-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
         #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
         .work-card { background: white; border: 0; border-radius: 18px; box-shadow: 0 12px 30px rgba(17, 54, 88, .1); height: 100%; overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
@@ -66,7 +72,7 @@
         footer { background: white; color: #65717c; }
         @media (max-width: 1199px) { #latest-works { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
         @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } #latest-works { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-        @media (max-width: 767px) { #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 767px) { .works-section-header { align-items: start; flex-direction: column; gap: 16px; } .year-tabs { justify-content: start; } #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 459px) { #latest-works { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -106,8 +112,13 @@
 
     <main class="container py-5 py-lg-6">
         <section aria-labelledby="latest-title" class="mb-5">
-            <p class="eyebrow text-primary mb-2">LATEST WORKS</p>
-            <h2 id="latest-title" class="section-heading mb-4">最新の現場</h2>
+            <div class="works-section-header">
+                <div>
+                    <p class="eyebrow text-primary mb-2">LATEST WORKS</p>
+                    <h2 id="latest-title" class="section-heading">最新の現場</h2>
+                </div>
+                <div id="works-year-tabs" class="year-tabs" aria-label="表示する実績の年"></div>
+            </div>
             <div id="latest-works" class="works-grid" aria-live="polite"></div>
             <div id="latest-empty" class="notice">
                 <strong>新しい実績を順次掲載します。</strong>

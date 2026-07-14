@@ -3,6 +3,8 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } f
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
+const yearTabs = document.querySelector('#works-year-tabs');
+const latestTitle = document.querySelector('#latest-title');
 
 const roleLabels = {
     artist_pa_operation: 'ARTIST PA OPERATION',
@@ -100,14 +102,53 @@ if (grid && emptyState && isSupabaseConfigured) {
         .order('event_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
 
+    const getYear = (post) => post.event_date ? post.event_date.slice(0, 4) : null;
+
+    const renderWorks = (posts, selectedYear) => {
+        grid.replaceChildren();
+        const visiblePosts = selectedYear === 'undated' ? posts.filter((post) => !getYear(post)) : posts.filter((post) => getYear(post) === selectedYear);
+        if (!visiblePosts.length) {
+            emptyState.hidden = false;
+            emptyState.innerHTML = '<strong>この年の実績は準備中です。</strong>新しい実績を順次掲載します。';
+            return;
+        }
+        emptyState.hidden = true;
+        visiblePosts.forEach((post) => grid.append(createCard(post)));
+    };
+
+    const renderYearTabs = (posts) => {
+        const years = [...new Set(posts.map(getYear).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+        const hasUndatedPosts = posts.some((post) => !getYear(post));
+        const tabs = years.map((year) => ({ value: year, label: year }));
+        if (hasUndatedPosts) tabs.push({ value: 'undated', label: '日付未設定' });
+        if (!tabs.length) return;
+
+        let selectedYear = tabs[0].value;
+        const updateSelectedYear = (year) => {
+            selectedYear = year;
+            yearTabs.replaceChildren();
+            tabs.forEach((tab) => {
+                const button = document.createElement('button');
+                button.className = 'year-tab';
+                button.type = 'button';
+                button.textContent = tab.label;
+                button.setAttribute('aria-pressed', String(tab.value === selectedYear));
+                button.addEventListener('click', () => updateSelectedYear(tab.value));
+                yearTabs.append(button);
+            });
+            latestTitle.textContent = selectedYear === tabs[0].value ? '最新の現場' : selectedYear === 'undated' ? '開催日未設定の現場' : `${selectedYear}年の現場`;
+            renderWorks(posts, selectedYear);
+        };
+        updateSelectedYear(selectedYear);
+    };
+
     const loadWorks = async () => {
         const newFields = 'id, title, category, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
         const legacyFields = 'id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         if (error) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
-        emptyState.hidden = true;
-        data.forEach((post) => grid.append(createCard(post)));
+        renderYearTabs(data);
     };
 
     loadWorks();
