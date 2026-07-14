@@ -10,7 +10,10 @@ const roleLabels = {
 };
 
 if (grid && emptyState && isSupabaseConfigured) {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // 管理画面へログイン済みの同じブラウザでも、公開WORKSは常に匿名閲覧として扱う。
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
 
     const formatDate = (date) => {
         if (!date) return '';

@@ -104,7 +104,10 @@ const renderDetail = (supabase, post) => {
 const loadDetail = async () => {
     if (!Number.isSafeInteger(postId) || postId < 1) { showMessage('表示する実績が見つかりませんでした。'); return; }
     if (!isSupabaseConfigured) { showMessage('実績情報を読み込めませんでした。'); return; }
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // 公開詳細ページは、管理画面のログイン状態を引き継がず匿名閲覧に固定する。
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
     const { data, error } = await supabase
         .from('work_posts')
         .select('id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt')
