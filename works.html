@@ -14,6 +14,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="theme-color" content="#007bff">
     <link rel="icon" href="img/favicon.ico">
+    <link rel="preload" as="image" href="img/cta-bg.jpg" fetchpriority="high">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -33,6 +34,7 @@
         .wave-fill { fill: var(--surface); }
         .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; }
         .page-hero h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
+        .page-hero h1.page-title-ja { font-size: clamp(2rem, 5vw, 4rem); letter-spacing: .03em; line-height: 1.25; }
         .page-hero p { max-width: 620px; font-size: 1.05rem; }
         .section-heading { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 900; letter-spacing: .04em; }
         .section-heading::after { background: var(--primary); content: ''; display: block; height: 4px; margin-top: 16px; width: 52px; }
@@ -87,11 +89,11 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <div class="navbar-nav ms-auto text-center">
                     <a class="nav-link" href="./">HOME</a>
                     <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
@@ -108,7 +110,7 @@
     <header class="page-hero">
         <div class="container">
             <p class="eyebrow mb-2">FIELD REPORTS</p>
-            <h1>WORKS</h1>
+            <h1 class="page-title-ja"><span class="d-block">音響・照明・ステージ制作実績</span><span class="d-block fs-6 mt-2">WORKS</span></h1>
             <p class="mb-0">音響・照明・ステージ制作の現場を、イベントフライヤーとともにご紹介します。企画の規模やジャンルを問わず、心を動かす空間づくりを支えています。</p>
         </div>
         <div class="wave-container" aria-hidden="true">
@@ -125,12 +127,12 @@
                     <p class="eyebrow text-primary mb-2">LATEST WORKS</p>
                     <h2 id="latest-title" class="section-heading">最新の現場</h2>
                 </div>
-                <div id="works-year-tabs" class="year-tabs" aria-label="表示する実績の年"></div>
+                <div id="works-year-tabs" class="year-tabs" role="group" aria-label="表示する実績の年"></div>
             </div>
             <div id="latest-works" class="works-grid" aria-live="polite"></div>
             <div id="latest-empty" class="notice">
                 <strong>新しい実績を順次掲載します。</strong>
-                管理画面からフライヤーと現場情報を登録すると、ここに最新の現場として掲載されます。
+                ARA-TECHが担当した最新の音響・照明・ステージ制作事例を順次ご紹介します。
             </div>
         </section>
 
@@ -139,12 +141,12 @@
             <h2 id="featured-title" class="section-heading mb-4">ピックアップ実績</h2>
             <div class="works-grid">
                 <article class="work-card">
-                    <img src="img/mr-1.jpg" alt="MUSICAL RUSH 2017のメインステージ">
+                    <img src="img/mr-1.jpg" alt="MUSICAL RUSH 2017のメインステージ" width="1280" height="720" loading="lazy" decoding="async">
                     <div class="work-card__body">
                         <span class="work-card__tag">STAGE PRODUCTION</span>
                         <h3>MUSICAL RUSH</h3>
                         <p class="work-card__meta">2016–2017 ｜ 呉ポートピアパーク</p>
-                        <p class="mt-3">音響・照明・LEDビジョン・特殊効果・ステージ設営まで、会場全体の制作を担当しました。</p>
+                        <p class="mt-3">音響・照明・LEDビジョン・特殊効果・ステージ設営まで、会場全体の制作を担当しました。関連する<a href="stage-production.html">ステージ制作</a>と<a href="pa-rental.html">PAレンタル</a>もご覧いただけます。</p>
                     </div>
                 </article>
             </div>

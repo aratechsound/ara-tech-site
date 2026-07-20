@@ -15,6 +15,7 @@
     <meta property="og:type" content="article">
 
     <link rel="icon" href="img/favicon.ico">
+    <link rel="preload" as="image" href="img/INSTALLATION.webp" type="image/webp" fetchpriority="high">
 
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -33,13 +34,14 @@
         /* ページヘッダー */
         .page-header {
             position: relative;
-            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/INSTALLATION.jpg');
+            background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), image-set(url('img/INSTALLATION.webp') type('image/webp'), url('img/INSTALLATION.jpg') type('image/jpeg'));
             background-size: cover; background-position: center;
             align-items: center; color: white; display: flex; height: 407px; overflow: hidden; text-align: left;
         }
         .page-header .container { padding-bottom: 54px; position: relative; z-index: 3; }
         .page-header .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; margin-bottom: .5rem; }
         .page-header h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
+        .page-header h1.page-title-ja { font-size: clamp(2rem, 5vw, 4.2rem); letter-spacing: .03em; line-height: 1.25; }
         .page-header .lead { font-size: 1.05rem; margin-bottom: 0; max-width: 620px; }
         .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
         .wave-container svg { display: block; width: 100%; height: 60px; }
@@ -93,11 +95,11 @@
 
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <div class="navbar-nav ms-auto text-center">
                     <a class="nav-link" href="./">HOME</a>
                     <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
@@ -114,7 +116,7 @@
     <header class="page-header">
         <div class="container position-relative" style="z-index: 3;">
             <p class="eyebrow">SERVICE</p>
-            <h1 class="display-3">INSTALLATION</h1>
+            <h1 class="display-3 page-title-ja"><span class="d-block">店舗音響・設備施工</span><span class="d-block fs-6 mt-2">INSTALLATION</span></h1>
             <p class="lead fw-bold">「空間」と「音」の最適解を設計・施工・保守まで一貫サポート。</p>
         </div>
         <div class="wave-container">
@@ -134,7 +136,7 @@
                 <div class="service-card">
                     <div class="card-body">
                         <div class="icon-box"><i class="fas fa-pencil-ruler"></i></div>
-                        <h4 class="fw-bold">Design</h4>
+                        <h3 class="h4 fw-bold">Design</h3>
                         <p class="text-muted small">用途に合わせたシステム設計。カフェ等の簡易システムから、ダンスフロアを備えた本格設計まで、店舗の構造と予算に合わせた最適なプランをご提案します。</p>
                     </div>
                 </div>
@@ -143,7 +145,7 @@
                 <div class="service-card">
                     <div class="card-body">
                         <div class="icon-box"><i class="fas fa-tools"></i></div>
-                        <h4 class="fw-bold">Execution</h4>
+                        <h3 class="h4 fw-bold">Execution</h3>
                         <p class="text-muted small">現場を知り尽くしたスタッフによる確実な施工。配線の一本まで美しく仕上げ、耐久性が高くトラブルのない安定した運用環境を構築します。</p>
                     </div>
                 </div>
@@ -152,7 +154,7 @@
                 <div class="service-card">
                     <div class="card-body">
                         <div class="icon-box"><i class="fas fa-shield-alt"></i></div>
-                        <h4 class="fw-bold">Maintenance</h4>
+                        <h3 class="h4 fw-bold">Maintenance</h3>
                         <p class="text-muted small">導入後の定期点検や、万が一のトラブル時の迅速なフォロー。常にベストなコンディションで営業を続けられるよう、地域密着で徹底サポートします。</p>
                     </div>
                 </div>
@@ -163,22 +165,22 @@
 
         <div class="row showcase-row">
             <div class="col-lg-7">
-                <img src="img/inst-1.jpg" class="showcase-img zoom-single" alt="ショークラブ・ナイトクラブ音響施工事例">
+                <img src="img/inst-1.jpg" class="showcase-img zoom-single" alt="ショークラブ・ナイトクラブ音響施工事例" width="1620" height="911" loading="lazy" decoding="async">
                 <p class="img-caption">ショークラブ・フィリピンパブ・Club - 迫力ある音響と演出照明</p>
             </div>
             <div class="col-lg-5 showcase-content">
-                <h3>Show & Night Club</h3>
+                <h3>Show &amp; Night Club</h3>
                 <p>ステージパフォーマンスが主役となるショークラブやフィリピンパブ、重低音が響くClubまで、店舗のコンセプトに合わせた最適なシステムを構築。華やかなライティング演出との連動もスムーズに行えるよう設計し、キャストとお客様の満足度を最大化します。</p>
             </div>
         </div>
 
         <div class="row showcase-row flex-lg-row-reverse">
             <div class="col-lg-7">
-                <img src="img/inst-2.jpg" class="showcase-img zoom-single" alt="カフェ・アパレル店舗音響設計事例">
+                <img src="img/inst-2.jpg" class="showcase-img zoom-single" alt="カフェ・アパレル店舗音響設計事例" width="1215" height="911" loading="lazy" decoding="async">
                 <p class="img-caption">カフェ・アパレル・小規模店舗 - 低予算で始める高品質システム</p>
             </div>
             <div class="col-lg-5 showcase-content">
-                <h3>Cafe & Simple System</h3>
+                <h3>Cafe &amp; Simple System</h3>
                 <p>「大がかりな設備は不要だが、音の良さにはこだわりたい」というカフェや個人商店様へ、予算に合わせた高品位システムをご提案。内装デザインを損なわないスピーカー配置や、スタッフが直感的に扱える操作性など、日々の営業に寄り添った設計を行います。</p>
             </div>
         </div>
@@ -198,7 +200,7 @@
 
     <div id="lightbox">
         <span id="lightbox-close" onclick="closeLightbox()">&times;</span>
-        <img id="lightbox-img" src="">
+        <img id="lightbox-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true">
     </div>
 
     <footer class="py-4 border-top text-center text-muted">

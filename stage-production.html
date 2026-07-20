@@ -11,10 +11,11 @@
 
     <meta property="og:title" content="ステージ制作・舞台設営 | ARA-TECH（広島）">
     <meta property="og:description" content="想像をカタチにする、プロフェッショナルの舞台制作。広島を拠点に全国へ。">
-    <meta property="og:image" content="https://ara-tech.cc/img/stage-production.jpg">
+    <meta property="og:image" content="https://ara-tech.cc/img/stage-festival.jpg">
     <meta property="og:type" content="article">
 
     <link rel="icon" href="img/favicon.ico">
+    <link rel="preload" as="image" href="img/STAGE%20PRODUCTION.webp" type="image/webp" fetchpriority="high">
 
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -33,13 +34,14 @@
         /* ページヘッダー */
         .page-header {
             position: relative;
-            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/STAGE PRODUCTION.jpg');
+            background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), image-set(url('img/STAGE PRODUCTION.webp') type('image/webp'), url('img/STAGE PRODUCTION.jpg') type('image/jpeg'));
             background-size: cover; background-position: center;
             align-items: center; color: white; display: flex; height: 407px; overflow: hidden; text-align: left;
         }
         .page-header .container { padding-bottom: 54px; position: relative; z-index: 3; }
         .page-header .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; margin-bottom: .5rem; }
         .page-header h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
+        .page-header h1.page-title-ja { font-size: clamp(2rem, 5vw, 4.2rem); letter-spacing: .03em; line-height: 1.25; }
         .page-header .lead { font-size: 1.05rem; margin-bottom: 0; max-width: 620px; }
         .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
         .wave-container svg { display: block; width: 100%; height: 60px; }
@@ -101,11 +103,11 @@
 
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></a>
+            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <div class="navbar-nav ms-auto text-center">
                     <a class="nav-link" href="./">HOME</a>
                     <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
@@ -122,7 +124,7 @@
     <header class="page-header">
         <div class="container position-relative" style="z-index: 3;">
             <p class="eyebrow">SERVICE</p>
-            <h1 class="display-3">STAGE PRODUCTION</h1>
+            <h1 class="display-3 page-title-ja"><span class="d-block">ステージ制作・舞台設営</span><span class="d-block fs-6 mt-2">STAGE PRODUCTION</span></h1>
             <p class="lead fw-bold">想像をカタチにする、プロフェッショナルの舞台制作。</p>
         </div>
         <div class="wave-container">
@@ -135,7 +137,7 @@
         
         <div class="row showcase-row">
             <div class="col-lg-7">
-                <img src="img/stage-festival.jpg" class="showcase-img zoom-single" alt="米海軍佐世保基地 イベント設営">
+                <img src="img/stage-festival.jpg" class="showcase-img zoom-single" alt="米海軍佐世保基地 イベント設営" width="1215" height="911" loading="lazy" decoding="async">
                 <p class="img-caption">米海軍佐世保基地（Sasebo Naval Base）</p>
             </div>
             <div class="col-lg-5 showcase-content">
@@ -155,14 +157,14 @@
                 <div class="col-lg-6">
                     <div class="row g-2">
                         <div class="col-12 gallery-item">
-                            <img src="img/mr-1.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 1">
+                            <img src="img/mr-1.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 1" width="1280" height="720" loading="lazy" decoding="async">
                             <p class="img-caption">MUSICAL RUSH 2017 - Main Stage</p>
                         </div>
                         <div class="col-6 gallery-item">
-                            <img src="img/mr-2.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 2">
+                            <img src="img/mr-2.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 2" width="1215" height="911" loading="lazy" decoding="async">
                         </div>
                         <div class="col-6 gallery-item">
-                            <img src="img/mr-3.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 3">
+                            <img src="img/mr-3.jpg" class="zoom-gallery" alt="MUSICAL RUSH 舞台制作 3" width="1280" height="720" loading="lazy" decoding="async">
                         </div>
                     </div>
                 </div>
@@ -171,22 +173,22 @@
 
         <div class="row showcase-row flex-lg-row-reverse">
             <div class="col-lg-7">
-                <img src="img/stage-lighting.jpg" class="showcase-img zoom-single" alt="米海兵隊岩国航空基地 ステージ演出">
+                <img src="img/stage-lighting.jpg" class="showcase-img zoom-single" alt="米海兵隊岩国航空基地 ステージ演出" width="1214" height="911" loading="lazy" decoding="async">
                 <p class="img-caption">米海兵隊岩国航空基地（MCCS iwakuni）</p>
             </div>
             <div class="col-lg-5 showcase-content">
-                <h3>Lighting & Visual Solutions</h3>
+                <h3>Lighting &amp; Visual Solutions</h3>
                 <p>アーティストの世界観を三次元で表現する、高精度のライティングデザイン。巨大LEDビジョンとムービングライト、特効をシンクロさせ、観客の視覚をハックする圧倒的なステージをクリエイトします。</p>
             </div>
         </div>
 
         <div class="row showcase-row">
             <div class="col-lg-7">
-                <img src="img/stage-event.jpg" class="showcase-img zoom-single" alt="club HERBIE 音響プロデュース">
+                <img src="img/stage-event.jpg" class="showcase-img zoom-single" alt="club HERBIE 音響プロデュース" width="1215" height="911" loading="lazy" decoding="async">
                 <p class="img-caption">club HERBIE</p>
             </div>
             <div class="col-lg-5 showcase-content">
-                <h3>Club & Special Events</h3>
+                <h3>Club &amp; Special Events</h3>
                 <p>重低音の「圧」と「明瞭度」が求められるクラブシーン。各現場の音響特性を見極め、空間のポテンシャルを最大限に引き出します。ただ音を鳴らすだけでなく、最高のグルーヴを創り出します。</p>
             </div>
         </div>
@@ -205,7 +207,7 @@
     <div id="lightbox">
         <span id="lightbox-close" onclick="closeLightbox()">&times;</span>
         <span class="lb-nav lb-prev" id="prev-btn" onclick="changeImage(-1)">&#10094;</span>
-        <img id="lightbox-img" src="">
+        <img id="lightbox-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true">
         <span class="lb-nav lb-next" id="next-btn" onclick="changeImage(1)">&#10095;</span>
     </div>
 

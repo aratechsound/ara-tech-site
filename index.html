@@ -11,6 +11,7 @@
     <link rel="icon" href="img/favicon.ico">
 
     <link rel="canonical" href="https://ara-tech.cc/">
+    <link rel="preload" as="image" href="img/hero1.webp" type="image/webp" fetchpriority="high">
 
 <script type="application/ld+json">
 {
@@ -18,7 +19,7 @@
   "@type": ["Organization", "AudioVisualService"],
   "name": "ARA-TECH",
   "alternateName": "aratech",
-  "image": "https://ara-tech.cc/img/ogp-main.jpg",
+  "image": "https://ara-tech.cc/img/hero1.jpg",
   "logo": "https://ara-tech.cc/img/ARA-TECH ロゴ横 白.png",
   "description": "広島を拠点に全国対応。格安PA機材レンタルから大規模野外フェスまで対応する音響・ステージ制作のプロ集団。プロエンジニアによる設営・オペレートも一括サポート。",
   "url": "https://ara-tech.cc",
@@ -53,7 +54,7 @@
 
     <meta property="og:title" content="ARA-TECH | 広島の音響・PA・ステージ制作">
     <meta property="og:description" content="格安PAレンタルから大規模イベントまで。広島の音響のプロ, ARA-TECH（アラテック）。">
-    <meta property="og:image" content="https://ara-tech.cc/img/ogp-main.jpg">
+    <meta property="og:image" content="https://ara-tech.cc/img/hero1.jpg">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ara-tech.cc/">
     <meta name="twitter:card" content="summary_large_image">
@@ -99,11 +100,11 @@
             opacity: 0;
             animation: slider 25s infinite;
         }
-        .slide:nth-child(1) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), url('img/hero1.jpg'); animation-delay: 0s; }
-        .slide:nth-child(2) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), url('img/hero2.jpg'); animation-delay: 5s; }
-        .slide:nth-child(3) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), url('img/hero3.jpg'); animation-delay: 10s; }
-        .slide:nth-child(4) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), url('img/hero4.jpg'); animation-delay: 15s; }
-        .slide:nth-child(5) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), url('img/hero5.jpg'); animation-delay: 20s; }
+        .slide:nth-child(1) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), image-set(url('img/hero1.webp') type('image/webp'), url('img/hero1.jpg') type('image/jpeg')); animation-delay: 0s; }
+        .slide:nth-child(2) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), image-set(url('img/hero2.webp') type('image/webp'), url('img/hero2.jpg') type('image/jpeg')); animation-delay: 5s; }
+        .slide:nth-child(3) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), image-set(url('img/hero3.webp') type('image/webp'), url('img/hero3.jpg') type('image/jpeg')); animation-delay: 10s; }
+        .slide:nth-child(4) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), image-set(url('img/hero4.webp') type('image/webp'), url('img/hero4.jpg') type('image/jpeg')); animation-delay: 15s; }
+        .slide:nth-child(5) { background-image: linear-gradient(rgba(0,0,0,0.64), rgba(0,0,0,0.64)), image-set(url('img/hero5.webp') type('image/webp'), url('img/hero5.jpg') type('image/jpeg')); animation-delay: 20s; }
         @keyframes slider {
             0% { opacity: 0; transform: scale(1.0); }
             10% { opacity: 1; }
@@ -117,11 +118,13 @@
         .wave-fill { fill: #ffffff; }
         .hero-content { position: relative; z-index: 2; }
         .hero-content h1 { font-size: clamp(2.5rem, 8vw, 4.5rem); font-weight: 900; margin-bottom: 15px; text-shadow: 2px 2px 10px rgba(0,0,0,0.5); letter-spacing: 0.1em; }
+        .hero-content h1.hero-title { font-size: clamp(1.8rem, 5.2vw, 3.4rem); letter-spacing: .03em; line-height: 1.3; }
         .btn-inquiry { background-color: var(--primary-blue); color: white; border-radius: 5px; padding: 12px 35px; text-decoration: none; font-weight: bold; border: 1px solid white; transition: 0.3s; display: inline-block; }
         .btn-inquiry:hover { background-color: white; color: var(--primary-blue); transform: scale(1.05); }
         /* サービスカード */
         .service-card { transition: transform 0.3s; margin-bottom: 30px; text-decoration: none; display: block; color: inherit; }
         .service-card:hover { transform: translateY(-8px); color: var(--primary-blue); }
+        .service-card picture { display: block; }
         .service-card img { width: 100%; height: 220px; object-fit: cover; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         .eng-title { font-size: 0.75rem; letter-spacing: 0.2em; color: var(--primary-blue); font-weight: 700; margin-bottom: 5px; display: block; }
         .section-title { position: relative; display: inline-block; padding-bottom: 15px; margin-bottom: 30px; }
@@ -162,12 +165,12 @@
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="./">
-                <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH">
+                <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async">
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+            <div class="collapse navbar-collapse" id="navbarNav">
                 <div class="navbar-nav ms-auto text-center">
                     <a class="nav-link" href="./">HOME</a>
                     <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
@@ -192,7 +195,7 @@
 
         <div class="container hero-content">
             <a href="contact.html" class="btn-inquiry mb-4">お見積り・お問い合わせ</a>
-            <h1>THE ART OF SOUND</h1>
+            <h1 class="hero-title"><span class="d-block">広島の音響・PAレンタル・ステージ制作</span><span class="d-block fs-6 mt-3">THE ART OF SOUND</span></h1>
             <p class="lead fw-bold px-3">広島を拠点に、プロの技術と機材で最高のサウンドを。<br>イベントの規模を問わず、心を揺さぶる響きを創造します。</p>
         </div>
 
@@ -212,31 +215,31 @@
 
         <div class="row g-4 text-start">
             <a href="pa-rental.html" class="col-sm-6 col-lg service-card">
-                <img src="img/PA-RENTAL.jpg" alt="PA RENTAL">
+                <picture><source type="image/webp" srcset="img/PA-RENTAL.webp"><img src="img/PA-RENTAL.jpg" alt="PA機材とスピーカーのレンタル" width="1620" height="911" loading="lazy" decoding="async"></picture>
                 <span class="eng-title">PA RENTAL</span>
                 <h3 class="h4 fw-bold">PAレンタル</h3>
                 <p class="text-muted small">講演会、パーティー、街頭演説、小規模ライブまで。プロ仕様の機材を使いやすく、広島最安値圏で提供します。</p>
             </a>
             <a href="stage-production.html" class="col-sm-6 col-lg service-card">
-                <img src="img/STAGE PRODUCTION.jpg" alt="STAGE PRODUCTION">
+                <picture><source type="image/webp" srcset="img/STAGE%20PRODUCTION.webp"><img src="img/STAGE PRODUCTION.jpg" alt="イベントのステージ制作" width="1214" height="911" loading="lazy" decoding="async"></picture>
                 <span class="eng-title">STAGE PRODUCTION</span>
                 <h3 class="h4 fw-bold">ステージ制作</h3>
                 <p class="text-muted small">音響、照明、LEDビジョン、トラス設営まで。数千人規模の野外フェスから企業イベントまで、トータルプロデュースが可能です。</p>
             </a>
             <a href="tour-pa.html" class="col-sm-6 col-lg service-card">
-                <img src="img/TOUR PA.jpg" alt="TOUR PA">
+                <picture><source type="image/webp" srcset="img/TOUR%20PA.webp"><img src="img/TOUR PA.jpg" alt="ライブ会場のツアーPA" width="1215" height="911" loading="lazy" decoding="async"></picture>
                 <span class="eng-title">TOUR PA</span>
                 <h3 class="h4 fw-bold">ツアーPA・オペレート</h3>
                 <p class="text-muted small">全国ツアーやライブハウス、ホール公演のサウンドオペレートを承ります。アーティストの理想を形にする技術。 </p>
             </a>
             <a href="installation.html" class="col-sm-6 col-lg service-card">
-                <img src="img/INSTALLATION.jpg" alt="INSTALLATION">
+                <picture><source type="image/webp" srcset="img/INSTALLATION.webp"><img src="img/INSTALLATION.jpg" alt="店舗音響の設備施工" width="1620" height="911" loading="lazy" decoding="async"></picture>
                 <span class="eng-title">INSTALLATION</span>
                 <h3 class="h4 fw-bold">システム構築・施工</h3>
                 <p class="text-muted small">店舗や施設の音響・照明システム。現場の使い勝力を考え抜いた設計と、確かな施工でお店に命を吹き込みます。</p>
             </a>
             <a href="works.html" class="col-sm-6 col-lg service-card">
-                <img src="img/mr-1.jpg" alt="ARA-TECHのイベント制作実績">
+                <img src="img/mr-1.jpg" alt="ARA-TECHのイベント制作実績" width="1280" height="720" loading="lazy" decoding="async">
                 <span class="eng-title">WORKS</span>
                 <h3 class="h4 fw-bold">実績・現場紹介</h3>
                 <p class="text-muted small">イベントフライヤーとともに、ARA-TECHが手がけた音響・照明・ステージ制作の現場をご紹介します。</p>

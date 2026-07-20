@@ -6,6 +6,7 @@
     <title>広島の音響レンタル・PA機材・スピーカーレンタル｜屋外イベント対応 | ARA-TECH</title>
     <meta name="description" content="広島の音響レンタル・PA機材レンタルならARA-TECH。スピーカーレンタル、マイクレンタル、ミキサーの手配から、運搬、設営、PAオペレーター派遣まで一括対応。屋外イベント、ライブ、企業イベント、式典、学園祭に最適な音響をご提案します。">
     <link rel="canonical" href="https://ara-tech.cc/pa-rental.html">
+    <link rel="preload" as="image" href="img/PA-RENTAL.webp" type="image/webp" fetchpriority="high">
     
     <link rel="icon" href="img/favicon.ico">
 
@@ -41,18 +42,42 @@
       "mainEntity": [
         {
           "@type": "Question",
-          "name": "音響レンタルの料金はいくらですか？",
+          "name": "屋外イベントが雨天中止になった場合の対応は？",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "料金は、必要なスピーカー・マイク・ミキサーなどの機材構成、利用時間、会場、運搬・設営・PAオペレーターの有無によって変わります。内容を伺ったうえで無料でお見積りします。"
+            "text": "屋外現場で天候判断により中止される場合は、前日の正午までにご連絡ください。それ以降のキャンセルは規定の料金が発生いたします。また、本番中に雨が降った場合、機材保護のため一時中断、またはブルーシート等での養生を優先させていただく場合がございます。"
           }
         },
         {
           "@type": "Question",
-          "name": "イベント音響の費用はどのくらいですか？",
+          "name": "電源は自分たちで用意する必要がありますか？",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "小規模な講演会やイベントから、ライブ・屋外イベントまで、会場規模と必要な機材・スタッフに合わせてご提案します。まずは日程、会場、出演者数や用途をお知らせください。"
+            "text": "基本的に会場のコンセント（100V）をお借りします。ステージまで距離がある場合は、こちらで延長コード（ドラムコード）を持参します。電源がない場所（駐車場や公園など）での実施には、別途発電機の手配（弊社で代行可能）が必要ですので、事前にお知らせください。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "設営と撤収にはどのくらいの時間がかかりますか？",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "プランによりますが、Standard LIVEプランで設営・調整に約60〜90分、撤収に約45分程度いただいております。大規模な現場や、サウンドチェックが必要なバンド演奏がある場合は、別途スケジュールをご相談させていただきます。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "音響レンタルの料金はいくらですか？",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "料金は、必要なスピーカー・マイク・ミキサーなどの機材構成、利用時間、会場、運搬・設営・PAオペレーターの有無によって変わります。内容を伺ったうえで無料でお見積りしますので、日程・会場・用途をお知らせください。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "音響レンタルセットはありますか？",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "はい。小規模な会場向けのPAセットから、ライブ・学園祭・お祭り向けのプランまでご用意しています。スピーカーやマイクだけのレンタルも可能ですので、会場の広さ、話す人や出演者の人数、BGM・演奏の有無をお知らせください。"
           }
         },
         {
@@ -60,7 +85,7 @@
           "name": "スピーカーやマイクだけのレンタルはできますか？",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "はい。スピーカー、ワイヤレスマイク、ミキサーなど、必要なPA機材だけのレンタルにも対応しています。用途や会場に合わせて、必要な台数と組み合わせをご案内します。"
+            "text": "はい。広島でのスピーカーレンタル、マイクレンタル、ミキサーなど、必要なPA機材だけのレンタルにも対応しています。機材に詳しくない場合も、用途と会場をお伝えいただければ必要な台数と組み合わせをご案内します。"
           }
         },
         {
@@ -68,7 +93,7 @@
           "name": "屋外イベントの音響レンタルは依頼できますか？",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "はい。お祭り、地域イベント、野外ライブ、式典などの屋外イベントにも対応しています。電源や雨天時の対応、搬入経路を事前に確認し、設営・撤収・当日のPAオペレートまでご相談いただけます。"
+            "text": "はい。お祭り、地域イベント、野外ライブ、式典などの屋外イベント音響にも対応しています。電源や雨天時の対応、搬入経路を事前に確認し、設営・撤収・当日のPAオペレートまでご相談いただけます。"
           }
         }
       ]
@@ -102,13 +127,14 @@
         /* Header */
         .page-header {
             position: relative;
-            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/PA-RENTAL.jpg');
+            background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), image-set(url('img/PA-RENTAL.webp') type('image/webp'), url('img/PA-RENTAL.jpg') type('image/jpeg'));
             background-size: cover; background-position: center; background-attachment: fixed;
             align-items: center; color: white; display: flex; height: 407px; overflow: hidden; text-align: left;
         }
         .page-header .container { padding-bottom: 54px; position: relative; z-index: 3; }
         .page-header .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; margin-bottom: .5rem; }
         .page-header h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
+        .page-header h1.page-title-ja { font-size: clamp(2rem, 5vw, 4.2rem); letter-spacing: .03em; line-height: 1.25; }
         .page-header .lead { font-size: 1.05rem; margin-bottom: 0; max-width: 620px; }
         .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
         .wave-container svg { display: block; width: 100%; height: 60px; }
@@ -269,7 +295,7 @@
         /* レンタル規約 */
         .notes-section { background: #fdfdfd; border: 1px solid #eee; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; }
         .notes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
-        .note-item h6 { font-weight: 900; color: var(--primary-blue); margin-bottom: 20px; border-left: 5px solid var(--primary-blue); padding-left: 15px; font-size: 1.1rem; }
+        .note-item h3 { font-weight: 900; color: var(--primary-blue); margin-bottom: 20px; border-left: 5px solid var(--primary-blue); padding-left: 15px; font-size: 1.1rem; }
         .note-item p, .note-item li { font-size: 0.9rem; color: #555; margin-bottom: 8px; }
 
         .cta-section { 
@@ -453,14 +479,14 @@
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container">
         <a class="navbar-brand" href="./">
-            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH PA RENTAL">
+            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH PA RENTAL" width="2919" height="422" decoding="async">
         </a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
             <span class="navbar-toggler-icon"></span>
         </button>
 
-        <div class="collapse navbar-collapse" id="navbarNav" aria-label="メインメニュー">
+        <div class="collapse navbar-collapse" id="navbarNav">
             <div class="navbar-nav ms-auto text-center">
                 <a class="nav-link" href="./">HOME</a>
                 <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
@@ -477,7 +503,7 @@
 <header class="page-header">
     <div class="container">
         <p class="eyebrow">HIROSHIMA SOUND &amp; PA RENTAL</p>
-        <h1 class="display-3">PA RENTAL</h1>
+            <h1 class="display-3 page-title-ja"><span class="d-block">広島の音響・PAレンタル</span><span class="d-block fs-6 mt-2">PA RENTAL</span></h1>
         <p class="lead fw-bold">広島の音響レンタル・PA機材レンタル。機材の手配から設営、オペレートまでお任せください。</p>
     </div>
     <div class="wave-container">
@@ -543,9 +569,9 @@
 <div class="row g-4 mb-5">
     <div class="col-lg-4 col-md-6">
         <div class="plan-card" style="border: 2px solid #6c757d;">
-            <div class="plan-img-wrapper"><img src="img/plan-compact.jpg" class="plan-img" alt="Compact PA"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-compact.jpg" class="plan-img" alt="小規模会場向けCompact PAプラン" width="1215" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-compact">
-                <h5 class="mb-0 fw-bold">Compact PA</h5>
+                <h3 class="h5 mb-0 fw-bold">Compact PA</h3>
                 <p class="small mb-0 opacity-75">会議・プレゼン・小規模イベント</p>
             </div>
             <div class="plan-body">
@@ -561,9 +587,9 @@
 
     <div class="col-lg-4 col-md-6">
         <div class="plan-card is-featured" style="border: 2px solid var(--primary-blue);">
-            <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="Standard LIVE"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="ライブ向けStandard LIVEプラン" width="1214" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-standard">
-                <h5 class="mb-0 fw-bold">Standard LIVE</h5>
+                <h3 class="h5 mb-0 fw-bold">Standard LIVE</h3>
                 <p class="small mb-0 opacity-75">中規模ライブ・本格イベント</p>
             </div>
             <div class="plan-body">
@@ -580,9 +606,9 @@
 
     <div class="col-lg-4 col-md-6">
         <div class="plan-card" style="border: 2px solid #343a40;">
-            <div class="plan-img-wrapper"><img src="img/plan-custom.jpg" class="plan-img" alt="Large Scale"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-custom.jpg" class="plan-img" alt="大規模会場向けカスタムプラン" width="683" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-custom">
-                <h5 class="mb-0 fw-bold">Large Scale</h5>
+                <h3 class="h5 mb-0 fw-bold">Large Scale</h3>
                 <p class="small mb-0 opacity-75">大規模フェス・ホール公演</p>
             </div>
             <div class="plan-body">
@@ -598,9 +624,9 @@
 
     <div class="col-lg-4 col-md-6">
         <div class="plan-card" style="border: 2px solid #2c3e50;">
-            <div class="plan-img-wrapper"><img src="img/plan-engineer.jpg" class="plan-img" alt="PA Operator"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-engineer.jpg" class="plan-img" alt="PAオペレーター派遣プラン" width="1215" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-engineer">
-                <h5 class="mb-0 fw-bold">PA Operator Only</h5>
+                <h3 class="h5 mb-0 fw-bold">PA Operator Only</h3>
                 <p class="small mb-0 opacity-75">技術提供・エンジニア派遣</p>
             </div>
             <div class="plan-body">
@@ -616,9 +642,9 @@
     <div class="col-lg-4 col-md-6">
         <div class="plan-card" style="border: 2px solid var(--gakuwari-red);">
             <div class="gakuwari-stamp">学割</div>
-            <div class="plan-img-wrapper"><img src="img/plan-gakuwari.jpg" class="plan-img" alt="School Festival"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-gakuwari.jpg" class="plan-img" alt="学園祭向け音響プラン" width="1214" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-gakuwari">
-                <h5 class="mb-0 fw-bold">School Festival Pack</h5>
+                <h3 class="h5 mb-0 fw-bold">School Festival Pack</h3>
                 <p class="small mb-0 opacity-75">学生限定・文化祭ライブ等</p>
             </div>
             <div class="plan-body">
@@ -638,9 +664,9 @@
     <div class="col-lg-4 col-md-6">
         <div class="plan-card" style="border: 2px solid var(--matsuri-orange);">
             <div class="recommend-badge">イベントに最適</div>
-            <div class="plan-img-wrapper"><img src="img/plan-matsuri.jpg" class="plan-img" alt="Matsuri Pack"></div>
+            <div class="plan-img-wrapper"><img src="img/plan-matsuri.jpg" class="plan-img" alt="お祭り・屋外イベント向け音響プラン" width="1215" height="911" loading="lazy" decoding="async"></div>
             <div class="plan-header bg-matsuri">
-                <h5 class="mb-0 fw-bold">Matsuri Pack</h5>
+                <h3 class="h5 mb-0 fw-bold">Matsuri Pack</h3>
                 <p class="small mb-0 opacity-75">お祭り・屋外イベントパック</p>
             </div>
             <div class="plan-body">
@@ -663,7 +689,7 @@
                 <div class="col-lg-5 advisor-visual">
                     <div>
                         <div class="advisor-title-label">
-                            <h5 class="mb-0">Technical Advisor</h5>
+                            <p class="mb-0">Technical Advisor</p>
                         </div>
                         <h3 class="fw-black display-5 mb-3 text-white" style="letter-spacing: 2px;">Training</h3>
                         <p class="lead fw-bold mb-0">「プロがいなくても安心」と言えるクオリティへ</p>
@@ -685,12 +711,12 @@
                         <div class="col-md-5 mt-4 mt-md-0 ps-md-4 border-start" style="border-color: rgba(184, 134, 11, 0.2) !important;">
                             <div class="text-center">
                                 <span class="price-tag text-secondary mb-1" style="font-size: 1rem;">現場に合わせた構成で</span>
-                                <h4 class="fw-black mb-1" style="color: #8a6d3b; font-size: 2rem;">16,500円<small class="small text-muted" style="font-size: 0.9rem;">(税込)〜</small></h4>
+                                <p class="fw-black mb-1" style="color: #8a6d3b; font-size: 2rem;">16,500円<small class="small text-muted" style="font-size: 0.9rem;">(税込)〜</small></p>
                                 <p class="small text-muted border-top pt-2 mt-3" style="border-color: rgba(184, 134, 11, 0.2) !important;">※顧問契約は別途お見積り</p>
                             </div>
 
                             <div class="advisor-case">
-                                <h6 class="fw-bold mb-2" style="font-size: 0.85rem; color: #8a6d3b;"><i class="fas fa-calendar-alt me-2"></i>年間顧問契約の例</h6>
+                                <h4 class="fw-bold mb-2" style="font-size: 0.85rem; color: #8a6d3b;"><i class="fas fa-calendar-alt me-2"></i>年間顧問契約の例</h4>
                                 <p style="font-size: 0.75rem; line-height: 1.5; color: #666;" class="mb-0">月1回の定期訪問レクチャーを通じて、現場スタッフによる機材トラブルの自己解決能力を向上させます。急な不具合発生時の電話サポートも付帯し、運営をバックアップします。</p>
                             </div>
                         </div>
@@ -703,7 +729,7 @@
     <div class="row justify-content-center mb-5 pb-5">
         <div class="col-lg-12">
             <div class="cost-structure-outer text-center">
-                <h4 class="fw-bold mb-5" style="color: white; letter-spacing: 2px;">料金の仕組み</h4>
+                <h3 class="h4 fw-bold mb-5" style="color: white; letter-spacing: 2px;">料金の仕組み</h3>
                 <div class="row g-3 align-items-stretch justify-content-center">
                     <div class="col-12 col-md-3">
                         <div class="cost-box"><div class="h6 fw-bold mb-2">機材費</div><div class="small text-muted">構成に応じた料金</div></div>
@@ -739,28 +765,28 @@
             <div class="col-md-3">
                 <div class="flow-card">
                     <div class="flow-number">1</div>
-                    <h6 class="fw-bold">お問い合わせ</h6>
+                    <h3 class="h6 fw-bold">お問い合わせ</h3>
                     <p class="small text-muted mb-0">フォームまたはお電話にて、日程と内容をお知らせください。</p>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="flow-card">
                     <div class="flow-number">2</div>
-                    <h6 class="fw-bold">ヒアリング・見積</h6>
+                    <h3 class="h6 fw-bold">ヒアリング・見積</h3>
                     <p class="small text-muted mb-0">会場規模や内容に合わせ、最適な機材構成をご提案します。</p>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="flow-card">
                     <div class="flow-number bg-success"><i class="fas fa-check"></i></div>
-                    <h6 class="fw-bold">ご成約</h6>
+                    <h3 class="h6 fw-bold">ご成約</h3>
                     <p class="small text-muted mb-0">お見積り内容にご承諾いただけましたら、正式に予約確定となります。</p>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="flow-card">
                     <div class="flow-number">4</div>
-                    <h6 class="fw-bold">当日 搬入・本番</h6>
+                    <h3 class="h6 fw-bold">当日 搬入・本番</h3>
                     <p class="small text-muted mb-0">搬入から設営、オペレート、撤収まで全てお任せください。</p>
                 </div>
             </div>
@@ -769,7 +795,7 @@
 
     <section class="mic-section">
         <div class="text-center mb-5">
-            <h3 class="fw-bold mb-2">MICROPHONE LINEUP</h3>
+            <h2 class="h3 fw-bold mb-2">MICROPHONE LINEUP</h2>
             <p class="text-white-50">ライブから企業イベント、各種レッスンまで幅広く対応するセレクション。</p>
         </div>
         <div class="mic-grid">
@@ -780,7 +806,7 @@
             </div>
             <div class="mic-tag">
                 <span>SHURE / SM58・SM57</span>
-                Vocal & Instrument
+                Vocal &amp; Instrument
                 <span class="mic-desc">世界標準のダイナミックマイク。ボーカル、スピーチ、楽器収音の定番。</span>
             </div>
             <div class="mic-tag">
@@ -815,11 +841,11 @@
             <div class="col-lg-10">
                 <div class="accordion" id="accordionFAQ">
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">
                                 <i class="fas fa-cloud-showers-heavy me-2 text-primary"></i>屋外イベントが雨天中止になった場合の対応は？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 屋外現場で天候判断により中止される場合は、前日の正午までにご連絡ください。それ以降のキャンセルは規定の料金が発生いたします。また、本番中に雨が降った場合、機材保護のため一時中断、またはブルーシート等での養生を優先させていただく場合がございます。
@@ -828,11 +854,11 @@
                     </div>
 
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">
                                 <i class="fas fa-plug me-2 text-primary"></i>電源は自分たちで用意する必要がありますか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 基本的に会場のコンセント（100V）をお借りします。ステージまで距離がある場合は、こちらで延長コード（ドラムコード）を持参します。電源がない場所（駐車場や公園など）での実施には、別途発電機の手配（弊社で代行可能）が必要ですので、事前にお知らせください。
@@ -841,11 +867,11 @@
                     </div>
 
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq3">
                                 <i class="fas fa-clock me-2 text-primary"></i>設営と撤収にはどのくらいの時間がかかりますか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 プランによりますが、Standard LIVEプランで設営・調整に約60〜90分、撤収に約45分程度いただいております。大規模な現場や、サウンドチェックが必要なバンド演奏がある場合は、別途スケジュールをご相談させていただきます。
@@ -853,11 +879,11 @@
                         </div>
                     </div>
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq4">
                                 <i class="fas fa-yen-sign me-2 text-primary"></i>音響レンタルの料金はいくらですか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 料金は、必要なスピーカー・マイク・ミキサーなどの機材構成、利用時間、会場、運搬・設営・PAオペレーターの有無によって変わります。内容を伺ったうえで無料でお見積りしますので、日程・会場・用途をお知らせください。
@@ -865,11 +891,11 @@
                         </div>
                     </div>
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq5">
                                 <i class="fas fa-boxes-stacked me-2 text-primary"></i>音響レンタルセットはありますか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 はい。小規模な会場向けのPAセットから、ライブ・学園祭・お祭り向けのプランまでご用意しています。スピーカーやマイクだけのレンタルも可能ですので、会場の広さ、話す人や出演者の人数、BGM・演奏の有無をお知らせください。
@@ -877,11 +903,11 @@
                         </div>
                     </div>
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">
                                 <i class="fas fa-volume-up me-2 text-primary"></i>スピーカーやマイクだけのレンタルはできますか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 はい。広島でのスピーカーレンタル、マイクレンタル、ミキサーなど、必要なPA機材だけのレンタルにも対応しています。機材に詳しくない場合も、用途と会場をお伝えいただければ必要な台数と組み合わせをご案内します。
@@ -889,11 +915,11 @@
                         </div>
                     </div>
                     <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h2 class="accordion-header">
+                        <h3 class="accordion-header">
                             <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">
                                 <i class="fas fa-tree me-2 text-primary"></i>屋外イベントの音響レンタルは依頼できますか？
                             </button>
-                        </h2>
+                        </h3>
                         <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
                             <div class="accordion-body text-muted">
                                 はい。お祭り、地域イベント、野外ライブ、式典などの屋外イベント音響にも対応しています。電源や雨天時の対応、搬入経路を事前に確認し、設営・撤収・当日のPAオペレートまでご相談いただけます。
@@ -909,7 +935,7 @@
         <h2 class="section-title">Rental Notes</h2>
         <div class="notes-grid">
             <div class="note-item">
-                <h6>キャンセル規定</h6>
+                <h3>キャンセル規定</h3>
                 <p>正式予約確定後、お客様都合でのキャンセルの場合は以下の料金を申し受けます。</p>
                 <ul class="list-unstyled">
                     <li>・7日前〜4日前：お見積り金額の 30%</li>
@@ -918,15 +944,15 @@
                 </ul>
             </div>
             <div class="note-item">
-                <h6>機材の取扱い・破損</h6>
+                <h3>機材の取扱い・破損</h3>
                 <p>機材は常にメンテナンスを行っておりますが、通常使用の範囲を超えた破損、過失（飲み物をこぼす、落下させる等）、紛失が発生した場合は、修理費用または機材購入代金を実費請求させていただきます。</p>
             </div>
             <div class="note-item">
-                <h6>深夜・早朝対応</h6>
+                <h3>深夜・早朝対応</h3>
                 <p>22:00以降、またはAM8:00以前の設営・撤収作業が必要な現場については、別途深夜早朝手当を申し受ける場合がございます。詳しくはお見積り時にご相談ください。</p>
             </div>
             <div class="note-item">
-                <h6>お支払い・諸経費</h6>
+                <h3>お支払い・諸経費</h3>
                 <p>原則、イベント終了後1週間以内の銀行振込をお願いしております。広島市内は運搬費無料キャンペーン中につき無料です。その他のエリアについては別途実費をご負担いただきます。</p>
             </div>
         </div>
@@ -934,7 +960,7 @@
 
     <section class="cta-section container text-center">
         <div style="z-index: 3; position: relative;">
-            <h4 class="fw-bold mb-4">お見積り・機材構成のご相談は無料です。</h4>
+            <h2 class="h4 fw-bold mb-4">お見積り・機材構成のご相談は無料です。</h2>
             <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold shadow">空き状況・お見積りを相談する</a>
         </div>
     </section>

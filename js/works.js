@@ -41,6 +41,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         image.src = supabase.storage.from(WORKS_BUCKET).getPublicUrl(post.flyer_path).data.publicUrl;
         image.alt = post.flyer_alt || `${post.title}のフライヤー`;
         image.loading = 'lazy';
+        image.decoding = 'async';
 
         const body = document.createElement('div');
         body.className = 'work-card__body';
