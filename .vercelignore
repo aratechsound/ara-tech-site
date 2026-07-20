@@ -1,0 +1,30 @@
+# ARA-TECH production boundary: browser-runtime files only.
+# Documentation, database setup, secrets, backups, and local artifacts must not deploy.
+
+*.md
+*.sql
+*.php
+*.env
+*.env.*
+*.yml
+*.yaml
+*.toml
+*.ini
+*.log
+*.bak
+*.old
+*.zip
+*.tar
+*.gz
+
+.git/
+.github/
+.vercel/
+assets/
+backups/
+plans/
+reports/
+supabase/
+
+img - コピー/
+* - コピー.html
