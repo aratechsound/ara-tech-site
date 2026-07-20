@@ -7,7 +7,6 @@
     <meta name="description" content="広島の音響レンタル・PA機材レンタルならARA-TECH。スピーカーレンタル、マイクレンタル、ミキサーの手配から、運搬、設営、PAオペレーター派遣まで一括対応。屋外イベント、ライブ、企業イベント、式典、学園祭に最適な音響をご提案します。">
     <link rel="canonical" href="https://ara-tech.cc/pa-rental.html">
     <link rel="preload" as="image" href="img/PA-RENTAL.webp" type="image/webp" fetchpriority="high">
-    
     <link rel="icon" href="img/favicon.ico">
 
     <meta property="og:title" content="広島のPA機材・スピーカー・マイクレンタル | ARA-TECH">
@@ -100,369 +99,337 @@
     }
     </script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        :root { 
-            --primary-blue: #007bff; 
-            --bright-blue: #4da3ff; 
-            --dark-text: #1d1d1f; 
-            --gakuwari-red: #e63946; 
-            --matsuri-orange: #ff6d00;
-            --campaign-orange: #ff9f1c; 
-            --deep-dark: #0b111a; 
-            /* ゴールド系の色定義 */
-            --advisor-gold-border: linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
-            --advisor-gold-bg: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(255, 255, 255, 1) 100%);
-            --advisor-text: #4a3b00;
+        :root {
+            --ara-blue: #0787ee;
+            --ara-blue-dark: #0069bd;
+            --ink: #0b1118;
+            --ink-soft: #151f2a;
+            --paper: #f4f7fa;
+            --line: #cad4de;
+            --muted: #5d6975;
+            --white: #ffffff;
+            --signal: #ffb000;
+            --danger: #d6414b;
+            --content: 1180px;
         }
-        body { font-family: 'Noto Sans JP', sans-serif; margin: 0; color: var(--dark-text); line-height: 1.8; }
 
-        /* Navigation */
-        .navbar { background-color: var(--primary-blue) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
-        .navbar-brand img { height: 40px; width: auto; }
-        .nav-link { color: white !important; font-weight: 700; margin-left: 15px; font-size: 0.9rem; }
-
-        /* Header */
-        .page-header {
-            position: relative;
-            background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), image-set(url('img/PA-RENTAL.webp') type('image/webp'), url('img/PA-RENTAL.jpg') type('image/jpeg'));
-            background-size: cover; background-position: center; background-attachment: fixed;
-            align-items: center; color: white; display: flex; height: 407px; overflow: hidden; text-align: left;
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--white);
+            color: var(--ink);
+            font-family: 'Noto Sans JP', sans-serif;
+            line-height: 1.75;
+            margin: 0;
+            overflow-x: hidden;
         }
-        .page-header .container { padding-bottom: 54px; position: relative; z-index: 3; }
-        .page-header .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; margin-bottom: .5rem; }
-        .page-header h1 { font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 900; letter-spacing: .08em; margin: .2rem 0 1rem; }
-        .page-header h1.page-title-ja { font-size: clamp(2rem, 5vw, 4.2rem); letter-spacing: .03em; line-height: 1.25; }
-        .page-header .lead { font-size: 1.05rem; margin-bottom: 0; max-width: 620px; }
-        .wave-container { position: absolute; bottom: 0; left: 0; width: 100%; line-height: 0; z-index: 2; }
-        .wave-container svg { display: block; width: 100%; height: 60px; }
-        .wave-fill { fill: #ffffff; }
-
-        .section-title { font-weight: 900; font-size: 2.2rem; margin-bottom: 60px; text-align: center; }
-        .section-title::after { content: ""; display: block; width: 60px; height: 4px; background: var(--primary-blue); margin: 20px auto; }
-
-        /* プランカード */
-        .plan-card { border-radius: 20px; overflow: hidden; border: none; box-shadow: 0 15px 35px rgba(0,0,0,0.08); transition: 0.3s; height: 100%; background: #fff; display: flex; flex-direction: column; position: relative; }
-        .plan-card:hover { transform: translateY(-10px); }
-        .plan-img-wrapper { height: 220px; width: 100%; overflow: hidden; background: #eee; position: relative; }
-        .plan-img { width: 100%; height: 100%; object-fit: cover; }
-        
-        .plan-header { padding: 20px; text-align: center; color: white; }
-        .bg-compact { background: #343a40; }
-        .bg-standard { background: var(--primary-blue); }
-        .bg-custom { background: #1a1a1a; } 
-        .bg-engineer { background: #2c3e50; }
-        .bg-gakuwari { background: var(--gakuwari-red); }
-        .bg-matsuri { background: var(--matsuri-orange); }
-
-        .gakuwari-stamp {
-            position: absolute; top: 10px; right: 10px; width: 80px; height: 80px;
-            border: 3px double var(--gakuwari-red); border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            color: var(--gakuwari-red); font-weight: 900; font-size: 1.1rem;
-            transform: rotate(15deg); background: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 0 2px rgba(255,255,255,0.9); z-index: 10;
+        img { display: block; max-width: 100%; }
+        a { color: inherit; }
+        .site-shell { margin-inline: auto; max-width: var(--content); padding-inline: 24px; }
+        .section { padding-block: 88px; }
+        .section--tight { padding-block: 64px; }
+        .section--paper { background: var(--paper); }
+        .section--dark { background: var(--ink); color: var(--white); }
+        .section-head { align-items: end; display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr) minmax(260px, 440px); margin-bottom: 42px; }
+        .section-index { color: var(--ara-blue); font-size: .72rem; font-weight: 900; letter-spacing: .2em; margin: 0 0 10px; text-transform: uppercase; }
+        .section-title { font-size: clamp(1.8rem, 3.4vw, 3rem); font-weight: 900; letter-spacing: -.035em; line-height: 1.25; margin: 0; }
+        .section-lead { color: var(--muted); font-size: 1rem; margin: 0; }
+        .section--dark .section-lead { color: #bbc5cf; }
+        .eyebrow { color: #8fcaff; font-size: .75rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 14px; text-transform: uppercase; }
+        .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
+        .button {
+            align-items: center;
+            border: 1px solid transparent;
+            display: inline-flex;
+            font-size: .92rem;
+            font-weight: 900;
+            justify-content: center;
+            letter-spacing: .02em;
+            min-height: 52px;
+            padding: 12px 22px;
+            text-decoration: none;
+            transition: background-color .2s ease, border-color .2s ease, color .2s ease;
         }
-        .recommend-badge { position: absolute; top: 10px; right: 10px; padding: 4px 12px; background: #fff; color: var(--matsuri-orange); font-weight: 900; border-radius: 50px; font-size: 0.75rem; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .button--primary { background: var(--ara-blue); color: var(--white); }
+        .button--primary:hover { background: var(--ara-blue-dark); color: var(--white); }
+        .button--ghost { border-color: rgba(255,255,255,.5); color: var(--white); }
+        .button--ghost:hover { background: var(--white); color: var(--ink); }
 
-        .plan-body { padding: 25px; flex-grow: 1; }
-        .price-tag { font-size: 1.6rem; font-weight: 900; margin-bottom: 20px; display: block; text-align: center; }
-        .plan-list { list-style: none; padding: 0; margin-bottom: 0; font-size: 0.95rem; }
-        .plan-list li { margin-bottom: 12px; display: flex; align-items: flex-start; }
-        .plan-list i { margin-top: 4px; margin-right: 12px; color: var(--primary-blue); flex-shrink: 0; }
-
-        /* Advisor Premium Section - ゴージャスなゴールド装飾 */
-        .advisor-outer-wrap {
-            padding: 15px;
-            background: var(--advisor-gold-border);
-            border-radius: 40px;
-            box-shadow: 0 25px 50px rgba(184, 134, 11, 0.3);
-            position: relative;
+        .navbar {
+            background: var(--ink) !important;
+            border-bottom: 1px solid rgba(255,255,255,.11);
+            min-height: 72px;
+            padding: 10px 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
-        /* 四隅の飾りパーツ */
-        .advisor-outer-wrap::before, .advisor-outer-wrap::after {
-            content: "";
-            position: absolute;
-            width: 50px;
-            height: 50px;
-            border: 4px solid #f9f0b3;
-            z-index: 5;
-            pointer-events: none;
-        }
-        .advisor-outer-wrap::before { top: 30px; left: 30px; border-right: 0; border-bottom: 0; }
-        .advisor-outer-wrap::after { bottom: 30px; right: 30px; border-left: 0; border-top: 0; }
+        .navbar .container { max-width: var(--content); padding-inline: 24px; }
+        .navbar-brand img { height: 34px; width: auto; }
+        .nav-link { color: #d9e2ea !important; font-size: .78rem; font-weight: 900; letter-spacing: .06em; margin-left: 14px; }
+        .nav-link:hover, .nav-link[aria-current="page"] { color: #68b9ff !important; }
+        .navbar-toggler { border-color: rgba(255,255,255,.35); border-radius: 2px; }
 
-        .advisor-premium-card {
-            background: #fff;
-            border-radius: 30px;
+        .hero {
+            background: var(--ink);
+            color: var(--white);
+            min-height: 690px;
             overflow: hidden;
+            position: relative;
+        }
+        .hero-photo { inset: 0 0 0 43%; position: absolute; }
+        .hero-photo::after { background: rgba(5,10,16,.22); content: ""; inset: 0; position: absolute; }
+        .hero-photo img { height: 100%; object-fit: cover; object-position: 54% center; width: 100%; }
+        .hero-inner { display: grid; min-height: 690px; position: relative; }
+        .hero-copy {
+            align-self: center;
+            background: rgba(11,17,24,.96);
+            border-left: 6px solid var(--ara-blue);
+            max-width: 690px;
+            padding: 46px 56px 48px 48px;
             position: relative;
             z-index: 2;
         }
-        .advisor-visual {
-            background: linear-gradient(45deg, rgba(0,0,0,0.7), rgba(0,0,0,0.3)), url('img/plan-advisor.jpg');
-            background-size: cover;
-            background-position: center;
-            min-height: 300px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            color: white;
-            text-align: center;
-        }
-        .advisor-title-label {
-            background: var(--advisor-gold-border);
-            padding: 8px 30px;
-            border-radius: 50px;
-            color: #4a3b00;
-            font-weight: 900;
-            display: inline-block;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            margin-bottom: 15px;
-        }
-        .advisor-content {
-            padding: 50px;
-            background: var(--advisor-gold-bg);
-            position: relative;
-        }
-        .advisor-content::before {
-            content: "\f3ed";
-            font-family: "Font Awesome 6 Free";
-            font-weight: 900;
-            position: absolute;
-            bottom: 20px;
-            right: 30px;
-            font-size: 10rem;
-            color: rgba(184, 134, 11, 0.04);
-            z-index: 0;
-        }
-        .advisor-case { 
-            background: rgba(255, 255, 255, 0.7); 
-            border-radius: 15px; 
-            padding: 20px; 
-            margin-top: 25px; 
-            border: 1px solid rgba(212, 175, 55, 0.3);
-            backdrop-filter: blur(5px);
-            position: relative;
-            z-index: 1;
+        .hero h1 { font-size: clamp(2.35rem, 5.5vw, 4.85rem); font-weight: 900; letter-spacing: -.055em; line-height: 1.12; margin: 0 0 22px; }
+        .hero-lead { color: #d8e2eb; font-size: clamp(1rem, 1.5vw, 1.15rem); margin: 0 0 28px; max-width: 620px; }
+        .hero-facts { border-top: 1px solid rgba(255,255,255,.2); display: grid; gap: 0; grid-template-columns: 1fr 1fr; margin: 0 0 30px; }
+        .hero-fact { padding: 18px 18px 0 0; }
+        .hero-fact + .hero-fact { border-left: 1px solid rgba(255,255,255,.2); padding-left: 20px; }
+        .hero-fact strong { color: #8fcaff; display: block; font-size: .86rem; margin-bottom: 4px; }
+        .hero-fact span { color: #d4dde5; display: block; font-size: .82rem; line-height: 1.6; }
+        .hero-strip { background: var(--ara-blue); color: var(--white); position: relative; z-index: 3; }
+        .hero-strip-inner { display: grid; grid-template-columns: repeat(4, 1fr); }
+        .hero-strip span { border-right: 1px solid rgba(255,255,255,.32); font-size: .78rem; font-weight: 900; letter-spacing: .04em; padding: 14px 18px; text-align: center; }
+        .hero-strip span:first-child { border-left: 1px solid rgba(255,255,255,.32); }
+
+        .use-layout { display: grid; gap: 52px; grid-template-columns: .92fr 1.08fr; }
+        .use-photo { min-height: 560px; overflow: hidden; position: relative; }
+        .use-photo img { height: 100%; object-fit: cover; width: 100%; }
+        .use-photo-caption { background: var(--ink); bottom: 0; color: var(--white); font-size: .78rem; left: 0; letter-spacing: .06em; padding: 13px 16px; position: absolute; }
+        .use-list { border-top: 2px solid var(--ink); }
+        .use-item { border-bottom: 1px solid var(--line); display: grid; gap: 18px; grid-template-columns: 48px 1fr; padding: 24px 0; }
+        .use-item-number { color: var(--ara-blue); font-size: .78rem; font-weight: 900; letter-spacing: .12em; }
+        .use-item h3 { font-size: 1.2rem; font-weight: 900; margin: -5px 0 6px; }
+        .use-item p { color: var(--muted); font-size: .9rem; margin: 0; }
+
+        .service-switch { border: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1.15fr; }
+        .service-panel { padding: 38px; }
+        .service-panel + .service-panel { background: var(--ink-soft); border-left: 8px solid var(--ara-blue); color: var(--white); }
+        .service-label { color: var(--ara-blue); font-size: .75rem; font-weight: 900; letter-spacing: .15em; margin: 0 0 12px; text-transform: uppercase; }
+        .service-panel h3 { font-size: clamp(1.45rem, 2.3vw, 2.15rem); font-weight: 900; margin: 0 0 18px; }
+        .service-panel p { color: var(--muted); margin-bottom: 22px; }
+        .service-panel + .service-panel p { color: #bcc6cf; }
+        .plain-list { list-style: none; margin: 0; padding: 0; }
+        .plain-list li { border-top: 1px solid var(--line); font-size: .9rem; font-weight: 700; padding: 11px 0; }
+        .service-panel + .service-panel .plain-list li { border-color: rgba(255,255,255,.18); }
+        .service-caution { background: #e8f4ff; border-left: 4px solid var(--ara-blue); color: #143752; font-size: .86rem; margin-top: 24px; padding: 14px 16px; }
+
+        .pricing-intro { align-items: stretch; display: grid; gap: 12px; grid-template-columns: 1.4fr 1fr 1fr; margin-bottom: 28px; }
+        .pricing-note { background: var(--ink); color: var(--white); padding: 24px; }
+        .pricing-note strong { display: block; font-size: 1.05rem; margin-bottom: 6px; }
+        .pricing-note span { color: #b9c4cd; font-size: .82rem; }
+        .pricing-note--blue { background: var(--ara-blue); }
+        .pricing-note--blue span { color: var(--white); }
+        .pricing-note--light { background: #dfe8ef; color: var(--ink); }
+        .pricing-note--light span { color: #42505c; }
+        .plan-group { border-top: 3px solid var(--ink); margin-top: 44px; padding-top: 22px; }
+        .plan-group-head { align-items: baseline; display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: space-between; margin-bottom: 20px; }
+        .plan-group-head h3 { font-size: 1.45rem; font-weight: 900; margin: 0; }
+        .plan-group-head p { color: var(--muted); font-size: .84rem; margin: 0; }
+        .equipment-plans { display: grid; gap: 22px; grid-template-columns: 1fr 1fr; }
+        .plan-horizontal { background: var(--white); border: 1px solid var(--line); display: grid; grid-template-columns: 42% 58%; min-height: 335px; }
+        .plan-horizontal.is-focus { border-color: var(--ara-blue); border-top-width: 5px; }
+        .plan-visual { min-height: 250px; overflow: hidden; position: relative; }
+        .plan-visual img { height: 100%; object-fit: cover; width: 100%; }
+        .plan-kind { background: var(--ink); color: var(--white); font-size: .68rem; font-weight: 900; left: 0; letter-spacing: .12em; padding: 8px 10px; position: absolute; top: 0; }
+        .plan-content { display: flex; flex-direction: column; padding: 25px; }
+        .plan-name { font-size: 1.25rem; font-weight: 900; margin: 0; }
+        .plan-use { color: var(--muted); font-size: .76rem; margin: 3px 0 16px; }
+        .plan-price { color: var(--ink); font-size: 1.8rem; font-weight: 900; letter-spacing: -.035em; line-height: 1.2; margin-bottom: 17px; }
+        .plan-price small { color: var(--muted); font-size: .72rem; letter-spacing: 0; }
+        .plan-specs { list-style: none; margin: 0; padding: 0; }
+        .plan-specs li { border-top: 1px solid #e0e6eb; font-size: .78rem; padding: 7px 0; }
+        .onsite-plans { background: var(--ink); display: grid; gap: 1px; grid-template-columns: 1fr 1fr; }
+        .onsite-plan { background: var(--ink-soft); color: var(--white); display: grid; grid-template-rows: 240px 1fr; }
+        .onsite-plan-media { overflow: hidden; position: relative; }
+        .onsite-plan-media img { height: 100%; object-fit: cover; width: 100%; }
+        .onsite-plan-media::after { background: rgba(0,0,0,.18); content: ""; inset: 0; position: absolute; }
+        .onsite-label { background: var(--ara-blue); color: var(--white); font-size: .7rem; font-weight: 900; left: 0; letter-spacing: .1em; padding: 8px 11px; position: absolute; top: 0; z-index: 1; }
+        .onsite-body { padding: 30px; }
+        .onsite-body h4 { font-size: 1.4rem; font-weight: 900; margin: 0; }
+        .onsite-body .plan-use { color: #aab7c2; }
+        .onsite-body .plan-price { color: #8fcaff; }
+        .onsite-body .plan-price small { color: #b9c4cd; }
+        .onsite-body .plan-specs li { border-color: rgba(255,255,255,.14); }
+        .onsite-includes { border: 1px solid rgba(143,202,255,.55); color: #d9eeff; font-size: .78rem; font-weight: 900; margin-top: 18px; padding: 10px 12px; }
+        .other-plans { border-bottom: 1px solid var(--line); }
+        .other-plan { align-items: start; border-top: 1px solid var(--line); display: grid; gap: 20px; grid-template-columns: 1.1fr .65fr 2fr; padding: 22px 0; }
+        .other-plan h4 { font-size: 1rem; font-weight: 900; margin: 0 0 3px; }
+        .other-plan .plan-use { margin: 0; }
+        .other-price { color: var(--ara-blue-dark); font-size: 1.05rem; font-weight: 900; }
+        .other-plan p { color: var(--muted); font-size: .84rem; margin: 0; }
+        .training { background: #ece8de; border-left: 6px solid #9a7625; margin-top: 22px; padding: 30px; }
+        .training-grid { display: grid; gap: 36px; grid-template-columns: 1.15fr .85fr; }
+        .training h3 { font-size: 1.55rem; font-weight: 900; margin: 0 0 10px; }
+        .training p { color: #594d36; font-size: .88rem; }
+        .training .plain-list li { border-color: rgba(89,77,54,.23); font-size: .82rem; }
+        .training-price { align-self: center; border-left: 1px solid rgba(89,77,54,.3); padding-left: 32px; }
+        .training-price strong { color: #74571b; display: block; font-size: 1.75rem; margin: 6px 0; }
+        .training-price span { display: block; font-size: .76rem; }
+        .cost-bar { background: #071d2f; color: var(--white); display: grid; gap: 1px; grid-template-columns: repeat(3, 1fr); margin-top: 22px; }
+        .cost-part { background: #102b41; padding: 22px; text-align: center; }
+        .cost-part strong { color: #8fcaff; display: block; font-size: .95rem; margin-bottom: 4px; }
+        .cost-part span { color: #d0dae2; font-size: .8rem; }
+        .cost-caption { background: var(--ara-blue); color: var(--white); font-size: .83rem; font-weight: 900; margin: 0; padding: 14px 18px; text-align: center; }
+
+        .gallery-grid { display: grid; gap: 12px; grid-template-columns: 1.3fr .7fr; grid-template-rows: 245px 245px; }
+        .gallery-item { margin: 0; overflow: hidden; position: relative; }
+        .gallery-item:first-child { grid-row: 1 / 3; }
+        .gallery-item img { height: 100%; object-fit: cover; transition: transform .4s ease; width: 100%; }
+        .gallery-item:hover img { transform: scale(1.015); }
+        .gallery-item figcaption { background: rgba(11,17,24,.9); bottom: 0; color: var(--white); font-size: .72rem; left: 0; letter-spacing: .05em; padding: 9px 12px; position: absolute; }
+        .proof-line { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 22px; }
+        .proof-line div { padding: 20px; text-align: center; }
+        .proof-line div + div { border-left: 1px solid var(--line); }
+        .proof-line strong { display: block; font-size: .9rem; }
+        .proof-line span { color: var(--muted); font-size: .75rem; }
+
+        .flow { counter-reset: flow; display: grid; gap: 0; grid-template-columns: repeat(4, 1fr); }
+        .flow-step { border-left: 1px solid rgba(255,255,255,.2); padding: 0 24px 10px; }
+        .flow-step:last-child { border-right: 1px solid rgba(255,255,255,.2); }
+        .flow-step::before { color: #67b8ff; content: "0" counter(flow); counter-increment: flow; display: block; font-size: 2rem; font-weight: 900; letter-spacing: -.08em; margin-bottom: 18px; }
+        .flow-step h3 { font-size: 1rem; font-weight: 900; margin-bottom: 9px; }
+        .flow-step p { color: #b8c2cb; font-size: .8rem; margin: 0; }
+
+        .mic-layout { display: grid; gap: 30px; grid-template-columns: .8fr 1.2fr; }
+        .mic-intro { background: #071d2f; color: var(--white); padding: 32px; }
+        .mic-intro h3 { font-size: 1.35rem; font-weight: 900; margin: 0 0 12px; }
+        .mic-intro p { color: #bdc9d3; font-size: .86rem; margin: 0; }
+        .mic-list { border-top: 2px solid var(--ink); display: grid; grid-template-columns: 1fr 1fr; }
+        .mic-item { border-bottom: 1px solid var(--line); padding: 16px 12px 16px 0; }
+        .mic-item:nth-child(even) { border-left: 1px solid var(--line); padding-left: 18px; }
+        .mic-item strong { display: block; font-size: .82rem; margin-bottom: 4px; }
+        .mic-item span { color: var(--muted); display: block; font-size: .72rem; }
+
+        .faq-layout { display: grid; gap: 54px; grid-template-columns: .78fr 1.22fr; }
+        .faq-sticky { align-self: start; position: sticky; top: 106px; }
+        .faq-sticky p { color: var(--muted); margin: 18px 0 0; }
+        .faq-list { border-top: 2px solid var(--ink); }
+        details { border-bottom: 1px solid var(--line); }
+        summary { cursor: pointer; font-size: .95rem; font-weight: 900; list-style: none; padding: 20px 46px 20px 0; position: relative; }
+        summary::-webkit-details-marker { display: none; }
+        summary::after { color: var(--ara-blue); content: "+"; font-size: 1.5rem; font-weight: 500; line-height: 1; position: absolute; right: 10px; top: 19px; }
+        details[open] summary::after { content: "−"; }
+        .faq-answer { color: var(--muted); font-size: .88rem; padding: 0 42px 22px 0; }
+
+        .coverage { align-items: stretch; display: grid; grid-template-columns: .95fr 1.05fr; }
+        .coverage-map { background: var(--ara-blue); color: var(--white); display: flex; flex-direction: column; justify-content: space-between; min-height: 380px; padding: 42px; }
+        .coverage-map strong { font-size: clamp(2.2rem, 5vw, 4.6rem); font-weight: 900; letter-spacing: -.06em; line-height: 1; }
+        .coverage-map span { border-top: 1px solid rgba(255,255,255,.4); font-size: .82rem; padding-top: 16px; }
+        .coverage-copy { background: var(--ink); color: var(--white); padding: 42px; }
+        .coverage-copy h2 { font-size: clamp(1.6rem, 3vw, 2.6rem); font-weight: 900; margin: 0 0 20px; }
+        .coverage-copy p { color: #c5d0d9; }
+        .coverage-copy .plain-list li { border-color: rgba(255,255,255,.18); font-size: .84rem; }
+
+        .notes-grid { display: grid; gap: 1px; grid-template-columns: repeat(2, 1fr); }
+        .note { background: var(--paper); border-left: 4px solid #9ba9b6; padding: 25px; }
+        .note h3 { font-size: 1rem; font-weight: 900; margin: 0 0 10px; }
+        .note p, .note li { color: var(--muted); font-size: .82rem; }
+        .note p { margin: 0; }
+        .note ul { list-style: none; margin: 8px 0 0; padding: 0; }
+
+        .final-cta { background: var(--ink); color: var(--white); overflow: hidden; position: relative; }
+        .final-cta::after { background: url('img/cta-bg.jpg') center/cover; content: ""; inset: 0 0 0 58%; opacity: .24; position: absolute; }
+        .final-cta-inner { padding-block: 76px; position: relative; z-index: 1; }
+        .final-cta h2 { font-size: clamp(1.9rem, 4vw, 3.5rem); font-weight: 900; letter-spacing: -.04em; margin: 0 0 15px; max-width: 720px; }
+        .final-cta p { color: #c2cdd6; margin: 0 0 28px; max-width: 620px; }
+        footer { background: #070b10; color: #8e9aa5; font-size: .75rem; padding: 24px; text-align: center; }
+        footer a { color: #b8c6d1; }
+
+        @media (max-width: 991.98px) {
+            .nav-link { margin-left: 0; padding-block: 10px; }
+            .hero { min-height: 700px; }
+            .hero-photo { inset: 0; }
+            .hero-photo::after { background: rgba(5,10,16,.56); }
+            .hero-inner { align-items: end; min-height: 700px; padding-bottom: 34px; }
+            .hero-copy { margin-top: 170px; max-width: 640px; }
+            .use-layout, .service-switch, .faq-layout, .coverage { grid-template-columns: 1fr; }
+            .use-photo { min-height: 420px; }
+            .service-panel + .service-panel { border-left: 0; border-top: 8px solid var(--ara-blue); }
+            .pricing-intro { grid-template-columns: 1fr 1fr; }
+            .pricing-note:first-child { grid-column: 1 / 3; }
+            .equipment-plans { grid-template-columns: 1fr; }
+            .plan-horizontal { grid-template-columns: 38% 62%; }
+            .mic-layout { grid-template-columns: 1fr; }
+            .faq-sticky { position: static; }
+            .flow { grid-template-columns: 1fr 1fr; row-gap: 34px; }
+            .flow-step:nth-child(3) { border-left: 1px solid rgba(255,255,255,.2); }
+            .flow-step:nth-child(2) { border-right: 1px solid rgba(255,255,255,.2); }
         }
 
-        /* 料金構造 */
-        .cost-structure-outer {
-            background: linear-gradient(rgba(0, 30, 60, 0.85), rgba(0, 30, 60, 0.85)), url('img/plan-bg.jpg');
-            background-size: cover; background-position: center; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; color: white;
+        @media (max-width: 767.98px) {
+            .site-shell, .navbar .container { padding-inline: 18px; }
+            .section, .section--tight { padding-block: 58px; }
+            .section-head { display: block; margin-bottom: 30px; }
+            .section-lead { margin-top: 16px; }
+            .hero { min-height: 730px; }
+            .hero-inner { min-height: 730px; padding-inline: 0; }
+            .hero-copy { border-left-width: 5px; margin: 150px 16px 0; padding: 28px 24px 30px; }
+            .hero h1 { font-size: clamp(2.05rem, 10vw, 3.25rem); }
+            .hero-lead { font-size: .92rem; }
+            .hero-facts { grid-template-columns: 1fr; }
+            .hero-fact + .hero-fact { border-left: 0; border-top: 1px solid rgba(255,255,255,.2); padding-left: 0; }
+            .button-row { display: grid; grid-template-columns: 1fr 1fr; }
+            .hero-strip-inner { grid-template-columns: 1fr 1fr; }
+            .hero-strip span:nth-child(3) { border-left: 1px solid rgba(255,255,255,.32); }
+            .hero-strip span { font-size: .7rem; padding: 12px 8px; }
+            .use-layout { gap: 30px; }
+            .use-photo { min-height: 330px; }
+            .use-item { grid-template-columns: 40px 1fr; }
+            .service-panel { padding: 28px 22px; }
+            .pricing-intro { grid-template-columns: 1fr; }
+            .pricing-note:first-child { grid-column: auto; }
+            .plan-horizontal { display: block; }
+            .plan-visual { min-height: 210px; }
+            .onsite-plans { grid-template-columns: 1fr; }
+            .other-plan { grid-template-columns: 1fr; gap: 8px; }
+            .training-grid { grid-template-columns: 1fr; }
+            .training-price { border-left: 0; border-top: 1px solid rgba(89,77,54,.3); padding: 22px 0 0; }
+            .cost-bar { grid-template-columns: 1fr; }
+            .gallery-grid { grid-template-columns: 1fr 1fr; grid-template-rows: 320px 180px; }
+            .gallery-item:first-child { grid-column: 1 / 3; grid-row: auto; }
+            .proof-line { grid-template-columns: 1fr; }
+            .proof-line div + div { border-left: 0; border-top: 1px solid var(--line); }
+            .flow { grid-template-columns: 1fr; row-gap: 26px; }
+            .flow-step, .flow-step:nth-child(3) { border-left: 1px solid rgba(255,255,255,.2); }
+            .flow-step, .flow-step:nth-child(2), .flow-step:last-child { border-right: 0; }
+            .mic-list { grid-template-columns: 1fr; }
+            .mic-item:nth-child(even) { border-left: 0; padding-left: 0; }
+            .coverage-map, .coverage-copy { padding: 30px 24px; }
+            .coverage-map { min-height: 280px; }
+            .notes-grid { grid-template-columns: 1fr; }
+            .final-cta::after { inset: 45% 0 0; }
+            .final-cta-inner { padding-block: 58px; }
         }
-        .cost-box { background: rgba(255, 255, 255, 0.95); padding: 30px 15px; border-radius: 15px; color: var(--dark-text); height: 100%; position: relative; }
-        .plus-icon { font-size: 1.5rem; color: #fff; display: flex; align-items: center; justify-content: center; }
-        .campaign-badge { background: var(--campaign-orange); color: white; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 4px; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
 
-        /* 利用の流れ */
-        .flow-card { background: #f8f9fa; border-radius: 15px; padding: 25px; text-align: center; position: relative; height: 100%; border: 1px solid #eee; }
-        .flow-number { 
-            width: 40px; height: 40px; background: var(--primary-blue); color: white; 
-            border-radius: 50%; display: flex; align-items: center; justify-content: center; 
-            margin: 0 auto 15px; font-weight: 900; 
+        @media (max-width: 420px) {
+            .gallery-grid { display: block; }
+            .gallery-item { height: 230px; margin-bottom: 10px; }
+            .navbar-brand img { height: 30px; }
         }
 
-        /* マイクラインナップ */
-        .mic-section { 
-            background-color: var(--deep-dark); 
-            background-image: radial-gradient(circle at 20% 30%, rgba(0, 123, 255, 0.15) 0%, transparent 40%),
-                              radial-gradient(circle at 80% 70%, rgba(0, 123, 255, 0.1) 0%, transparent 40%);
-            border-radius: 40px; padding: 80px 40px; margin-bottom: 80px; color: white; position: relative;
+        @media (max-width: 340px) {
+            .button-row { grid-template-columns: 1fr; }
         }
-        .mic-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; max-width: 1200px; margin: 0 auto; position: relative; z-index: 2; }
-        .mic-tag { 
-            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); 
-            backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; font-size: 0.95rem; font-weight: 700; 
-            flex: 1 1 calc(33.333% - 20px); min-width: 300px; text-align: left; transition: 0.3s;
-        }
-        .mic-tag.special { border-color: var(--bright-blue); background: rgba(0, 123, 255, 0.15); }
-        .mic-tag span { 
-            color: var(--bright-blue); 
-            font-size: 0.85rem; 
-            display: block; 
-            margin-bottom: 8px; 
-            text-transform: uppercase; 
-            letter-spacing: 1.5px;
-            text-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
-        }
-        .mic-desc { display: block; font-size: 0.85rem; font-weight: normal; margin-top: 10px; opacity: 0.9; line-height: 1.6; color: #f8f9fa; }
 
-        /* レンタル規約 */
-        .notes-section { background: #fdfdfd; border: 1px solid #eee; border-radius: 30px; padding: 80px 40px; margin-bottom: 80px; }
-        .notes-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
-        .note-item h3 { font-weight: 900; color: var(--primary-blue); margin-bottom: 20px; border-left: 5px solid var(--primary-blue); padding-left: 15px; font-size: 1.1rem; }
-        .note-item p, .note-item li { font-size: 0.9rem; color: #555; margin-bottom: 8px; }
-
-        .cta-section { 
-            position: relative; background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
-            background-size: cover; background-position: center; background-attachment: fixed;
-            padding: 120px 0; text-align: center; border-radius: 30px; margin-bottom: 80px; color: white; overflow: hidden;
-        }
-        .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; }
-
-        /* PA rental page refresh */
-        .rental-intro {
-            max-width: 1000px;
-            margin: 0 auto 3.5rem;
-            padding: 3.2rem 2.5rem;
-            position: relative;
-            overflow: hidden;
-            background: linear-gradient(135deg, #f5faff 0%, #ffffff 62%);
-            border: 1px solid #dceaf8;
-            border-radius: 28px;
-            box-shadow: 0 18px 45px rgba(18, 98, 178, 0.08);
-        }
-        .rental-intro::before {
-            content: "";
-            position: absolute;
-            width: 280px;
-            height: 280px;
-            right: -120px;
-            top: -170px;
-            border: 42px solid rgba(0, 123, 255, 0.07);
-            border-radius: 50%;
-        }
-        .rental-intro > * { position: relative; z-index: 1; }
-        .rental-kicker,
-        .plan-kicker {
-            color: var(--primary-blue);
-            font-size: .76rem;
-            font-weight: 900;
-            letter-spacing: .18em;
-        }
-        .rental-intro h2 { font-size: clamp(1.55rem, 3vw, 2.2rem); }
-        .rental-guide {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 1px;
-            overflow: hidden;
-            margin: 0 auto 5rem;
-            background: #d9e7f5;
-            border: 1px solid #d9e7f5;
-            border-radius: 22px;
-            box-shadow: 0 15px 35px rgba(16, 50, 85, 0.07);
-        }
-        .rental-guide-card {
-            min-height: 180px;
-            padding: 2rem 1.8rem;
-            background: #fff;
-            position: relative;
-        }
-        .rental-guide-card:nth-child(2) { background: #f6faff; }
-        .rental-guide-icon {
-            width: 42px;
-            height: 42px;
-            display: grid;
-            place-items: center;
-            margin-bottom: 1rem;
-            border-radius: 12px;
-            background: #e8f3ff;
-            color: var(--primary-blue);
-            font-size: 1.05rem;
-        }
-        .rental-guide-card h3 { font-size: 1rem; font-weight: 900; margin-bottom: .45rem; }
-        .rental-guide-card p { color: #627386; font-size: .86rem; line-height: 1.7; margin: 0; }
-        .rental-use-cases {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 1.5rem;
-            margin: 0 auto 5rem;
-        }
-        .rental-use-case {
-            min-height: 100%;
-            padding: 2.35rem;
-            border: 1px solid #d9e7f5;
-            border-radius: 24px;
-            background: linear-gradient(145deg, #ffffff, #f4faff);
-            box-shadow: 0 15px 36px rgba(16, 50, 85, 0.07);
-        }
-        .rental-use-case--outdoor {
-            color: #fff;
-            border-color: transparent;
-            background: linear-gradient(135deg, #102c49, #0b5f9d);
-        }
-        .use-case-kicker {
-            margin-bottom: .65rem;
-            color: var(--primary-blue);
-            font-size: .73rem;
-            font-weight: 900;
-            letter-spacing: .16em;
-        }
-        .rental-use-case--outdoor .use-case-kicker { color: #9bd1ff; }
-        .rental-use-case h2 { font-size: clamp(1.3rem, 2.4vw, 1.7rem); font-weight: 900; line-height: 1.45; }
-        .rental-use-case > p { color: #5d7085; font-size: .93rem; line-height: 1.85; }
-        .rental-use-case--outdoor > p { color: rgba(255, 255, 255, .84); }
-        .rental-use-list { display: grid; gap: .72rem; margin: 1.35rem 0 0; padding: 0; list-style: none; }
-        .rental-use-list li { display: flex; gap: .7rem; align-items: flex-start; font-size: .9rem; font-weight: 700; }
-        .rental-use-list i { margin-top: .45rem; color: var(--primary-blue); }
-        .rental-use-case--outdoor .rental-use-list i { color: #9bd1ff; }
-        .plan-section-heading { margin-bottom: 2.3rem; }
-        .plan-section-heading .section-title { margin-bottom: 1.2rem; }
-        .plan-card {
-            border: 1px solid #d9e6f2 !important;
-            border-radius: 18px;
-            box-shadow: 0 12px 30px rgba(15, 47, 79, 0.08);
-        }
-        .plan-card:hover { box-shadow: 0 22px 45px rgba(15, 72, 127, 0.17); }
-        .plan-card::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, #0a72dc, #63b5ff);
-            z-index: 3;
-        }
-        .plan-card.is-featured { border-color: #1988f7 !important; box-shadow: 0 16px 38px rgba(0, 123, 255, 0.16); }
-        .plan-card.is-featured::before { height: 5px; background: linear-gradient(90deg, #006bd6, #73c4ff); }
-        .plan-img-wrapper { height: 205px; }
-        .plan-img-wrapper::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, transparent 48%, rgba(5, 24, 44, 0.2));
-            pointer-events: none;
-        }
-        .plan-header { background: linear-gradient(135deg, #102c49, #155d9f) !important; padding: 17px 20px 18px; }
-        .plan-card.is-featured .plan-header { background: linear-gradient(135deg, #0878de, #0066c9) !important; }
-        .plan-header h5 { font-size: 1.08rem; letter-spacing: .01em; }
-        .plan-header p { color: rgba(255, 255, 255, .75); }
-        .plan-body { padding: 24px 25px 27px; }
-        .price-tag { font-size: 1.48rem; letter-spacing: -.02em; }
-        .plan-card .price-tag { color: #112c47 !important; }
-        .plan-card.is-featured .price-tag { color: var(--primary-blue) !important; }
-        .plan-list { color: #445568; font-size: .9rem; }
-        .plan-list li { margin-bottom: 10px; }
-        .plan-list i { color: var(--primary-blue) !important; }
-        .gakuwari-stamp {
-            border-color: var(--primary-blue);
-            color: var(--primary-blue);
-            box-shadow: 0 0 0 2px rgba(255,255,255,0.92), 0 7px 16px rgba(0, 80, 160, 0.14);
-        }
-        .recommend-badge { color: var(--primary-blue); font-size: .7rem; letter-spacing: .04em; }
-        
-        @media (max-width: 991px) {
-            .mic-tag { flex: 1 1 calc(50% - 20px); }
-            .advisor-visual { min-height: 200px; }
-        }
-        @media (max-width: 767px) {
-            .page-header, .cta-section { background-attachment: scroll; }
-            .plus-icon { transform: rotate(90deg); padding: 10px 0; }
-            .mic-tag { flex: 1 1 100%; }
-            .advisor-content { padding: 30px; }
-            .advisor-outer-wrap::before, .advisor-outer-wrap::after { display: none; }
-            .rental-intro { padding: 2.2rem 1.35rem; border-radius: 20px; }
-            .rental-guide { grid-template-columns: 1fr; margin-bottom: 3.5rem; }
-            .rental-guide-card { min-height: auto; padding: 1.5rem; }
-            .rental-use-cases { grid-template-columns: 1fr; margin-bottom: 3.5rem; }
-            .rental-use-case { padding: 1.7rem 1.45rem; border-radius: 20px; }
-            .plan-img-wrapper { height: 190px; }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            *, *::before, *::after { transition: none !important; }
         }
     </style>
     <!-- Google tag (gtag.js) -->
@@ -475,21 +442,18 @@
     </script>
 </head>
 <body>
-
-<nav class="navbar navbar-expand-lg navbar-dark">
+<nav class="navbar navbar-expand-lg navbar-dark" aria-label="メインメニュー">
     <div class="container">
         <a class="navbar-brand" href="./">
-            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH PA RENTAL" width="2919" height="422" decoding="async">
+            <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async">
         </a>
-
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
             <span class="navbar-toggler-icon"></span>
         </button>
-
         <div class="collapse navbar-collapse" id="navbarNav">
             <div class="navbar-nav ms-auto text-center">
                 <a class="nav-link" href="./">HOME</a>
-                <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
+                <a class="nav-link" href="pa-rental.html" aria-current="page">PA RENTAL</a>
                 <a class="nav-link" href="stage-production.html">STAGE</a>
                 <a class="nav-link" href="tour-pa.html">TOUR PA</a>
                 <a class="nav-link" href="installation.html">INSTALLATION</a>
@@ -500,476 +464,439 @@
     </div>
 </nav>
 
-<header class="page-header">
-    <div class="container">
-        <p class="eyebrow">HIROSHIMA SOUND &amp; PA RENTAL</p>
-            <h1 class="display-3 page-title-ja"><span class="d-block">広島の音響・PAレンタル</span><span class="d-block fs-6 mt-2">PA RENTAL</span></h1>
-        <p class="lead fw-bold">広島の音響レンタル・PA機材レンタル。機材の手配から設営、オペレートまでお任せください。</p>
-    </div>
-    <div class="wave-container">
-        <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
+<header class="hero">
+    <picture class="hero-photo" aria-hidden="true">
+        <source srcset="img/PA-RENTAL.webp" type="image/webp">
+        <img src="img/PA-RENTAL.jpg" alt="" width="1620" height="911" fetchpriority="high" decoding="async">
+    </picture>
+    <div class="site-shell hero-inner">
+        <div class="hero-copy">
+            <p class="eyebrow">Hiroshima sound &amp; PA service</p>
+            <h1>広島の音響・<br>PAレンタル</h1>
+            <p class="hero-lead">広島を拠点に、会議・ライブ・式典・学園祭・屋外イベントへ。必要な機材だけのレンタルから、運搬・設営・当日のPAオペレートまで、現場に合わせて組み立てます。</p>
+            <div class="hero-facts" aria-label="サービスの違い">
+                <div class="hero-fact">
+                    <strong>機材レンタル</strong>
+                    <span>スピーカー・マイク・ミキサーを必要な構成で。直接引き取りにも対応。</span>
+                </div>
+                <div class="hero-fact">
+                    <strong>現場対応</strong>
+                    <span>運搬・設営・撤収・PAオペレーターを、プランまたは個別見積りで手配。</span>
+                </div>
+            </div>
+            <div class="button-row">
+                <a class="button button--primary" href="contact.html">空き状況・見積りを相談</a>
+                <a class="button button--ghost" href="#plans">料金プランを見る</a>
+            </div>
+        </div>
     </div>
 </header>
-
-<main class="container my-5 py-5">
-    <section class="rental-intro text-center">
-        <p class="rental-kicker mb-2">SOUND RENTAL IN HIROSHIMA</p>
-        <h2 class="fw-bold mb-3">広島の音響レンタル・PA機材レンタルならARA-TECH</h2>
-        <p class="lead mb-3">スピーカー、マイク、ミキサーなどのPA機材レンタルはもちろん、運搬・設営・撤収、PAオペレーターの手配まで一括で対応します。イベントの規模や会場に合わせて、必要な機材構成をご提案します。</p>
-        <p class="text-muted mb-0">企業イベント・式典・ライブ・学園祭・地域のお祭り・屋外イベントなど、広島県内を中心に幅広くご相談いただけます。</p>
-    </section>
-
-    <section class="rental-guide" aria-label="PAレンタルの対応内容">
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-volume-up"></i></div>
-            <h3>機材レンタル</h3>
-            <p>必要なスピーカー・マイク・ミキサーを、会場と用途に合わせてご提案します。</p>
-        </article>
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-truck-loading"></i></div>
-            <h3>運搬・設営・撤収</h3>
-            <p>搬入からセッティング、終演後の撤収まで、現場の流れに合わせて対応します。</p>
-        </article>
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-sliders-h"></i></div>
-            <h3>PAオペレーター派遣</h3>
-            <p>ライブや式典など、当日の進行に必要な音響オペレートもお任せいただけます。</p>
-        </article>
-    </section>
-
-    <section class="rental-use-cases" aria-label="スピーカーレンタルと屋外イベント音響のご案内">
-        <article class="rental-use-case">
-            <p class="use-case-kicker">SPEAKER &amp; MICROPHONE RENTAL</p>
-            <h2>広島のスピーカーレンタル・マイクレンタル</h2>
-            <p>会議・講演会・店舗イベント・小規模ライブなど、必要な音量と会場の広さに合わせて機材を組み合わせます。音響機材に詳しくなくても、用途をお伝えいただければ必要な構成をご提案します。</p>
-            <ul class="rental-use-list">
-                <li><i class="fas fa-check-circle"></i><span>スピーカー、ワイヤレスマイク、ミキサーなど必要な機材だけのレンタル</span></li>
-                <li><i class="fas fa-check-circle"></i><span>話す人の人数・会場の広さ・BGMや演奏の有無に合わせたセット提案</span></li>
-                <li><i class="fas fa-check-circle"></i><span>機材のお引き取り、または運搬・設営まで選べる対応</span></li>
-            </ul>
-        </article>
-        <article class="rental-use-case rental-use-case--outdoor">
-            <p class="use-case-kicker">OUTDOOR EVENT SOUND</p>
-            <h2>広島の屋外イベント音響レンタル</h2>
-            <p>お祭り、地域イベント、野外ライブ、式典、キッチンカーイベントなどの屋外音響にも対応します。会場の広さ、電源、搬入経路、雨天時の運用まで事前に確認し、当日の現場を支えます。</p>
-            <ul class="rental-use-list">
-                <li><i class="fas fa-check-circle"></i><span>ステージ・客席に合わせたスピーカー配置とマイク構成</span></li>
-                <li><i class="fas fa-check-circle"></i><span>電源が遠い会場や、発電機の手配が必要な現場も事前にご相談可能</span></li>
-                <li><i class="fas fa-check-circle"></i><span>搬入・設営・撤収からPAオペレーター派遣まで一括対応</span></li>
-            </ul>
-        </article>
-    </section>
-
-    <div class="text-center plan-section-heading">
-        <p class="plan-kicker mb-2">CHOOSE YOUR PLAN</p>
-        <h2 class="section-title">PA機材レンタルの料金・プラン</h2>
-        <p class="lead">必要な機材だけのレンタルから、設営・オペレート込みのプランまで対応します。</p>
-    </div>
-
-<div class="row g-4 mb-5">
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid #6c757d;">
-            <div class="plan-img-wrapper"><img src="img/plan-compact.jpg" class="plan-img" alt="小規模会場向けCompact PAプラン" width="1215" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-compact">
-                <h3 class="h5 mb-0 fw-bold">Compact PA</h3>
-                <p class="small mb-0 opacity-75">会議・プレゼン・小規模イベント</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag text-dark">¥22,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
-                <ul class="plan-list">
-                    <li><i class="fas fa-check-circle"></i><div>パワードスタンドスピーカー(ミキサー内臓) ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>有線マイク ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>スタンド/ケーブル一式</div></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card is-featured" style="border: 2px solid var(--primary-blue);">
-            <div class="plan-img-wrapper"><img src="img/plan-standard.jpg" class="plan-img" alt="ライブ向けStandard LIVEプラン" width="1214" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-standard">
-                <h3 class="h5 mb-0 fw-bold">Standard LIVE</h3>
-                <p class="small mb-0 opacity-75">中規模ライブ・本格イベント</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag text-primary">¥44,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
-                <ul class="plan-list">
-                    <li><i class="fas fa-check-circle"></i><div>高出力パワードスタンドスピーカー ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>サイドモニター用パワードスタンドスピーカー ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>デジタルミキサー一式</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>有線マイク ×2</div></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid #343a40;">
-            <div class="plan-img-wrapper"><img src="img/plan-custom.jpg" class="plan-img" alt="大規模会場向けカスタムプラン" width="683" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-custom">
-                <h3 class="h5 mb-0 fw-bold">Large Scale</h3>
-                <p class="small mb-0 opacity-75">大規模フェス・ホール公演</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag text-muted">お見積り</span>
-                <p class="small mb-2 text-muted">ラインアレイ・システムを導入。ご予算に合わせて広大な会場の隅々まで解像度の高い音を届けます。</p>
-                <ul class="plan-list fw-bold">
-                    <li><i class="fas fa-star text-warning"></i><div>Line Array System 導入</div></li>
-                    <li><i class="fas fa-star text-warning"></i><div>フルシステム・カスタマイズ</div></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid #2c3e50;">
-            <div class="plan-img-wrapper"><img src="img/plan-engineer.jpg" class="plan-img" alt="PAオペレーター派遣プラン" width="1215" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-engineer">
-                <h3 class="h5 mb-0 fw-bold">PA Operator Only</h3>
-                <p class="small mb-0 opacity-75">技術提供・エンジニア派遣</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag" style="color: #2c3e50;">¥27,500 <small class="text-muted" style="font-size: 0.8rem;">(税込)〜</small></span>
-                <ul class="plan-list">
-                    <li><i class="fas fa-user-tie"></i><div>プロPAエンジニア 1名派遣</div></li>
-                    <li><i class="fas fa-sliders-h"></i><div>ゲストライブ・重要式典対応</div></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid var(--gakuwari-red);">
-            <div class="gakuwari-stamp">学割</div>
-            <div class="plan-img-wrapper"><img src="img/plan-gakuwari.jpg" class="plan-img" alt="学園祭向け音響プラン" width="1214" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-gakuwari">
-                <h3 class="h5 mb-0 fw-bold">School Festival Pack</h3>
-                <p class="small mb-0 opacity-75">学生限定・文化祭ライブ等</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag" style="color: var(--gakuwari-red);">¥66,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)</small></span>
-                <ul class="plan-list">
-                    <li><i class="fas fa-check-circle"></i><div>高出力パワードスタンドスピーカー ×4</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>サイドモニター用パワードスタンドスピーカー ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>デジタルミキサー一式</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>ワイヤレスマイク ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>楽器用専用マイク</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>PAエンジニア1名・運搬設営込</div></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-4 col-md-6">
-        <div class="plan-card" style="border: 2px solid var(--matsuri-orange);">
-            <div class="recommend-badge">イベントに最適</div>
-            <div class="plan-img-wrapper"><img src="img/plan-matsuri.jpg" class="plan-img" alt="お祭り・屋外イベント向け音響プラン" width="1215" height="911" loading="lazy" decoding="async"></div>
-            <div class="plan-header bg-matsuri">
-                <h3 class="h5 mb-0 fw-bold">Matsuri Pack</h3>
-                <p class="small mb-0 opacity-75">お祭り・屋外イベントパック</p>
-            </div>
-            <div class="plan-body">
-                <span class="price-tag" style="color: var(--matsuri-orange);">¥88,000 <small class="text-muted" style="font-size: 0.8rem;">(税込)</small></span>
-                <ul class="plan-list">
-                    <li><i class="fas fa-lightbulb"></i><div><strong>簡易LED照明 (4灯セット) 付き</strong></div></li>
-                    <li><i class="fas fa-check-circle"></i><div>高出力パワードスタンドスピーカー ×4</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>サイドモニター用パワードスタンドスピーカー ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>デジタルミキサー一式</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>ワイヤレスマイク ×2</div></li>
-                    <li><i class="fas fa-check-circle"></i><div>PAエンジニア1名・運搬設営込</div></li>
-                </ul>
-            </div>
-        </div>
+<div class="hero-strip" aria-label="対応内容">
+    <div class="site-shell hero-strip-inner">
+        <span>広島県内中心</span>
+        <span>屋内・屋外対応</span>
+        <span>機材のみOK</span>
+        <span>オペレーター相談可</span>
     </div>
 </div>
-    <div class="advisor-outer-wrap mb-5">
-        <div class="advisor-premium-card">
-            <div class="row g-0">
-                <div class="col-lg-5 advisor-visual">
-                    <div>
-                        <div class="advisor-title-label">
-                            <p class="mb-0">Technical Advisor</p>
-                        </div>
-                        <h3 class="fw-black display-5 mb-3 text-white" style="letter-spacing: 2px;">Training</h3>
-                        <p class="lead fw-bold mb-0">「プロがいなくても安心」と言えるクオリティへ</p>
-                    </div>
+
+<main>
+    <section class="section" aria-labelledby="uses-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-index">01 / Event &amp; use</p>
+                    <h2 class="section-title" id="uses-title">音が必要な現場に、<br>必要な規模で。</h2>
                 </div>
-                <div class="col-lg-7 advisor-content">
-                    <div class="row">
-                        <div class="col-md-7">
-                            <p class="small fw-bold text-muted mb-2">スタッフ・学生向け技術指導ワークショップ</p>
-                            <p class="small mb-4">現場のノウハウを伝授します。正しい機材知識を持つことで、トラブルを未然に防ぎ、音響クオリティを底上げします。</p>
-                            
-                            <ul class="plan-list mb-0">
-                                <li><i class="fas fa-crown" style="color: #b8860b;"></i><div><strong>施設・式場スタッフ向け：</strong>感動を作るBGM・マイク講習・ハウリング対策</div></li>
-                                <li><i class="fas fa-graduation-cap" style="color: #b8860b;"></i><div><strong>学生サークル向け：</strong>現役プロによる実践的なミキシング指導</div></li>
-                                <li><i class="fas fa-tools" style="color: #b8860b;"></i><div><strong>保守・メンテナンス：</strong>不具合の早期発見・機材の正しい保管方法講習</div></li>
-                                <li><i class="fas fa-shopping-cart" style="color: #b8860b;"></i><div><strong>機材導入アドバイス：</strong>施設規模と予算に合わせた最適な機材選定相談</div></li>
+                <p class="section-lead">広島の音響レンタル・PA機材レンタルならARA-TECH。企業イベント・式典・ライブ・学園祭・地域のお祭り・屋外イベントなど、広島県内を中心に幅広くご相談いただけます。</p>
+            </div>
+            <div class="use-layout">
+                <figure class="use-photo">
+                    <img src="img/stage-event.jpg" alt="照明と音響を使用したライブイベントの現場" width="1215" height="911" loading="lazy" decoding="async">
+                    <figcaption class="use-photo-caption">LIVE EVENT / SOUND &amp; LIGHTING</figcaption>
+                </figure>
+                <div class="use-list">
+                    <article class="use-item">
+                        <span class="use-item-number">01</span>
+                        <div><h3>広島のスピーカーレンタル・マイクレンタル</h3><p>会議・講演会・プレゼンなど、話す人の人数、会場の広さ、BGMの有無に合わせて機材を構成します。</p></div>
+                    </article>
+                    <article class="use-item">
+                        <span class="use-item-number">02</span>
+                        <div><h3>ライブ・DJ・ダンスイベント</h3><p>メインとモニター、デジタルミキサー、楽器用マイクまで、本番の進行に必要な機材を選定します。</p></div>
+                    </article>
+                    <article class="use-item">
+                        <span class="use-item-number">03</span>
+                        <div><h3>学園祭・文化祭</h3><p>学生限定パックから、ライブ規模に合わせた機材・設営・PAオペレートまで対応します。</p></div>
+                    </article>
+                    <article class="use-item">
+                        <span class="use-item-number">04</span>
+                        <div><h3>広島の屋外イベント音響レンタル</h3><p>お祭り、地域イベント、野外ライブ、式典、キッチンカーイベントなど。電源、搬入経路、雨天時の運用を事前に確認します。</p></div>
+                    </article>
+                    <article class="use-item">
+                        <span class="use-item-number">05</span>
+                        <div><h3>店舗イベント・各種レッスン</h3><p>小規模な催しや、ヘッドセットを使う実演・レッスンにも必要な機材だけをご提案します。</p></div>
+                    </article>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section--paper" aria-labelledby="service-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-index">02 / Service</p>
+                    <h2 class="section-title" id="service-title">借りるだけ。<br>現場ごと任せる。</h2>
+                </div>
+                <p class="section-lead">スピーカー、マイク、ミキサーなどのPA機材レンタルはもちろん、運搬・設営・撤収、PAオペレーターの手配まで一括で対応します。機材のみと現場対応では料金に含まれる内容が異なるため、必要な範囲を先に分けてご確認ください。</p>
+            </div>
+            <div class="service-switch">
+                <article class="service-panel">
+                    <p class="service-label">Equipment rental</p>
+                    <h3>必要なPA機材を借りる</h3>
+                    <p>スピーカー、マイク、ミキサーなど、用途と会場に合わせた機材構成をご提案します。機材のみの直接引き取りも可能です。</p>
+                    <ul class="plain-list">
+                        <li>スピーカー／マイク／ミキサー</li>
+                        <li>スタンド／接続ケーブル一式</li>
+                        <li>Compact PA・Standard LIVE ほか</li>
+                    </ul>
+                </article>
+                <article class="service-panel">
+                    <p class="service-label">On-site support</p>
+                    <h3>運搬・設営・本番を任せる</h3>
+                    <p>搬入、セッティング、音響調整、本番オペレート、終演後の撤収まで。プランに含まれる場合と、追加相談になる場合があります。</p>
+                    <ul class="plain-list">
+                        <li>PAオペレーター派遣</li>
+                        <li>運搬・設営・撤収</li>
+                        <li>School Festival Pack・Matsuri Pack ほか</li>
+                    </ul>
+                </article>
+            </div>
+            <p class="service-caution"><strong>ご確認ください：</strong> Compact PA・Standard LIVEは機材レンタルが基本です。運搬・設営・撤収・当日オペレートが必要な場合は、会場と作業内容を確認して別途お見積りします。</p>
+        </div>
+    </section>
+
+    <section class="section" id="plans" aria-labelledby="plans-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-index">03 / Plans &amp; price</p>
+                    <h2 class="section-title" id="plans-title">PA機材レンタルの<br>料金・プラン</h2>
+                </div>
+                <p class="section-lead">表示料金と機材構成は現行内容を維持しています。会場、利用時間、運搬・設営、PAオペレーターの有無により最終金額が変わります。</p>
+            </div>
+
+            <div class="pricing-intro" aria-label="料金の見方">
+                <div class="pricing-note"><strong>機材だけなら</strong><span>直接引き取りの場合、人件費・運搬費はかかりません。</span></div>
+                <div class="pricing-note pricing-note--blue"><strong>広島市内</strong><span>運搬費無料キャンペーン中</span></div>
+                <div class="pricing-note pricing-note--light"><strong>その他エリア</strong><span>諸経費は別途実費</span></div>
+            </div>
+
+            <div class="plan-group">
+                <div class="plan-group-head">
+                    <h3>機材レンタル</h3>
+                    <p>直接引き取りが基本／運搬・設営・オペレートは追加相談</p>
+                </div>
+                <div class="equipment-plans">
+                    <article class="plan-horizontal">
+                        <div class="plan-visual">
+                            <span class="plan-kind">RENTAL</span>
+                            <img src="img/plan-compact.jpg" alt="小規模会場向けCompact PAプラン" width="1215" height="911" loading="lazy" decoding="async">
+                        </div>
+                        <div class="plan-content">
+                            <h4 class="plan-name">Compact PA</h4>
+                            <p class="plan-use">会議・プレゼン・小規模イベント</p>
+                            <div class="plan-price">¥22,000 <small>（税込）〜</small></div>
+                            <ul class="plan-specs">
+                                <li>パワードスタンドスピーカー（ミキサー内蔵）×2</li>
+                                <li>有線マイク ×2</li>
+                                <li>スタンド／ケーブル一式</li>
                             </ul>
                         </div>
-                        <div class="col-md-5 mt-4 mt-md-0 ps-md-4 border-start" style="border-color: rgba(184, 134, 11, 0.2) !important;">
-                            <div class="text-center">
-                                <span class="price-tag text-secondary mb-1" style="font-size: 1rem;">現場に合わせた構成で</span>
-                                <p class="fw-black mb-1" style="color: #8a6d3b; font-size: 2rem;">16,500円<small class="small text-muted" style="font-size: 0.9rem;">(税込)〜</small></p>
-                                <p class="small text-muted border-top pt-2 mt-3" style="border-color: rgba(184, 134, 11, 0.2) !important;">※顧問契約は別途お見積り</p>
-                            </div>
+                    </article>
+                    <article class="plan-horizontal is-focus">
+                        <div class="plan-visual">
+                            <span class="plan-kind">RENTAL</span>
+                            <img src="img/plan-standard.jpg" alt="ライブ向けStandard LIVEプラン" width="1214" height="911" loading="lazy" decoding="async">
+                        </div>
+                        <div class="plan-content">
+                            <h4 class="plan-name">Standard LIVE</h4>
+                            <p class="plan-use">中規模ライブ・本格イベント</p>
+                            <div class="plan-price">¥44,000 <small>（税込）〜</small></div>
+                            <ul class="plan-specs">
+                                <li>高出力パワードスタンドスピーカー ×2</li>
+                                <li>サイドモニター用パワードスタンドスピーカー ×2</li>
+                                <li>デジタルミキサー一式</li>
+                                <li>有線マイク ×2</li>
+                            </ul>
+                        </div>
+                    </article>
+                </div>
+            </div>
 
-                            <div class="advisor-case">
-                                <h4 class="fw-bold mb-2" style="font-size: 0.85rem; color: #8a6d3b;"><i class="fas fa-calendar-alt me-2"></i>年間顧問契約の例</h4>
-                                <p style="font-size: 0.75rem; line-height: 1.5; color: #666;" class="mb-0">月1回の定期訪問レクチャーを通じて、現場スタッフによる機材トラブルの自己解決能力を向上させます。急な不具合発生時の電話サポートも付帯し、運営をバックアップします。</p>
-                            </div>
+            <div class="plan-group">
+                <div class="plan-group-head">
+                    <h3>運搬・設営・PA込みパック</h3>
+                    <p>PAエンジニア1名・運搬・設営を表示料金に含む</p>
+                </div>
+                <div class="onsite-plans">
+                    <article class="onsite-plan">
+                        <div class="onsite-plan-media">
+                            <span class="onsite-label">STUDENT</span>
+                            <img src="img/plan-gakuwari.jpg" alt="学園祭・文化祭向けSchool Festival Pack" width="1215" height="911" loading="lazy" decoding="async">
+                        </div>
+                        <div class="onsite-body">
+                            <h4>School Festival Pack</h4>
+                            <p class="plan-use">学生限定・文化祭ライブ等</p>
+                            <div class="plan-price">¥66,000 <small>（税込）</small></div>
+                            <ul class="plan-specs">
+                                <li>高出力パワードスタンドスピーカー ×4</li>
+                                <li>サイドモニター用パワードスタンドスピーカー ×2</li>
+                                <li>デジタルミキサー一式／ワイヤレスマイク ×2</li>
+                                <li>楽器用専用マイク</li>
+                            </ul>
+                            <p class="onsite-includes">PAエンジニア1名・運搬設営込み</p>
+                        </div>
+                    </article>
+                    <article class="onsite-plan">
+                        <div class="onsite-plan-media">
+                            <span class="onsite-label">OUTDOOR EVENT</span>
+                            <img src="img/plan-matsuri.jpg" alt="お祭り・屋外イベント向けMatsuri Pack" width="1215" height="911" loading="lazy" decoding="async">
+                        </div>
+                        <div class="onsite-body">
+                            <h4>Matsuri Pack</h4>
+                            <p class="plan-use">お祭り・屋外イベントパック</p>
+                            <div class="plan-price">¥88,000 <small>（税込）</small></div>
+                            <ul class="plan-specs">
+                                <li>簡易LED照明 4灯セット</li>
+                                <li>高出力パワードスタンドスピーカー ×4</li>
+                                <li>サイドモニター用パワードスタンドスピーカー ×2</li>
+                                <li>デジタルミキサー一式／ワイヤレスマイク ×2</li>
+                            </ul>
+                            <p class="onsite-includes">PAエンジニア1名・運搬設営込み</p>
+                        </div>
+                    </article>
+                </div>
+            </div>
+
+            <div class="plan-group">
+                <div class="plan-group-head">
+                    <h3>追加・個別対応</h3>
+                    <p>現場規模や必要な役割に合わせて組み合わせます</p>
+                </div>
+                <div class="other-plans">
+                    <article class="other-plan">
+                        <div><h4>Large Scale</h4><p class="plan-use">大規模フェス・ホール公演</p></div>
+                        <div class="other-price">お見積り</div>
+                        <p>ラインアレイ・システムを導入。ご予算に合わせて、広大な会場の隅々まで解像度の高い音を届けるフルシステムを構成します。</p>
+                    </article>
+                    <article class="other-plan">
+                        <div><h4>PA Operator Only</h4><p class="plan-use">技術提供・エンジニア派遣</p></div>
+                        <div class="other-price">¥27,500（税込）〜</div>
+                        <p>プロPAエンジニア1名を派遣。ゲストライブ・重要式典など、当日の音響オペレートが必要な現場に対応します。</p>
+                    </article>
+                </div>
+
+                <article class="training">
+                    <div class="training-grid">
+                        <div>
+                            <p class="service-label">Technical advisor / Training</p>
+                            <h3>「プロがいなくても安心」と言えるクオリティへ</h3>
+                            <p>スタッフ・学生向け技術指導ワークショップ。正しい機材知識でトラブルを未然に防ぎ、音響クオリティを底上げします。</p>
+                            <ul class="plain-list">
+                                <li><strong>施設・式場スタッフ向け：</strong> BGM・マイク講習・ハウリング対策</li>
+                                <li><strong>学生サークル向け：</strong> 現役プロによる実践的なミキシング指導</li>
+                                <li><strong>保守・メンテナンス：</strong> 不具合の早期発見・正しい保管方法</li>
+                                <li><strong>機材導入アドバイス：</strong> 施設規模と予算に合わせた機材選定</li>
+                            </ul>
+                        </div>
+                        <div class="training-price">
+                            <span>現場に合わせた構成で</span>
+                            <strong>16,500円（税込）〜</strong>
+                            <span>※顧問契約は別途お見積り</span>
+                            <p>年間顧問契約例：月1回の定期訪問レクチャーを通じて、現場スタッフによる機材トラブルの自己解決能力を向上させます。急な不具合発生時の電話サポートも付帯し、運営をバックアップします。</p>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
+                </article>
 
-    <div class="row justify-content-center mb-5 pb-5">
-        <div class="col-lg-12">
-            <div class="cost-structure-outer text-center">
-                <h3 class="h4 fw-bold mb-5" style="color: white; letter-spacing: 2px;">料金の仕組み</h3>
-                <div class="row g-3 align-items-stretch justify-content-center">
-                    <div class="col-12 col-md-3">
-                        <div class="cost-box"><div class="h6 fw-bold mb-2">機材費</div><div class="small text-muted">構成に応じた料金</div></div>
-                    </div>
-                    <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
-                    <div class="col-12 col-md-3">
-                        <div class="cost-box"><div class="h6 fw-bold mb-2">人件費</div><div class="small text-muted">25,000円(税別)〜 / 1名</div></div>
-                    </div>
-                    <div class="col-12 col-md-1 plus-icon"><i class="fas fa-plus"></i></div>
-                    <div class="col-12 col-md-3">
-                        <div class="cost-box" style="border: 2px solid var(--campaign-orange);">
-                            <div class="campaign-badge">CAMPAIGN</div>
-                            <div class="h6 fw-bold mb-2">諸経費</div>
-                            <div class="small text-muted">広島市内は<strong>運搬費無料！</strong></div>
-                        </div>
-                    </div>
+                <div class="cost-bar" aria-label="料金の仕組み">
+                    <div class="cost-part"><strong>機材費</strong><span>構成に応じた料金</span></div>
+                    <div class="cost-part"><strong>人件費</strong><span>25,000円（税別）〜／1名</span></div>
+                    <div class="cost-part"><strong>諸経費</strong><span>広島市内は運搬費無料</span></div>
                 </div>
-                <div class="mt-5 p-3" style="background: rgba(255,255,255,0.1); border-radius: 15px; border: 1px dashed rgba(255,255,255,0.3);">
-                    <p class="mb-0 fw-bold" style="letter-spacing: 1px;">
-                        <i class="fas fa-info-circle me-2"></i>機材のみの直接お引き取りも大歓迎！その場合、<span style="color: var(--campaign-orange);">人件費・運搬費は一切かかりません。</span>
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <section class="mb-5 pb-5">
-        <div class="text-center mb-5">
-            <h2 class="section-title">広島の音響レンタル｜ご利用の流れ</h2>
-            <p class="lead">お問い合わせから当日まで、スムーズな進行をお約束します。</p>
-        </div>
-        <div class="row g-4">
-            <div class="col-md-3">
-                <div class="flow-card">
-                    <div class="flow-number">1</div>
-                    <h3 class="h6 fw-bold">お問い合わせ</h3>
-                    <p class="small text-muted mb-0">フォームまたはお電話にて、日程と内容をお知らせください。</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="flow-card">
-                    <div class="flow-number">2</div>
-                    <h3 class="h6 fw-bold">ヒアリング・見積</h3>
-                    <p class="small text-muted mb-0">会場規模や内容に合わせ、最適な機材構成をご提案します。</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="flow-card">
-                    <div class="flow-number bg-success"><i class="fas fa-check"></i></div>
-                    <h3 class="h6 fw-bold">ご成約</h3>
-                    <p class="small text-muted mb-0">お見積り内容にご承諾いただけましたら、正式に予約確定となります。</p>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="flow-card">
-                    <div class="flow-number">4</div>
-                    <h3 class="h6 fw-bold">当日 搬入・本番</h3>
-                    <p class="small text-muted mb-0">搬入から設営、オペレート、撤収まで全てお任せください。</p>
-                </div>
+                <p class="cost-caption">機材のみの直接引き取りなら、人件費・運搬費はかかりません。</p>
             </div>
         </div>
     </section>
 
-    <section class="mic-section">
-        <div class="text-center mb-5">
-            <h2 class="h3 fw-bold mb-2">MICROPHONE LINEUP</h2>
-            <p class="text-white-50">ライブから企業イベント、各種レッスンまで幅広く対応するセレクション。</p>
-        </div>
-        <div class="mic-grid">
-            <div class="mic-tag special">
-                <span>SHURE / SM35 (Headset)</span>
-                <i class="fas fa-headset me-1" style="color: var(--bright-blue);"></i>ヘッドセット・ワイヤレス
-                <span class="mic-desc">両手が自由に使えるため、ダンスレッスン、メイクアップ講座、実演販売などに最適です。</span>
-            </div>
-            <div class="mic-tag">
-                <span>SHURE / SM58・SM57</span>
-                Vocal &amp; Instrument
-                <span class="mic-desc">世界標準のダイナミックマイク。ボーカル、スピーチ、楽器収音の定番。</span>
-            </div>
-            <div class="mic-tag">
-                <span>Sennheiser / e900 Series</span>
-                High-End Dynamic
-                <span class="mic-desc">e904 / e604 / e906。ドラムのタムやギターアンプ等、よりクリアな収音に。</span>
-            </div>
-            <div class="mic-tag">
-                <span>SHURE / β52・β91</span>
-                Kick Drum / Low-Frequency
-                <span class="mic-desc">バスドラムやカホン、低音楽器の力強いサウンドを捉えます。</span>
-            </div>
-            <div class="mic-tag">
-                <span>AKG / C451 ・ SHURE / SM81</span>
-                Condenser Mic
-                <span class="mic-desc">アコースティック楽器やシンバルの繊細なニュアンスを再現します。</span>
-            </div>
-            <div class="mic-tag">
-                <span>Audio-Technica / ATM25</span>
-                Instrument Dynamic
-                <span class="mic-desc">太くパンチのあるサウンドが特徴。ドラム収音の隠れた名機。</span>
-            </div>
-        </div>
-    </section>
-
-<section class="faq-section mb-5 pb-5">
-        <div class="text-center mb-5">
-            <h2 class="section-title">広島のPAレンタル｜よくあるご質問</h2>
-            <p class="lead">機材、設営、当日のオペレートについてよくいただくご質問</p>
-        </div>
-        <div class="row justify-content-center">
-            <div class="col-lg-10">
-                <div class="accordion" id="accordionFAQ">
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">
-                                <i class="fas fa-cloud-showers-heavy me-2 text-primary"></i>屋外イベントが雨天中止になった場合の対応は？
-                            </button>
-                        </h3>
-                        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                屋外現場で天候判断により中止される場合は、前日の正午までにご連絡ください。それ以降のキャンセルは規定の料金が発生いたします。また、本番中に雨が降った場合、機材保護のため一時中断、またはブルーシート等での養生を優先させていただく場合がございます。
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">
-                                <i class="fas fa-plug me-2 text-primary"></i>電源は自分たちで用意する必要がありますか？
-                            </button>
-                        </h3>
-                        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                基本的に会場のコンセント（100V）をお借りします。ステージまで距離がある場合は、こちらで延長コード（ドラムコード）を持参します。電源がない場所（駐車場や公園など）での実施には、別途発電機の手配（弊社で代行可能）が必要ですので、事前にお知らせください。
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq3">
-                                <i class="fas fa-clock me-2 text-primary"></i>設営と撤収にはどのくらいの時間がかかりますか？
-                            </button>
-                        </h3>
-                        <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                プランによりますが、Standard LIVEプランで設営・調整に約60〜90分、撤収に約45分程度いただいております。大規模な現場や、サウンドチェックが必要なバンド演奏がある場合は、別途スケジュールをご相談させていただきます。
-                            </div>
-                        </div>
-                    </div>
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq4">
-                                <i class="fas fa-yen-sign me-2 text-primary"></i>音響レンタルの料金はいくらですか？
-                            </button>
-                        </h3>
-                        <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                料金は、必要なスピーカー・マイク・ミキサーなどの機材構成、利用時間、会場、運搬・設営・PAオペレーターの有無によって変わります。内容を伺ったうえで無料でお見積りしますので、日程・会場・用途をお知らせください。
-                            </div>
-                        </div>
-                    </div>
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq5">
-                                <i class="fas fa-boxes-stacked me-2 text-primary"></i>音響レンタルセットはありますか？
-                            </button>
-                        </h3>
-                        <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                はい。小規模な会場向けのPAセットから、ライブ・学園祭・お祭り向けのプランまでご用意しています。スピーカーやマイクだけのレンタルも可能ですので、会場の広さ、話す人や出演者の人数、BGM・演奏の有無をお知らせください。
-                            </div>
-                        </div>
-                    </div>
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">
-                                <i class="fas fa-volume-up me-2 text-primary"></i>スピーカーやマイクだけのレンタルはできますか？
-                            </button>
-                        </h3>
-                        <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                はい。広島でのスピーカーレンタル、マイクレンタル、ミキサーなど、必要なPA機材だけのレンタルにも対応しています。機材に詳しくない場合も、用途と会場をお伝えいただければ必要な台数と組み合わせをご案内します。
-                            </div>
-                        </div>
-                    </div>
-                    <div class="accordion-item mb-3 border rounded shadow-sm">
-                        <h3 class="accordion-header">
-                            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">
-                                <i class="fas fa-tree me-2 text-primary"></i>屋外イベントの音響レンタルは依頼できますか？
-                            </button>
-                        </h3>
-                        <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#accordionFAQ">
-                            <div class="accordion-body text-muted">
-                                はい。お祭り、地域イベント、野外ライブ、式典などの屋外イベント音響にも対応しています。電源や雨天時の対応、搬入経路を事前に確認し、設営・撤収・当日のPAオペレートまでご相談いただけます。
-                            </div>
-                        </div>
-                    </div>
+    <section class="section section--paper" aria-labelledby="proof-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-index">04 / Field proof</p>
+                    <h2 class="section-title" id="proof-title">写真で見る、<br>ARA-TECHの現場。</h2>
                 </div>
+                <p class="section-lead">屋外ステージからライブ会場まで、会場条件と進行に合わせてスピーカー配置・マイク構成・音響オペレートを組み立てます。</p>
+            </div>
+            <div class="gallery-grid">
+                <figure class="gallery-item">
+                    <img src="img/mr-1.jpg" alt="屋外イベント会場のステージと観客" width="1280" height="720" loading="lazy" decoding="async">
+                    <figcaption>OUTDOOR EVENT</figcaption>
+                </figure>
+                <figure class="gallery-item">
+                    <img src="img/stage-event.jpg" alt="ライブ会場でのステージと音響現場" width="1215" height="911" loading="lazy" decoding="async">
+                    <figcaption>LIVE EVENT</figcaption>
+                </figure>
+                <figure class="gallery-item">
+                    <img src="img/plan-matsuri.jpg" alt="お祭り会場で稼働するPAスピーカーとステージ" width="1215" height="911" loading="lazy" decoding="async">
+                    <figcaption>FESTIVAL PA</figcaption>
+                </figure>
+            </div>
+            <div class="proof-line">
+                <div><strong>会場規模を確認</strong><span>必要な音量とスピーカー配置を設計</span></div>
+                <div><strong>搬入条件を確認</strong><span>電源・搬入経路・設営時間を事前調整</span></div>
+                <div><strong>本番進行を共有</strong><span>出演者・式次第に合わせてオペレート</span></div>
             </div>
         </div>
     </section>
 
-    <section class="notes-section">
-        <h2 class="section-title">Rental Notes</h2>
-        <div class="notes-grid">
-            <div class="note-item">
-                <h3>キャンセル規定</h3>
-                <p>正式予約確定後、お客様都合でのキャンセルの場合は以下の料金を申し受けます。</p>
-                <ul class="list-unstyled">
-                    <li>・7日前〜4日前：お見積り金額の 30%</li>
-                    <li>・3日前〜2日前：お見積り金額の 50%</li>
-                    <li>・前日・当日：お見積り金額の 100%</li>
-                </ul>
+    <section class="section section--dark" aria-labelledby="flow-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-index">05 / Process</p>
+                    <h2 class="section-title" id="flow-title">広島の音響レンタル｜<br>ご相談から本番まで</h2>
+                </div>
+                <p class="section-lead">日程・会場・用途が分かれば、必要な機材と現場対応の範囲を整理してご提案します。</p>
             </div>
-            <div class="note-item">
-                <h3>機材の取扱い・破損</h3>
-                <p>機材は常にメンテナンスを行っておりますが、通常使用の範囲を超えた破損、過失（飲み物をこぼす、落下させる等）、紛失が発生した場合は、修理費用または機材購入代金を実費請求させていただきます。</p>
-            </div>
-            <div class="note-item">
-                <h3>深夜・早朝対応</h3>
-                <p>22:00以降、またはAM8:00以前の設営・撤収作業が必要な現場については、別途深夜早朝手当を申し受ける場合がございます。詳しくはお見積り時にご相談ください。</p>
-            </div>
-            <div class="note-item">
-                <h3>お支払い・諸経費</h3>
-                <p>原則、イベント終了後1週間以内の銀行振込をお願いしております。広島市内は運搬費無料キャンペーン中につき無料です。その他のエリアについては別途実費をご負担いただきます。</p>
+            <div class="flow">
+                <article class="flow-step"><h3>お問い合わせ</h3><p>フォームまたはお電話で、日程と内容をお知らせください。</p></article>
+                <article class="flow-step"><h3>ヒアリング・お見積り</h3><p>会場規模や内容に合わせ、最適な機材構成をご提案します。</p></article>
+                <article class="flow-step"><h3>ご成約</h3><p>お見積り内容にご承諾いただいた時点で、正式に予約確定となります。</p></article>
+                <article class="flow-step"><h3>引き取り／当日対応</h3><p>プランに応じて機材引き渡し、または搬入・設営・オペレート・撤収を行います。</p></article>
             </div>
         </div>
     </section>
 
-    <section class="cta-section container text-center">
-        <div style="z-index: 3; position: relative;">
-            <h2 class="h4 fw-bold mb-4">お見積り・機材構成のご相談は無料です。</h2>
-            <a href="contact.html" class="btn btn-primary btn-lg px-5 py-3 fw-bold shadow">空き状況・お見積りを相談する</a>
+    <section class="section--tight" aria-labelledby="mic-title">
+        <div class="site-shell mic-layout">
+            <div class="mic-intro">
+                <p class="eyebrow">Microphone lineup</p>
+                <h3 id="mic-title">話す、歌う、演奏する。用途に合わせたマイク。</h3>
+                <p>ライブから企業イベント、各種レッスンまで幅広く対応するセレクションです。</p>
+            </div>
+            <div class="mic-list">
+                <div class="mic-item"><strong>SHURE / SM35</strong><span>ヘッドセット・ワイヤレス。両手が自由に使えるため、ダンスレッスン、メイクアップ講座、実演販売などに最適です。</span></div>
+                <div class="mic-item"><strong>SHURE / SM58・SM57</strong><span>世界標準のダイナミックマイク。ボーカル、スピーチ、楽器収音の定番。</span></div>
+                <div class="mic-item"><strong>Sennheiser / e900 Series</strong><span>e904／e604／e906。ドラムのタムやギターアンプなど、よりクリアな収音に。</span></div>
+                <div class="mic-item"><strong>SHURE / β52・β91</strong><span>バスドラムやカホン、低音楽器の力強いサウンドを捉えます。</span></div>
+                <div class="mic-item"><strong>AKG / C451・SHURE / SM81</strong><span>アコースティック楽器やシンバルの繊細なニュアンスを再現します。</span></div>
+                <div class="mic-item"><strong>Audio-Technica / ATM25</strong><span>太くパンチのあるサウンドが特徴。ドラム収音の隠れた名機。</span></div>
+            </div>
         </div>
     </section>
 
-    <div class="text-center mb-5"><a href="./" class="btn-back"><i class="fas fa-arrow-left me-2"></i>トップページへ戻る</a></div>
+    <section class="section section--paper" aria-labelledby="faq-title">
+        <div class="site-shell faq-layout">
+            <div class="faq-sticky">
+                <p class="section-index">06 / FAQ</p>
+                <h2 class="section-title" id="faq-title">広島のPAレンタル<br>よくあるご質問</h2>
+                <p>機材、設営、当日のオペレートについて、よくいただく質問をまとめています。</p>
+            </div>
+            <div class="faq-list">
+                <details>
+                    <summary>屋外イベントが雨天中止になった場合の対応は？</summary>
+                    <div class="faq-answer">屋外現場で天候判断により中止される場合は、前日の正午までにご連絡ください。それ以降のキャンセルは規定の料金が発生いたします。また、本番中に雨が降った場合、機材保護のため一時中断、またはブルーシート等での養生を優先させていただく場合がございます。</div>
+                </details>
+                <details>
+                    <summary>電源は自分たちで用意する必要がありますか？</summary>
+                    <div class="faq-answer">基本的に会場のコンセント（100V）をお借りします。ステージまで距離がある場合は、こちらで延長コード（ドラムコード）を持参します。電源がない場所（駐車場や公園など）での実施には、別途発電機の手配（弊社で代行可能）が必要ですので、事前にお知らせください。</div>
+                </details>
+                <details>
+                    <summary>設営と撤収にはどのくらいの時間がかかりますか？</summary>
+                    <div class="faq-answer">プランによりますが、Standard LIVEプランで設営・調整に約60〜90分、撤収に約45分程度いただいております。大規模な現場や、サウンドチェックが必要なバンド演奏がある場合は、別途スケジュールをご相談させていただきます。</div>
+                </details>
+                <details>
+                    <summary>音響レンタルの料金はいくらですか？</summary>
+                    <div class="faq-answer">料金は、必要なスピーカー・マイク・ミキサーなどの機材構成、利用時間、会場、運搬・設営・PAオペレーターの有無によって変わります。内容を伺ったうえで無料でお見積りしますので、日程・会場・用途をお知らせください。</div>
+                </details>
+                <details>
+                    <summary>音響レンタルセットはありますか？</summary>
+                    <div class="faq-answer">はい。小規模な会場向けのPAセットから、ライブ・学園祭・お祭り向けのプランまでご用意しています。スピーカーやマイクだけのレンタルも可能ですので、会場の広さ、話す人や出演者の人数、BGM・演奏の有無をお知らせください。</div>
+                </details>
+                <details>
+                    <summary>スピーカーやマイクだけのレンタルはできますか？</summary>
+                    <div class="faq-answer">はい。広島でのスピーカーレンタル、マイクレンタル、ミキサーなど、必要なPA機材だけのレンタルにも対応しています。機材に詳しくない場合も、用途と会場をお伝えいただければ必要な台数と組み合わせをご案内します。</div>
+                </details>
+                <details>
+                    <summary>屋外イベントの音響レンタルは依頼できますか？</summary>
+                    <div class="faq-answer">はい。お祭り、地域イベント、野外ライブ、式典などの屋外イベント音響にも対応しています。電源や雨天時の対応、搬入経路を事前に確認し、設営・撤収・当日のPAオペレートまでご相談いただけます。</div>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <section class="coverage" aria-labelledby="coverage-title">
+        <div class="coverage-map">
+            <p class="eyebrow">Service area</p>
+            <strong>HIROSHIMA</strong>
+            <span>広島市内は運搬費無料キャンペーン中</span>
+        </div>
+        <div class="coverage-copy">
+            <p class="section-index">07 / Area</p>
+            <h2 id="coverage-title">広島を拠点に、<br>県内中心へ出張対応。</h2>
+            <p>会場の所在地、搬入条件、開催時間、必要機材を確認したうえでお見積りします。その他エリアについても、まずはご相談ください。</p>
+            <ul class="plain-list">
+                <li>広島市内：運搬費無料キャンペーン中</li>
+                <li>その他エリア：諸経費は別途実費</li>
+                <li>屋外会場：電源・搬入経路・雨天時の運用を事前確認</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="section--tight" aria-labelledby="notes-title">
+        <div class="site-shell">
+            <div class="section-head">
+                <div><p class="section-index">08 / Rental notes</p><h2 class="section-title" id="notes-title">ご利用前の確認事項</h2></div>
+                <p class="section-lead">正式予約、機材の取り扱い、深夜・早朝対応、お支払いについての現行条件です。</p>
+            </div>
+            <div class="notes-grid">
+                <article class="note">
+                    <h3>キャンセル規定</h3>
+                    <p>正式予約確定後、お客様都合でのキャンセルの場合は以下の料金を申し受けます。</p>
+                    <ul><li>7日前〜4日前：お見積り金額の30%</li><li>3日前〜2日前：お見積り金額の50%</li><li>前日・当日：お見積り金額の100%</li></ul>
+                </article>
+                <article class="note">
+                    <h3>機材の取扱い・破損</h3>
+                    <p>機材は常にメンテナンスを行っておりますが、通常使用の範囲を超えた破損、過失（飲み物をこぼす、落下させる等）、紛失が発生した場合は、修理費用または機材購入代金を実費請求させていただきます。</p>
+                </article>
+                <article class="note">
+                    <h3>深夜・早朝対応</h3>
+                    <p>22:00以降、またはAM8:00以前の設営・撤収作業が必要な現場については、別途深夜早朝手当を申し受ける場合がございます。詳しくはお見積り時にご相談ください。</p>
+                </article>
+                <article class="note">
+                    <h3>お支払い・諸経費</h3>
+                    <p>原則、イベント終了後1週間以内の銀行振込をお願いしております。広島市内は運搬費無料キャンペーン中につき無料です。その他のエリアについては別途実費をご負担いただきます。</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="final-cta" aria-labelledby="contact-title">
+        <div class="site-shell final-cta-inner">
+            <p class="eyebrow">Contact ARA-TECH</p>
+            <h2 id="contact-title">日程・会場・用途が決まったら、まずご相談ください。</h2>
+            <p>お見積り・機材構成のご相談は無料です。機材だけか、現場対応まで必要か分からない場合も、内容を伺って整理します。</p>
+            <div class="button-row">
+                <a class="button button--primary" href="contact.html">空き状況・お見積りを相談する</a>
+                <a class="button button--ghost" href="./">トップページへ戻る</a>
+            </div>
+        </div>
+    </section>
 </main>
 
-<footer class="py-4 border-top text-center text-muted">
-        <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
+<footer>
+    <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
