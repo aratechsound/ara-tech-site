@@ -401,6 +401,269 @@
         .rental-use-list li { display: flex; gap: .7rem; align-items: flex-start; font-size: .9rem; font-weight: 700; }
         .rental-use-list i { margin-top: .45rem; color: var(--primary-blue); }
         .rental-use-case--outdoor .rental-use-list i { color: #9bd1ff; }
+
+        /* ヒーロー直下のみを再構成。サイト全体の配色・書体・余白感は既存ページを継承 */
+        .rental-overview-v3 {
+            max-width: 1120px;
+            margin: 0 auto 5.5rem;
+        }
+        .rental-overview-lead {
+            display: grid;
+            grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+            gap: clamp(2rem, 5vw, 5rem);
+            align-items: start;
+            margin-bottom: 3.3rem;
+            padding: .65rem 0 2.8rem;
+            border-bottom: 1px solid #dce6ef;
+        }
+        .rental-overview-kicker,
+        .rental-scenario-kicker {
+            margin: 0 0 .7rem;
+            color: var(--primary-blue);
+            font-size: .73rem;
+            font-weight: 900;
+            letter-spacing: .18em;
+        }
+        .rental-overview-lead h2 {
+            margin: 0;
+            color: #122d47;
+            font-size: clamp(1.65rem, 3.1vw, 2.25rem);
+            font-weight: 900;
+            line-height: 1.38;
+            letter-spacing: -.025em;
+            text-wrap: balance;
+        }
+        .heading-line { display: block; }
+        .phrase-lock { white-space: nowrap; }
+        .page-header .page-title-ja,
+        .rental-scenario-media h2,
+        .plan-section-heading .section-title { text-wrap: balance; }
+        .rental-overview-copy {
+            padding-left: 1.6rem;
+            border-left: 4px solid var(--primary-blue);
+        }
+        .rental-overview-copy .lead {
+            margin-bottom: .9rem;
+            color: #243d55;
+            font-size: 1rem;
+            font-weight: 700;
+            line-height: 1.9;
+        }
+        .rental-overview-copy .subcopy {
+            margin: 0;
+            color: #67798a;
+            font-size: .9rem;
+            line-height: 1.8;
+        }
+        .rental-service-lines {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-bottom: 3.3rem;
+            border-top: 1px solid #d7e3ee;
+            border-bottom: 1px solid #d7e3ee;
+            background: #f7fafc;
+        }
+        .rental-service-line {
+            min-height: 215px;
+            padding: 2rem 2.1rem 2.2rem;
+        }
+        .rental-service-line + .rental-service-line {
+            border-left: 1px solid #d7e3ee;
+        }
+        .rental-service-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.45rem;
+        }
+        .rental-service-number {
+            color: #8ca0b3;
+            font-size: .7rem;
+            font-weight: 900;
+            letter-spacing: .16em;
+        }
+        .rental-service-icon {
+            display: grid;
+            width: 42px;
+            height: 42px;
+            place-items: center;
+            border: 1px solid #bdd9f4;
+            border-radius: 50%;
+            color: var(--primary-blue);
+            background: #fff;
+        }
+        .rental-service-line h3 {
+            margin-bottom: .65rem;
+            color: #17334d;
+            font-size: 1.08rem;
+            font-weight: 900;
+        }
+        .rental-service-line p {
+            margin: 0;
+            color: #657789;
+            font-size: .86rem;
+            line-height: 1.75;
+        }
+        .rental-scenarios {
+            overflow: hidden;
+            border: 1px solid #d7e3ee;
+            border-radius: 20px;
+            background: #fff;
+        }
+        .rental-scenario {
+            display: grid;
+            grid-template-columns: minmax(250px, .78fr) minmax(0, 1.22fr);
+            gap: clamp(2rem, 5vw, 5rem);
+            padding: clamp(2rem, 5vw, 3.7rem);
+        }
+        .rental-scenario + .rental-scenario {
+            border-top: 1px solid #d7e3ee;
+            background: #f2f8fd;
+        }
+        .rental-scenario h2 {
+            margin: 0;
+            color: #112f4c;
+            font-size: clamp(1.35rem, 2.7vw, 1.85rem);
+            font-weight: 900;
+            line-height: 1.45;
+        }
+        .rental-scenario-body > p {
+            margin: 0;
+            color: #566b7e;
+            font-size: .92rem;
+            line-height: 1.85;
+        }
+        .rental-scenario-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .72rem 1.3rem;
+            margin: 1.5rem 0 0;
+            padding: 0;
+            list-style: none;
+        }
+        .rental-scenario-list li {
+            position: relative;
+            padding-left: 1.05rem;
+            color: #263f56;
+            font-size: .84rem;
+            font-weight: 700;
+            line-height: 1.65;
+        }
+        .rental-scenario-list li::before {
+            content: "";
+            position: absolute;
+            top: .66rem;
+            left: 0;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--primary-blue);
+        }
+
+        /* 実在する音響写真を薄く重ね、白い面の連続を抑える */
+        .rental-overview-visual {
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 3.3rem;
+            border: 1px solid rgba(118, 188, 255, .28);
+            border-radius: 24px;
+            background:
+                linear-gradient(112deg, rgba(5, 20, 34, .97) 0%, rgba(8, 43, 72, .91) 58%, rgba(4, 19, 34, .78) 100%),
+                url('img/plan-engineer.jpg') center 58% / cover no-repeat;
+            box-shadow: 0 24px 55px rgba(8, 35, 61, .18);
+        }
+        .rental-overview-visual::after {
+            content: "";
+            position: absolute;
+            top: -90px;
+            right: -75px;
+            width: 300px;
+            height: 300px;
+            border: 1px solid rgba(104, 185, 255, .2);
+            border-radius: 50%;
+            box-shadow: 0 0 0 46px rgba(73, 162, 244, .045), 0 0 0 92px rgba(73, 162, 244, .025);
+            pointer-events: none;
+        }
+        .rental-overview-visual .rental-overview-lead {
+            position: relative;
+            z-index: 1;
+            margin: 0;
+            padding: clamp(2.5rem, 5vw, 4rem);
+            border-bottom-color: rgba(180, 216, 248, .24);
+        }
+        .rental-overview-visual .rental-overview-kicker { color: #8dccff; }
+        .rental-overview-visual .rental-overview-lead h2 { color: #fff; }
+        .rental-overview-visual .rental-overview-copy { border-left-color: #65b8ff; }
+        .rental-overview-visual .rental-overview-copy .lead { color: rgba(255, 255, 255, .94); }
+        .rental-overview-visual .rental-overview-copy .subcopy { color: rgba(220, 235, 247, .74); }
+        .rental-overview-visual .rental-service-lines {
+            position: relative;
+            z-index: 1;
+            margin: 0;
+            border-top: 0;
+            border-bottom: 0;
+            background: rgba(4, 19, 33, .62);
+            backdrop-filter: blur(5px);
+        }
+        .rental-overview-visual .rental-service-line + .rental-service-line { border-left-color: rgba(180, 216, 248, .2); }
+        .rental-overview-visual .rental-service-number { color: rgba(175, 212, 244, .66); }
+        .rental-overview-visual .rental-service-icon {
+            border-color: rgba(134, 201, 255, .48);
+            color: #8dccff;
+            background: rgba(255, 255, 255, .06);
+        }
+        .rental-overview-visual .rental-service-line h3 { color: #fff; }
+        .rental-overview-visual .rental-service-line p { color: rgba(220, 235, 247, .72); }
+
+        .rental-scenarios {
+            display: grid;
+            gap: 1.35rem;
+            overflow: visible;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+        }
+        .rental-scenario,
+        .rental-scenario + .rental-scenario {
+            grid-template-columns: minmax(300px, .78fr) minmax(0, 1.22fr);
+            gap: 0;
+            overflow: hidden;
+            padding: 0;
+            border: 1px solid #d5e2ee;
+            border-radius: 20px;
+            background: #fff;
+            box-shadow: 0 18px 42px rgba(15, 49, 79, .1);
+        }
+        .rental-scenario-media {
+            position: relative;
+            display: flex;
+            min-height: 340px;
+            flex-direction: column;
+            justify-content: flex-end;
+            overflow: hidden;
+            padding: clamp(2rem, 4vw, 3rem);
+            background-position: center;
+            background-size: cover;
+        }
+        .rental-scenario-media::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(4, 18, 31, .13) 0%, rgba(4, 23, 40, .9) 100%);
+        }
+        .rental-scenario--indoor .rental-scenario-media { background-image: url('img/plan-compact.jpg'); }
+        .rental-scenario--outdoor .rental-scenario-media { background-image: url('img/plan-matsuri.jpg'); }
+        .rental-scenario-media > * { position: relative; z-index: 1; }
+        .rental-scenario-media .rental-scenario-kicker { color: #9ed4ff; }
+        .rental-scenario-media h2 { color: #fff; text-shadow: 0 2px 18px rgba(0, 0, 0, .28); }
+        .rental-scenario-body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: clamp(2rem, 4vw, 3rem);
+            background: linear-gradient(145deg, #fff 0%, #f4f9fd 100%);
+        }
+        .rental-scenario-list { grid-template-columns: 1fr; }
         .plan-section-heading { margin-bottom: 2.3rem; }
         .plan-section-heading .section-title { margin-bottom: 1.2rem; }
         .plan-card {
@@ -462,6 +725,28 @@
             .rental-guide-card { min-height: auto; padding: 1.5rem; }
             .rental-use-cases { grid-template-columns: 1fr; margin-bottom: 3.5rem; }
             .rental-use-case { padding: 1.7rem 1.45rem; border-radius: 20px; }
+            .rental-overview-v3 { margin-bottom: 4rem; }
+            .rental-overview-lead {
+                grid-template-columns: 1fr;
+                gap: 1.4rem;
+                margin-bottom: 2.4rem;
+                padding-bottom: 2rem;
+            }
+            .rental-overview-copy { padding-left: 1rem; }
+            .rental-service-lines { grid-template-columns: 1fr; margin-bottom: 2.4rem; }
+            .rental-service-line { min-height: auto; padding: 1.45rem 1.2rem 1.6rem; }
+            .rental-service-line + .rental-service-line { border-top: 1px solid #d7e3ee; border-left: 0; }
+            .rental-service-meta { margin-bottom: .85rem; }
+            .rental-scenario { grid-template-columns: 1fr; gap: 1.25rem; padding: 1.65rem 1.25rem 1.8rem; }
+            .rental-scenario-list { grid-template-columns: 1fr; gap: .65rem; }
+            .rental-overview-visual { margin-bottom: 2.4rem; border-radius: 18px; }
+            .rental-overview-visual .rental-overview-lead { padding: 2rem 1.35rem; }
+            .rental-overview-visual .rental-service-lines { margin-bottom: 0; }
+            .rental-overview-visual .rental-service-line + .rental-service-line { border-top-color: rgba(180, 216, 248, .2); }
+            .rental-scenario,
+            .rental-scenario + .rental-scenario { grid-template-columns: 1fr; gap: 0; padding: 0; }
+            .rental-scenario-media { min-height: 235px; padding: 1.6rem 1.3rem; }
+            .rental-scenario-body { padding: 1.65rem 1.3rem 1.8rem; }
             .plan-img-wrapper { height: 190px; }
         }
     </style>
@@ -503,7 +788,7 @@
 <header class="page-header">
     <div class="container">
         <p class="eyebrow">HIROSHIMA SOUND &amp; PA RENTAL</p>
-            <h1 class="display-3 page-title-ja"><span class="d-block">広島の音響・PAレンタル</span><span class="d-block fs-6 mt-2">PA RENTAL</span></h1>
+            <h1 class="display-3 page-title-ja"><span class="d-block">広島の<span class="phrase-lock">音響・PAレンタル</span></span><span class="d-block fs-6 mt-2">PA RENTAL</span></h1>
         <p class="lead fw-bold">広島の音響レンタル・PA機材レンタル。機材の手配から設営、オペレートまでお任せください。</p>
     </div>
     <div class="wave-container">
@@ -512,52 +797,77 @@
 </header>
 
 <main class="container my-5 py-5">
-    <section class="rental-intro text-center">
-        <p class="rental-kicker mb-2">SOUND RENTAL IN HIROSHIMA</p>
-        <h2 class="fw-bold mb-3">広島の音響レンタル・PA機材レンタルならARA-TECH</h2>
-        <p class="lead mb-3">スピーカー、マイク、ミキサーなどのPA機材レンタルはもちろん、運搬・設営・撤収、PAオペレーターの手配まで一括で対応します。イベントの規模や会場に合わせて、必要な機材構成をご提案します。</p>
-        <p class="text-muted mb-0">企業イベント・式典・ライブ・学園祭・地域のお祭り・屋外イベントなど、広島県内を中心に幅広くご相談いただけます。</p>
-    </section>
+    <section class="rental-overview-v3" aria-labelledby="rental-overview-title">
+        <div class="rental-overview-visual">
+            <div class="rental-overview-lead">
+                <div>
+                    <p class="rental-overview-kicker">SOUND RENTAL IN HIROSHIMA</p>
+                    <h2 id="rental-overview-title"><span class="heading-line">広島の<span class="phrase-lock">音響レンタル</span>・</span><span class="heading-line"><span class="phrase-lock">PA機材レンタル</span>なら<span class="phrase-lock">ARA-TECH</span></span></h2>
+                </div>
+                <div class="rental-overview-copy">
+                    <p class="lead">スピーカー、マイク、ミキサーなどのPA機材レンタルはもちろん、運搬・設営・撤収、PAオペレーターの手配まで一括で対応します。イベントの規模や会場に合わせて、必要な機材構成をご提案します。</p>
+                    <p class="subcopy">企業イベント・式典・ライブ・学園祭・地域のお祭り・屋外イベントなど、広島県内を中心に幅広くご相談いただけます。</p>
+                </div>
+            </div>
 
-    <section class="rental-guide" aria-label="PAレンタルの対応内容">
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-volume-up"></i></div>
-            <h3>機材レンタル</h3>
-            <p>必要なスピーカー・マイク・ミキサーを、会場と用途に合わせてご提案します。</p>
-        </article>
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-truck-loading"></i></div>
-            <h3>運搬・設営・撤収</h3>
-            <p>搬入からセッティング、終演後の撤収まで、現場の流れに合わせて対応します。</p>
-        </article>
-        <article class="rental-guide-card">
-            <div class="rental-guide-icon"><i class="fas fa-sliders-h"></i></div>
-            <h3>PAオペレーター派遣</h3>
-            <p>ライブや式典など、当日の進行に必要な音響オペレートもお任せいただけます。</p>
-        </article>
-    </section>
+            <div class="rental-service-lines" aria-label="PAレンタルの対応内容">
+                <article class="rental-service-line">
+                    <div class="rental-service-meta">
+                        <span class="rental-service-number">SERVICE 01</span>
+                        <span class="rental-service-icon"><i class="fas fa-volume-up" aria-hidden="true"></i></span>
+                    </div>
+                    <h3>機材レンタル</h3>
+                    <p>必要なスピーカー・マイク・ミキサーを、会場と用途に合わせてご提案します。</p>
+                </article>
+                <article class="rental-service-line">
+                    <div class="rental-service-meta">
+                        <span class="rental-service-number">SERVICE 02</span>
+                        <span class="rental-service-icon"><i class="fas fa-truck-loading" aria-hidden="true"></i></span>
+                    </div>
+                    <h3>運搬・設営・撤収</h3>
+                    <p>搬入からセッティング、終演後の撤収まで、現場の流れに合わせて対応します。</p>
+                </article>
+                <article class="rental-service-line">
+                    <div class="rental-service-meta">
+                        <span class="rental-service-number">SERVICE 03</span>
+                        <span class="rental-service-icon"><i class="fas fa-sliders-h" aria-hidden="true"></i></span>
+                    </div>
+                    <h3>PAオペレーター派遣</h3>
+                    <p>ライブや式典など、当日の進行に必要な音響オペレートもお任せいただけます。</p>
+                </article>
+            </div>
+        </div>
 
-    <section class="rental-use-cases" aria-label="スピーカーレンタルと屋外イベント音響のご案内">
-        <article class="rental-use-case">
-            <p class="use-case-kicker">SPEAKER &amp; MICROPHONE RENTAL</p>
-            <h2>広島のスピーカーレンタル・マイクレンタル</h2>
-            <p>会議・講演会・店舗イベント・小規模ライブなど、必要な音量と会場の広さに合わせて機材を組み合わせます。音響機材に詳しくなくても、用途をお伝えいただければ必要な構成をご提案します。</p>
-            <ul class="rental-use-list">
-                <li><i class="fas fa-check-circle"></i><span>スピーカー、ワイヤレスマイク、ミキサーなど必要な機材だけのレンタル</span></li>
-                <li><i class="fas fa-check-circle"></i><span>話す人の人数・会場の広さ・BGMや演奏の有無に合わせたセット提案</span></li>
-                <li><i class="fas fa-check-circle"></i><span>機材のお引き取り、または運搬・設営まで選べる対応</span></li>
-            </ul>
-        </article>
-        <article class="rental-use-case rental-use-case--outdoor">
-            <p class="use-case-kicker">OUTDOOR EVENT SOUND</p>
-            <h2>広島の屋外イベント音響レンタル</h2>
-            <p>お祭り、地域イベント、野外ライブ、式典、キッチンカーイベントなどの屋外音響にも対応します。会場の広さ、電源、搬入経路、雨天時の運用まで事前に確認し、当日の現場を支えます。</p>
-            <ul class="rental-use-list">
-                <li><i class="fas fa-check-circle"></i><span>ステージ・客席に合わせたスピーカー配置とマイク構成</span></li>
-                <li><i class="fas fa-check-circle"></i><span>電源が遠い会場や、発電機の手配が必要な現場も事前にご相談可能</span></li>
-                <li><i class="fas fa-check-circle"></i><span>搬入・設営・撤収からPAオペレーター派遣まで一括対応</span></li>
-            </ul>
-        </article>
+        <div class="rental-scenarios" aria-label="スピーカーレンタルと屋外イベント音響のご案内">
+            <article class="rental-scenario rental-scenario--indoor">
+                <div class="rental-scenario-media">
+                    <p class="rental-scenario-kicker">SPEAKER &amp; MICROPHONE RENTAL</p>
+                    <h2><span class="heading-line">広島の</span><span class="heading-line"><span class="phrase-lock">スピーカーレンタル</span>・</span><span class="heading-line phrase-lock">マイクレンタル</span></h2>
+                </div>
+                <div class="rental-scenario-body">
+                    <p>会議・講演会・店舗イベント・小規模ライブなど、必要な音量と会場の広さに合わせて機材を組み合わせます。音響機材に詳しくなくても、用途をお伝えいただければ必要な構成をご提案します。</p>
+                    <ul class="rental-scenario-list">
+                        <li>スピーカー、ワイヤレスマイク、ミキサーなど必要な機材だけのレンタル</li>
+                        <li>話す人の人数・会場の広さ・BGMや演奏の有無に合わせたセット提案</li>
+                        <li>機材のお引き取り、または運搬・設営まで選べる対応</li>
+                    </ul>
+                </div>
+            </article>
+            <article class="rental-scenario rental-scenario--outdoor">
+                <div class="rental-scenario-media">
+                    <p class="rental-scenario-kicker">OUTDOOR EVENT SOUND</p>
+                    <h2><span class="heading-line">広島の</span><span class="heading-line phrase-lock">屋外イベント音響</span><span class="heading-line phrase-lock">レンタル</span></h2>
+                </div>
+                <div class="rental-scenario-body">
+                    <p>お祭り、地域イベント、野外ライブ、式典、キッチンカーイベントなどの屋外音響にも対応します。会場の広さ、電源、搬入経路、雨天時の運用まで事前に確認し、当日の現場を支えます。</p>
+                    <ul class="rental-scenario-list">
+                        <li>ステージ・客席に合わせたスピーカー配置とマイク構成</li>
+                        <li>電源が遠い会場や、発電機の手配が必要な現場も事前にご相談可能</li>
+                        <li>搬入・設営・撤収からPAオペレーター派遣まで一括対応</li>
+                    </ul>
+                </div>
+            </article>
+        </div>
     </section>
 
     <div class="text-center plan-section-heading">
@@ -758,7 +1068,7 @@
 
     <section class="mb-5 pb-5">
         <div class="text-center mb-5">
-            <h2 class="section-title">広島の音響レンタル｜ご利用の流れ</h2>
+            <h2 class="section-title">広島の<span class="phrase-lock">音響レンタル</span>｜ご利用の流れ</h2>
             <p class="lead">お問い合わせから当日まで、スムーズな進行をお約束します。</p>
         </div>
         <div class="row g-4">
