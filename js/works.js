@@ -12,6 +12,9 @@ const roleLabels = {
 };
 
 const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
+const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
+    ? `/works/${post.slug}.html`
+    : '/works.html';
 
 if (grid && emptyState && isSupabaseConfigured) {
     // 管理画面へログイン済みの同じブラウザでも、公開WORKSは常に匿名閲覧として扱う。
@@ -34,7 +37,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     const createCard = (post) => {
         const card = document.createElement('a');
         card.className = 'work-card work-card--link';
-        card.href = `work.html?id=${encodeURIComponent(post.id)}`;
+        card.href = publicWorkUrl(post);
         card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
         const image = document.createElement('img');
@@ -100,6 +103,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         .from('work_posts')
         .select(fields)
         .eq('is_published', true)
+        .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
         .order('event_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
 
@@ -144,7 +148,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, title, category, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
+        const newFields = 'id, slug, title, category, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
         const legacyFields = 'id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         if (error) ({ data, error } = await queryWorks(legacyFields));

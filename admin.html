@@ -45,6 +45,11 @@
         input[type="file"] { background: #f8fbfe; padding: 10px; }
         .checkbox { align-items: center; display: flex; gap: 10px; font-weight: 700; }
         .checkbox input { accent-color: var(--blue); height: 18px; width: 18px; }
+        .slug-control { align-items: center; display: flex; gap: 10px; }
+        .slug-control .button { flex: 0 0 auto; }
+        .button--small { font-size: .8rem; padding: 9px 12px; }
+        .url-preview { background: #f8fbfe; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: .82rem; margin: 0; overflow-wrap: anywhere; padding: 10px 12px; }
+        .url-preview a { color: #1764a2; font-weight: 700; }
         .actions { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
         .button { background: var(--blue); border: 2px solid var(--blue); border-radius: 9px; color: white; font-weight: 900; padding: 12px 18px; }
         .button:hover { background: #0067d5; border-color: #0067d5; }
@@ -106,6 +111,15 @@
                         <div class="form-field form-field--full"><label for="post-title">イベント名 <span class="help">必須・過去の入力候補から選べます</span></label><input id="post-title" type="text" maxlength="120" list="title-history" placeholder="例：SUMMER SOUND FES 2026" required><datalist id="title-history"></datalist></div>
                         <div class="form-field"><label for="post-date">開催日</label><input id="post-date" type="date"></div>
                         <div class="form-field"><label for="post-category">カテゴリ</label><select id="post-category"><option value="WORKS">WORKS</option><option value="PA RENTAL">PA RENTAL</option><option value="STAGE PRODUCTION">STAGE PRODUCTION</option><option value="TOUR PA">TOUR PA</option><option value="INSTALLATION">INSTALLATION</option></select></div>
+                        <div class="form-field form-field--full">
+                            <label for="post-slug">公開URL <span class="help">通常はイベント名と開催年から自動生成されるため、変更不要です</span></label>
+                            <div class="slug-control">
+                                <input id="post-slug" type="text" maxlength="96" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" autocomplete="off" spellcheck="false" placeholder="例：2026-summer-sound-fes">
+                                <button id="unlock-slug" class="button button--secondary button--small hidden" type="button">URLを変更</button>
+                            </div>
+                            <p id="slug-preview" class="url-preview" aria-live="polite">イベント名または開催日を入力すると、公開URLを表示します。</p>
+                            <span class="help">使用できる文字は半角小文字・数字・ハイフンです。公開後のURLは、必要な場合だけ変更してください。</span>
+                        </div>
                         <fieldset class="form-field form-field--full role-options"><legend>現場での担当 <span class="help">両方を担当した場合は、2つとも選択できます</span></legend><label class="checkbox" for="post-role-operation"><input id="post-role-operation" type="checkbox">ARTIST PA OPERATION <span class="help">アーティストPA・音響オペレート</span></label><label class="checkbox" for="post-role-support"><input id="post-role-support" type="checkbox">LOCAL TECHNICAL SUPPORT <span class="help">乗り込みPA対応・現場技術サポート</span></label></fieldset>
                         <div id="operation-artists-field" class="form-field form-field--full hidden"><label for="post-operation-artists">オペレート担当アーティスト <span class="help">任意・複数いる場合は「、」で区切って入力</span></label><input id="post-operation-artists" type="text" maxlength="240" list="operation-artists-history" placeholder="例：ARA BAND、広島シンガーズ"><datalist id="operation-artists-history"></datalist></div>
                         <div id="support-artists-field" class="form-field form-field--full hidden"><label for="post-support-artists">乗り込みPA対応アーティスト <span class="help">任意・複数いる場合は「、」で区切って入力</span></label><input id="post-support-artists" type="text" maxlength="240" list="support-artists-history" placeholder="例：○○ BAND、△△"><datalist id="support-artists-history"></datalist></div>

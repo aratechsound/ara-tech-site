@@ -1,0 +1,61 @@
+const rows = [
+    {
+        id: 37,
+        slug: '2026-hyakka-ryoran-vol-20',
+        title: '百花繚乱vol.20',
+        category: 'WORKS',
+        role_type: 'artist_pa_operation',
+        role_types: ['artist_pa_operation'],
+        event_date: '2026-07-20',
+        venue: 'club CHINA TOWN',
+        artists: null,
+        operation_artists: null,
+        support_artists: null,
+        description: null,
+        flyer_path: 'flyers/1784241073103-4fff0eb8-979d-4026-8e0d-9d091dbbae24.jpg',
+        flyer_alt: '百花繚乱vol.20のフライヤー',
+        is_published: true,
+        publish_at: '2026-07-20T11:00:00+00:00',
+        updated_at: '2026-07-16T22:31:14.414895+00:00'
+    },
+    {
+        id: 22,
+        slug: '2026-sonsi',
+        title: 'Sonsi',
+        category: 'WORKS',
+        role_type: 'local_technical_support',
+        role_types: ['local_technical_support'],
+        event_date: '2026-07-17',
+        venue: 'LAGOON HIROSHIMA',
+        artists: 'Sonsi',
+        operation_artists: null,
+        support_artists: 'Sonsi',
+        description: null,
+        flyer_path: 'flyers/1784047975962-b23f1071-5a77-4194-a237-fbe46e08ca6f.jpg',
+        flyer_alt: 'Sonsiのフライヤー',
+        is_published: true,
+        publish_at: '2026-07-17T20:00:00+00:00',
+        updated_at: '2026-07-14T17:29:15.271791+00:00'
+    },
+    {
+        id: 27,
+        slug: '2025-christmas-party-27',
+        title: '手島章斗ファンクラブイベント「Christmas Party」',
+        category: 'WORKS',
+        role_type: 'artist_pa_operation',
+        role_types: ['artist_pa_operation'],
+        event_date: '2025-12-20',
+        venue: 'SIX ONE Live STAR',
+        artists: '手島章斗',
+        operation_artists: '手島章斗',
+        support_artists: null,
+        description: null,
+        flyer_path: 'flyers/1784050794666-415ef230-4061-43d4-8b62-55f5a3cf4ccd.png',
+        flyer_alt: '手島章斗ファンクラブイベント「Christmas Party」のフライヤー',
+        is_published: true,
+        publish_at: null,
+        updated_at: '2026-07-14T17:39:56.99465+00:00'
+    }
+];
+
+module.exports = { rows };

@@ -29,10 +29,14 @@ const supportArtistsInput = $('#post-support-artists');
 const publicationMode = $('#post-publication-mode');
 const publishAtField = $('#publish-at-field');
 const publishAtInput = $('#post-publish-at');
+const slugInput = $('#post-slug');
+const slugPreview = $('#slug-preview');
+const unlockSlugButton = $('#unlock-slug');
 
 let supabase;
 let posts = [];
 let editingPost = null;
+let slugWasEdited = false;
 
 const roleLabels = {
     artist_pa_operation: 'ARTIST PA OPERATION ｜ アーティストPA・音響オペレート',
@@ -77,6 +81,77 @@ const toLocalDateTimeInput = (dateTime) => {
 };
 const toIsoDateTime = (localDateTime) => localDateTime ? new Date(localDateTime).toISOString() : null;
 
+const normalizeSlug = (value) => value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, '-and-')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 96)
+    .replace(/-+$/g, '');
+
+const generatedSlug = () => {
+    const year = $('#post-date').value.slice(0, 4) || String(new Date().getFullYear());
+    const titlePart = normalizeSlug($('#post-title').value);
+    const categoryPart = normalizeSlug($('#post-category').value) || 'work';
+    return normalizeSlug(`${year}-${titlePart || categoryPart}`) || `${year}-work`;
+};
+
+const workUrl = (slug) => `https://ara-tech.cc/works/${slug}.html`;
+const hasValidSlug = (slug) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+
+const updateSlugPreview = () => {
+    const slug = normalizeSlug(slugInput.value);
+    slugPreview.replaceChildren();
+    if (!slug) {
+        slugPreview.textContent = 'イベント名または開催日を入力すると、公開URLを表示します。';
+        return;
+    }
+    const label = document.createTextNode('公開URL：');
+    const link = document.createElement('a');
+    link.href = workUrl(slug);
+    link.textContent = workUrl(slug);
+    link.target = '_blank';
+    link.rel = 'noopener';
+    slugPreview.append(label, link);
+};
+
+const refreshGeneratedSlug = () => {
+    if (editingPost || slugWasEdited) return;
+    slugInput.value = generatedSlug();
+    updateSlugPreview();
+};
+
+const prepareNewSlug = () => {
+    slugWasEdited = false;
+    slugInput.readOnly = false;
+    unlockSlugButton.classList.add('hidden');
+    slugInput.value = generatedSlug();
+    updateSlugPreview();
+};
+
+const prepareExistingSlug = (slug) => {
+    slugWasEdited = false;
+    slugInput.value = slug || '';
+    slugInput.readOnly = true;
+    unlockSlugButton.classList.remove('hidden');
+    updateSlugPreview();
+};
+
+const findUniqueSlug = async (base, excludedId = null) => {
+    const { data, error } = await supabase.from('work_posts').select('id, slug').like('slug', `${base}%`);
+    if (error) throw new Error('公開URLの重複を確認できませんでした。もう一度お試しください。');
+    const used = new Set((data || []).filter((post) => post.id !== excludedId).map((post) => post.slug));
+    if (!used.has(base)) return base;
+    for (let suffix = 2; suffix <= 999; suffix += 1) {
+        const candidate = `${base}-${suffix}`;
+        if (!used.has(candidate)) return candidate;
+    }
+    throw new Error('一意な公開URLを作成できませんでした。URLを手動で入力してください。');
+};
+
 const fileUrl = (path) => supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl;
 
 const getPublicationState = (post) => {
@@ -115,6 +190,7 @@ const resetPostForm = () => {
     publicationMode.value = 'draft';
     templateSelect.value = '';
     updatePublicationControls();
+    prepareNewSlug();
     flyerPreview.removeAttribute('src');
     flyerPreview.classList.add('hidden');
     formTitle.textContent = '新しい実績を追加';
@@ -180,6 +256,7 @@ const copyFromPost = (id) => {
     loadRoleAssignment(source);
     $('#post-venue').value = source.venue || '';
     $('#post-description').value = source.description || '';
+    prepareNewSlug();
     publicationMode.value = 'draft';
     publishAtInput.value = '';
     flyerInput.value = '';
@@ -243,6 +320,17 @@ const renderPosts = () => {
             body.append(artists);
         }
         body.append(meta);
+        if (post.slug) {
+            const publicUrl = document.createElement('p');
+            publicUrl.className = 'post-meta';
+            const publicLink = document.createElement('a');
+            publicLink.href = workUrl(post.slug);
+            publicLink.target = '_blank';
+            publicLink.rel = 'noopener';
+            publicLink.textContent = workUrl(post.slug);
+            publicUrl.append(publicLink);
+            body.append(publicUrl);
+        }
         const actions = document.createElement('div');
         actions.className = 'post-actions';
         const edit = document.createElement('button');
@@ -274,6 +362,7 @@ const beginEdit = (id) => {
     loadRoleAssignment(editingPost);
     $('#post-venue').value = editingPost.venue || '';
     $('#post-description').value = editingPost.description || '';
+    prepareExistingSlug(editingPost.slug);
     publicationMode.value = !editingPost.is_published ? 'draft' : (editingPost.publish_at && new Date(editingPost.publish_at).getTime() > Date.now() ? 'scheduled' : 'now');
     publishAtInput.value = toLocalDateTimeInput(editingPost.publish_at);
     templateSelect.value = '';
@@ -317,6 +406,7 @@ if (!isSupabaseConfigured) {
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     updateRoleFields();
+    prepareNewSlug();
     restoreSession();
 
     loginForm.addEventListener('submit', async (event) => {
@@ -337,6 +427,24 @@ if (!isSupabaseConfigured) {
     });
 
     templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
+    $('#post-title').addEventListener('input', refreshGeneratedSlug);
+    $('#post-date').addEventListener('input', refreshGeneratedSlug);
+    $('#post-category').addEventListener('change', refreshGeneratedSlug);
+    slugInput.addEventListener('input', () => {
+        slugWasEdited = true;
+        updateSlugPreview();
+    });
+    slugInput.addEventListener('blur', () => {
+        slugInput.value = normalizeSlug(slugInput.value);
+        updateSlugPreview();
+    });
+    unlockSlugButton.addEventListener('click', () => {
+        if (!editingPost || !window.confirm('公開URLを変更すると、現在のURLは使えなくなります。変更しますか？')) return;
+        slugInput.readOnly = false;
+        slugWasEdited = true;
+        unlockSlugButton.classList.add('hidden');
+        slugInput.focus();
+    });
     operationRoleInput.addEventListener('change', updateRoleFields);
     supportRoleInput.addEventListener('change', updateRoleFields);
     publicationMode.addEventListener('change', updatePublicationControls);
@@ -346,6 +454,8 @@ if (!isSupabaseConfigured) {
         event.preventDefault();
         clearMessage(postStatus);
         const file = flyerInput.files?.[0];
+        const title = $('#post-title').value.trim();
+        if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
         if (!editingPost && !file) { setMessage(postStatus, 'フライヤー画像を選択してください。', 'error'); return; }
         if (publicationMode.value === 'scheduled' && !publishAtInput.value) {
             setMessage(postStatus, '予約投稿では、公開日時を入力してください。', 'error');
@@ -356,30 +466,52 @@ if (!isSupabaseConfigured) {
             return;
         }
         saveButton.disabled = true;
+        let uploadedFlyerPath = null;
         try {
-            const flyerPath = file ? await uploadFlyer(file) : editingPost.flyer_path;
+            const normalizedSlug = normalizeSlug(slugInput.value || generatedSlug());
+            if (!hasValidSlug(normalizedSlug)) throw new Error('公開URLは半角小文字・数字・ハイフンだけで入力してください。');
+            const slug = !editingPost && !slugWasEdited
+                ? await findUniqueSlug(normalizedSlug)
+                : await findUniqueSlug(normalizedSlug, editingPost?.id || null);
+            if ((editingPost || slugWasEdited) && slug !== normalizedSlug) {
+                throw new Error('この公開URLはすでに使用されています。別のURLを入力してください。');
+            }
+            slugInput.value = slug;
+            updateSlugPreview();
+
+            uploadedFlyerPath = file ? await uploadFlyer(file) : null;
+            const flyerPath = uploadedFlyerPath || editingPost.flyer_path;
             const isPublished = publicationMode.value !== 'draft';
             const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
             const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
             const supportArtists = supportRoleInput.checked ? supportArtistsInput.value.trim() || null : null;
             const payload = {
-                title: $('#post-title').value.trim(), event_date: $('#post-date').value || null, category: $('#post-category').value,
+                title, slug, event_date: $('#post-date').value || null, category: $('#post-category').value,
                 role_type: roleTypes.length === 1 ? roleTypes[0] : null, role_types: roleTypes,
                 operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
-                flyer_alt: `${$('#post-title').value.trim()}のフライヤー`, is_published: isPublished,
+                flyer_alt: `${title}のフライヤー`, is_published: isPublished,
                 publish_at: publicationMode.value === 'scheduled' ? toIsoDateTime(publishAtInput.value) : null
             };
-            const result = editingPost ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id) : await supabase.from('work_posts').insert(payload);
+            const result = editingPost
+                ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id).select('id, slug').single()
+                : await supabase.from('work_posts').insert(payload).select('id, slug').single();
             if (result.error) throw result.error;
             if (file && editingPost?.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([editingPost.flyer_path]);
             const publication = getPublicationState(payload);
+            const savedUrl = workUrl(result.data.slug);
             resetPostForm();
             await loadPosts();
-            setMessage(postStatus, publication.className === 'scheduled' ? '予約投稿を保存しました。指定した日時にWORKSページへ表示されます。' : publication.className === 'draft' ? '下書きを保存しました。' : '保存しました。WORKSページへ表示されます。');
+            setMessage(postStatus, publication.className === 'scheduled'
+                ? `予約投稿を保存しました。公開後のURL：${savedUrl}`
+                : publication.className === 'draft'
+                    ? `下書きを保存しました。公開後のURL：${savedUrl}`
+                    : `保存しました。公開URL：${savedUrl}`);
         } catch (error) {
-            setMessage(postStatus, error.message || '保存できませんでした。', 'error');
+            if (uploadedFlyerPath) await supabase.storage.from(WORKS_BUCKET).remove([uploadedFlyerPath]);
+            const message = error.code === '23505' ? 'この公開URLはすでに使用されています。別のURLを入力してください。' : error.message;
+            setMessage(postStatus, message || '保存できませんでした。', 'error');
         } finally { saveButton.disabled = false; }
     });
 
