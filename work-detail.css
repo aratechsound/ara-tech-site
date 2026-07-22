@@ -1,10 +1,21 @@
 :root { --primary: #007bff; --interactive: #005bb5; --ink: #1d1d1f; --surface: #f5f8fc; --navy: #173d68; }
 * { box-sizing: border-box; }
-body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.7; margin: 0; }
+body { background: var(--surface); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif; line-height: 1.7; margin: 0; }
+button { font: inherit; }
 a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
-.navbar { background: var(--primary) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+.navbar { background: var(--primary); padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+.navbar .container { align-items: center; display: flex; flex-wrap: wrap; justify-content: space-between; margin: 0 auto; max-width: 1140px; padding: 0 12px; width: 100%; }
+.navbar-brand { display: inline-flex; flex: 0 0 auto; padding: 5px 0; }
 .navbar-brand img { height: 40px; width: auto; }
-.nav-link { color: white !important; font-size: .88rem; font-weight: 700; margin-left: 14px; }
+.navbar-toggler { align-items: center; background: transparent; border: 1px solid rgba(255, 255, 255, .55); border-radius: 6px; cursor: pointer; display: none; height: 40px; justify-content: center; padding: 8px; width: 48px; }
+.navbar-toggler-icon, .navbar-toggler-icon::before, .navbar-toggler-icon::after { background: white; border-radius: 2px; display: block; height: 2px; width: 24px; }
+.navbar-toggler-icon { position: relative; }
+.navbar-toggler-icon::before, .navbar-toggler-icon::after { content: ''; left: 0; position: absolute; }
+.navbar-toggler-icon::before { top: -7px; }
+.navbar-toggler-icon::after { top: 7px; }
+.navbar-collapse { display: flex; flex-basis: auto; flex-grow: 1; }
+.navbar-nav { align-items: center; display: flex; margin-left: auto; text-align: center; }
+.nav-link { color: white; display: block; font-size: .88rem; font-weight: 700; margin-left: 14px; padding: 8px 0; text-decoration: none; }
 .nav-link:hover, .nav-link[aria-current='page'] { opacity: .75; }
 .detail-shell { margin: 0 auto; max-width: 1180px; min-height: 60vh; padding: clamp(32px, 6vw, 68px) 24px 84px; }
 .breadcrumb-nav { color: #567089; font-size: .82rem; margin-bottom: 20px; }
@@ -15,7 +26,7 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .detail-card { background: white; border-radius: 22px; box-shadow: 0 16px 44px rgba(17, 54, 88, .12); overflow: hidden; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .95fr); }
 .detail-flyer { align-items: center; background: #e9f1f8; display: flex; justify-content: center; margin: 0; min-height: 100%; padding: clamp(22px, 4vw, 48px); }
-.detail-flyer img { box-shadow: 0 15px 32px rgba(16, 42, 70, .22); display: block; max-height: 760px; max-width: 100%; object-fit: contain; }
+.detail-flyer img { box-shadow: 0 15px 32px rgba(16, 42, 70, .22); display: block; height: auto; max-height: 760px; max-width: 100%; object-fit: contain; }
 .detail-body { align-self: center; padding: clamp(28px, 5vw, 58px); }
 .eyebrow { color: #146dc0; font-size: .76rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 12px; }
 .detail-tag, .detail-role { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
@@ -68,8 +79,13 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .loading, .not-found { background: white; border-radius: 18px; color: #57708a; padding: clamp(36px, 7vw, 72px) 24px; text-align: center; }
 .not-found h1 { color: var(--ink); font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 900; }
 .not-found .button { margin-top: 14px; }
-footer { background: white; color: #65717c; }
+.site-footer { background: white; border-top: 1px solid #dee2e6; color: #65717c; padding: 24px; text-align: center; }
+.site-footer a { color: var(--interactive); }
 @media (max-width: 991px) {
+    .navbar-toggler { display: flex; }
+    .navbar-collapse { display: none; flex-basis: 100%; width: 100%; }
+    .navbar-collapse.is-open { display: block; }
+    .navbar-nav { align-items: stretch; flex-direction: column; margin-left: 0; padding: 8px 0; }
     .nav-link { margin-left: 0; padding: 12px 0; }
     .detail-grid { grid-template-columns: 1fr; }
     .detail-flyer { min-height: 0; }

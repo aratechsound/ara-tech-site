@@ -3,6 +3,7 @@ const SUPABASE_URL = 'https://kogbnremsouajxxsgxro.supabase.co';
 // This is Supabase's browser-safe publishable key. It is governed by RLS and is not a service-role secret.
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_nGgPKpwiePrFS_vH8lPpVg_0I1HGGaS';
 const WORKS_BUCKET = 'work-flyers';
+const flyerDimensions = require('./flyer-dimensions.json');
 
 const WORK_FIELDS = [
     'id', 'slug', 'title', 'category', 'role_type', 'role_types', 'event_date', 'venue',
@@ -77,6 +78,11 @@ const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types
 
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
 
+const getFlyerDimensions = (path) => {
+    const [width, height] = flyerDimensions[String(path || '')] || [];
+    return Number.isInteger(width) && Number.isInteger(height) && width > 0 && height > 0 ? { width, height } : null;
+};
+
 const isValidWorkSlug = (slug) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ''));
 
 const formatDate = (date) => date
@@ -89,12 +95,15 @@ const publicFlyerUrl = (path) => {
     return `${SUPABASE_URL}/storage/v1/object/public/${WORKS_BUCKET}/${encoded}`;
 };
 
-const publicFlyerThumbnailUrl = (path, width = 480) => {
+const publicFlyerTransformedUrl = (path, width = 800, quality = 78) => {
     if (!path) return `${SITE_URL}/img/mr-1.jpg`;
     const encoded = String(path).split('/').map(encodeURIComponent).join('/');
-    const safeWidth = Math.round(Math.min(960, Math.max(160, Number(width) || 480)));
-    return `${SUPABASE_URL}/storage/v1/render/image/public/${WORKS_BUCKET}/${encoded}?width=${safeWidth}&quality=72&resize=contain`;
+    const safeWidth = Math.round(Math.min(1600, Math.max(160, Number(width) || 800)));
+    const safeQuality = Math.round(Math.min(90, Math.max(50, Number(quality) || 78)));
+    return `${SUPABASE_URL}/storage/v1/render/image/public/${WORKS_BUCKET}/${encoded}?width=${safeWidth}&quality=${safeQuality}&resize=contain`;
 };
+
+const publicFlyerThumbnailUrl = (path, width = 480) => publicFlyerTransformedUrl(path, width, 72);
 
 const buildSummary = (post) => {
     if (post.description) return String(post.description).trim();
@@ -135,8 +144,10 @@ module.exports = {
     fetchWorks,
     formatDate,
     getRoleTypes,
+    getFlyerDimensions,
     getWorkYear,
     isValidWorkSlug,
+    publicFlyerTransformedUrl,
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
     roleDetails,

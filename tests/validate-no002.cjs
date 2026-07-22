@@ -106,7 +106,7 @@ const makeWork = (id, slug, title, eventDate, category = 'WORKS', roleTypes = []
     assert.equal((relatedSection.match(/class="related-work-card"/g) || []).length, 2);
     assert.ok(!relatedSection.includes('/works/2026-sonsi.html'));
     assert.match(relatedSection, /loading="lazy" decoding="async"/);
-    assert.match(relatedSection, /width="480" height="640"/);
+    assert.match(relatedSection, /width="\d+" height="\d+"/);
     assert.match(relatedSection, /\/storage\/v1\/render\/image\/public\/work-flyers\//);
     assert.match(relatedSection, /\?width=480&amp;quality=72&amp;resize=contain/);
 

@@ -4,9 +4,11 @@ const {
     escapeHtml,
     fetchWorks,
     formatDate,
+    getFlyerDimensions,
     getRoleTypes,
     getWorkYear,
     isValidWorkSlug,
+    publicFlyerTransformedUrl,
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
     roleDetails,
@@ -100,9 +102,11 @@ const renderRelatedWorks = (relatedWorks) => {
     if (!relatedWorks?.length) return '';
     const cards = relatedWorks.map((work) => {
         const date = formatDate(work.event_date) || (getWorkYear(work) ? `${getWorkYear(work)}年` : '開催日未設定');
-        const imageUrl = publicFlyerThumbnailUrl(work.flyer_path);
+        const imageUrl = publicFlyerThumbnailUrl(work.flyer_path, 240);
+        const imageUrl2x = publicFlyerThumbnailUrl(work.flyer_path, 480);
+        const dimensions = getFlyerDimensions(work.flyer_path) || { width: 480, height: 640 };
         return `<a class="related-work-card" href="${workHref(work)}" aria-label="関連する実績：${escapeHtml(work.title)}（${escapeHtml(date)}）を表示">
-                    <span class="related-work-card__image"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(work.flyer_alt || `${work.title}のフライヤー`)}" width="480" height="640" loading="lazy" decoding="async"></span>
+                    <span class="related-work-card__image"><img src="${escapeHtml(imageUrl)}" srcset="${escapeHtml(imageUrl)} 240w, ${escapeHtml(imageUrl2x)} 480w" sizes="(max-width: 640px) 34vw, (max-width: 991px) 50vw, 33vw" alt="${escapeHtml(work.flyer_alt || `${work.title}のフライヤー`)}" width="${dimensions.width}" height="${dimensions.height}" loading="lazy" decoding="async"></span>
                     <span class="related-work-card__body"><span class="related-work-card__date">${escapeHtml(date)}</span><span class="related-work-card__title">${escapeHtml(work.title)}</span></span>
                 </a>`;
     }).join('');
@@ -129,6 +133,15 @@ const serviceFor = (post, roleTypes) => {
 const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks = [] } = {}) => {
     const canonical = `${SITE_URL}/works/${post.slug}.html`;
     const imageUrl = publicFlyerUrl(post.flyer_path);
+    const displayImageUrl = publicFlyerTransformedUrl(post.flyer_path, 800, 78);
+    const displayImageSrcset = [480, 800, 1200]
+        .map((width) => `${publicFlyerTransformedUrl(post.flyer_path, width, 78)} ${width}w`)
+        .join(', ');
+    const displayImageSizes = '(max-width: 991px) calc(100vw - 72px), 52vw';
+    const displayImageDimensions = getFlyerDimensions(post.flyer_path);
+    const displayImageDimensionAttributes = displayImageDimensions
+        ? ` width="${displayImageDimensions.width}" height="${displayImageDimensions.height}"`
+        : '';
     const summary = buildSummary(post);
     const seoDescription = truncate(summary, 155);
     const date = formatDate(post.event_date);
@@ -223,20 +236,16 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}">
     <meta name="theme-color" content="#007bff">
     <link rel="icon" href="/img/favicon.ico">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://kogbnremsouajxxsgxro.supabase.co" crossorigin>
+    <link rel="preload" as="image" href="${escapeHtml(displayImageUrl)}" imagesrcset="${escapeHtml(displayImageSrcset)}" imagesizes="${escapeHtml(displayImageSizes)}" fetchpriority="high">
     <link rel="stylesheet" href="/work-detail.css">
     <script type="application/ld+json">${safeJson(structuredData)}</script>
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
-    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-K8VZM111TY');</script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="/"><img src="/img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く"><span class="navbar-toggler-icon"></span></button>
+            <button class="navbar-toggler" type="button" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く"><span class="navbar-toggler-icon"></span></button>
             <div class="collapse navbar-collapse" id="navbarNav"><div class="navbar-nav ms-auto text-center">
                 <a class="nav-link" href="/">HOME</a><a class="nav-link" href="/pa-rental.html">PA RENTAL</a><a class="nav-link" href="/stage-production.html">STAGE</a><a class="nav-link" href="/tour-pa.html">TOUR PA</a><a class="nav-link" href="/installation.html">INSTALLATION</a><a class="nav-link" href="/works.html" aria-current="page">WORKS</a><a class="nav-link" href="/contact.html">CONTACT</a>
             </div></div>
@@ -246,7 +255,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
         <nav class="breadcrumb-nav" aria-label="パンくず"><ol>${breadcrumbHtml}</ol></nav>
         <article class="detail-card">
             <div class="detail-grid">
-                <figure class="detail-flyer"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}" fetchpriority="high"></figure>
+                <figure class="detail-flyer"><img src="${escapeHtml(displayImageUrl)}" srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}" alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async"></figure>
                 <div class="detail-body">
                     <p class="eyebrow">FIELD REPORT</p><span class="detail-tag">${escapeHtml(post.category || 'WORKS')}</span>${roleTags}
                     <h1 class="detail-title${post.title.length > 60 ? ' detail-title--long' : post.title.length > 34 ? ' detail-title--medium' : ''}">${escapeHtml(post.title)}</h1>
@@ -262,8 +271,8 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
         </article>
         <a class="back" href="/works.html${year ? `#year-${year}` : ''}">← ${year ? `${year}年の` : ''}WORKS一覧へ戻る</a>
     </main>
-    <footer class="py-4 border-top text-center"><small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="/privacy.html">プライバシーポリシー</a></small></footer>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <footer class="site-footer"><small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="/privacy.html">プライバシーポリシー</a></small></footer>
+    <script>(()=>{const button=document.querySelector('.navbar-toggler');const menu=document.getElementById('navbarNav');const closeMenu=()=>{button.setAttribute('aria-expanded','false');button.setAttribute('aria-label','メニューを開く');menu.classList.remove('is-open')};if(button&&menu){button.addEventListener('click',()=>{const willOpen=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(willOpen));button.setAttribute('aria-label',willOpen?'メニューを閉じる':'メニューを開く');menu.classList.toggle('is-open',willOpen)});document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&button.getAttribute('aria-expanded')==='true'){closeMenu();button.focus()}})}const loadAnalytics=()=>{window.dataLayer=window.dataLayer||[];window.gtag=function(){window.dataLayer.push(arguments)};const script=document.createElement('script');script.async=true;script.src='https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY';document.head.appendChild(script);window.gtag('js',new Date());window.gtag('config','G-K8VZM111TY')};window.addEventListener('load',()=>{'requestIdleCallback'in window?requestIdleCallback(loadAnalytics,{timeout:3000}):setTimeout(loadAnalytics,2000)},{once:true})})();</script>
 </body>
 </html>`;
 };
