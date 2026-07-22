@@ -84,7 +84,7 @@ const renderWorkNavigation = (olderWork, newerWork) => {
         const isOlder = direction === 'older';
         const date = formatDate(work.event_date) || (getWorkYear(work) ? `${getWorkYear(work)}年` : '開催日未設定');
         const directionLabel = isOlder ? '← 過去の実績' : '新しい実績 →';
-        return `<a class="work-pagination__link work-pagination__link--${direction}" href="${workHref(work)}" aria-label="${escapeHtml(`${isOlder ? '過去の実績' : '新しい実績'}：${work.title}（${date}）を表示`)}">
+        return `<a class="work-pagination__link work-pagination__link--${direction}" href="${workHref(work)}">
                     <span class="work-pagination__direction">${directionLabel}</span>
                     <span class="work-pagination__date">${escapeHtml(date)}</span>
                     <span class="work-pagination__title">${escapeHtml(work.title)}</span>
@@ -105,7 +105,7 @@ const renderRelatedWorks = (relatedWorks) => {
         const imageUrl = publicFlyerThumbnailUrl(work.flyer_path, 240);
         const imageUrl2x = publicFlyerThumbnailUrl(work.flyer_path, 480);
         const dimensions = getFlyerDimensions(work.flyer_path) || { width: 480, height: 640 };
-        return `<a class="related-work-card" href="${workHref(work)}" aria-label="関連する実績：${escapeHtml(work.title)}（${escapeHtml(date)}）を表示">
+        return `<a class="related-work-card" href="${workHref(work)}">
                     <span class="related-work-card__image"><img src="${escapeHtml(imageUrl)}" srcset="${escapeHtml(imageUrl)} 240w, ${escapeHtml(imageUrl2x)} 480w" sizes="(max-width: 640px) 34vw, (max-width: 991px) 50vw, 33vw" alt="${escapeHtml(work.flyer_alt || `${work.title}のフライヤー`)}" width="${dimensions.width}" height="${dimensions.height}" loading="lazy" decoding="async"></span>
                     <span class="related-work-card__body"><span class="related-work-card__date">${escapeHtml(date)}</span><span class="related-work-card__title">${escapeHtml(work.title)}</span></span>
                 </a>`;

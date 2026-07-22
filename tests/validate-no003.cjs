@@ -54,5 +54,9 @@ assert.match(css, /\.navbar-collapse\.is-open/);
 assert.match(css, /\.navbar-toggler-icon::before/);
 assert.match(css, /\.site-footer/);
 assert.ok(!css.includes("font-family: 'Noto Sans JP'"));
+assert.match(css, /\.navbar \{ background: var\(--interactive\)/);
+assert.ok(!html.includes('aria-label="関連する実績：'));
+assert.ok(!html.includes('aria-label="過去の実績：'));
+assert.ok(!html.includes('aria-label="新しい実績：'));
 
 console.log('validate-no003: responsive LCP image, original social image, local navigation CSS, and delayed analytics checks passed');
