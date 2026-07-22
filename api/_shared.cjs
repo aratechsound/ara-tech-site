@@ -7,7 +7,7 @@ const WORKS_BUCKET = 'work-flyers';
 const WORK_FIELDS = [
     'id', 'slug', 'title', 'category', 'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
-    'flyer_alt', 'is_published', 'publish_at', 'updated_at'
+    'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');
 
 const roleDetails = {
@@ -75,6 +75,10 @@ const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types
     ? post.role_types.filter((role) => roleDetails[role])
     : post.role_type && roleDetails[post.role_type] ? [post.role_type] : [];
 
+const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
+
+const isValidWorkSlug = (slug) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ''));
+
 const formatDate = (date) => date
     ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' }).format(new Date(`${date}T00:00:00+09:00`))
     : '';
@@ -83,6 +87,13 @@ const publicFlyerUrl = (path) => {
     if (!path) return `${SITE_URL}/img/mr-1.jpg`;
     const encoded = String(path).split('/').map(encodeURIComponent).join('/');
     return `${SUPABASE_URL}/storage/v1/object/public/${WORKS_BUCKET}/${encoded}`;
+};
+
+const publicFlyerThumbnailUrl = (path, width = 480) => {
+    if (!path) return `${SITE_URL}/img/mr-1.jpg`;
+    const encoded = String(path).split('/').map(encodeURIComponent).join('/');
+    const safeWidth = Math.round(Math.min(960, Math.max(160, Number(width) || 480)));
+    return `${SUPABASE_URL}/storage/v1/render/image/public/${WORKS_BUCKET}/${encoded}?width=${safeWidth}&quality=72&resize=contain`;
 };
 
 const buildSummary = (post) => {
@@ -103,7 +114,7 @@ const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
     endpoint.searchParams.set('or', `(publish_at.is.null,publish_at.lte.${new Date().toISOString()})`);
     if (id) endpoint.searchParams.set('id', `eq.${id}`);
     if (slug) endpoint.searchParams.set('slug', `eq.${slug}`);
-    if (!id && !slug) endpoint.searchParams.set('order', 'event_date.desc.nullslast,created_at.desc');
+    if (!id && !slug) endpoint.searchParams.set('order', 'event_date.desc.nullslast,created_at.desc,id.desc');
     if (id || slug) endpoint.searchParams.set('limit', '1');
     const response = await fetch(endpoint, {
         headers: {
@@ -124,6 +135,9 @@ module.exports = {
     fetchWorks,
     formatDate,
     getRoleTypes,
+    getWorkYear,
+    isValidWorkSlug,
+    publicFlyerThumbnailUrl,
     publicFlyerUrl,
     roleDetails,
     safeJson

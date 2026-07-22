@@ -1,4 +1,4 @@
-:root { --primary: #007bff; --ink: #1d1d1f; --surface: #f5f8fc; --navy: #173d68; }
+:root { --primary: #007bff; --interactive: #005bb5; --ink: #1d1d1f; --surface: #f5f8fc; --navy: #173d68; }
 * { box-sizing: border-box; }
 body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.7; margin: 0; }
 a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
@@ -10,7 +10,7 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .breadcrumb-nav { color: #567089; font-size: .82rem; margin-bottom: 20px; }
 .breadcrumb-nav ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .breadcrumb-nav li:not(:last-child)::after { color: #9aabba; content: '/'; margin-left: 8px; }
-.breadcrumb-nav a, .back { color: #1764a2; font-weight: 900; text-decoration: none; }
+.breadcrumb-nav a, .back { color: var(--interactive); font-weight: 900; text-decoration: none; }
 .back { display: inline-flex; font-size: .86rem; gap: 8px; margin-top: 22px; }
 .detail-card { background: white; border-radius: 22px; box-shadow: 0 16px 44px rgba(17, 54, 88, .12); overflow: hidden; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .95fr); }
@@ -41,9 +41,26 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .content-section { border-top: 1px solid #e2eaf1; padding: clamp(28px, 5vw, 52px); }
 .content-section h2 { font-size: clamp(1.35rem, 3vw, 1.9rem); font-weight: 900; margin: 0 0 10px; }
 .content-section p:not(.eyebrow) { color: #4d5b68; margin: 0 0 18px; }
-.button { background: var(--primary); border: 2px solid var(--primary); border-radius: 999px; color: white; display: inline-block; font-weight: 900; padding: 11px 22px; text-decoration: none; }
-.button:hover { background: #0067d5; border-color: #0067d5; color: white; }
-.button--secondary { background: white; color: var(--primary); }
+.button { background: var(--interactive); border: 2px solid var(--interactive); border-radius: 999px; color: white; display: inline-block; font-weight: 900; padding: 11px 22px; text-decoration: none; }
+.button:hover { background: #00498f; border-color: #00498f; color: white; }
+.button--secondary { background: white; color: var(--interactive); }
+.work-pagination { padding-bottom: clamp(26px, 4vw, 40px); padding-top: clamp(26px, 4vw, 40px); }
+.work-pagination__grid { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.work-pagination__grid--single .work-pagination__link--newer { grid-column: 2; }
+.work-pagination__link { background: #f7faff; border: 2px solid #ccdbea; border-radius: 16px; color: var(--navy); display: flex; flex-direction: column; justify-content: center; min-height: 132px; padding: 18px 20px; text-decoration: none; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.work-pagination__link:hover { border-color: var(--interactive); box-shadow: 0 10px 24px rgba(17, 54, 88, .12); color: var(--navy); transform: translateY(-2px); }
+.work-pagination__link--newer { text-align: right; }
+.work-pagination__direction { color: var(--interactive); font-size: .78rem; font-weight: 900; letter-spacing: .08em; }
+.work-pagination__date { color: #536b80; font-size: .8rem; font-weight: 700; margin-top: 9px; }
+.work-pagination__title { display: -webkit-box; font-size: 1rem; font-weight: 900; line-height: 1.55; margin-top: 2px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.related-works__grid { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 22px; }
+.related-work-card { background: #f7faff; border: 2px solid transparent; border-radius: 16px; box-shadow: 0 8px 22px rgba(17, 54, 88, .1); color: var(--navy); display: block; min-width: 0; overflow: hidden; text-decoration: none; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.related-work-card:hover { border-color: var(--interactive); box-shadow: 0 13px 28px rgba(17, 54, 88, .15); color: var(--navy); transform: translateY(-3px); }
+.related-work-card__image { align-items: center; aspect-ratio: 3 / 4; background: #e9f1f8; display: flex; justify-content: center; overflow: hidden; }
+.related-work-card__image img { display: block; height: 100%; object-fit: contain; width: 100%; }
+.related-work-card__body { display: block; padding: 16px; }
+.related-work-card__date { color: #536b80; display: block; font-size: .78rem; font-weight: 700; }
+.related-work-card__title { display: -webkit-box; font-size: .95rem; font-weight: 900; line-height: 1.55; margin-top: 5px; min-height: 2.95em; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .contact-panel { align-items: center; background: #10233b; color: white; display: flex; gap: 24px; justify-content: space-between; }
 .contact-panel .eyebrow { color: #a9d5ff; }
 .contact-panel p:not(.eyebrow) { color: #d9e7f4; margin-bottom: 0; }
@@ -57,6 +74,7 @@ footer { background: white; color: #65717c; }
     .detail-grid { grid-template-columns: 1fr; }
     .detail-flyer { min-height: 0; }
     .detail-flyer img { max-height: none; width: min(100%, 620px); }
+    .related-works__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
     .detail-shell { padding-inline: 14px; }
@@ -65,4 +83,14 @@ footer { background: white; color: #65717c; }
     .detail-meta div { grid-template-columns: 1fr; }
     .contact-panel { align-items: flex-start; flex-direction: column; }
     .contact-panel .button { width: 100%; text-align: center; }
+    .work-pagination__grid { grid-template-columns: 1fr; }
+    .work-pagination__grid--single .work-pagination__link--newer { grid-column: auto; }
+    .work-pagination__link--newer { text-align: left; }
+    .related-works__grid { grid-template-columns: 1fr; }
+    .related-work-card { display: grid; grid-template-columns: minmax(104px, 34%) minmax(0, 1fr); }
+    .related-work-card__image { min-height: 138px; }
+    .related-work-card__body { align-self: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .work-pagination__link, .related-work-card { transition: none; }
 }

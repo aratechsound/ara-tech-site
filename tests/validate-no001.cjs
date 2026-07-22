@@ -42,7 +42,8 @@ global.fetch = async (url) => {
         assert.ok(jsonLd, `${row.slug}: JSON-LD is missing`);
         const graph = JSON.parse(jsonLd)['@graph'];
         assert.equal(graph[0].url, `https://ara-tech.cc/works/${row.slug}.html`);
-        assert.equal(graph[1].itemListElement[2].name, row.title);
+        assert.equal(graph[1].itemListElement[2].name, `${row.event_date.slice(0, 4)}年`);
+        assert.equal(graph[1].itemListElement[3].name, row.title);
     }
 
     const oldResponse = createResponse();

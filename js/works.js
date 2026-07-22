@@ -105,9 +105,10 @@ if (grid && emptyState && isSupabaseConfigured) {
         .eq('is_published', true)
         .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
         .order('event_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false });
 
-    const getYear = (post) => post.event_date ? post.event_date.slice(0, 4) : null;
+    const getYear = (post) => String(post.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || null;
 
     const renderWorks = (posts, selectedYear) => {
         grid.replaceChildren();
@@ -124,27 +125,52 @@ if (grid && emptyState && isSupabaseConfigured) {
     const renderYearTabs = (posts) => {
         const years = [...new Set(posts.map(getYear).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
         const hasUndatedPosts = posts.some((post) => !getYear(post));
-        const tabs = years.map((year) => ({ value: year, label: year }));
+        const tabs = years.map((year) => ({ value: year, label: `${year}年` }));
         if (hasUndatedPosts) tabs.push({ value: 'undated', label: '日付未設定' });
         if (!tabs.length) return;
 
-        let selectedYear = tabs[0].value;
-        const updateSelectedYear = (year) => {
-            selectedYear = year;
-            yearTabs.replaceChildren();
-            tabs.forEach((tab) => {
-                const button = document.createElement('button');
-                button.className = 'year-tab';
-                button.type = 'button';
-                button.textContent = tab.label;
-                button.setAttribute('aria-pressed', String(tab.value === selectedYear));
-                button.addEventListener('click', () => updateSelectedYear(tab.value));
-                yearTabs.append(button);
-            });
-            latestTitle.textContent = selectedYear === tabs[0].value ? '最新の現場' : selectedYear === 'undated' ? '開催日未設定の現場' : `${selectedYear}年の現場`;
-            renderWorks(posts, selectedYear);
+        const yearFromHash = () => {
+            try { return decodeURIComponent(location.hash).match(/^#year-(\d{4})$/)?.[1] || null; }
+            catch { return null; }
         };
-        updateSelectedYear(selectedYear);
+        const requestedYear = yearFromHash();
+        let selectedYear = tabs.some((tab) => tab.value === requestedYear) ? requestedYear : tabs[0].value;
+        const buttons = new Map();
+        const latestSection = latestTitle.closest('section');
+
+        const updateSelectedYear = (year, { updateHash = false, scroll = false } = {}) => {
+            if (!tabs.some((tab) => tab.value === year)) return;
+            selectedYear = year;
+            buttons.forEach((button, value) => button.setAttribute('aria-pressed', String(value === selectedYear)));
+            const headingId = selectedYear === 'undated' ? 'year-undated' : `year-${selectedYear}`;
+            latestTitle.id = headingId;
+            latestSection?.setAttribute('aria-labelledby', headingId);
+            latestTitle.textContent = selectedYear === 'undated' ? '開催日未設定の現場' : `${selectedYear}年の現場`;
+            renderWorks(posts, selectedYear);
+            if (updateHash && selectedYear !== 'undated') {
+                history.replaceState(null, '', `${location.pathname}${location.search}#year-${selectedYear}`);
+            }
+            if (scroll) requestAnimationFrame(() => latestTitle.scrollIntoView({ block: 'start' }));
+        };
+
+        yearTabs.replaceChildren();
+        tabs.forEach((tab) => {
+            const button = document.createElement('button');
+            button.className = 'year-tab';
+            button.type = 'button';
+            button.textContent = tab.label;
+            button.setAttribute('aria-controls', 'latest-works');
+            button.setAttribute('aria-label', `${tab.label}の実績を表示`);
+            button.addEventListener('click', () => updateSelectedYear(tab.value, { updateHash: true }));
+            buttons.set(tab.value, button);
+            yearTabs.append(button);
+        });
+
+        updateSelectedYear(selectedYear, { scroll: Boolean(requestedYear) });
+        window.addEventListener('hashchange', () => {
+            const hashYear = yearFromHash();
+            if (hashYear) updateSelectedYear(hashYear, { scroll: true });
+        });
     };
 
     const loadWorks = async () => {

@@ -5,6 +5,9 @@ const {
     fetchWorks,
     formatDate,
     getRoleTypes,
+    getWorkYear,
+    isValidWorkSlug,
+    publicFlyerThumbnailUrl,
     publicFlyerUrl,
     roleDetails,
     safeJson
@@ -20,6 +23,96 @@ const truncate = (value, length) => {
     return text.length <= length ? text : `${text.slice(0, length - 1).trim()}…`;
 };
 
+const eventTime = (post) => {
+    if (!getWorkYear(post)) return null;
+    const timestamp = Date.parse(`${post.event_date}T00:00:00Z`);
+    return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const businessAffinity = (current, candidate) => {
+    const currentRoles = getRoleTypes(current);
+    const candidateRoles = getRoleTypes(candidate);
+    const hasSharedRole = currentRoles.some((role) => candidateRoles.includes(role));
+    const hasSharedCategory = Boolean(current.category && candidate.category && current.category === candidate.category);
+    return (hasSharedRole ? 2 : 0) + (hasSharedCategory ? 1 : 0);
+};
+
+const buildWorkNavigation = (current, orderedWorks) => {
+    const navigableWorks = (orderedWorks || []).filter((work) => isValidWorkSlug(work.slug) && eventTime(work) !== null);
+    const currentIndex = navigableWorks.findIndex((work) => work.slug === current.slug);
+    if (currentIndex < 0) return { olderWork: null, newerWork: null };
+    return {
+        olderWork: navigableWorks[currentIndex + 1] || null,
+        newerWork: navigableWorks[currentIndex - 1] || null
+    };
+};
+
+const selectRelatedWorks = (current, orderedWorks, limit = 3) => {
+    const currentYear = getWorkYear(current);
+    const currentTime = eventTime(current);
+    return (orderedWorks || [])
+        .map((work, index) => ({ work, index }))
+        .filter(({ work }) => work.slug !== current.slug && isValidWorkSlug(work.slug))
+        .sort((left, right) => {
+            const leftSameYear = Boolean(currentYear && getWorkYear(left.work) === currentYear);
+            const rightSameYear = Boolean(currentYear && getWorkYear(right.work) === currentYear);
+            if (leftSameYear !== rightSameYear) return leftSameYear ? -1 : 1;
+
+            const leftBusinessAffinity = businessAffinity(current, left.work);
+            const rightBusinessAffinity = businessAffinity(current, right.work);
+            if (leftBusinessAffinity !== rightBusinessAffinity) return rightBusinessAffinity - leftBusinessAffinity;
+
+            const leftTime = eventTime(left.work);
+            const rightTime = eventTime(right.work);
+            const leftDistance = currentTime === null || leftTime === null ? Number.POSITIVE_INFINITY : Math.abs(currentTime - leftTime);
+            const rightDistance = currentTime === null || rightTime === null ? Number.POSITIVE_INFINITY : Math.abs(currentTime - rightTime);
+            if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+            return left.index - right.index;
+        })
+        .slice(0, limit)
+        .map(({ work }) => work);
+};
+
+const workHref = (post) => `/works/${post.slug}.html`;
+
+const renderWorkNavigation = (olderWork, newerWork) => {
+    if (!olderWork && !newerWork) return '';
+    const renderLink = (work, direction) => {
+        if (!work) return '';
+        const isOlder = direction === 'older';
+        const date = formatDate(work.event_date) || (getWorkYear(work) ? `${getWorkYear(work)}年` : '開催日未設定');
+        const directionLabel = isOlder ? '← 過去の実績' : '新しい実績 →';
+        return `<a class="work-pagination__link work-pagination__link--${direction}" href="${workHref(work)}" aria-label="${escapeHtml(`${isOlder ? '過去の実績' : '新しい実績'}：${work.title}（${date}）を表示`)}">
+                    <span class="work-pagination__direction">${directionLabel}</span>
+                    <span class="work-pagination__date">${escapeHtml(date)}</span>
+                    <span class="work-pagination__title">${escapeHtml(work.title)}</span>
+                </a>`;
+    };
+    return `<nav class="content-section work-pagination" aria-label="実績の前後ナビゲーション">
+            <div class="work-pagination__grid${olderWork && newerWork ? '' : ' work-pagination__grid--single'}">
+                ${renderLink(olderWork, 'older')}
+                ${renderLink(newerWork, 'newer')}
+            </div>
+        </nav>`;
+};
+
+const renderRelatedWorks = (relatedWorks) => {
+    if (!relatedWorks?.length) return '';
+    const cards = relatedWorks.map((work) => {
+        const date = formatDate(work.event_date) || (getWorkYear(work) ? `${getWorkYear(work)}年` : '開催日未設定');
+        const imageUrl = publicFlyerThumbnailUrl(work.flyer_path);
+        return `<a class="related-work-card" href="${workHref(work)}" aria-label="関連する実績：${escapeHtml(work.title)}（${escapeHtml(date)}）を表示">
+                    <span class="related-work-card__image"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(work.flyer_alt || `${work.title}のフライヤー`)}" width="480" height="640" loading="lazy" decoding="async"></span>
+                    <span class="related-work-card__body"><span class="related-work-card__date">${escapeHtml(date)}</span><span class="related-work-card__title">${escapeHtml(work.title)}</span></span>
+                </a>`;
+    }).join('');
+    return `<section class="content-section related-works" aria-labelledby="related-works-heading">
+            <p class="eyebrow">RELATED WORKS</p>
+            <h2 id="related-works-heading">関連する実績</h2>
+            <div class="related-works__grid">${cards}</div>
+        </section>`;
+};
+
 const renderErrorPage = (status, heading, message) => `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex, follow"><title>${escapeHtml(heading)} | ARA-TECH</title>
@@ -33,7 +126,7 @@ const serviceFor = (post, roleTypes) => {
     return { href: '/pa-rental.html', title: 'PAレンタル・イベント音響', text: '現場技術サポートとPAサービスをご案内します。' };
 };
 
-const renderWorkPage = (post) => {
+const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks = [] } = {}) => {
     const canonical = `${SITE_URL}/works/${post.slug}.html`;
     const imageUrl = publicFlyerUrl(post.flyer_path);
     const summary = buildSummary(post);
@@ -46,6 +139,16 @@ const renderWorkPage = (post) => {
     const service = serviceFor(post, roleTypes);
     const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
     const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
+
+    const breadcrumbItems = [
+        { name: 'トップ', item: `${SITE_URL}/` },
+        { name: '実績一覧', item: `${SITE_URL}/works.html` },
+        ...(year ? [{ name: `${year}年`, item: `${SITE_URL}/works.html#year-${year}` }] : []),
+        { name: post.title, item: canonical }
+    ];
+    const breadcrumbHtml = breadcrumbItems.map((item, index) => index === breadcrumbItems.length - 1
+        ? `<li aria-current="page">${escapeHtml(item.name)}</li>`
+        : `<li><a href="${escapeHtml(item.item.replace(SITE_URL, '') || '/')}">${escapeHtml(item.name)}</a></li>`).join('');
 
     const roleTags = roleTypes.map((role) => `<span class="detail-role detail-role--${role === 'artist_pa_operation' ? 'operation' : 'support'}">${escapeHtml(roleDetails[role].label)}</span>`).join('');
     const roleAssignments = roleTypes.map((role) => {
@@ -80,11 +183,12 @@ const renderWorkPage = (post) => {
             {
                 '@type': 'BreadcrumbList',
                 '@id': `${canonical}#breadcrumb`,
-                itemListElement: [
-                    { '@type': 'ListItem', position: 1, name: 'トップ', item: `${SITE_URL}/` },
-                    { '@type': 'ListItem', position: 2, name: '実績一覧', item: `${SITE_URL}/works.html` },
-                    { '@type': 'ListItem', position: 3, name: post.title, item: canonical }
-                ]
+                itemListElement: breadcrumbItems.map((item, index) => ({
+                    '@type': 'ListItem',
+                    position: index + 1,
+                    name: item.name,
+                    item: item.item
+                }))
             },
             {
                 '@type': 'ImageObject',
@@ -139,7 +243,7 @@ const renderWorkPage = (post) => {
         </div>
     </nav>
     <main class="detail-shell">
-        <nav class="breadcrumb-nav" aria-label="パンくず"><ol><li><a href="/">トップ</a></li><li><a href="/works.html">実績一覧</a></li><li aria-current="page">${escapeHtml(post.title)}</li></ol></nav>
+        <nav class="breadcrumb-nav" aria-label="パンくず"><ol>${breadcrumbHtml}</ol></nav>
         <article class="detail-card">
             <div class="detail-grid">
                 <figure class="detail-flyer"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}" fetchpriority="high"></figure>
@@ -151,10 +255,12 @@ const renderWorkPage = (post) => {
                     ${metaRows ? `<dl class="detail-meta">${metaRows}</dl>` : ''}
                 </div>
             </div>
+            ${renderWorkNavigation(olderWork, newerWork)}
+            ${renderRelatedWorks(relatedWorks)}
             <section class="content-section" aria-labelledby="service-heading"><p class="eyebrow">RELATED SERVICE</p><h2 id="service-heading">${escapeHtml(service.title)}</h2><p>${escapeHtml(service.text)}</p><a class="button button--secondary" href="${service.href}">サービスを見る</a></section>
             <section class="content-section contact-panel" aria-labelledby="contact-heading"><div><p class="eyebrow">CONTACT</p><h2 id="contact-heading">音響・現場対応のご相談</h2><p>日程、会場、必要な機材や技術体制など、決まっている内容からご相談いただけます。</p></div><a class="button" href="/contact.html">お問い合わせ・お見積り</a></section>
         </article>
-        <a class="back" href="/works.html">← WORKS一覧へ戻る</a>
+        <a class="back" href="/works.html${year ? `#year-${year}` : ''}">← ${year ? `${year}年の` : ''}WORKS一覧へ戻る</a>
     </main>
     <footer class="py-4 border-top text-center"><small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="/privacy.html">プライバシーポリシー</a></small></footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -194,7 +300,8 @@ module.exports = async (request, response) => {
             return response.status(404).send(request.method === 'HEAD' ? '' : renderErrorPage(404, '実績が見つかりません', 'URLをご確認ください。'));
         }
 
-        const [post] = await fetchWorks({ slug });
+        const works = await fetchWorks();
+        const post = works.find((work) => work.slug === slug);
         if (!post) {
             response.setHeader('X-Robots-Tag', 'noindex, follow');
             return response.status(404).send(request.method === 'HEAD' ? '' : renderErrorPage(404, '実績が見つかりません', 'この実績は公開されていないか、存在しません。'));
@@ -204,7 +311,9 @@ module.exports = async (request, response) => {
         response.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
         response.setHeader('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
         response.setHeader('X-Content-Type-Options', 'nosniff');
-        return response.status(200).send(request.method === 'HEAD' ? '' : renderWorkPage(post));
+        const navigation = buildWorkNavigation(post, works);
+        const relatedWorks = selectRelatedWorks(post, works);
+        return response.status(200).send(request.method === 'HEAD' ? '' : renderWorkPage(post, { ...navigation, relatedWorks }));
     } catch (error) {
         console.error('work detail error', error.message);
         response.setHeader('X-Robots-Tag', 'noindex, follow');
@@ -214,3 +323,5 @@ module.exports = async (request, response) => {
 };
 
 module.exports.renderWorkPage = renderWorkPage;
+module.exports.buildWorkNavigation = buildWorkNavigation;
+module.exports.selectRelatedWorks = selectRelatedWorks;
