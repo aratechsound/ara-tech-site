@@ -14,10 +14,12 @@ const adminApi = read("api/pa-mail.js");
 const responseApi = read("api/pa-schedule-response.js");
 const mailSource = read("api/_pa-mail.cjs");
 const migration = read("supabase/migrations/2026-07-24-pa-schedule-response-workflow.sql");
+const vercelConfig = read("vercel.json");
 const mail = require(path.join(root, "api", "_pa-mail.cjs"));
 
 assert.match(scheduleJs, /\/api\/pa-schedule-response/);
 assert.doesNotMatch(scheduleJs, /callRpc\("submit_pa_schedule_response"/);
+assert.match(vercelConfig, /connect-src 'self' https:\/\/kogbnremsouajxxsgxro\.supabase\.co/);
 assert.match(responseApi, /submitScheduleResponseAndNotify/);
 assert.doesNotMatch(responseApi, /input\.(?:to\b|recipient\b|notification_address\b)/);
 

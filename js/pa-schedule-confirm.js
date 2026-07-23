@@ -527,11 +527,7 @@ const submitResponse = async () => {
             return;
         }
         showAccessState("invalid");
-    } catch (error) {
-        console.error(
-            "Schedule response submission failed",
-            error instanceof Error ? error.message : "unknown_error"
-        );
+    } catch {
         submissionStatus.textContent = "送信できませんでした。通信状況をご確認のうえ、もう一度お試しください。";
         completeButton.disabled = false;
     }
