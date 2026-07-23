@@ -938,6 +938,12 @@ const recordDeliveryResult = (delivery) => {
     renderOverview();
 };
 
+const resetSendEmailConfirmation = () => {
+    const button = $("#send-email");
+    delete button.dataset.confirmationKey;
+    button.textContent = "この内容でGmail送信";
+};
+
 const sendEmail = async () => {
     if (!currentCase || mailActionInProgress) return;
     const subject = $("#email-subject").value.trim();
@@ -947,7 +953,19 @@ const sendEmail = async () => {
         setMessage($("#email-message"), "宛先、件名、本文、専用URLを確認してください。", "error");
         return;
     }
-    if (!window.confirm(`${currentCase.email} へ、表示中の内容をARA-TECHのGmailから送信しますか？`)) return;
+    const confirmationKey = JSON.stringify([currentCase.id, currentCase.email, subject, body, scheduleUrl]);
+    const sendButton = $("#send-email");
+    if (sendButton.dataset.confirmationKey !== confirmationKey) {
+        sendButton.dataset.confirmationKey = confirmationKey;
+        sendButton.textContent = "この宛先へGmail送信を確定";
+        setMessage(
+            $("#email-message"),
+            `${currentCase.email} へ表示中の件名・本文を送信します。宛先と内容を再確認し、もう一度ボタンを押してください。`,
+            "warning"
+        );
+        return;
+    }
+    resetSendEmailConfirmation();
 
     mailActionInProgress = true;
     setMailButtonsDisabled(true);
@@ -973,6 +991,7 @@ const sendEmail = async () => {
         $("#email-send-state").textContent = "送信失敗";
     } finally {
         mailActionInProgress = false;
+        resetSendEmailConfirmation();
         setMailButtonsDisabled(false);
     }
 };
