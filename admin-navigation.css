@@ -11,7 +11,7 @@
 
 .admin-nav a {
     align-items: center;
-    background: #005bb9;
+    background: #007bff;
     border: 1px solid rgba(255, 255, 255, .7);
     border-radius: 999px;
     color: white;
@@ -27,13 +27,13 @@
 }
 
 .admin-nav a:hover {
-    background: #004f9f;
+    background: #0067d5;
     border-color: #b8ddff;
     color: white;
 }
 
 .admin-nav a:active {
-    background: #004685;
+    background: #005bb9;
     border-color: white;
     color: white;
 }
@@ -41,19 +41,19 @@
 .admin-nav a[aria-current="page"] {
     background: white;
     border-color: white;
-    color: #005bb9;
+    color: #007bff;
 }
 
 .admin-nav a[aria-current="page"]:hover {
     background: #eef6ff;
     border-color: #eef6ff;
-    color: #004f9f;
+    color: #0067d5;
 }
 
 .admin-nav a[aria-current="page"]:active {
     background: #dcecff;
     border-color: #dcecff;
-    color: #004685;
+    color: #005bb9;
 }
 
 .admin-nav a:focus-visible {

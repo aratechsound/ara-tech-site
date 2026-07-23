@@ -9,8 +9,8 @@ const worksAdmin = read("admin.html");
 const paAdmin = read("pa-admin.html");
 const navigationCss = read("admin-navigation.css");
 
-assert.match(worksAdmin, /admin-navigation\.css\?v=ara-20260724-004/);
-assert.match(paAdmin, /admin-navigation\.css\?v=ara-20260724-004/);
+assert.match(worksAdmin, /admin-navigation\.css\?v=ara-20260724-007/);
+assert.match(paAdmin, /admin-navigation\.css\?v=ara-20260724-007/);
 
 assert.match(
     worksAdmin,
@@ -27,11 +27,11 @@ assert.match(navigationCss, /\.admin-nav a:active\s*\{/);
 assert.match(navigationCss, /\.admin-nav a:focus-visible\s*\{/);
 assert.match(
     navigationCss,
-    /\.admin-nav a\s*\{[\s\S]*?background:\s*#005bb9;[\s\S]*?color:\s*white;/
+    /\.admin-nav a\s*\{[\s\S]*?background:\s*#007bff;[\s\S]*?color:\s*white;/
 );
 assert.match(
     navigationCss,
-    /\.admin-nav a\[aria-current="page"\]\s*\{[\s\S]*?background:\s*white;[\s\S]*?color:\s*#005bb9;/
+    /\.admin-nav a\[aria-current="page"\]\s*\{[\s\S]*?background:\s*white;[\s\S]*?color:\s*#007bff;/
 );
 assert.match(navigationCss, /\.admin-nav a\[aria-current="page"\]:hover\s*\{/);
 assert.match(navigationCss, /\.admin-nav a\[aria-current="page"\]:active\s*\{/);

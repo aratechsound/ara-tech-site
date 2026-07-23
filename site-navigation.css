@@ -6,7 +6,7 @@
 .navbar .nav-link,
 .navbar .site-nav a {
     align-items: center;
-    background: #005bb9;
+    background: #007bff;
     border: 1px solid rgba(255, 255, 255, .72);
     border-radius: 999px;
     color: white !important;
@@ -26,7 +26,7 @@
 
 .navbar .nav-link:hover,
 .navbar .site-nav a:hover {
-    background: #004f9f;
+    background: #0067d5;
     border-color: #b8ddff;
     color: white !important;
     opacity: 1 !important;
@@ -35,7 +35,7 @@
 
 .navbar .nav-link:active,
 .navbar .site-nav a:active {
-    background: #004685;
+    background: #005bb9;
     border-color: white;
     color: white !important;
 }
@@ -44,7 +44,7 @@
 .navbar .site-nav a[aria-current="page"] {
     background: white;
     border-color: white;
-    color: #005bb9 !important;
+    color: #007bff !important;
     opacity: 1 !important;
     text-decoration: none !important;
 }
@@ -53,14 +53,14 @@
 .navbar .site-nav a[aria-current="page"]:hover {
     background: #eef6ff;
     border-color: #eef6ff;
-    color: #004f9f !important;
+    color: #0067d5 !important;
 }
 
 .navbar .nav-link[aria-current="page"]:active,
 .navbar .site-nav a[aria-current="page"]:active {
     background: #dcecff;
     border-color: #dcecff;
-    color: #004685 !important;
+    color: #005bb9 !important;
 }
 
 .navbar .nav-link:focus-visible,
@@ -97,4 +97,37 @@
 
 .public-page-heading .phrase-lock {
     white-space: normal;
+}
+
+.public-page-heading .fs-6 {
+    font-size: 1rem !important;
+    letter-spacing: .08em !important;
+    line-height: 1.5 !important;
+}
+
+.page-header > .container,
+.page-hero > .container {
+    text-align: center !important;
+}
+
+.page-header .eyebrow,
+.page-hero .eyebrow {
+    font-size: .78rem !important;
+    font-weight: 900 !important;
+    letter-spacing: .2em !important;
+    line-height: 1.5 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center !important;
+}
+
+.page-header .lead,
+.page-hero > .container > p:not(.eyebrow) {
+    font-size: clamp(.95rem, 1.8vw, 1.05rem) !important;
+    font-weight: 700 !important;
+    line-height: 1.75 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    max-width: 760px !important;
+    text-align: center !important;
 }
