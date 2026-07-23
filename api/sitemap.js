@@ -8,6 +8,7 @@ const baseUrls = [
     ['/installation.html', '0.8'],
     ['/works.html', '0.7'],
     ['/contact.html', '0.8'],
+    ['/pa-inquiry.html', '0.7'],
     ['/privacy.html', '0.2']
 ];
 

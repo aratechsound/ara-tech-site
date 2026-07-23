@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <title>CONTACT | ARA-TECH（広島）- お問い合わせ・お見積り</title>
-    <meta name="description" content="広島の音響・照明・ステージ制作ARA-TECHへのお問い合わせはこちらから。PAレンタル、学園祭、ツアーPA、店舗設備導入など、お見積り・ご相談を無料で承ります。">
+    <meta name="description" content="ARA-TECHへのお問い合わせ窓口です。イベントPA・ステージ制作のご相談と、ツアーPA・店舗音響・保守などの一般お問い合わせをご案内します。">
     <link rel="canonical" href="https://ara-tech.cc/contact.html">
 
     <link rel="icon" href="img/favicon.ico">
@@ -44,13 +44,26 @@
         .wave-fill { fill: #f8f9fa; }
 
         /* フォームセクション */
-        .contact-wrapper { padding: 0 0 80px 0; position: relative; z-index: 10; margin-top: -20px; }
+        .contact-wrapper { padding: 0 12px 80px; position: relative; z-index: 10; margin-top: -20px; }
         .contact-card {
             background: white;
             border-radius: 20px;
             box-shadow: 0 15px 35px rgba(0,0,0,0.1);
             padding: clamp(25px, 5%, 50px);
         }
+        .contact-routing { margin-bottom: 48px; }
+        .contact-routing h2 { border-left: 5px solid var(--primary-blue); padding-left: 15px; }
+        .route-grid { display: grid; gap: 22px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .route-card { border: 1px solid #dce6ef; border-radius: 14px; display: flex; flex-direction: column; padding: 26px; }
+        .route-card h3 { font-size: 1.22rem; font-weight: 900; }
+        .route-card ul { color: #52606d; flex: 1; font-size: .92rem; margin: 0 0 22px; padding-left: 1.25rem; }
+        .route-button { align-items: center; background: #005eb8; border: 2px solid #005eb8; border-radius: 999px; color: white; display: inline-flex; font-weight: 900; justify-content: center; min-height: 52px; padding: 12px 22px; text-decoration: none; }
+        .route-button:hover { background: #00498f; border-color: #00498f; color: white; }
+        .route-button-secondary { background: white; color: #005eb8; }
+        .route-button-secondary:hover { background: #eef6ff; color: #00498f; }
+        .phrase-lock { display: inline-block; }
+        .route-button:focus-visible, .btn-submit:focus-visible, .btn-back:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
+        #general-inquiry { scroll-margin-top: 90px; }
         .form-label { font-weight: 700; color: #444; margin-bottom: 8px; font-size: 0.95rem; }
         .form-control, .form-select {
             border: 1px solid #e0e0e0;
@@ -102,6 +115,10 @@
             .info-box { margin-top: 40px; }
             .contact-wrapper { margin-top: 0; }
         }
+        @media (max-width: 767px) {
+            .route-grid { grid-template-columns: 1fr; }
+            .route-card { padding: 22px 18px; }
+        }
     </style>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
@@ -137,7 +154,7 @@
     <header class="page-header">
         <div class="container">
             <p class="eyebrow">GET IN TOUCH</p>
-            <h1 class="page-title-ja"><span class="d-block">お問い合わせ・お見積り</span><span class="d-block fs-6 mt-2">CONTACT</span></h1>
+            <h1 class="page-title-ja"><span class="d-block"><span class="phrase-lock">お問い合わせ・</span><span class="phrase-lock">お見積り</span></span><span class="d-block fs-6 mt-2">CONTACT</span></h1>
             <p class="lead fw-bold">お問い合わせ・お見積り依頼</p>
         </div>
     </header>
@@ -150,9 +167,36 @@
         <div class="row justify-content-center">
             <div class="col-lg-11">
                 <div class="contact-card">
-                    <div class="row">
+                    <section class="contact-routing" aria-labelledby="contact-route-title">
+                        <h2 id="contact-route-title" class="fw-bold mb-3">お問い合わせ内容をお選びください</h2>
+                        <p class="text-muted mb-4">内容に合う窓口を選ぶと、必要な確認項目へ進めます。</p>
+                        <div class="route-grid">
+                            <article class="route-card">
+                                <h3>イベントPA・ステージ制作</h3>
+                                <ul>
+                                    <li>PA・音響機材レンタル</li>
+                                    <li>祭り・学園祭・ライブ・イベント音響</li>
+                                    <li>ステージ制作</li>
+                                    <li>開催候補日の空き状況・概算見積もり</li>
+                                </ul>
+                                <a class="route-button" href="pa-inquiry.html?source=contact">イベント依頼・空き状況確認フォームへ</a>
+                            </article>
+                            <article class="route-card">
+                                <h3>その他のお問い合わせ</h3>
+                                <ul>
+                                    <li>ツアーPA</li>
+                                    <li>店舗音響・設備施工、保守・修理</li>
+                                    <li>技術講習、営業・取材</li>
+                                    <li>既存案件についてのご連絡、その他</li>
+                                </ul>
+                                <a class="route-button route-button-secondary" href="#general-inquiry">一般お問い合わせフォームへ</a>
+                            </article>
+                        </div>
+                    </section>
+
+                    <div class="row" id="general-inquiry">
                         <div class="col-lg-7 px-md-4">
-                            <h2 class="fw-bold mb-4" style="border-left: 5px solid var(--primary-blue); padding-left: 15px;">お問い合わせフォーム</h2>
+                            <h2 class="fw-bold mb-4" style="border-left: 5px solid var(--primary-blue); padding-left: 15px;">一般お問い合わせフォーム</h2>
                             
                             <div class="form-error" data-fs-error role="alert"></div>
                             <form id="contact-form" action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
@@ -160,11 +204,12 @@
                                     <label for="inquiry-type" class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
                                     <select id="inquiry-type" name="種類" class="form-select" data-fs-field required>
                                         <option value="" selected disabled>選択してください</option>
-                                        <option value="PAレンタル">PAレンタル・イベント音響</option>
-                                        <option value="学園祭パック">学園祭パック（PA・照明・ステージ）</option>
-                                        <option value="ステージ制作">ステージ制作・大道具</option>
                                         <option value="ツアーPA">ツアー・ライブPA派遣</option>
                                         <option value="設備導入">店舗設備（音響・照明）導入・保守</option>
+                                        <option value="保守・修理">保守・修理</option>
+                                        <option value="技術講習">技術講習・機材導入相談</option>
+                                        <option value="営業・取材">営業・取材</option>
+                                        <option value="既存案件">既存案件についての連絡</option>
                                         <option value="その他">その他</option>
                                     </select>
                                 </div>

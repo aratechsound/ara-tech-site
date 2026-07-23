@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="index, follow">
+    <title>PA・イベント依頼・空き状況確認 | ARA-TECH</title>
+    <meta name="description" content="ARA-TECHのPAレンタル、イベント音響、ステージ制作について、開催候補日・会場・内容を送信できるお問い合わせフォームです。">
+    <link rel="canonical" href="https://ara-tech.cc/pa-inquiry.html">
+    <meta property="og:title" content="PA・イベント依頼・空き状況確認 | ARA-TECH">
+    <meta property="og:description" content="PAレンタル、イベント音響、ステージ制作の開催内容と空き状況を確認するための受付フォームです。">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ara-tech.cc/pa-inquiry.html">
+    <meta property="og:image" content="https://ara-tech.cc/img/cta-bg.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="stylesheet" href="pa-inquiry.css">
+    <script src="js/pa-inquiry.js" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">本文へ移動</a>
+
+    <nav class="navbar" aria-label="サイトナビゲーション">
+        <div class="container navbar-inner">
+            <a class="navbar-brand" href="index.html" aria-label="ARA-TECH ホーム">
+                <img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422">
+            </a>
+            <button class="navbar-toggle" type="button" aria-controls="site-nav" aria-expanded="false">
+                <span class="navbar-toggle-lines" aria-hidden="true"></span>
+                <span class="visually-hidden">メニューを開く</span>
+            </button>
+            <div class="site-nav" id="site-nav">
+                <a href="index.html">HOME</a>
+                <a href="pa-rental.html">PA RENTAL</a>
+                <a href="stage-production.html">STAGE</a>
+                <a href="tour-pa.html">TOUR PA</a>
+                <a href="installation.html">INSTALLATION</a>
+                <a href="works.html">WORKS</a>
+                <a href="contact.html">CONTACT</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container page-header-content">
+            <p class="eyebrow">INQUIRY / AVAILABILITY CHECK</p>
+            <h1 class="page-title-ja">
+                <span class="heading-line"><span class="phrase-lock">PA・イベント業務</span></span>
+                <span class="heading-line"><span class="phrase-lock">お問い合わせ・</span><span class="phrase-lock">空き状況確認</span></span>
+            </h1>
+            <p class="lead">開催内容を確認し、対応可否をご案内するための受付フォームです。</p>
+        </div>
+    </header>
+
+    <div class="wave-container" aria-hidden="true">
+        <svg viewBox="0 0 500 150" preserveAspectRatio="none" focusable="false">
+            <path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z"></path>
+        </svg>
+    </div>
+
+    <main id="main-content" class="form-wrapper container">
+        <noscript>
+            <div class="noscript-notice" role="alert">
+                条件付き入力と確認画面にはJavaScriptが必要です。ブラウザのJavaScriptを有効にしてください。
+            </div>
+        </noscript>
+
+        <article class="form-paper" aria-labelledby="form-title">
+            <div class="form-introduction">
+                <p class="step-label">PA / EVENT INQUIRY</p>
+                <h2 id="form-title">お問い合わせ・空き状況確認フォーム</h2>
+                <p>
+                    ご希望の日程やイベント内容を確認するためのフォームです。このフォームの送信だけでは、
+                    <strong>予約や日程確保は成立しません。</strong>
+                    内容を確認後、ARA-TECHからメール等でご連絡します。
+                </p>
+                <div class="prototype-status" role="note">
+                    <strong>受付の流れ</strong>
+                    <span id="source-guidance">入力内容を確認後、送信してください。ARA-TECHが内容と空き状況を確認してご連絡します。</span>
+                </div>
+            </div>
+
+            <form id="pa-inquiry-form" action="https://formspree.io/f/mojqjwnr" method="post" accept-charset="UTF-8">
+                <input type="hidden" name="_subject" value="ARA-TECH PA・イベント依頼／空き状況確認">
+                <input id="form-source" type="hidden" name="参照元" value="direct">
+                <input id="form-service" type="hidden" name="サービス種別" value="">
+                <p class="field-guide" id="field-guide">
+                    <span class="badge badge-required">必須</span> は入力が必要です。
+                    <span class="badge badge-optional">任意</span> は分かる範囲でご入力ください。
+                </p>
+
+                <fieldset class="form-section" id="section-event">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">1</span>
+                        <span>開催内容</span>
+                    </legend>
+                    <p class="section-description">まず、開催日と会場、イベントの概要をお知らせください。</p>
+
+                    <div class="field">
+                        <label for="event-name">イベント名・案件名 <span class="badge badge-optional">任意</span></label>
+                        <input id="event-name" name="event_name" type="text" autocomplete="off" placeholder="未定の場合は空欄で構いません">
+                    </div>
+
+                    <div class="form-grid form-grid-2">
+                        <div class="field">
+                            <label for="event-date">開催希望日 <span class="badge badge-required">必須</span></label>
+                            <input id="event-date" name="event_date" type="date" required>
+                        </div>
+                        <div class="field">
+                            <span class="field-label">開催時間 <span class="badge badge-required">必須</span></span>
+                            <label class="check-row check-row-compact" for="time-undecided">
+                                <input id="time-undecided" name="time_undecided" type="checkbox" value="未定">
+                                <span>開始・終了時刻は未定</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-grid form-grid-2" id="time-fields">
+                        <div class="field">
+                            <label for="start-time">開始予定時刻 <span class="badge badge-required">必須</span></label>
+                            <input id="start-time" name="start_time" type="time" required>
+                        </div>
+                        <div class="field">
+                            <label for="end-time">終了予定時刻 <span class="badge badge-required">必須</span></label>
+                            <input id="end-time" name="end_time" type="time" required>
+                        </div>
+                    </div>
+
+                    <div class="form-grid form-grid-2">
+                        <div class="field">
+                            <label for="venue-name">会場名 <span class="badge badge-required">必須</span></label>
+                            <input id="venue-name" name="venue_name" type="text" autocomplete="organization" required>
+                        </div>
+                        <div class="field">
+                            <label for="venue-address">会場所在地 <span class="badge badge-required">必須</span></label>
+                            <input id="venue-address" name="venue_address" type="text" autocomplete="street-address" placeholder="例：広島県○○市○○町" required>
+                        </div>
+                    </div>
+
+                    <div class="form-grid form-grid-2">
+                        <div class="field">
+                            <span class="field-label" id="venue-type-label">開催場所 <span class="badge badge-required">必須</span></span>
+                            <div class="choice-row" role="radiogroup" aria-labelledby="venue-type-label">
+                                <label class="choice choice-inline"><input type="radio" name="venue_type" value="屋内" required><span>屋内</span></label>
+                                <label class="choice choice-inline"><input type="radio" name="venue_type" value="屋外"><span>屋外</span></label>
+                                <label class="choice choice-inline"><input type="radio" name="venue_type" value="未定"><span>未定</span></label>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="attendance">予定来場者数（概算） <span class="badge badge-required">必須</span></label>
+                            <p class="field-help" id="attendance-help">現時点の想定に一番近い規模をお選びください。機材やスタッフ構成の検討に使用します。</p>
+                            <select id="attendance" name="expected_attendance" aria-describedby="attendance-help" required>
+                                <option value="" selected disabled>選択してください</option>
+                                <option value="1〜20名">1〜20名</option>
+                                <option value="21〜50名">21〜50名</option>
+                                <option value="51〜100名">51〜100名</option>
+                                <option value="101〜300名">101〜300名</option>
+                                <option value="301〜500名">301〜500名</option>
+                                <option value="501〜999名">501〜999名</option>
+                                <option value="1,000名以上">1,000名以上</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="event-overview">イベント内容・開催概要 <span class="badge badge-required">必須</span></label>
+                        <textarea id="event-overview" name="event_overview" rows="5" placeholder="出演内容、進行、PAが必要な場面など、現時点で分かる範囲をご記入ください。" required></textarea>
+                    </div>
+
+                    <div class="field">
+                        <span class="field-label" id="event-status-label">現時点での開催状況 <span class="badge badge-required">必須</span></span>
+                        <div class="choice-grid choice-grid-3" role="radiogroup" aria-labelledby="event-status-label">
+                            <label class="choice"><input type="radio" name="event_status" value="開催決定" required><span><strong>開催決定</strong><small>開催が正式に決まっている</small></span></label>
+                            <label class="choice"><input type="radio" name="event_status" value="開催予定"><span><strong>開催予定</strong><small>開催の方向で調整している</small></span></label>
+                            <label class="choice"><input type="radio" name="event_status" value="検討中"><span><strong>検討中</strong><small>実施可否を含めて検討している</small></span></label>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-services">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">2</span>
+                        <span>希望する業務</span>
+                    </legend>
+                    <p class="section-description" id="services-help">ご相談を希望する業務をすべて選択してください。</p>
+
+                    <div class="choice-grid choice-grid-2" role="group" aria-labelledby="services-legend" aria-describedby="services-help">
+                        <span id="services-legend" class="visually-hidden">希望する業務</span>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="PA・音響" data-service><span>PA・音響</span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="照明" data-service><span>照明</span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="DJ機材" data-service><span>DJ機材</span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="バンド機材" data-service><span>バンド機材<small>ドラムセット・ギターアンプ・ベースアンプ等</small></span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="電源・発電機" data-service><span>電源・発電機</span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="ステージ制作・舞台設営" data-service><span>ステージ制作・舞台設営</span></label>
+                        <label class="choice"><input type="checkbox" name="requested_services" value="オペレーター・技術スタッフ" data-service><span>オペレーター・技術スタッフ</span></label>
+                        <label class="choice"><input id="service-other" type="checkbox" name="requested_services" value="その他" data-service><span>その他</span></label>
+                    </div>
+                    <div class="field conditional-field" id="service-other-field" hidden>
+                        <label for="service-other-detail">「その他」の内容 <span class="badge badge-required">必須</span></label>
+                        <input id="service-other-detail" name="requested_service_other" type="text">
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-organizer">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">3</span>
+                        <span>主催者情報</span>
+                    </legend>
+                    <p class="section-description">イベントの開催主体についてご入力ください。</p>
+
+                    <div class="field">
+                        <span class="field-label" id="organizer-type-label">主催者の区分 <span class="badge badge-required">必須</span></span>
+                        <div class="choice-row" role="radiogroup" aria-labelledby="organizer-type-label">
+                            <label class="choice choice-inline"><input type="radio" name="organizer_type" value="個人" required><span>個人</span></label>
+                            <label class="choice choice-inline"><input type="radio" name="organizer_type" value="団体・事業者"><span>団体・事業者</span></label>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="organizer-name"><span id="organizer-name-label-text">主催者・主催団体名</span> <span class="badge badge-required">必須</span></label>
+                        <input id="organizer-name" name="organizer_name" type="text" autocomplete="organization" required>
+                    </div>
+
+                    <div class="field conditional-field" id="organizer-representative-field" hidden>
+                        <label for="organizer-representative">主催者側の担当者名 <span class="badge badge-required">必須</span></label>
+                        <p class="field-help">ARA-TECHから連絡する際の宛先となる方をご入力ください。</p>
+                        <input id="organizer-representative" name="organizer_representative" type="text" autocomplete="name" disabled>
+                    </div>
+
+                    <div class="form-grid form-grid-2">
+                        <div class="field">
+                            <label for="organizer-email">
+                                主催者のメールアドレス
+                                <span id="organizer-email-optional" class="badge badge-optional">任意</span>
+                                <span id="organizer-email-required" class="badge badge-required" hidden>必須</span>
+                            </label>
+                            <input id="organizer-email" name="organizer_email" type="email" autocomplete="email" inputmode="email" placeholder="example@mail.com">
+                        </div>
+                        <div class="field">
+                            <label for="organizer-phone">
+                                主催者の電話番号
+                                <span id="organizer-phone-optional" class="badge badge-optional">任意</span>
+                                <span id="organizer-phone-required" class="badge badge-required" hidden>必須</span>
+                            </label>
+                            <input id="organizer-phone" name="organizer_phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="080-1234-5678">
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-requester">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">4</span>
+                        <span>ARA-TECHへの依頼者</span>
+                    </legend>
+                    <p class="section-description">このフォームを入力し、ARA-TECHへ相談する方についてご入力ください。</p>
+
+                    <div class="field">
+                        <label for="requester-relation">主催者との関係 <span class="badge badge-required">必須</span></label>
+                        <select id="requester-relation" name="requester_relation" required>
+                            <option value="" selected disabled>選択してください</option>
+                            <option value="主催者本人">主催者本人</option>
+                            <option value="主催団体の担当者">主催団体の担当者</option>
+                            <option value="制作・運営会社">制作・運営会社</option>
+                            <option value="出演者・DJ">出演者・DJ</option>
+                            <option value="連絡窓口のみ">連絡窓口のみ</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+                    <div class="field conditional-field" id="requester-relation-other-field" hidden>
+                        <label for="requester-relation-other">主催者との関係（その他） <span class="badge badge-required">必須</span></label>
+                        <input id="requester-relation-other" name="requester_relation_other" type="text">
+                    </div>
+
+                    <div id="requester-copy-note" class="copy-note" role="status" hidden>
+                        主催者情報を依頼者情報として使用します。依頼者名・会社名の再入力は不要です。
+                    </div>
+
+                    <div id="requester-identity-fields" class="form-grid form-grid-2">
+                        <div class="field">
+                            <label for="requester-name">依頼者名 <span class="badge badge-required">必須</span></label>
+                            <input id="requester-name" name="requester_name" type="text" autocomplete="name" required>
+                        </div>
+                        <div class="field">
+                            <label for="requester-organization">会社名・団体名 <span class="badge badge-optional">任意</span></label>
+                            <input id="requester-organization" name="requester_organization" type="text" autocomplete="organization">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="field-label" id="requester-authority-label">発注や条件同意の権限 <span class="badge badge-required">必須</span></span>
+                        <p class="field-help">「ない」「分からない」を選んでも確認へ進めます。必要に応じて、後から主催者や支払責任者へ確認します。</p>
+                        <div class="choice-grid choice-grid-3" role="radiogroup" aria-labelledby="requester-authority-label">
+                            <label class="choice"><input type="radio" name="requester_authority" value="ある" required><span>ある</span></label>
+                            <label class="choice"><input type="radio" name="requester_authority" value="ない"><span>ない</span></label>
+                            <label class="choice"><input type="radio" name="requester_authority" value="分からない"><span>分からない</span></label>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-contact">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">5</span>
+                        <span>連絡窓口</span>
+                    </legend>
+                    <p class="section-description">ARA-TECHから確認連絡を受ける担当者をご入力ください。</p>
+
+                    <div class="field">
+                        <span class="field-label" id="contact-source-label">連絡窓口は誰ですか <span class="badge badge-required">必須</span></span>
+                        <div class="choice-grid choice-grid-3" role="radiogroup" aria-labelledby="contact-source-label">
+                            <label class="choice"><input type="radio" name="contact_source" value="organizer" required><span>主催者と同じ</span></label>
+                            <label class="choice"><input type="radio" name="contact_source" value="requester"><span>依頼者と同じ</span></label>
+                            <label class="choice"><input type="radio" name="contact_source" value="other"><span>別の担当者</span></label>
+                        </div>
+                    </div>
+
+                    <div id="contact-copy-note" class="copy-note" role="status" hidden></div>
+
+                    <div id="contact-name-field" class="field" hidden>
+                        <label for="contact-name">担当者名 <span class="badge badge-required">必須</span></label>
+                        <input id="contact-name" name="contact_name" type="text" autocomplete="name">
+                    </div>
+
+                    <div id="contact-detail-fields" class="form-grid form-grid-2" hidden>
+                        <div class="field">
+                            <label for="contact-email">メールアドレス <span class="badge badge-required">必須</span></label>
+                            <input id="contact-email" name="contact_email" type="email" autocomplete="email" inputmode="email" placeholder="example@mail.com">
+                        </div>
+                        <div class="field">
+                            <label for="contact-phone">電話番号 <span class="badge badge-required">必須</span></label>
+                            <input id="contact-phone" name="contact_phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="080-1234-5678">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="field-label" id="contact-method-label">希望する連絡方法 <span class="badge badge-required">必須</span></span>
+                        <div class="choice-row" role="radiogroup" aria-labelledby="contact-method-label">
+                            <label class="choice choice-inline"><input type="radio" name="preferred_contact_method" value="メール" required><span>メール</span></label>
+                            <label class="choice choice-inline"><input type="radio" name="preferred_contact_method" value="電話"><span>電話</span></label>
+                            <label class="choice choice-inline"><input type="radio" name="preferred_contact_method" value="どちらでもよい"><span>どちらでもよい</span></label>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-payment">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">6</span>
+                        <span>請求先・支払責任者</span>
+                    </legend>
+                    <p class="section-description">支払いを担当する方を選択してください。同じ方を選ぶと、重複する入力を省略できます。</p>
+
+                    <div class="field">
+                        <span class="field-label" id="payer-source-label">支払責任者は誰ですか <span class="badge badge-required">必須</span></span>
+                        <div class="choice-grid choice-grid-2" role="radiogroup" aria-labelledby="payer-source-label">
+                            <label class="choice"><input type="radio" name="payer_source" value="organizer" required><span>主催者と同じ</span></label>
+                            <label class="choice"><input type="radio" name="payer_source" value="requester"><span>依頼者と同じ</span></label>
+                            <label class="choice"><input type="radio" name="payer_source" value="contact"><span>連絡窓口担当者と同じ</span></label>
+                            <label class="choice"><input type="radio" name="payer_source" value="other"><span>その他</span></label>
+                        </div>
+                    </div>
+
+                    <div id="payer-copy-note" class="copy-note" role="status" hidden>
+                        選択した方の情報を使用します。不足している連絡先などは、ARA-TECHからの確認時に伺います。
+                    </div>
+
+                    <div id="payer-other-fields" class="conditional-panel" hidden>
+                        <div class="form-grid form-grid-2">
+                            <div class="field">
+                                <label for="invoice-name">請求先名義 <span class="badge badge-required">必須</span></label>
+                                <input id="invoice-name" name="invoice_name" type="text" autocomplete="organization">
+                            </div>
+                            <div class="field">
+                                <label for="payer-name">支払責任者名 <span class="badge badge-required">必須</span></label>
+                                <input id="payer-name" name="payer_name" type="text" autocomplete="name">
+                            </div>
+                            <div class="field">
+                                <label for="payer-organization">会社名・団体名 <span class="badge badge-optional">任意</span></label>
+                                <input id="payer-organization" name="payer_organization" type="text" autocomplete="organization">
+                            </div>
+                            <div class="field">
+                                <label for="payer-email">メールアドレス <span class="badge badge-required">必須</span></label>
+                                <input id="payer-email" name="payer_email" type="email" autocomplete="email" inputmode="email">
+                            </div>
+                            <div class="field">
+                                <label for="payer-phone">電話番号 <span class="badge badge-optional">任意</span></label>
+                                <input id="payer-phone" name="payer_phone" type="tel" autocomplete="tel" inputmode="tel">
+                            </div>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section" id="section-notes">
+                    <legend>
+                        <span class="section-number" aria-hidden="true">7</span>
+                        <span>その他</span>
+                    </legend>
+                    <p class="section-description">見積りや打ち合わせに必要な情報があればお知らせください。</p>
+
+                    <div class="field">
+                        <label for="estimate-notes">見積りや打ち合わせに必要な補足事項 <span class="badge badge-optional">任意</span></label>
+                        <textarea id="estimate-notes" name="estimate_notes" rows="4" placeholder="搬入時間、出演者構成、既設機材、雨天時の予定など"></textarea>
+                    </div>
+                    <div class="field">
+                        <label for="questions">備考・質問 <span class="badge badge-optional">任意</span></label>
+                        <textarea id="questions" name="questions" rows="4"></textarea>
+                    </div>
+
+                    <label class="consent-row" for="confirmation-consent">
+                        <input id="confirmation-consent" name="confirmation_consent" type="checkbox" value="同意する" required>
+                        <span>
+                            入力内容に虚偽がなく、ARA-TECHが内容確認のために連絡することに同意します。
+                            <span class="badge badge-required">必須</span>
+                        </span>
+                    </label>
+                </fieldset>
+
+                <section class="reservation-notice" aria-labelledby="reservation-notice-title">
+                    <p class="notice-eyebrow">ご確認ください</p>
+                    <h3 id="reservation-notice-title">このフォームは正式予約ではありません</h3>
+                    <ul>
+                        <li>このフォームを入力・確認した時点では、予約や日程確保は成立しません。</li>
+                        <li>ARA-TECHが内容を確認し、メール等で対応可否や確認事項をご連絡します。</li>
+                        <li>希望日に既存案件がある場合は、別途「日程確保条件の確認」をご案内することがあります。</li>
+                        <li>必要な確認と同意が完了し、ARA-TECHから日程確保完了の連絡をした時点で、日程確保が成立します。</li>
+                    </ul>
+                </section>
+
+                <div class="submit-area">
+                    <button class="btn-submit" type="submit">入力内容を確認する</button>
+                    <p>確認画面を表示しただけでは送信されません。</p>
+                </div>
+            </form>
+
+            <section id="prototype-result" class="prototype-result" tabindex="-1" hidden aria-labelledby="prototype-result-title">
+                <p class="result-label">CONFIRMATION</p>
+                <h2 id="prototype-result-title">入力内容をご確認ください</h2>
+                <p class="result-message">
+                    <strong>まだ送信されていません。内容に誤りがないことを確認してから送信してください。</strong>
+                </p>
+                <dl id="confirmation-summary" class="confirmation-summary"></dl>
+                <div class="result-notice">
+                    このフォームの送信だけでは、予約または日程確保は完了しません。ARA-TECHが内容と空き状況を確認し、あらためてご連絡します。
+                </div>
+                <div class="result-actions">
+                    <button id="back-to-form" class="btn-secondary" type="button">入力内容を修正する</button>
+                    <button id="send-inquiry" class="btn-submit" type="button">この内容で送信する</button>
+                </div>
+                <p id="submission-status" class="submission-status" role="status" aria-live="polite"></p>
+            </section>
+        </article>
+
+        <div class="back-link-wrap">
+            <a class="btn-back" href="index.html">ARA-TECHトップページへ戻る</a>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
+        </div>
+    </footer>
+</body>
+</html>
