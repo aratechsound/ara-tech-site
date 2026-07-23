@@ -12,10 +12,19 @@ const decodeRaw = (raw) => Buffer.from(
     "base64"
 ).toString("utf8");
 const forbiddenAddress = ["tonokun", "gmail.com"].join("@");
+const previousPhoneDisplay = ["090", "9418", "9360"].join("-");
+const previousPhoneTel = ["090", "9418", "9360"].join("");
 const legacySignature = [
     "ARA-TECH SOUND",
     `Email：${forbiddenAddress}`,
     "Web：https://ara-tech.cc/"
+].join("\n");
+const previousCustomerFooter = [
+    "ARA-TECH",
+    "",
+    `Email：${mail.OFFICIAL_EMAIL}`,
+    `緊急連絡先（イベント当日・直前）：${previousPhoneDisplay}`,
+    `Web：${mail.SITE_URL}`
 ].join("\n");
 
 const walkTextFiles = (directory) => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -130,9 +139,20 @@ const customerTemplates = [
 
 customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.equal(mail.isCustomerMessageType(messageType), true, `${label}: customer type`);
-    assert.equal(count(body, mail.CUSTOMER_FOOTER_TEXT), 1, `${label}: plain footer once`);
+    const expectedFooter = /\bPA-\d{8}-\d{5}\b/u.test(body)
+        ? mail.CUSTOMER_FOOTER_TEXT
+        : mail.CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE;
+    const expectedGuide = expectedFooter === mail.CUSTOMER_FOOTER_TEXT
+        ? mail.LINE_GUIDE_WITH_REFERENCE
+        : mail.LINE_GUIDE_WITHOUT_REFERENCE;
+    assert.equal(count(body, expectedFooter), 1, `${label}: plain footer once`);
     assert.equal(count(body, mail.OFFICIAL_EMAIL), 1, `${label}: official email once`);
-    assert.equal(count(body, mail.EMERGENCY_PHONE_DISPLAY), 1, `${label}: emergency phone once`);
+    assert.equal(count(body, mail.LINE_ADD_URL), 1, `${label}: plain LINE URL once`);
+    assert.equal(count(body, expectedGuide), 1, `${label}: plain LINE guide once`);
+    assert.doesNotMatch(body, new RegExp(previousPhoneDisplay, "u"), `${label}: no phone display`);
+    assert.doesNotMatch(body, new RegExp(previousPhoneTel, "u"), `${label}: no phone tel`);
+    assert.doesNotMatch(body, /<img\b/iu, `${label}: plain body has no image`);
+    assert.doesNotMatch(body, /\b(?:undefined|null)\b/iu, `${label}: no missing placeholder`);
     assert.doesNotMatch(body, new RegExp(forbiddenAddress, "iu"), `${label}: no legacy address`);
 
     const raw = mail.buildRawMessage({
@@ -161,23 +181,51 @@ customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.ok(htmlPartMatch, `${label}: HTML MIME part`);
     const html = Buffer.from(htmlPartMatch[1].replace(/\s/gu, ""), "base64").toString("utf8");
     assert.match(html, new RegExp(`mailto:${mail.OFFICIAL_EMAIL}`), `${label}: mailto`);
-    assert.match(html, new RegExp(`tel:${mail.EMERGENCY_PHONE_TEL}`), `${label}: tel`);
+    assert.equal(count(html, mail.LINE_ADD_URL), 3, `${label}: CTA href plus visible LINE href and text`);
+    assert.equal(count(html, mail.LINE_CTA_LABEL), 1, `${label}: LINE CTA label once`);
+    assert.equal(count(html, mail.LINE_QR_IMAGE_URL), 1, `${label}: QR image once`);
+    assert.equal(count(html, expectedGuide), 1, `${label}: HTML LINE guide once`);
+    assert.match(html, /background:#06c755/u, `${label}: LINE green CTA`);
+    assert.match(html, /alt="ARA-TECH公式LINE QRコード"/u, `${label}: QR alt`);
+    assert.match(html, /width="170" height="170"/u, `${label}: QR display size`);
+    assert.match(html, /PCでご覧の場合は、スマートフォンでQRコードを読み取ってください/u, `${label}: PC QR guide`);
     assert.equal(count(html, mail.OFFICIAL_EMAIL), 2, `${label}: one displayed email plus mailto`);
-    assert.equal(count(html, mail.EMERGENCY_PHONE_DISPLAY), 1, `${label}: one displayed phone`);
-    assert.equal(count(html, `tel:${mail.EMERGENCY_PHONE_TEL}`), 1, `${label}: one tel link`);
+    assert.doesNotMatch(html, /href="tel:/iu, `${label}: no tel link`);
+    assert.doesNotMatch(html, new RegExp(previousPhoneDisplay, "u"), `${label}: no phone display`);
+    assert.doesNotMatch(html, new RegExp(previousPhoneTel, "u"), `${label}: no phone tel`);
     assert.match(html, /max-width:640px/u, `${label}: desktop max width`);
     assert.match(html, /width:100%/u, `${label}: fluid mobile width`);
     assert.match(html, /overflow-wrap:anywhere/u, `${label}: long content wrapping`);
+    assert.doesNotMatch(html, /\b(?:undefined|null)\b/iu, `${label}: no missing placeholder`);
     assert.doesNotMatch(html, new RegExp(forbiddenAddress, "iu"), `${label}: HTML has no legacy address`);
 });
 
 const retryAfterEnvironmentUpdate = mail.normalizeCustomerBody([
     "環境変数更新後の再送本文です。",
     "",
-    legacySignature
-].join("\n"), mail.CUSTOMER_FOOTER_TEXT);
+    previousCustomerFooter
+].join("\n"), previousCustomerFooter);
 assert.doesNotMatch(retryAfterEnvironmentUpdate, new RegExp(forbiddenAddress, "iu"));
-assert.equal(count(retryAfterEnvironmentUpdate, mail.CUSTOMER_FOOTER_TEXT), 1);
+assert.doesNotMatch(retryAfterEnvironmentUpdate, new RegExp(previousPhoneDisplay, "u"));
+assert.equal(count(retryAfterEnvironmentUpdate, mail.CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE), 1);
+assert.equal(count(retryAfterEnvironmentUpdate, mail.LINE_ADD_URL), 1);
+
+const noReferenceBody = mail.normalizeCustomerBody("受付番号を持たないご案内です。");
+assert.match(noReferenceBody, new RegExp(mail.LINE_GUIDE_WITHOUT_REFERENCE));
+assert.doesNotMatch(noReferenceBody, /このメールに記載の受付番号/u);
+assert.doesNotMatch(noReferenceBody, /\b(?:undefined|null)\b/iu);
+
+const qrFile = path.join(root, "img", "ara-tech-line-official-qr.png");
+const qrBytes = fs.readFileSync(qrFile);
+assert.equal(mail.LINE_QR_TARGET_URL, "https://lin.ee/XX7Psxw", "QR target URL");
+assert.equal(qrBytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "QR asset is PNG");
+assert.equal(qrBytes.readUInt32BE(16), 540, "QR source width");
+assert.equal(qrBytes.readUInt32BE(20), 540, "QR source height");
+assert.equal(
+    require("node:crypto").createHash("sha256").update(qrBytes).digest("hex"),
+    "b01173a7347a926ece548f20c1e30083b38b45420c79e6c7c8c3aeac70a97bf5",
+    "QR asset must remain byte-identical to the supplied image"
+);
 
 const internalRaw = decodeRaw(mail.buildRawMessage({
     to: "internal@example.com",
@@ -204,7 +252,9 @@ assert.match(mailSource, /const body = isCustomerMessageType\(delivery\.message_
 assert.match(mailSource, /body: previous\.body/u);
 assert.match(mailSource, /normalizeCustomerBody\(delivery\.body\)/u);
 assert.match(mailSource, /mailto:\$\{OFFICIAL_EMAIL\}/u);
-assert.match(mailSource, /tel:\$\{EMERGENCY_PHONE_TEL\}/u);
+assert.match(mailSource, /src="\$\{LINE_QR_IMAGE_URL\}"/u);
+assert.match(mailSource, /href="\$\{LINE_ADD_URL\}"/u);
+assert.doesNotMatch(mailSource, /href="tel:/iu);
 
 const adminSource = read("js/pa-admin.js");
 assert.match(adminSource, /action: "send_schedule"/u);

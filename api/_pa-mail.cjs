@@ -4,14 +4,27 @@ const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
 const SITE_URL = "https://ara-tech.cc";
 const OFFICIAL_EMAIL = "aratechsound@gmail.com";
-const EMERGENCY_PHONE_DISPLAY = "090-9418-9360";
-const EMERGENCY_PHONE_TEL = "09094189360";
+const LINE_ADD_URL = "https://lin.ee/TF64AB6";
+const LINE_QR_TARGET_URL = "https://lin.ee/XX7Psxw";
+const LINE_QR_IMAGE_URL = `${SITE_URL}/img/ara-tech-line-official-qr.png`;
+const LINE_CTA_LABEL = "ARA-TECH公式LINEで連絡する";
+const LINE_GUIDE_WITH_REFERENCE = "お急ぎの場合や画像・資料を送りたい場合は、LINEをご利用ください。友だち追加後、このメールに記載の受付番号とお名前をお送りください。";
+const LINE_GUIDE_WITHOUT_REFERENCE = "お急ぎの場合や画像・資料を送りたい場合は、LINEをご利用ください。友だち追加後、お名前とお問い合わせ内容をお送りください。";
 const LEGACY_CUSTOMER_EMAIL = ["tonokun", "gmail.com"].join("@");
 const CUSTOMER_FOOTER_TEXT = [
     "ARA-TECH",
     "",
     `Email：${OFFICIAL_EMAIL}`,
-    `緊急連絡先（イベント当日・直前）：${EMERGENCY_PHONE_DISPLAY}`,
+    LINE_GUIDE_WITH_REFERENCE,
+    `LINE：${LINE_ADD_URL}`,
+    `Web：${SITE_URL}`
+].join("\n");
+const CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE = [
+    "ARA-TECH",
+    "",
+    `Email：${OFFICIAL_EMAIL}`,
+    LINE_GUIDE_WITHOUT_REFERENCE,
+    `LINE：${LINE_ADD_URL}`,
     `Web：${SITE_URL}`
 ].join("\n");
 const AUTOMATIC_TYPES = new Set(["internal_new_inquiry", "customer_receipt"]);
@@ -70,6 +83,22 @@ const stripTrailingBlock = (body, block) => {
     return body.endsWith(suffix) ? body.slice(0, -suffix.length).trim() : body;
 };
 
+const stripPreviousEmergencyFooter = (body) => {
+    const marker = `ARA-TECH\n\nEmail：${OFFICIAL_EMAIL}\n緊急連絡先`;
+    const markerIndex = String(body || "").lastIndexOf(marker);
+    if (markerIndex < 0) return body;
+    const blockStart = markerIndex >= 2 && body.slice(markerIndex - 2, markerIndex) === "\n\n"
+        ? markerIndex - 2
+        : markerIndex;
+    return body.slice(0, blockStart).trim();
+};
+
+const customerFooterTextForBody = (body) => (
+    /\bPA-\d{8}-\d{5}\b/u.test(String(body || ""))
+        ? CUSTOMER_FOOTER_TEXT
+        : CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE
+);
+
 const normalizeCustomerBody = (value, legacySignature = configuredSignature()) => {
     let body = cleanBody(value);
     const normalizedLegacySignature = String(legacySignature || "").replace(/\r\n?/gu, "\n").trim();
@@ -77,6 +106,8 @@ const normalizeCustomerBody = (value, legacySignature = configuredSignature()) =
     do {
         previous = body;
         body = stripTrailingBlock(body, CUSTOMER_FOOTER_TEXT);
+        body = stripTrailingBlock(body, CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE);
+        body = stripPreviousEmergencyFooter(body);
         body = stripTrailingBlock(body, normalizedLegacySignature);
     } while (body !== previous);
 
@@ -99,7 +130,7 @@ const normalizeCustomerBody = (value, legacySignature = configuredSignature()) =
             }
         });
 
-    return cleanBody(`${body}\n\n${CUSTOMER_FOOTER_TEXT}`);
+    return cleanBody(`${body}\n\n${customerFooterTextForBody(body)}`);
 };
 
 const escapeHtml = (value) => String(value || "")
@@ -118,7 +149,11 @@ const linkifyHtmlLine = (line) => String(line || "")
 
 const buildCustomerHtml = (body) => {
     const normalized = normalizeCustomerBody(body);
-    const content = stripTrailingBlock(normalized, CUSTOMER_FOOTER_TEXT);
+    const footerText = customerFooterTextForBody(normalized);
+    const lineGuide = footerText === CUSTOMER_FOOTER_TEXT
+        ? LINE_GUIDE_WITH_REFERENCE
+        : LINE_GUIDE_WITHOUT_REFERENCE;
+    const content = stripTrailingBlock(normalized, footerText);
     const contentHtml = content
         .split(/\n{2,}/gu)
         .map((paragraph) => `<p style="margin:0 0 18px;line-height:1.8;">${paragraph.split("\n").map(linkifyHtmlLine).join("<br>")}</p>`)
@@ -146,8 +181,14 @@ const buildCustomerHtml = (body) => {
 <td style="padding:22px 24px 26px;border-top:1px solid #dce4ec;background:#f8fafc;font-size:14px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;">
 <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#111827;">ARA-TECH</p>
 <p style="margin:0;">Email：<a href="mailto:${OFFICIAL_EMAIL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${OFFICIAL_EMAIL}</a></p>
-<p style="margin:0;"><strong>緊急連絡先（イベント当日・直前）</strong>：<a href="tel:${EMERGENCY_PHONE_TEL}" style="color:#006fd6;text-decoration:underline;">${EMERGENCY_PHONE_DISPLAY}</a></p>
 <p style="margin:0;">Web：<a href="${SITE_URL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${SITE_URL}</a></p>
+<div style="margin:20px 0 0;padding:18px;background:#ffffff;border:1px solid #dce4ec;border-radius:10px;">
+<p style="margin:0 0 14px;line-height:1.8;">${escapeHtml(lineGuide)}</p>
+<p style="margin:0 0 12px;"><a href="${LINE_ADD_URL}" style="display:inline-block;box-sizing:border-box;max-width:100%;padding:12px 18px;border-radius:8px;background:#06c755;color:#ffffff;font-weight:700;text-decoration:none;text-align:center;">${LINE_CTA_LABEL}</a></p>
+<p style="margin:0 0 18px;">LINE：<a href="${LINE_ADD_URL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${LINE_ADD_URL}</a></p>
+<p style="margin:0 0 10px;line-height:1.7;">PCでご覧の場合は、スマートフォンでQRコードを読み取ってください</p>
+<img src="${LINE_QR_IMAGE_URL}" width="170" height="170" alt="ARA-TECH公式LINE QRコード" style="display:block;width:170px;max-width:100%;height:auto;margin:0;border:0;background:#ffffff;">
+</div>
 </td>
 </tr>
 </table>
@@ -967,9 +1008,14 @@ module.exports = {
     ADMIN_URL,
     AUTOMATIC_TYPES,
     CUSTOMER_FOOTER_TEXT,
+    CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE,
     CUSTOMER_MESSAGE_TYPES,
-    EMERGENCY_PHONE_DISPLAY,
-    EMERGENCY_PHONE_TEL,
+    LINE_ADD_URL,
+    LINE_CTA_LABEL,
+    LINE_GUIDE_WITH_REFERENCE,
+    LINE_GUIDE_WITHOUT_REFERENCE,
+    LINE_QR_IMAGE_URL,
+    LINE_QR_TARGET_URL,
     OFFICIAL_EMAIL,
     SITE_URL,
     SCHEDULE_RESPONSE_TYPES,
