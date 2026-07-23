@@ -1532,6 +1532,7 @@ const openCase = async (id) => {
     renderTechnicalDetails();
     renderScheduleState();
     renderOverview();
+    populateProgressManagement();
     $("#token-expiry").value = toLocalDateTimeInput(
         currentToken?.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     );

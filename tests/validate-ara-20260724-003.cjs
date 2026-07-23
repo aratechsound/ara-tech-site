@@ -62,6 +62,10 @@ assert.match(adminJs, /activeProgressFilter = activeProgressFilter === group\.id
 
 assert.match(adminJs, /supabase\.rpc\("update_pa_case_progress"/);
 assert.match(adminJs, /supabase\.rpc\("confirm_pa_payment_and_close"/);
+assert.match(
+    adminJs,
+    /const openCase = async \(id\) =>[\s\S]*?currentProgress = progressResult\.data;[\s\S]*?renderOverview\(\);\s*populateProgressManagement\(\);/
+);
 assert.match(adminJs, /paymentForm\.addEventListener\("submit"/);
 assert.match(adminJs, /preparePaymentConfirmation\(\)/);
 assert.match(adminJs, /#confirm-payment-close"\)\.addEventListener\("click", confirmPaymentClose\)/);
