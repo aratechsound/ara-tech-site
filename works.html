@@ -45,11 +45,11 @@
         .year-tab:hover { border-color: var(--primary); color: var(--primary); }
         .year-tab[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: white; }
         .works-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
-        #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 327px; }
         .work-card { background: white; border: 0; border-radius: 18px; box-shadow: 0 12px 30px rgba(17, 54, 88, .1); height: 100%; overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
         .work-card--link { color: inherit; display: block; text-decoration: none; }
         .work-card:hover { box-shadow: 0 20px 36px rgba(17, 54, 88, .16); transform: translateY(-6px); }
-        .work-card img { aspect-ratio: 4 / 3; display: block; object-fit: cover; width: 100%; }
+        .work-card img { aspect-ratio: 4 / 3; display: block; height: auto; object-fit: cover; width: 100%; }
         .work-card--link img { aspect-ratio: 3 / 4; background: #e9f1f8; object-fit: contain; }
         .work-card__body { padding: 24px; }
         .work-card__meta { color: #53708d; font-size: .82rem; font-weight: 700; }
@@ -72,10 +72,12 @@
         .contact-panel { background: #10233b; border-radius: 20px; color: white; padding: clamp(28px, 6vw, 56px); }
         .contact-panel .btn { background: var(--primary); border: 2px solid white; border-radius: 999px; font-weight: 900; padding: 13px 28px; }
         footer { background: white; color: #65717c; }
-        @media (max-width: 1199px) { #latest-works { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-        @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } #latest-works { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-        @media (max-width: 767px) { .works-section-header { align-items: start; flex-direction: column; gap: 16px; } .year-tabs { justify-content: start; } #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 459px) { #latest-works { grid-template-columns: 1fr; } }
+        @media (max-width: 1399px) { #latest-works { min-height: 279px; } }
+        @media (max-width: 1199px) { #latest-works { grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 294px; } }
+        @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } #latest-works { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 293px; } }
+        @media (max-width: 767px) { .works-section-header { align-items: start; flex-direction: column; gap: 16px; } .year-tabs { justify-content: start; } #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); min-height: 332px; } }
+        @media (max-width: 575px) { #latest-works { min-height: calc(66.667vw - 28px); } }
+        @media (max-width: 459px) { #latest-works { grid-template-columns: 1fr; min-height: calc(133.333vw - 32px); } }
     </style>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>

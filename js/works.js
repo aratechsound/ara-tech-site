@@ -15,6 +15,22 @@ const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
     : '/works.html';
+const workImageSizes = [
+    '(min-width: 1400px) 245px',
+    '(min-width: 1200px) 209px',
+    '(min-width: 992px) 221px',
+    '(min-width: 768px) 220px',
+    '(min-width: 576px) 249px',
+    '(min-width: 460px) calc(50vw - 21px)',
+    'calc(100vw - 24px)'
+].join(', ');
+const initialRowCount = () => {
+    if (matchMedia('(min-width: 1200px)').matches) return 5;
+    if (matchMedia('(min-width: 992px)').matches) return 4;
+    if (matchMedia('(min-width: 768px)').matches) return 3;
+    if (matchMedia('(min-width: 460px)').matches) return 2;
+    return 1;
+};
 
 if (grid && emptyState && isSupabaseConfigured) {
     // 管理画面へログイン済みの同じブラウザでも、公開WORKSは常に匿名閲覧として扱う。
@@ -34,17 +50,40 @@ if (grid && emptyState && isSupabaseConfigured) {
         return artists;
     };
 
-    const createCard = (post) => {
+    const publicFlyerUrl = (path) => supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl;
+    const publicFlyerThumbnailUrl = (path, width) => {
+        const url = new URL(publicFlyerUrl(path));
+        url.pathname = url.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+        url.searchParams.set('width', String(width));
+        url.searchParams.set('quality', '72');
+        url.searchParams.set('resize', 'contain');
+        return url.href;
+    };
+
+    const createCard = (post, index, eagerCount) => {
         const card = document.createElement('a');
         card.className = 'work-card work-card--link';
         card.href = publicWorkUrl(post);
         card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
+        const originalImageUrl = publicFlyerUrl(post.flyer_path);
         const image = document.createElement('img');
-        image.src = supabase.storage.from(WORKS_BUCKET).getPublicUrl(post.flyer_path).data.publicUrl;
+        image.srcset = [320, 480, 640]
+            .map((width) => `${publicFlyerThumbnailUrl(post.flyer_path, width)} ${width}w`)
+            .join(', ');
+        image.sizes = workImageSizes;
+        image.src = publicFlyerThumbnailUrl(post.flyer_path, 480);
         image.alt = post.flyer_alt || `${post.title}のフライヤー`;
-        image.loading = 'lazy';
-        image.decoding = 'async';
+        image.width = 3;
+        image.height = 4;
+        image.loading = index < eagerCount ? 'eager' : 'lazy';
+        image.decoding = index < eagerCount ? 'sync' : 'async';
+        if (index === 0) image.fetchPriority = 'high';
+        image.addEventListener('error', () => {
+            image.removeAttribute('srcset');
+            image.removeAttribute('sizes');
+            image.src = originalImageUrl;
+        }, { once: true });
 
         const body = document.createElement('div');
         body.className = 'work-card__body';
@@ -119,7 +158,8 @@ if (grid && emptyState && isSupabaseConfigured) {
             return;
         }
         emptyState.hidden = true;
-        visiblePosts.forEach((post) => grid.append(createCard(post)));
+        const eagerCount = initialRowCount();
+        visiblePosts.forEach((post, index) => grid.append(createCard(post, index, eagerCount)));
     };
 
     const renderYearTabs = (posts) => {
