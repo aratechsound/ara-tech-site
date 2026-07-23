@@ -98,6 +98,8 @@ assert.match(migration, /public\.is_work_admin\(\)/);
 
 assert.match(adminHtml, /id="first-form-section"/);
 assert.match(adminHtml, /id="contact-name"/);
+assert.match(adminHtml, /Webフォームの問い合わせは自動登録されます/);
+assert.doesNotMatch(adminHtml, /通知を確認後、案件を手入力/);
 assert.match(adminJs, /renderFirstFormData/);
 assert.match(adminJs, /submission_source === "public_form"/);
 assert.doesNotMatch(adminJs, /\.innerHTML\s*=/);
