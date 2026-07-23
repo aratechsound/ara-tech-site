@@ -2,7 +2,18 @@ const crypto = require("node:crypto");
 
 const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
-const SITE_URL = "https://ara-tech.cc/";
+const SITE_URL = "https://ara-tech.cc";
+const OFFICIAL_EMAIL = "aratechsound@gmail.com";
+const EMERGENCY_PHONE_DISPLAY = "090-9418-9360";
+const EMERGENCY_PHONE_TEL = "09094189360";
+const LEGACY_CUSTOMER_EMAIL = ["tonokun", "gmail.com"].join("@");
+const CUSTOMER_FOOTER_TEXT = [
+    "ARA-TECH",
+    "",
+    `Email：${OFFICIAL_EMAIL}`,
+    `緊急連絡先（イベント当日・直前）：${EMERGENCY_PHONE_DISPLAY}`,
+    `Web：${SITE_URL}`
+].join("\n");
 const AUTOMATIC_TYPES = new Set(["internal_new_inquiry", "customer_receipt"]);
 const SCHEDULE_RESPONSE_TYPES = new Set([
     "schedule_response_agree_customer",
@@ -22,6 +33,14 @@ const ALLOWED_TYPES = new Set([
     ...SCHEDULE_RESULT_TYPES,
     "schedule_request"
 ]);
+const CUSTOMER_MESSAGE_TYPES = new Set([
+    "customer_receipt",
+    "schedule_request",
+    "schedule_response_agree_customer",
+    "schedule_response_question_customer",
+    "schedule_response_decline_customer",
+    ...SCHEDULE_RESULT_TYPES
+]);
 
 const cleanHeader = (value, maxLength = 320) => {
     const text = String(value || "").trim();
@@ -35,6 +54,108 @@ const cleanBody = (value, maxLength = 20_000) => {
         throw new Error("invalid_body");
     }
     return text;
+};
+
+const configuredSignature = () => String(
+    process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`
+).replace(/\r\n?/gu, "\n").trim();
+
+const isCustomerMessageType = (messageType) => CUSTOMER_MESSAGE_TYPES.has(String(messageType || ""));
+
+const stripTrailingBlock = (body, block) => {
+    const safeBlock = String(block || "").replace(/\r\n?/gu, "\n").trim();
+    if (!safeBlock) return body;
+    if (body === safeBlock) return "";
+    const suffix = `\n\n${safeBlock}`;
+    return body.endsWith(suffix) ? body.slice(0, -suffix.length).trim() : body;
+};
+
+const normalizeCustomerBody = (value, legacySignature = configuredSignature()) => {
+    let body = cleanBody(value);
+    const normalizedLegacySignature = String(legacySignature || "").replace(/\r\n?/gu, "\n").trim();
+    let previous;
+    do {
+        previous = body;
+        body = stripTrailingBlock(body, CUSTOMER_FOOTER_TEXT);
+        body = stripTrailingBlock(body, normalizedLegacySignature);
+    } while (body !== previous);
+
+    const legacyCustomerEmailIndex = body.toLowerCase().lastIndexOf(LEGACY_CUSTOMER_EMAIL);
+    if (legacyCustomerEmailIndex >= 0) {
+        const legacyBlockStart = body.lastIndexOf("\n\n", legacyCustomerEmailIndex);
+        if (legacyBlockStart >= 0) body = body.slice(0, legacyBlockStart).trim();
+    }
+    if (body.toLowerCase().includes(LEGACY_CUSTOMER_EMAIL)) {
+        throw new Error("unsafe_customer_message");
+    }
+
+    const legacyEmails = normalizedLegacySignature.match(/[^\s<>]+@[^\s<>]+/gu) || [];
+    legacyEmails
+        .map((email) => email.replace(/[),.;:]+$/u, ""))
+        .filter((email) => email.toLowerCase() !== OFFICIAL_EMAIL)
+        .forEach((email) => {
+            if (body.toLowerCase().includes(email.toLowerCase())) {
+                throw new Error("unsafe_customer_message");
+            }
+        });
+
+    return cleanBody(`${body}\n\n${CUSTOMER_FOOTER_TEXT}`);
+};
+
+const escapeHtml = (value) => String(value || "")
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&#39;");
+
+const linkifyHtmlLine = (line) => String(line || "")
+    .split(/(https:\/\/[^\s]+)/gu)
+    .map((part) => /^https:\/\//u.test(part)
+        ? `<a href="${escapeHtml(part)}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(part)}</a>`
+        : escapeHtml(part))
+    .join("");
+
+const buildCustomerHtml = (body) => {
+    const normalized = normalizeCustomerBody(body);
+    const content = stripTrailingBlock(normalized, CUSTOMER_FOOTER_TEXT);
+    const contentHtml = content
+        .split(/\n{2,}/gu)
+        .map((paragraph) => `<p style="margin:0 0 18px;line-height:1.8;">${paragraph.split("\n").map(linkifyHtmlLine).join("<br>")}</p>`)
+        .join("");
+
+    return `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARA-TECHからのお知らせ</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f6f9;color:#1f2933;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans JP','Yu Gothic',Meiryo,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#f3f6f9;">
+<tr>
+<td align="center" style="padding:20px 12px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;border-collapse:collapse;background:#ffffff;border:1px solid #dce4ec;border-radius:12px;">
+<tr>
+<td style="padding:24px 24px 18px;border-bottom:3px solid #007bff;font-size:20px;font-weight:700;letter-spacing:.04em;color:#111827;">ARA-TECH</td>
+</tr>
+<tr>
+<td style="padding:28px 24px 10px;font-size:15px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;">${contentHtml}</td>
+</tr>
+<tr>
+<td style="padding:22px 24px 26px;border-top:1px solid #dce4ec;background:#f8fafc;font-size:14px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;">
+<p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#111827;">ARA-TECH</p>
+<p style="margin:0;">Email：<a href="mailto:${OFFICIAL_EMAIL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${OFFICIAL_EMAIL}</a></p>
+<p style="margin:0;"><strong>緊急連絡先（イベント当日・直前）</strong>：<a href="tel:${EMERGENCY_PHONE_TEL}" style="color:#006fd6;text-decoration:underline;">${EMERGENCY_PHONE_DISPLAY}</a></p>
+<p style="margin:0;">Web：<a href="${SITE_URL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${SITE_URL}</a></p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`;
 };
 
 const isUuid = (value) =>
@@ -74,7 +195,7 @@ const mailConfig = () => {
         senderName: String(process.env.GMAIL_SENDER_NAME || "ARA-TECH").trim(),
         notificationAddress: String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim(),
         replyTo: String(process.env.GMAIL_REPLY_TO || "").trim(),
-        signature: String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`).replace(/\r\n?/gu, "\n").trim()
+        signature: configuredSignature()
     };
     if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.senderAddress || !config.replyTo) {
         throw new Error("gmail_not_configured");
@@ -189,21 +310,53 @@ const verifyAdmin = async (accessToken, fetchImpl = fetch) => {
 
 const encodeWord = (value) => `=?UTF-8?B?${Buffer.from(cleanHeader(value, 240), "utf8").toString("base64")}?=`;
 
-const buildRawMessage = ({ to, subject, body, config = mailConfig() }) => {
+const encodeBase64Lines = (value) => {
+    const encoded = Buffer.from(String(value || ""), "utf8").toString("base64");
+    return encoded.match(/.{1,76}/gu)?.join("\r\n") || "";
+};
+
+const buildRawMessage = ({ to, subject, body, messageType, config = mailConfig() }) => {
     const recipient = cleanHeader(to);
     const safeSubject = cleanHeader(subject, 240);
-    const safeBody = cleanBody(body);
+    const customerMessage = isCustomerMessageType(messageType);
+    const safeBody = customerMessage
+        ? normalizeCustomerBody(body, config.signature)
+        : cleanBody(body);
+    const senderAddress = customerMessage ? OFFICIAL_EMAIL : cleanHeader(config.senderAddress);
+    const replyTo = customerMessage ? OFFICIAL_EMAIL : cleanHeader(config.replyTo);
     const lines = [
-        `From: ${encodeWord(config.senderName)} <${cleanHeader(config.senderAddress)}>`,
+        `From: ${encodeWord(config.senderName)} <${senderAddress}>`,
         `To: ${recipient}`,
-        `Reply-To: ${cleanHeader(config.replyTo)}`,
+        `Reply-To: ${replyTo}`,
         `Subject: ${encodeWord(safeSubject)}`,
-        "MIME-Version: 1.0",
-        "Content-Type: text/plain; charset=UTF-8",
-        "Content-Transfer-Encoding: 8bit",
-        "",
-        safeBody
+        "MIME-Version: 1.0"
     ];
+    if (customerMessage) {
+        const boundary = `ara-tech-${crypto.randomBytes(18).toString("hex")}`;
+        lines.push(
+            `Content-Type: multipart/alternative; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            "Content-Type: text/plain; charset=UTF-8",
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            safeBody,
+            `--${boundary}`,
+            "Content-Type: text/html; charset=UTF-8",
+            "Content-Transfer-Encoding: base64",
+            "",
+            encodeBase64Lines(buildCustomerHtml(safeBody)),
+            `--${boundary}--`,
+            ""
+        );
+    } else {
+        lines.push(
+            "Content-Type: text/plain; charset=UTF-8",
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            safeBody
+        );
+    }
     return Buffer.from(lines.join("\r\n"), "utf8")
         .toString("base64")
         .replace(/\+/gu, "-")
@@ -228,7 +381,7 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -238,7 +391,7 @@ const sendGmail = async ({ to, subject, body }, fetchImpl = fetch) => {
             "content-type": "application/json",
             accept: "application/json"
         },
-        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, config }) })
+        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, messageType, config }) })
     });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const payload = await response.json();
@@ -295,7 +448,8 @@ const deliver = async (row, fetchImpl = fetch) => {
         const gmail = await sendGmail({
             to: row.recipient,
             subject: row.subject,
-            body: row.body
+            body: row.body,
+            messageType: row.message_type
         }, fetchImpl);
         return updateDelivery(row.id, {
             status: "sent",
@@ -324,11 +478,14 @@ const deliver = async (row, fetchImpl = fetch) => {
 };
 
 const createAndDeliver = async (delivery, fetchImpl = fetch) => {
+    const body = isCustomerMessageType(delivery.message_type)
+        ? normalizeCustomerBody(delivery.body)
+        : cleanBody(delivery.body);
     const result = await insertDelivery({
         ...delivery,
         recipient: cleanHeader(delivery.recipient),
         subject: cleanHeader(delivery.subject, 240),
-        body: cleanBody(delivery.body),
+        body,
         status: "sending",
         requested_at: new Date().toISOString()
     }, fetchImpl);
@@ -336,9 +493,9 @@ const createAndDeliver = async (delivery, fetchImpl = fetch) => {
     return deliver(result.row, fetchImpl);
 };
 
-const customerReceiptTemplate = (inquiry, signature) => ({
+const customerReceiptTemplate = (inquiry) => ({
     subject: `【ARA-TECH】PA予約のお問い合わせを受け付けました／受付番号${inquiry.inquiry_number}`,
-    body: [
+    body: normalizeCustomerBody([
         `${inquiry.contact_name || inquiry.customer_name}様`,
         "",
         "このたびはARA-TECHへお問い合わせいただき、ありがとうございます。",
@@ -355,9 +512,8 @@ const customerReceiptTemplate = (inquiry, signature) => ({
         "",
         "お問い合わせ内容に心当たりがない場合や、内容の訂正がある場合は、",
         "このメールへご返信ください。",
-        "",
-        signature
-    ].join("\n")
+        ""
+    ].join("\n"))
 });
 
 const internalNotificationTemplate = (inquiry, signature) => ({
@@ -380,7 +536,7 @@ const internalNotificationTemplate = (inquiry, signature) => ({
     ].join("\n")
 });
 
-const scheduleResponseTemplates = (inquiry, response, signature) => {
+const scheduleResponseTemplates = (inquiry, response, signature = configuredSignature()) => {
     const customerName = inquiry.contact_name || inquiry.customer_name;
     const caseSummary = [
         `受付番号：${inquiry.inquiry_number}`,
@@ -402,7 +558,7 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                 message_type: "schedule_response_agree_customer",
                 recipient: inquiry.email,
                 subject: `【ARA-TECH】日程調整のご依頼を受け付けました／受付番号${inquiry.inquiry_number}`,
-                body: [
+                body: normalizeCustomerBody([
                     `${customerName} 様`,
                     "",
                     "日程確保フォームからの日程調整依頼を受け付けました。",
@@ -412,9 +568,8 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                     "ARA-TECHから「日程確保完了」の連絡が届くまでは、予約・日程確保ともに未確定です。",
                     "",
                     "確認事項や追加のご連絡がある場合は、このメールへご返信ください。",
-                    "",
-                    signature
-                ].join("\n")
+                    ""
+                ].join("\n"))
             },
             {
                 message_type: "schedule_response_agree_internal",
@@ -440,7 +595,7 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                 message_type: "schedule_response_question_customer",
                 recipient: inquiry.email,
                 subject: `【ARA-TECH】ご質問を受け付けました／受付番号${inquiry.inquiry_number}`,
-                body: [
+                body: normalizeCustomerBody([
                     `${customerName} 様`,
                     "",
                     "日程確保フォームからのご質問を受け付けました。",
@@ -448,9 +603,8 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                     "",
                     "内容を確認後、ARA-TECHから回答いたします。",
                     "追加のご連絡がある場合は、このメールへご返信ください。",
-                    "",
-                    signature
-                ].join("\n")
+                    ""
+                ].join("\n"))
             },
             {
                 message_type: "schedule_response_question_internal",
@@ -479,7 +633,7 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                 message_type: "schedule_response_decline_customer",
                 recipient: inquiry.email,
                 subject: `【ARA-TECH】見送りの回答を受け付けました／受付番号${inquiry.inquiry_number}`,
-                body: [
+                body: normalizeCustomerBody([
                     `${customerName} 様`,
                     "",
                     "日程確保フォームから、日程調整を依頼しない旨の回答を受け付けました。",
@@ -487,9 +641,8 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
                     "",
                     "この回答によって、予約や日程確保が行われることはありません。",
                     "確認事項がある場合は、このメールへご返信ください。",
-                    "",
-                    signature
-                ].join("\n")
+                    ""
+                ].join("\n"))
             },
             {
                 message_type: "schedule_response_decline_internal",
@@ -514,9 +667,7 @@ const scheduleResponseTemplates = (inquiry, response, signature) => {
 };
 
 const sendScheduleResponseEmails = async (inquiry, response, fetchImpl = fetch) => {
-    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
-        .replace(/\r\n?/gu, "\n")
-        .trim();
+    const signature = configuredSignature();
     const templates = scheduleResponseTemplates(inquiry, response, signature);
     return Promise.all(templates.map(async (template) => {
         if (!template.recipient) {
@@ -587,11 +738,9 @@ const submitScheduleResponseAndNotify = async ({
 };
 
 const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
-    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
-        .replace(/\r\n?/gu, "\n")
-        .trim();
+    const signature = configuredSignature();
     const notificationAddress = String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim();
-    const customer = customerReceiptTemplate(inquiry, signature);
+    const customer = customerReceiptTemplate(inquiry);
     const internal = internalNotificationTemplate(inquiry, signature);
     const deliveries = [
         {
@@ -647,15 +796,8 @@ const createScheduleDelivery = async ({
         throw new Error("invalid_schedule_url");
     }
     const safeSubject = cleanHeader(subject, 240);
-    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
-        .replace(/\r\n?/gu, "\n")
-        .trim();
     const safeBodyInput = cleanBody(body);
-    const safeBody = cleanBody(
-        safeBodyInput.endsWith(signature)
-            ? safeBodyInput
-            : `${safeBodyInput}\n\n${cleanBody(signature, 2_000)}`
-    );
+    const safeBody = normalizeCustomerBody(safeBodyInput);
     if (!safeSubject.includes(inquiry.inquiry_number) || !safeBody.includes(safeUrl)) {
         throw new Error("invalid_schedule_message");
     }
@@ -717,14 +859,7 @@ const createScheduleResultDelivery = async ({
         throw new Error("invalid_result_message");
     }
 
-    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
-        .replace(/\r\n?/gu, "\n")
-        .trim();
-    const safeBody = cleanBody(
-        safeBodyInput.endsWith(signature)
-            ? safeBodyInput
-            : `${safeBodyInput}\n\n${cleanBody(signature, 2_000)}`
-    );
+    const safeBody = normalizeCustomerBody(safeBodyInput);
     const messageType = result === "confirmed"
         ? "schedule_result_confirmed"
         : "schedule_result_unavailable";
@@ -831,10 +966,17 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 module.exports = {
     ADMIN_URL,
     AUTOMATIC_TYPES,
+    CUSTOMER_FOOTER_TEXT,
+    CUSTOMER_MESSAGE_TYPES,
+    EMERGENCY_PHONE_DISPLAY,
+    EMERGENCY_PHONE_TEL,
+    OFFICIAL_EMAIL,
+    SITE_URL,
     SCHEDULE_RESPONSE_TYPES,
     SCHEDULE_RESULT_TYPES,
     adminCaseUrl,
     assertCustomerMessageSafe,
+    buildCustomerHtml,
     buildRawMessage,
     cleanBody,
     cleanHeader,
@@ -854,7 +996,9 @@ module.exports = {
     insertDelivery,
     internalNotificationTemplate,
     isUuid,
+    isCustomerMessageType,
     mailConfig,
+    normalizeCustomerBody,
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
