@@ -23,7 +23,7 @@ assert.match(adminHtml, /id="payment-confirmation-panel"/);
 assert.match(adminHtml, /id="confirm-payment-close"/);
 assert.match(adminHtml, /入金確認とケースクローズを同一トランザクションで確定/);
 assert.match(adminHtml, /pa-admin\.css\?v=ara-20260724-003/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260724-003/);
+assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260724-003-2/);
 
 const workflowSource = adminJs.match(/const workflowSteps = \[([\s\S]*?)\];/);
 assert.ok(workflowSource, "14-step workflow declaration must exist");
