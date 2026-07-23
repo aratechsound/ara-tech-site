@@ -44,7 +44,83 @@ const completedStatuses = new Set([
     "closed"
 ]);
 
-const isCompletedStatus = (status) => completedStatuses.has(status);
+const workflowSteps = [
+    "PA予約・お問い合わせ内容確認",
+    "日程調整が必要か判断",
+    "日程確保フォーム専用URL発行",
+    "お客様回答確認",
+    "日程確保結果の確定・連絡",
+    "見積作成",
+    "見積送付・内容調整",
+    "見積承認",
+    "正式予約",
+    "イベント準備",
+    "イベント実施",
+    "請求",
+    "入金確認",
+    "ケースクローズ"
+];
+
+const progressGroups = [
+    { id: "schedule", label: "日程確認・調整中", steps: [1, 2, 3, 4, 5] },
+    { id: "estimate", label: "見積対応中", steps: [6, 7, 8] },
+    { id: "booking", label: "正式予約・準備中", steps: [9, 10] },
+    { id: "event", label: "イベント実施待ち", steps: [11] },
+    { id: "payment", label: "請求・入金待ち", steps: [12, 13] },
+    { id: "hold", label: "保留中", steps: [] }
+];
+
+const closeReasonLabels = {
+    payment_received: "入金完了",
+    schedule_unavailable: "日程確保不可",
+    declined: "見送り",
+    cancelled: "取消",
+    other_closed: "その他対応終了"
+};
+
+const paymentMethodLabels = {
+    bank_transfer: "銀行振込",
+    cash: "現金",
+    other: "その他"
+};
+
+const initialWorkflowStep = (status) => ({
+    new: 1,
+    reviewing: 2,
+    second_form_not_issued: 3,
+    schedule_unconfirmed: 3,
+    second_form_issued: 4,
+    customer_responded: 5,
+    schedule_adjusting: 5,
+    needs_confirmation: 5,
+    schedule_confirmed: 6,
+    schedule_unavailable: 14,
+    declined: 14,
+    cancelled: 14,
+    closed: 14,
+    on_hold: 2
+}[status] || 1);
+
+const progressForCase = (item) => item?.progress || {
+    current_step: initialWorkflowStep(item?.status),
+    is_on_hold: item?.status === "on_hold",
+    close_reason: completedStatuses.has(item?.status)
+        ? ({
+            schedule_unavailable: "schedule_unavailable",
+            declined: "declined",
+            cancelled: "cancelled",
+            closed: "other_closed"
+        }[item.status])
+        : null,
+    closed_from_step: completedStatuses.has(item?.status) ? 1 : null,
+    closed_at: completedStatuses.has(item?.status) ? item?.updated_at : null
+};
+
+const isCompletedStatus = (status, progress = null) =>
+    Boolean(progress?.closed_at) || completedStatuses.has(status);
+
+const isClosedCase = (item) =>
+    isCompletedStatus(item?.status, progressForCase(item));
 
 const inquirySequenceNumber = (inquiryNumber) => {
     const match = String(inquiryNumber || "").match(/(\d+)$/);
@@ -56,10 +132,16 @@ const receivedTimestamp = (value) => {
     return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
-const compareCasesForList = (a, b) => {
-    const completionDifference = Number(isCompletedStatus(a.status)) - Number(isCompletedStatus(b.status));
-    if (completionDifference !== 0) return completionDifference;
+const newestTimestampValue = (...values) => {
+    const valid = values
+        .filter(Boolean)
+        .map((value) => ({ value, timestamp: receivedTimestamp(value) }))
+        .filter((item) => item.timestamp > 0)
+        .sort((a, b) => b.timestamp - a.timestamp);
+    return valid[0]?.value || null;
+};
 
+const compareCasesForList = (a, b) => {
     const receivedDifference = receivedTimestamp(b.received_at) - receivedTimestamp(a.received_at);
     if (receivedDifference !== 0) return receivedDifference;
 
@@ -104,7 +186,9 @@ const auditLabels = {
     second_form_answered: "日程確保フォームの回答を受領",
     schedule_confirmed_after_customer_notice: "確定連絡後に日程確保完了",
     schedule_result_confirmed_after_mail: "結果メール送信後に日程確保済み",
-    schedule_result_unavailable_after_mail: "結果メール送信後に日程確保不可"
+    schedule_result_unavailable_after_mail: "結果メール送信後に日程確保不可",
+    case_progress_updated: "案件進捗を更新",
+    payment_confirmed_and_closed: "入金確認後にケースクローズ"
 };
 
 const defaultConditions = [
@@ -140,13 +224,23 @@ const nextActionSection = $("#next-action-section");
 const workflowStatePanel = $("#workflow-state-panel");
 const resultActionPanel = $("#result-action-panel");
 const resultEmailSection = $("#result-email-section");
+const progressManagementSection = $("#progress-management-section");
+const progressForm = $("#progress-form");
+const paymentSection = $("#payment-section");
+const paymentForm = $("#payment-form");
 
 let supabase;
 let cases = [];
 let currentCase = null;
+let currentProgress = null;
+let currentPayments = [];
 let currentToken = null;
 let currentResponse = null;
 let currentDeliveries = [];
+let currentSessionUser = null;
+let activeCaseTab = "active";
+let activeProgressFilter = "";
+let pendingPaymentConfirmation = null;
 let issuedRawToken = "";
 let emailOperationKey = "";
 let mailActionInProgress = false;
@@ -202,6 +296,56 @@ const formatDateTime = (value) => {
     }).format(new Date(value));
 };
 
+const formatAmount = (value) => {
+    if (value === null || value === undefined || value === "") return "未設定";
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return "未設定";
+    return `${new Intl.NumberFormat("ja-JP", {
+        minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+        maximumFractionDigits: 2
+    }).format(amount)}円`;
+};
+
+const amountOrNull = (selector) => {
+    const value = $(selector).value.trim();
+    if (!value) return null;
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : null;
+};
+
+const workflowStepForCase = (item) => {
+    const step = Number(progressForCase(item).current_step);
+    return Number.isInteger(step) && step >= 1 && step <= 14
+        ? step
+        : initialWorkflowStep(item?.status);
+};
+
+const eventYearForCase = (item) => {
+    const progress = progressForCase(item);
+    const candidate = progress.confirmed_event_date || item?.event_date || item?.received_at;
+    const match = String(candidate || "").match(/^(\d{4})/);
+    return match ? Number(match[1]) : new Date(item?.received_at || Date.now()).getFullYear();
+};
+
+const progressGroupForCase = (item) => {
+    if (item?.status === "on_hold" || progressForCase(item).is_on_hold) return "hold";
+    const step = workflowStepForCase(item);
+    return progressGroups.find((group) => group.steps.includes(step))?.id || "";
+};
+
+const workflowStepLabel = (item) => {
+    if (isClosedCase(item)) {
+        const reason = closeReasonLabels[progressForCase(item).close_reason] || "対応終了";
+        return `ケースクローズ（${reason}）`;
+    }
+    const step = workflowStepForCase(item);
+    if (item?.status === "on_hold" || progressForCase(item).is_on_hold) {
+        return `${workflowSteps[step - 1]}（保留中）`;
+    }
+    if (step === 4) return `${workflowSteps[3]}（回答待ち）`;
+    return workflowSteps[step - 1] || "案件内容を確認";
+};
+
 const mailTypeLabels = {
     internal_new_inquiry: "ARA-TECH向け新規受付通知",
     customer_receipt: "お客様向け受付確認",
@@ -227,8 +371,9 @@ const newestDelivery = (type) =>
 
 const nextActionText = () => {
     if (!currentCase) return "案件情報を入力";
-    if (currentCase.status === "schedule_confirmed") return "日程確保済み・履歴を確認";
-    if (currentCase.status === "schedule_unavailable") return "日程確保不可・履歴を確認";
+    const caseWithProgress = { ...currentCase, progress: currentProgress };
+    if (isClosedCase(caseWithProgress)) return workflowStepLabel(caseWithProgress);
+    if (workflowStepForCase(caseWithProgress) >= 6) return workflowStepLabel(caseWithProgress);
     if (currentResponse?.decision === "agree") return "日程確保の可否を判断して結果メールを送信";
     if (currentResponse?.decision === "question") return "質問内容を確認してお客様へ回答";
     if (currentResponse?.decision === "decline") return "見送り回答を確認";
@@ -241,13 +386,77 @@ const nextActionText = () => {
 };
 
 const renderOverview = () => {
+    const caseWithProgress = currentCase ? { ...currentCase, progress: currentProgress } : null;
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
-    $("#overview-date").textContent = formatDate(currentCase?.event_date);
+    $("#overview-date").textContent = formatDate(currentProgress?.confirmed_event_date || currentCase?.event_date);
     $("#overview-contact").textContent = currentCase?.contact_name || currentCase?.customer_name || "未設定";
     $("#overview-venue").textContent = currentCase?.venue || "未設定";
-    $("#overview-status").textContent = currentCase ? (statusLabels[currentCase.status] || currentCase.status) : "未保存";
+    $("#overview-status").textContent = currentCase
+        ? `${statusLabels[currentCase.status] || currentCase.status} ／ 工程${workflowStepForCase(caseWithProgress)}`
+        : "未保存";
     $("#overview-next-action").textContent = nextActionText();
-    if (currentCase) renderNextActions();
+    if (currentCase) {
+        renderProgressSteps();
+        renderNextActions();
+    }
+};
+
+const renderProgressSteps = () => {
+    const list = $("#case-progress-steps");
+    list.replaceChildren();
+    if (!currentCase) return;
+
+    const item = { ...currentCase, progress: currentProgress };
+    const progress = progressForCase(item);
+    const currentStep = workflowStepForCase(item);
+    const closed = isClosedCase(item);
+    const closedFromStep = Number(progress.closed_from_step) || Math.min(currentStep, 13);
+
+    workflowSteps.forEach((label, index) => {
+        const step = index + 1;
+        let state = "future";
+        let stateLabel = "今後の工程";
+
+        if (closed) {
+            if (step <= closedFromStep || step === 14) {
+                state = "completed";
+                stateLabel = step === 14
+                    ? `完了：${closeReasonLabels[progress.close_reason] || "対応終了"}`
+                    : "完了";
+            } else {
+                state = "skipped";
+                stateLabel = "未実施（途中終了）";
+            }
+        } else if (step < currentStep) {
+            state = "completed";
+            stateLabel = "完了";
+        } else if (step === currentStep) {
+            state = "current";
+            stateLabel = progress.is_on_hold || currentCase.status === "on_hold"
+                ? "保留中"
+                : step === 4 ? "回答待ち" : "次に対応";
+        }
+
+        const listItem = document.createElement("li");
+        listItem.className = `workflow-step workflow-step--${state}`;
+        listItem.setAttribute("aria-label", `工程${step} ${label}：${stateLabel}`);
+
+        const number = document.createElement("span");
+        number.className = "workflow-step__number";
+        number.textContent = state === "completed" ? "✓" : String(step);
+        number.setAttribute("aria-hidden", "true");
+
+        const content = document.createElement("span");
+        content.className = "workflow-step__content";
+        const title = document.createElement("strong");
+        title.textContent = label;
+        const status = document.createElement("span");
+        status.className = "workflow-step__status";
+        status.textContent = stateLabel;
+        content.append(title, status);
+        listItem.append(number, content);
+        list.append(listItem);
+    });
 };
 
 const setWorkflowState = (title, description, question = "") => {
@@ -269,19 +478,20 @@ const renderNextActions = () => {
     $("#issue-token").hidden = false;
     $("#revoke-token").hidden = false;
 
-    if (currentCase.status === "schedule_confirmed") {
+    const caseWithProgress = { ...currentCase, progress: currentProgress };
+    if (isClosedCase(caseWithProgress)) {
         setWorkflowState(
-            "日程確保済み",
-            "お客様への日程確保結果メール送信に成功し、案件状態を日程確保済みへ更新しました。"
+            workflowStepLabel(caseWithProgress),
+            "この案件はケースクローズ済みです。進捗、入金記録、メール、回答、URL発行、操作の各履歴を確認できます。"
         );
         emailSection.classList.add("hidden");
         return;
     }
 
-    if (currentCase.status === "schedule_unavailable") {
+    if (currentCase.status === "schedule_confirmed") {
         setWorkflowState(
-            "日程確保不可",
-            "お客様への日程確保不可メール送信に成功し、案件状態を日程確保不可へ更新しました。"
+            workflowStepLabel({ ...currentCase, progress: currentProgress }),
+            "日程確保済みです。同じ案件で見積り以降の進捗を更新してください。"
         );
         emailSection.classList.add("hidden");
         return;
@@ -376,10 +586,90 @@ const textBlock = (mainText, subText) => {
     return wrapper;
 };
 
+const renderCaseTabs = () => {
+    const tabList = $("#case-tabs");
+    tabList.replaceChildren();
+
+    const activeCount = cases.filter((item) => !isClosedCase(item)).length;
+    const years = [...new Set(
+        cases
+            .filter(isClosedCase)
+            .map(eventYearForCase)
+            .filter(Number.isFinite)
+    )].sort((a, b) => b - a);
+    const availableTabs = new Set(["active", ...years.map((year) => `year-${year}`)]);
+    if (!availableTabs.has(activeCaseTab)) activeCaseTab = "active";
+
+    const tabs = [
+        { id: "active", label: "進行中", count: activeCount },
+        ...years.map((year) => ({
+            id: `year-${year}`,
+            label: `${year}年`,
+            count: cases.filter((item) => isClosedCase(item) && eventYearForCase(item) === year).length
+        }))
+    ];
+
+    tabs.forEach((tab) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "case-tab";
+        button.role = "tab";
+        button.dataset.caseTab = tab.id;
+        button.setAttribute("aria-selected", String(activeCaseTab === tab.id));
+        button.textContent = `${tab.label}（${tab.count}件）`;
+        button.addEventListener("click", () => {
+            activeCaseTab = tab.id;
+            activeProgressFilter = "";
+            renderCaseTabs();
+            renderProgressSummary();
+            renderCases();
+        });
+        tabList.append(button);
+    });
+};
+
+const renderProgressSummary = () => {
+    const section = $("#progress-summary-section");
+    const summary = $("#progress-summary");
+    const clearButton = $("#clear-progress-filter");
+    const activeCases = cases.filter((item) => !isClosedCase(item));
+    const show = activeCaseTab === "active";
+    section.classList.toggle("hidden", !show);
+    summary.replaceChildren();
+    clearButton.classList.toggle("hidden", !activeProgressFilter);
+    if (!show) return;
+
+    progressGroups.forEach((group) => {
+        const count = activeCases.filter((item) => progressGroupForCase(item) === group.id).length;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "progress-summary__item";
+        button.dataset.progressGroup = group.id;
+        button.setAttribute("aria-pressed", String(activeProgressFilter === group.id));
+        const label = document.createElement("span");
+        label.textContent = group.label;
+        const value = document.createElement("strong");
+        value.textContent = `${count}件`;
+        button.append(label, value);
+        button.addEventListener("click", () => {
+            activeProgressFilter = activeProgressFilter === group.id ? "" : group.id;
+            renderProgressSummary();
+            renderCases();
+        });
+        summary.append(button);
+    });
+};
+
 const filteredCases = () => {
     const query = $("#case-search").value.trim().toLocaleLowerCase("ja");
     const status = $("#case-status-filter").value;
     const result = cases.filter((item) => {
+        if (activeCaseTab === "active" && isClosedCase(item)) return false;
+        if (activeCaseTab.startsWith("year-")) {
+            const year = Number(activeCaseTab.replace("year-", ""));
+            if (!isClosedCase(item) || eventYearForCase(item) !== year) return false;
+        }
+        if (activeProgressFilter && progressGroupForCase(item) !== activeProgressFilter) return false;
         if (status && item.status !== status) return false;
         if (!query) return true;
         return [
@@ -403,9 +693,11 @@ const renderCases = () => {
 
     visibleCases.forEach((item) => {
         const row = document.createElement("tr");
-        const isCompleted = isCompletedStatus(item.status);
+        const progress = progressForCase(item);
+        const isCompleted = isCompletedStatus(item.status, progress);
         row.classList.toggle("case-row--completed", isCompleted);
         row.dataset.completionState = isCompleted ? "completed" : "active";
+        row.dataset.workflowStep = String(workflowStepForCase(item));
 
         const numberCell = document.createElement("td");
         const caseReference = document.createElement("div");
@@ -420,8 +712,8 @@ const renderCases = () => {
             const completedStamp = document.createElement("span");
             completedStamp.className = "completed-stamp";
             completedStamp.textContent = "済";
-            completedStamp.setAttribute("aria-label", "問い合わせ管理工程の対応済み");
-            completedStamp.title = "問い合わせ管理工程の対応済み";
+            completedStamp.setAttribute("aria-label", "ケースクローズ済み");
+            completedStamp.title = `ケースクローズ済み：${closeReasonLabels[progress.close_reason] || "対応終了"}`;
             caseReference.append(completedStamp);
         }
         numberCell.append(caseReference);
@@ -436,9 +728,16 @@ const renderCases = () => {
         ));
 
         const eventCell = document.createElement("td");
-        eventCell.append(textBlock(formatDate(item.event_date), item.venue));
+        eventCell.append(textBlock(
+            formatDate(progress.confirmed_event_date || item.event_date),
+            item.venue
+        ));
 
         const stateCell = document.createElement("td");
+        const stepBadge = document.createElement("span");
+        stepBadge.className = `badge badge--stage${isCompleted ? " badge--closed" : ""}`;
+        stepBadge.textContent = `工程${workflowStepForCase(item)} ${workflowStepLabel(item)}`;
+        stateCell.append(stepBadge);
         stateCell.append(statusBadge(item.status));
         const scheduleBadge = document.createElement("span");
         scheduleBadge.className = `badge badge--${item.schedule_state === "completed" ? "confirmed" : "unconfirmed"}`;
@@ -452,7 +751,9 @@ const renderCases = () => {
         ));
 
         const updatedCell = document.createElement("td");
-        updatedCell.textContent = formatDateTime(item.updated_at);
+        updatedCell.textContent = formatDateTime(
+            newestTimestampValue(item.updated_at, progress.updated_at, progress.closed_at)
+        );
 
         row.append(numberCell, receivedCell, customerCell, eventCell, stateCell, formCell, updatedCell);
         caseList.append(row);
@@ -461,17 +762,34 @@ const renderCases = () => {
 
 const loadCases = async () => {
     clearMessage(listStatus);
-    const { data, error } = await supabase
-        .from("pa_inquiries")
-        .select("*")
-        .order("received_at", { ascending: false });
+    const [caseResult, progressResult] = await Promise.all([
+        supabase
+            .from("pa_inquiries")
+            .select("*")
+            .order("received_at", { ascending: false }),
+        supabase
+            .from("pa_case_progress")
+            .select("*")
+    ]);
 
-    if (error) {
-        setMessage(listStatus, "問い合わせ一覧を読み込めませんでした。データベース設定をご確認ください。", "error");
+    if (caseResult.error || progressResult.error) {
+        setMessage(
+            listStatus,
+            "PA案件一覧を読み込めませんでした。進捗DBマイグレーションと権限設定をご確認ください。",
+            "error"
+        );
         return;
     }
 
-    cases = data || [];
+    const progressByInquiry = new Map(
+        (progressResult.data || []).map((progress) => [progress.inquiry_id, progress])
+    );
+    cases = (caseResult.data || []).map((item) => ({
+        ...item,
+        progress: progressByInquiry.get(item.id) || progressForCase(item)
+    }));
+    renderCaseTabs();
+    renderProgressSummary();
     renderCases();
 };
 
@@ -486,6 +804,8 @@ const resetForm = () => {
     firstFormSection.classList.add("hidden");
     firstFormDetails.replaceChildren();
     currentCase = null;
+    currentProgress = null;
+    currentPayments = [];
     currentToken = null;
     currentResponse = null;
     currentDeliveries = [];
@@ -497,6 +817,14 @@ const resetForm = () => {
     resultActionPanel.classList.add("hidden");
     resultEmailSection.classList.add("hidden");
     nextActionSection.classList.add("hidden");
+    progressManagementSection.classList.add("hidden");
+    paymentSection.classList.add("hidden");
+    progressForm.reset();
+    paymentForm.reset();
+    $("#payment-history").replaceChildren();
+    $("#payment-confirmation-panel").classList.add("hidden");
+    $("#payment-mismatch-warning").classList.add("hidden");
+    pendingPaymentConfirmation = null;
     automaticMailStatus.replaceChildren();
     emailHistory.replaceChildren();
     technicalDetails.replaceChildren();
@@ -507,6 +835,8 @@ const resetForm = () => {
     clearMessage(caseStatusMessage);
     clearMessage($("#email-message"));
     clearMessage($("#result-email-message"));
+    clearMessage($("#progress-message"));
+    clearMessage($("#payment-message"));
     renderOverview();
     detailCard.classList.remove("hidden");
     detailCard.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -541,6 +871,286 @@ const populateCaseForm = (item) => {
     $("#detail-number").textContent = `${item.inquiry_number} ／ 受付 ${formatDateTime(item.received_at)} ／ ${sourceLabel}`;
     renderFirstFormData(item);
     renderOverview();
+};
+
+const progressPayload = () => ({
+    estimate_amount: amountOrNull("#estimate-amount"),
+    estimate_created_on: $("#estimate-created-on").value || null,
+    estimate_sent_on: $("#estimate-sent-on").value || null,
+    estimate_adjusting: $("#estimate-adjusting").checked,
+    estimate_approved_on: $("#estimate-approved-on").value || null,
+    estimate_memo: valueOrNull("#estimate-memo"),
+    booking_confirmed_on: $("#booking-confirmed-on").value || null,
+    confirmed_event_date: $("#confirmed-event-date").value || null,
+    event_preparing: $("#event-preparing").checked,
+    event_preparation_completed_on: $("#event-preparation-completed-on").value || null,
+    event_completed_on: $("#event-completed-on").value || null,
+    event_memo: valueOrNull("#event-memo"),
+    invoice_amount: amountOrNull("#invoice-amount"),
+    invoice_issued_on: $("#invoice-issued-on").value || null,
+    payment_due_on: $("#payment-due-on").value || null,
+    invoice_sent: $("#invoice-sent").checked,
+    invoice_memo: valueOrNull("#invoice-memo")
+});
+
+const progressValidationMessage = (payload) => {
+    if (payload.estimate_sent_on && !payload.estimate_created_on) {
+        return "見積作成日を入力してから見積送付日を登録してください。";
+    }
+    if (payload.estimate_approved_on && !payload.estimate_sent_on) {
+        return "見積送付日を入力してから見積承認日を登録してください。";
+    }
+    if (payload.estimate_approved_on && payload.estimate_adjusting) {
+        return "見積承認済みにする場合は「見積内容を調整中」のチェックを外してください。";
+    }
+    if (payload.booking_confirmed_on && !payload.estimate_approved_on) {
+        return "見積承認日を入力してから正式予約確定日を登録してください。";
+    }
+    if (payload.booking_confirmed_on && !payload.confirmed_event_date) {
+        return "正式予約確定日とイベント開催日を入力してください。";
+    }
+    if (payload.event_preparing && !payload.booking_confirmed_on) {
+        return "正式予約確定日を入力してからイベント準備中へ進めてください。";
+    }
+    if (payload.event_preparation_completed_on && !payload.booking_confirmed_on) {
+        return "正式予約確定日を入力してからイベント準備完了日を登録してください。";
+    }
+    if (payload.event_completed_on && !payload.event_preparation_completed_on) {
+        return "イベント準備完了日を入力してからイベント実施日を登録してください。";
+    }
+    if (payload.invoice_sent && (
+        !payload.event_completed_on
+        || payload.invoice_amount === null
+        || !payload.invoice_issued_on
+        || !payload.payment_due_on
+    )) {
+        return "請求済みにするには、イベント実施日、請求金額、請求日、支払期限が必要です。";
+    }
+    return "";
+};
+
+const setFormDisabled = (form, disabled) => {
+    form.querySelectorAll("input, select, textarea, button").forEach((control) => {
+        control.disabled = disabled;
+    });
+};
+
+const renderPaymentHistory = () => {
+    const history = $("#payment-history");
+    history.replaceChildren();
+    if (!currentPayments.length) {
+        const note = document.createElement("p");
+        note.className = "small-note";
+        note.textContent = "入金確認記録はありません。";
+        history.append(note);
+        return;
+    }
+
+    currentPayments.forEach((payment) => {
+        const card = document.createElement("div");
+        card.className = "payment-history__item";
+        const title = document.createElement("strong");
+        title.textContent = `入金確認済み：${formatAmount(payment.amount)}`;
+        const meta = document.createElement("span");
+        meta.textContent = `${formatDate(payment.payment_date)} ／ ${paymentMethodLabels[payment.payment_method] || payment.payment_method}`;
+        const actor = document.createElement("span");
+        actor.textContent = `確認者：${payment.confirmed_by_label} ／ 操作日時：${formatDateTime(payment.confirmed_at)}`;
+        const source = document.createElement("span");
+        source.textContent = payment.confirmation_source === "manual"
+            ? "確認方法：手動確認"
+            : "確認方法：自動照合";
+        card.append(title, meta, actor, source);
+        if (payment.confirmation_memo) {
+            const memo = document.createElement("span");
+            memo.textContent = `確認メモ：${payment.confirmation_memo}`;
+            card.append(memo);
+        }
+        history.append(card);
+    });
+};
+
+const resetPaymentConfirmation = () => {
+    pendingPaymentConfirmation = null;
+    $("#payment-confirmation-panel").classList.add("hidden");
+    $("#payment-confirmation-details").replaceChildren();
+    $("#confirm-payment-close").disabled = false;
+};
+
+const populateProgressManagement = () => {
+    if (!currentCase || !currentProgress) {
+        progressManagementSection.classList.add("hidden");
+        paymentSection.classList.add("hidden");
+        return;
+    }
+
+    const item = { ...currentCase, progress: currentProgress };
+    const closed = isClosedCase(item);
+    const canManageProgress = currentCase.status === "schedule_confirmed"
+        || currentProgress.close_reason === "payment_received";
+    progressManagementSection.classList.toggle("hidden", !canManageProgress);
+
+    $("#estimate-amount").value = currentProgress.estimate_amount ?? "";
+    $("#estimate-created-on").value = currentProgress.estimate_created_on || "";
+    $("#estimate-sent-on").value = currentProgress.estimate_sent_on || "";
+    $("#estimate-adjusting").checked = Boolean(currentProgress.estimate_adjusting);
+    $("#estimate-approved-on").value = currentProgress.estimate_approved_on || "";
+    $("#estimate-memo").value = currentProgress.estimate_memo || "";
+    $("#booking-confirmed-on").value = currentProgress.booking_confirmed_on || "";
+    $("#confirmed-event-date").value = currentProgress.confirmed_event_date || currentCase.event_date || "";
+    $("#event-preparing").checked = Boolean(currentProgress.event_preparing);
+    $("#event-preparation-completed-on").value = currentProgress.event_preparation_completed_on || "";
+    $("#event-completed-on").value = currentProgress.event_completed_on || "";
+    $("#event-memo").value = currentProgress.event_memo || "";
+    $("#invoice-amount").value = currentProgress.invoice_amount ?? "";
+    $("#invoice-issued-on").value = currentProgress.invoice_issued_on || "";
+    $("#payment-due-on").value = currentProgress.payment_due_on || "";
+    $("#invoice-sent").checked = Boolean(currentProgress.invoice_sent);
+    $("#invoice-memo").value = currentProgress.invoice_memo || "";
+    $("#progress-note").value = "";
+    setFormDisabled(progressForm, closed);
+    $("#save-progress").classList.toggle("hidden", closed);
+
+    const paymentClosed = currentProgress.close_reason === "payment_received";
+    const showPayment = currentPayments.length > 0
+        || paymentClosed
+        || (!closed && workflowStepForCase(item) === 13);
+    paymentSection.classList.toggle("hidden", !showPayment);
+    renderPaymentHistory();
+    paymentForm.classList.toggle("hidden", currentPayments.length > 0 || paymentClosed);
+    if (!showPayment || currentPayments.length > 0 || paymentClosed) return;
+
+    paymentForm.reset();
+    $("#payment-date").value = new Date().toISOString().slice(0, 10);
+    $("#payment-amount").value = currentProgress.invoice_amount ?? "";
+    $("#payment-method").value = "bank_transfer";
+    $("#payment-confirmed-by").value = currentSessionUser?.email || "ログイン中の管理者";
+    $("#payment-mismatch-warning").classList.add("hidden");
+    clearMessage($("#payment-message"));
+    resetPaymentConfirmation();
+};
+
+const saveProgress = async () => {
+    if (!currentCase || !currentProgress) return;
+    clearMessage($("#progress-message"));
+    const payload = progressPayload();
+    const validationMessage = progressValidationMessage(payload);
+    if (validationMessage) {
+        setMessage($("#progress-message"), validationMessage, "error");
+        return;
+    }
+
+    $("#save-progress").disabled = true;
+    const caseId = currentCase.id;
+    const { error } = await supabase.rpc("update_pa_case_progress", {
+        p_inquiry_id: caseId,
+        p_progress: payload,
+        p_note: valueOrNull("#progress-note")
+    });
+    $("#save-progress").disabled = false;
+
+    if (error) {
+        setMessage(
+            $("#progress-message"),
+            `案件進捗を保存できませんでした。案件状態は変更されていません。${error.message || ""}`,
+            "error"
+        );
+        return;
+    }
+
+    await loadCases();
+    await openCase(caseId);
+    setMessage($("#progress-message"), "案件進捗を保存し、現在工程を更新しました。", "success");
+};
+
+const appendPaymentConfirmationDetail = (term, value) => {
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = value || "未入力";
+    $("#payment-confirmation-details").append(dt, dd);
+};
+
+const paymentInput = () => ({
+    paymentDate: $("#payment-date").value,
+    amount: amountOrNull("#payment-amount"),
+    method: $("#payment-method").value,
+    memo: valueOrNull("#payment-memo")
+});
+
+const amountsDiffer = (left, right) =>
+    Math.round(Number(left || 0) * 100) !== Math.round(Number(right || 0) * 100);
+
+const preparePaymentConfirmation = () => {
+    clearMessage($("#payment-message"));
+    resetPaymentConfirmation();
+    if (!paymentForm.checkValidity()) {
+        paymentForm.reportValidity();
+        return;
+    }
+
+    const input = paymentInput();
+    const mismatch = amountsDiffer(currentProgress?.invoice_amount, input.amount);
+    $("#payment-mismatch-warning").classList.toggle("hidden", !mismatch);
+    if (mismatch && !$("#payment-mismatch-confirmed").checked) {
+        setMessage(
+            $("#payment-message"),
+            "請求額と入金額が異なります。差額確認のチェックを付けてから最終確認へ進んでください。",
+            "warning"
+        );
+        return;
+    }
+
+    pendingPaymentConfirmation = {
+        ...input,
+        mismatchConfirmed: mismatch && $("#payment-mismatch-confirmed").checked
+    };
+    appendPaymentConfirmationDetail("受付番号", currentCase.inquiry_number);
+    appendPaymentConfirmationDetail("請求額", formatAmount(currentProgress.invoice_amount));
+    appendPaymentConfirmationDetail("入金日", formatDate(input.paymentDate));
+    appendPaymentConfirmationDetail("入金額", formatAmount(input.amount));
+    appendPaymentConfirmationDetail("支払方法", paymentMethodLabels[input.method] || input.method);
+    appendPaymentConfirmationDetail("確認者", currentSessionUser?.email || "ログイン中の管理者");
+    appendPaymentConfirmationDetail("確認メモ", input.memo);
+    $("#payment-confirmation-panel").classList.remove("hidden");
+    $("#payment-confirmation-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
+
+const confirmPaymentClose = async () => {
+    if (!pendingPaymentConfirmation || !currentCase || !currentProgress) return;
+    clearMessage($("#payment-message"));
+    const caseId = currentCase.id;
+    const year = eventYearForCase({ ...currentCase, progress: currentProgress });
+    $("#confirm-payment-close").disabled = true;
+
+    const { error } = await supabase.rpc("confirm_pa_payment_and_close", {
+        p_inquiry_id: caseId,
+        p_payment_date: pendingPaymentConfirmation.paymentDate,
+        p_amount: pendingPaymentConfirmation.amount,
+        p_payment_method: pendingPaymentConfirmation.method,
+        p_confirmation_memo: pendingPaymentConfirmation.memo,
+        p_mismatch_confirmed: pendingPaymentConfirmation.mismatchConfirmed
+    });
+
+    if (error) {
+        $("#confirm-payment-close").disabled = false;
+        setMessage(
+            $("#payment-message"),
+            `入金確認を保存できませんでした。案件はクローズされていません。${error.message || ""}`,
+            "error"
+        );
+        return;
+    }
+
+    activeCaseTab = `year-${year}`;
+    activeProgressFilter = "";
+    pendingPaymentConfirmation = null;
+    await loadCases();
+    await openCase(caseId);
+    setMessage(
+        $("#payment-message"),
+        "入金確認を保存し、案件をケースクローズしました。開催年のタブへ移動しました。",
+        "success"
+    );
 };
 
 const firstFormLabels = {
@@ -755,7 +1365,16 @@ const renderTechnicalDetails = () => {
         ["日程確保フォームURL発行日時", formatDateTime(currentCase.second_form_issued_at)],
         ["日程確保フォーム回答日時", formatDateTime(currentCase.second_form_answered_at)],
         ["日程確保結果", currentCase.schedule_result_kind || "未確定"],
-        ["日程確保結果メール送信日時", formatDateTime(currentCase.schedule_result_sent_at)]
+        ["日程確保結果メール送信日時", formatDateTime(currentCase.schedule_result_sent_at)],
+        ["現在工程", currentProgress
+            ? `工程${currentProgress.current_step} ${workflowStepLabel({ ...currentCase, progress: currentProgress })}`
+            : "未設定"],
+        ["保留", currentProgress?.is_on_hold ? "保留中" : "いいえ"],
+        ["ケースクローズ理由", currentProgress?.close_reason
+            ? closeReasonLabels[currentProgress.close_reason] || currentProgress.close_reason
+            : "未クローズ"],
+        ["ケースクローズ日時", formatDateTime(currentProgress?.closed_at)],
+        ["案件進捗更新日時", formatDateTime(currentProgress?.updated_at)]
     ].forEach(([term, description]) => {
         const dt = document.createElement("dt");
         const dd = document.createElement("dd");
@@ -772,10 +1391,20 @@ const renderAudit = (entries) => {
         label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${mailStatusLabels[delivery.status] || delivery.status}${delivery.is_retry ? "（再送）" : ""}`
     }));
     const combined = [
-        ...entries.map((entry) => ({
-            occurred_at: entry.occurred_at,
-            label: auditLabels[entry.action] || entry.action
-        })),
+        ...entries.map((entry) => {
+            const details = entry.details && typeof entry.details === "object" ? entry.details : {};
+            const supplements = [];
+            if (Number.isInteger(details.step_before) && Number.isInteger(details.step_after)) {
+                supplements.push(`工程${details.step_before}→${details.step_after}`);
+            }
+            if (details.note || details.memo) supplements.push(`メモ：${details.note || details.memo}`);
+            if (details.operator_label) supplements.push(`操作者：${details.operator_label}`);
+            else if (entry.actor_user_id) supplements.push(`操作者ID：${entry.actor_user_id}`);
+            return {
+                occurred_at: entry.occurred_at,
+                label: `${auditLabels[entry.action] || entry.action}${supplements.length ? ` ／ ${supplements.join(" ／ ")}` : ""}`
+            };
+        }),
         ...mailEntries
     ].sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
 
@@ -820,7 +1449,14 @@ const openCase = async (id) => {
         return;
     }
 
-    const [tokenResult, responseResult, auditResult, deliveryResult] = await Promise.all([
+    const [
+        tokenResult,
+        responseResult,
+        auditResult,
+        deliveryResult,
+        progressResult,
+        paymentResult
+    ] = await Promise.all([
         supabase
             .from("pa_schedule_tokens")
             .select("id, issued_at, expires_at, revoked_at, answered_at")
@@ -835,7 +1471,7 @@ const openCase = async (id) => {
             .maybeSingle(),
         supabase
             .from("pa_inquiry_audit")
-            .select("occurred_at, action, details")
+            .select("occurred_at, actor_user_id, action, details")
             .eq("inquiry_id", id)
             .order("occurred_at", { ascending: false })
             .limit(50),
@@ -844,10 +1480,39 @@ const openCase = async (id) => {
             .select("id, message_type, recipient, subject, status, requested_at, sent_at, failed_at, gmail_message_id, error_summary, is_retry, attempt_number")
             .eq("inquiry_id", id)
             .order("requested_at", { ascending: false })
-            .limit(100)
+            .limit(100),
+        supabase
+            .from("pa_case_progress")
+            .select("*")
+            .eq("inquiry_id", id)
+            .single(),
+        supabase
+            .from("pa_payment_records")
+            .select("*")
+            .eq("inquiry_id", id)
+            .order("confirmed_at", { ascending: false })
     ]);
 
+    const relatedError = [
+        tokenResult.error,
+        responseResult.error,
+        auditResult.error,
+        deliveryResult.error,
+        progressResult.error,
+        paymentResult.error
+    ].find(Boolean);
+    if (relatedError) {
+        setMessage(
+            listStatus,
+            `案件の関連情報を読み込めませんでした。DBマイグレーションと権限設定をご確認ください。${relatedError.message || ""}`,
+            "error"
+        );
+        return;
+    }
+
     currentCase = item;
+    currentProgress = progressResult.data;
+    currentPayments = paymentResult.data || [];
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
@@ -944,6 +1609,10 @@ const saveCase = async () => {
     }
 
     currentCase = result.data;
+    if (completedStatuses.has(currentCase.status)) {
+        activeCaseTab = `year-${eventYearForCase({ ...currentCase, progress: currentProgress })}`;
+        activeProgressFilter = "";
+    }
     populateCaseForm(currentCase);
     tokenSection.classList.remove("hidden");
     $("#token-expiry").value = toLocalDateTimeInput(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
@@ -1299,11 +1968,22 @@ const applyCaseState = (caseState) => {
         currentCase.schedule_confirmed_at = caseState.result_at;
         currentCase.customer_confirmation_sent_at = caseState.result_at;
     }
+    if (currentProgress) {
+        currentProgress.current_step = currentCase.status === "schedule_confirmed" ? 6 : 14;
+        currentProgress.close_reason = currentCase.status === "schedule_unavailable"
+            ? "schedule_unavailable"
+            : null;
+        currentProgress.closed_from_step = currentCase.status === "schedule_unavailable" ? 5 : null;
+        currentProgress.closed_at = currentCase.status === "schedule_unavailable"
+            ? caseState.result_at
+            : null;
+    }
     $("#case-status").value = currentCase.status;
     $("#result-email-kind").value = "";
     resultEmailSection.classList.add("hidden");
     renderScheduleState();
     renderOverview();
+    populateProgressManagement();
 };
 
 const sendResultEmail = async () => {
@@ -1352,7 +2032,12 @@ const sendResultEmail = async () => {
                     : "結果メールをGmailから送信し、案件状態を「日程確保不可」へ更新しました。",
                 "success"
             );
+            if (result === "unavailable") {
+                activeCaseTab = `year-${eventYearForCase({ ...currentCase, progress: currentProgress })}`;
+                activeProgressFilter = "";
+            }
             await loadCases();
+            await openCase(currentCase.id);
         } else {
             setMessage($("#result-email-message"), mailErrorMessage(apiResult.delivery.error_summary), "error");
         }
@@ -1378,6 +2063,7 @@ const openRequestedCase = async () => {
 };
 
 const showDashboard = async (user) => {
+    currentSessionUser = user;
     loginPanel.classList.add("hidden");
     dashboard.classList.remove("hidden");
     $("#session-email").textContent = user.email || "";
@@ -1430,12 +2116,31 @@ if (!isSupabaseConfigured) {
     $("#case-search").addEventListener("input", renderCases);
     $("#case-status-filter").addEventListener("change", renderCases);
     $("#case-sort").addEventListener("change", renderCases);
+    $("#clear-progress-filter").addEventListener("click", () => {
+        activeProgressFilter = "";
+        renderProgressSummary();
+        renderCases();
+    });
     $("#close-detail").addEventListener("click", () => detailCard.classList.add("hidden"));
     $("#cancel-case-edit").addEventListener("click", () => detailCard.classList.add("hidden"));
 
     caseForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         await saveCase();
+    });
+    progressForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await saveProgress();
+    });
+    paymentForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        preparePaymentConfirmation();
+    });
+    $("#confirm-payment-close").addEventListener("click", confirmPaymentClose);
+    $("#cancel-payment-close").addEventListener("click", resetPaymentConfirmation);
+    paymentForm.querySelectorAll("input, select, textarea").forEach((control) => {
+        control.addEventListener("input", resetPaymentConfirmation);
+        control.addEventListener("change", resetPaymentConfirmation);
     });
 
     $("#issue-token").addEventListener("click", issueToken);

@@ -6,26 +6,26 @@
     <meta name="robots" content="noindex, nofollow, noarchive">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#007bff">
-    <title>PA予約受付管理 | ARA-TECH</title>
+    <title>PA案件管理 | ARA-TECH</title>
     <link rel="icon" href="img/favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css?v=ara-20260724-002">
+    <link rel="stylesheet" href="pa-admin.css?v=ara-20260724-003">
 </head>
 <body>
     <header class="admin-header">
         <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>PRIVATE ADMIN</span></a>
         <nav class="admin-nav" aria-label="管理画面">
             <a href="admin.html">WORKS管理</a>
-            <a href="pa-admin.html" aria-current="page">PA予約管理</a>
+            <a href="pa-admin.html" aria-current="page">PA案件管理</a>
         </nav>
     </header>
 
     <main>
-        <p class="eyebrow">PA INQUIRY ADMINISTRATION</p>
-        <h1>PA予約受付管理</h1>
-        <p class="intro">PA予約・お問い合わせ受付、日程確保フォームの案内・回答、日程確保状態を一つの画面で管理します。</p>
+        <p class="eyebrow">PA CASE ADMINISTRATION</p>
+        <h1>PA案件管理</h1>
+        <p class="intro">問い合わせ受付から日程確保、見積り、正式予約、イベント実施、請求、手動入金確認、ケースクローズまでを一つの案件で管理します。</p>
 
         <section id="config-message" class="card hidden" aria-live="polite"></section>
 
@@ -63,11 +63,24 @@
             <section class="card">
                 <div class="section-head">
                     <div>
-                        <p class="eyebrow">INQUIRIES</p>
-                        <h2>問い合わせ一覧</h2>
+                        <p class="eyebrow">PA CASES</p>
+                        <h2>PA案件管理</h2>
                     </div>
                     <button id="refresh-cases" class="button button--secondary button--small" type="button">再読み込み</button>
                 </div>
+
+                <div id="case-tabs" class="case-tabs" role="tablist" aria-label="案件の表示期間"></div>
+
+                <section id="progress-summary-section" class="progress-summary-section" aria-labelledby="progress-summary-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="progress-summary-title">進行中の工程別件数</h3>
+                            <p class="small-note">工程を選ぶと該当案件だけに絞り込みます。</p>
+                        </div>
+                        <button id="clear-progress-filter" class="button button--secondary button--small hidden" type="button">工程の絞り込みを解除</button>
+                    </div>
+                    <div id="progress-summary" class="progress-summary" aria-label="現在工程別の件数"></div>
+                </section>
 
                 <div class="filters">
                     <div class="field">
@@ -97,7 +110,7 @@
                     <div class="field">
                         <label for="case-sort">並び順</label>
                         <select id="case-sort">
-                            <option value="case-progress">継続案件を優先・受付日時の新しい順</option>
+                            <option value="received-desc">受付日時の新しい順</option>
                         </select>
                     </div>
                 </div>
@@ -111,7 +124,7 @@
                                 <th>受付日時</th>
                                 <th>お客様／イベント</th>
                                 <th>希望日／会場</th>
-                                <th>状態</th>
+                                <th>現在工程／状態</th>
                                 <th>日程確保フォーム</th>
                                 <th>最終更新</th>
                             </tr>
@@ -144,17 +157,11 @@
                 <section id="next-action-section" class="subsection subsection--next hidden">
                     <div class="section-head">
                         <div>
-                            <h3>次の対応</h3>
-                            <p class="small-note">日程調整が必要な案件は、専用URLの発行からGmail送信までこのブロックで完了します。</p>
+                            <h3>案件進捗と次の対応</h3>
+                            <p class="small-note">完了・現在・今後の14工程を表示します。現在対応する工程は原則1つだけ強調されます。</p>
                         </div>
                     </div>
-                    <ol class="workflow-list" aria-label="対応の流れ">
-                        <li>PA予約・お問い合わせ内容を確認</li>
-                        <li>日程調整が必要か判断</li>
-                        <li>日程確保フォームの専用URLを発行</li>
-                        <li>お客様へ案内メールを送信</li>
-                        <li>条件確認・同意の回答を確認</li>
-                    </ol>
+                    <ol id="case-progress-steps" class="workflow-list workflow-list--case" aria-label="案件全体の進捗"></ol>
 
                     <div id="automatic-mail-status" class="mail-status-grid" aria-label="受付メールの状態"></div>
 
@@ -250,6 +257,175 @@
                         <h4>送信履歴</h4>
                         <div id="email-history" class="mail-history"></div>
                     </div>
+                </section>
+
+                <section id="progress-management-section" class="subsection hidden" aria-labelledby="progress-management-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="progress-management-title">見積り・正式予約・イベント・請求</h3>
+                            <p class="small-note">日程確保後も同じ受付番号と案件レコードを継続使用します。</p>
+                        </div>
+                    </div>
+                    <form id="progress-form" novalidate>
+                        <div class="progress-edit-grid">
+                            <fieldset class="progress-edit-card">
+                                <legend>見積り</legend>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label for="estimate-amount">見積金額</label>
+                                        <input id="estimate-amount" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal">
+                                    </div>
+                                    <div class="field">
+                                        <label for="estimate-created-on">見積作成日</label>
+                                        <input id="estimate-created-on" type="date">
+                                    </div>
+                                    <div class="field">
+                                        <label for="estimate-sent-on">見積送付日</label>
+                                        <input id="estimate-sent-on" type="date">
+                                    </div>
+                                    <div class="field">
+                                        <label for="estimate-approved-on">見積承認日</label>
+                                        <input id="estimate-approved-on" type="date">
+                                    </div>
+                                    <label class="checkbox-field field--full" for="estimate-adjusting">
+                                        <input id="estimate-adjusting" type="checkbox">
+                                        <span>見積内容を調整中</span>
+                                    </label>
+                                    <div class="field field--full">
+                                        <label for="estimate-memo">見積メモ</label>
+                                        <textarea id="estimate-memo" maxlength="10000"></textarea>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="progress-edit-card">
+                                <legend>正式予約・イベント</legend>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label for="booking-confirmed-on">正式予約確定日</label>
+                                        <input id="booking-confirmed-on" type="date">
+                                    </div>
+                                    <div class="field">
+                                        <label for="confirmed-event-date">イベント開催日</label>
+                                        <input id="confirmed-event-date" type="date">
+                                    </div>
+                                    <label class="checkbox-field field--full" for="event-preparing">
+                                        <input id="event-preparing" type="checkbox">
+                                        <span>イベント準備中</span>
+                                    </label>
+                                    <div class="field">
+                                        <label for="event-preparation-completed-on">イベント準備完了日</label>
+                                        <input id="event-preparation-completed-on" type="date">
+                                    </div>
+                                    <div class="field">
+                                        <label for="event-completed-on">イベント実施日</label>
+                                        <input id="event-completed-on" type="date">
+                                    </div>
+                                    <div class="field field--full">
+                                        <label for="event-memo">イベントメモ</label>
+                                        <textarea id="event-memo" maxlength="10000"></textarea>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="progress-edit-card">
+                                <legend>請求</legend>
+                                <div class="form-grid">
+                                    <div class="field">
+                                        <label for="invoice-amount">請求金額</label>
+                                        <input id="invoice-amount" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal">
+                                    </div>
+                                    <div class="field">
+                                        <label for="invoice-issued-on">請求日</label>
+                                        <input id="invoice-issued-on" type="date">
+                                    </div>
+                                    <div class="field">
+                                        <label for="payment-due-on">支払期限</label>
+                                        <input id="payment-due-on" type="date">
+                                    </div>
+                                    <label class="checkbox-field" for="invoice-sent">
+                                        <input id="invoice-sent" type="checkbox">
+                                        <span>請求済み</span>
+                                    </label>
+                                    <div class="field field--full">
+                                        <label for="invoice-memo">請求メモ</label>
+                                        <textarea id="invoice-memo" maxlength="10000"></textarea>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="progress-edit-card">
+                                <legend>変更記録</legend>
+                                <div class="field">
+                                    <label for="progress-note">今回の変更メモ</label>
+                                    <textarea id="progress-note" maxlength="5000" placeholder="変更理由や確認内容を記録"></textarea>
+                                </div>
+                                <p class="small-note">変更前・変更後の工程、操作日時、操作者、入力メモを案件履歴へ保存します。</p>
+                            </fieldset>
+                        </div>
+                        <div class="actions">
+                            <button id="save-progress" class="button" type="submit">案件進捗を保存</button>
+                            <p id="progress-message" class="alert hidden" aria-live="polite"></p>
+                        </div>
+                    </form>
+                </section>
+
+                <section id="payment-section" class="subsection subsection--confirm hidden" aria-labelledby="payment-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="payment-title">手動入金確認</h3>
+                            <p class="small-note">銀行APIとは接続しません。入金確認とケースクローズを同一トランザクションで確定します。</p>
+                        </div>
+                    </div>
+                    <div id="payment-history" class="payment-history"></div>
+                    <form id="payment-form" novalidate>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="payment-date">入金日</label>
+                                <input id="payment-date" type="date" required>
+                            </div>
+                            <div class="field">
+                                <label for="payment-amount">入金額</label>
+                                <input id="payment-amount" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal" required>
+                            </div>
+                            <div class="field">
+                                <label for="payment-method">支払方法</label>
+                                <select id="payment-method" required>
+                                    <option value="bank_transfer">銀行振込</option>
+                                    <option value="cash">現金</option>
+                                    <option value="other">その他</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="payment-confirmed-by">確認者</label>
+                                <input id="payment-confirmed-by" type="text" readonly>
+                            </div>
+                            <div class="field field--full">
+                                <label for="payment-memo">確認メモ</label>
+                                <textarea id="payment-memo" maxlength="5000"></textarea>
+                            </div>
+                        </div>
+                        <div id="payment-mismatch-warning" class="alert alert--warning hidden">
+                            <p>請求額と入金額が異なります。差額と確認内容を確認してください。</p>
+                            <label class="checkbox-field" for="payment-mismatch-confirmed">
+                                <input id="payment-mismatch-confirmed" type="checkbox">
+                                <span>金額差を確認し、この内容で処理します</span>
+                            </label>
+                        </div>
+                        <div class="actions">
+                            <button id="prepare-payment-close" class="button button--confirm" type="submit">入力内容を確認</button>
+                        </div>
+                        <div id="payment-confirmation-panel" class="action-panel action-panel--result-email hidden">
+                            <h4>最終確認</h4>
+                            <dl id="payment-confirmation-details" class="detail-list"></dl>
+                            <p class="alert alert--warning">この操作が成功すると案件はケースクローズされ、「済」が表示されます。</p>
+                            <div class="actions actions--compact">
+                                <button id="confirm-payment-close" class="button button--confirm" type="button">入金を確認してクローズ</button>
+                                <button id="cancel-payment-close" class="button button--secondary" type="button">入力へ戻る</button>
+                            </div>
+                        </div>
+                        <p id="payment-message" class="alert hidden" aria-live="polite"></p>
+                    </form>
                 </section>
 
                 <form id="case-form" novalidate>
@@ -414,6 +590,6 @@
         </section>
     </main>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260724-002"></script>
+    <script type="module" src="js/pa-admin.js?v=ara-20260724-003"></script>
 </body>
 </html>

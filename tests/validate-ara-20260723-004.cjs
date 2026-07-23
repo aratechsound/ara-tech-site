@@ -17,7 +17,7 @@ const vercel = JSON.parse(read("vercel.json"));
 
 assert.match(adminHtml, /<meta name="robots" content="noindex, nofollow, noarchive">/);
 assert.match(adminHtml, /WORKS管理/);
-assert.match(adminHtml, /PA予約管理/);
+assert.match(adminHtml, /PA案件管理/);
 assert.match(adminHtml, /日程確保フォームURLを発行/);
 assert.match(adminHtml, /この内容でGmail送信/);
 assert.doesNotMatch(adminHtml, /件名をコピー|本文をコピー|メールアプリで開く|mailto:/);

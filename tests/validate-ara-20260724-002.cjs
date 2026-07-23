@@ -42,20 +42,20 @@ active.forEach((status) => {
     assert.ok(!implementedCompleted.includes(status), `${status} must remain active`);
 });
 
-assert.match(adminJs, /const isCompletedStatus = \(status\) => completedStatuses\.has\(status\)/);
+assert.match(adminJs, /const isCompletedStatus = \(status, progress = null\) =>/);
+assert.match(adminJs, /Boolean\(progress\?\.closed_at\) \|\| completedStatuses\.has\(status\)/);
 assert.match(adminJs, /const inquirySequenceNumber = \(inquiryNumber\) =>/);
 assert.match(adminJs, /match\(\/\(\\d\+\)\$\/\)/);
 assert.match(adminJs, /const compareCasesForList = \(a, b\) =>/);
-assert.match(adminJs, /Number\(isCompletedStatus\(a\.status\)\) - Number\(isCompletedStatus\(b\.status\)\)/);
 assert.match(adminJs, /receivedTimestamp\(b\.received_at\) - receivedTimestamp\(a\.received_at\)/);
 assert.match(adminJs, /inquirySequenceNumber\(b\.inquiry_number\) - inquirySequenceNumber\(a\.inquiry_number\)/);
 assert.match(adminJs, /result\.sort\(compareCasesForList\)/);
-assert.match(adminJs, /const isCompleted = isCompletedStatus\(item\.status\)/);
+assert.match(adminJs, /const isCompleted = isCompletedStatus\(item\.status, progress\)/);
 assert.match(adminJs, /row\.classList\.toggle\("case-row--completed", isCompleted\)/);
 assert.match(adminJs, /row\.dataset\.completionState = isCompleted \? "completed" : "active"/);
 assert.match(adminJs, /completedStamp\.textContent = "済"/);
-assert.match(adminJs, /completedStamp\.setAttribute\("aria-label", "問い合わせ管理工程の対応済み"\)/);
-assert.match(adminJs, /completedStamp\.title = "問い合わせ管理工程の対応済み"/);
+assert.match(adminJs, /completedStamp\.setAttribute\("aria-label", "ケースクローズ済み"\)/);
+assert.match(adminJs, /completedStamp\.title = `ケースクローズ済み：/);
 
 assert.match(adminJs, /openButton\.addEventListener\("click", \(\) => openCase\(item\.id\)\)/);
 assert.match(adminJs, /#case-search"\)\.addEventListener\("input", renderCases\)/);
@@ -64,7 +64,10 @@ assert.match(adminJs, /#case-sort"\)\.addEventListener\("change", renderCases\)/
 assert.match(adminJs, /stateCell\.append\(statusBadge\(item\.status\)\)/);
 assert.match(adminJs, /currentCase = result\.data;[\s\S]*?await loadCases\(\);[\s\S]*?await openCase\(currentCase\.id\)/);
 assert.match(adminJs, /applyCaseState\(apiResult\.case_state\);[\s\S]*?await loadCases\(\)/);
-assert.match(adminHtml, /value="case-progress">継続案件を優先・受付日時の新しい順/);
+assert.match(adminJs, /const renderCaseTabs = \(\) =>/);
+assert.match(adminJs, /activeCaseTab === "active" && isClosedCase\(item\)/);
+assert.match(adminJs, /activeCaseTab\.startsWith\("year-"\)/);
+assert.match(adminHtml, /value="received-desc">受付日時の新しい順/);
 assert.doesNotMatch(adminHtml, /value="received-asc"/);
 assert.doesNotMatch(adminHtml, /value="event-(?:asc|desc)"/);
 
@@ -77,8 +80,8 @@ assert.doesNotMatch(adminCss, /\.case-row--completed[^{]*\{[^}]*opacity:/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*max-width:\s*100%/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*overflow-x:\s*auto/s);
 
-assert.match(adminHtml, /pa-admin\.css\?v=ara-20260724-002/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260724-002/);
+assert.match(adminHtml, /pa-admin\.css\?v=ara-20260724-003/);
+assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260724-003/);
 
 new vm.Script(adminJs.replace(/^import .*$/gm, ""), {
     filename: "js/pa-admin.js"
@@ -109,13 +112,23 @@ const listFixture = [
     { inquiry_number: "PA-20260724-00005", status: "reviewing", received_at: "2026-07-24T02:00:00Z" },
     { inquiry_number: "PA-20260724-00004", status: "closed", received_at: "2026-07-24T03:00:00Z" }
 ];
-const sortedFixture = [...listFixture].sort(compareCasesForList);
+const activeFixture = listFixture
+    .filter((item) => !isCompletedStatus(item.status))
+    .sort(compareCasesForList);
 assert.deepEqual(
-    sortedFixture.map((item) => item.inquiry_number),
+    activeFixture.map((item) => item.inquiry_number),
     [
         "PA-20260724-00005",
         "PA-20260724-00008",
-        "PA-20260724-00006",
+        "PA-20260724-00006"
+    ]
+);
+const closedFixture = listFixture
+    .filter((item) => isCompletedStatus(item.status))
+    .sort(compareCasesForList);
+assert.deepEqual(
+    closedFixture.map((item) => item.inquiry_number),
+    [
         "PA-20260724-00004",
         "PA-20260724-00009",
         "PA-20260724-00007"
