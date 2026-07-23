@@ -4,7 +4,24 @@ const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
 const SITE_URL = "https://ara-tech.cc/";
 const AUTOMATIC_TYPES = new Set(["internal_new_inquiry", "customer_receipt"]);
-const ALLOWED_TYPES = new Set([...AUTOMATIC_TYPES, "schedule_request"]);
+const SCHEDULE_RESPONSE_TYPES = new Set([
+    "schedule_response_agree_customer",
+    "schedule_response_agree_internal",
+    "schedule_response_question_customer",
+    "schedule_response_question_internal",
+    "schedule_response_decline_customer",
+    "schedule_response_decline_internal"
+]);
+const SCHEDULE_RESULT_TYPES = new Set([
+    "schedule_result_confirmed",
+    "schedule_result_unavailable"
+]);
+const ALLOWED_TYPES = new Set([
+    ...AUTOMATIC_TYPES,
+    ...SCHEDULE_RESPONSE_TYPES,
+    ...SCHEDULE_RESULT_TYPES,
+    "schedule_request"
+]);
 
 const cleanHeader = (value, maxLength = 320) => {
     const text = String(value || "").trim();
@@ -114,6 +131,35 @@ const getInquiry = async (inquiryId, fetchImpl = fetch) => {
     const rows = await supabaseRequest(`/rest/v1/pa_inquiries?${parameters}`, {}, fetchImpl);
     if (!Array.isArray(rows) || !rows[0]) throw new Error("inquiry_not_found");
     return rows[0];
+};
+
+const getScheduleResponseBySubmissionKey = async (submissionKey, fetchImpl = fetch) => {
+    if (!isUuid(submissionKey)) throw new Error("invalid_submission");
+    const parameters = new URLSearchParams({
+        submission_key: `eq.${submissionKey}`,
+        select: "*",
+        limit: "1"
+    });
+    const rows = await supabaseRequest(`/rest/v1/pa_schedule_responses?${parameters}`, {}, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("schedule_response_not_found");
+    return rows[0];
+};
+
+const getScheduleResponseByInquiry = async (inquiryId, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId)) throw new Error("invalid_inquiry");
+    const parameters = new URLSearchParams({
+        inquiry_id: `eq.${inquiryId}`,
+        select: "*",
+        limit: "1"
+    });
+    const rows = await supabaseRequest(`/rest/v1/pa_schedule_responses?${parameters}`, {}, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("schedule_response_not_found");
+    return rows[0];
+};
+
+const adminCaseUrl = (inquiry) => {
+    if (!isUuid(inquiry?.id)) throw new Error("invalid_inquiry");
+    return `${ADMIN_URL}?case=${encodeURIComponent(inquiry.id)}`;
 };
 
 const verifyAdmin = async (accessToken, fetchImpl = fetch) => {
@@ -334,6 +380,212 @@ const internalNotificationTemplate = (inquiry, signature) => ({
     ].join("\n")
 });
 
+const scheduleResponseTemplates = (inquiry, response, signature) => {
+    const customerName = inquiry.contact_name || inquiry.customer_name;
+    const caseSummary = [
+        `受付番号：${inquiry.inquiry_number}`,
+        `開催希望日：${formatDate(inquiry.event_date)}`,
+        `会場・開催場所：${inquiry.venue || "未設定"}`
+    ];
+    const internalSummary = [
+        `受付番号：${inquiry.inquiry_number}`,
+        `お客様名：${customerName}`,
+        `開催希望日：${formatDate(inquiry.event_date)}`,
+        `会場・開催場所：${inquiry.venue || "未設定"}`,
+        `回答日時：${formatDateTime(response.submitted_at)}`
+    ];
+    const caseUrl = adminCaseUrl(inquiry);
+
+    if (response.decision === "agree") {
+        return [
+            {
+                message_type: "schedule_response_agree_customer",
+                recipient: inquiry.email,
+                subject: `【ARA-TECH】日程調整のご依頼を受け付けました／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    `${customerName} 様`,
+                    "",
+                    "日程確保フォームからの日程調整依頼を受け付けました。",
+                    ...caseSummary,
+                    "",
+                    "ARA-TECHがこれから既存予定の調整を行います。",
+                    "ARA-TECHから「日程確保完了」の連絡が届くまでは、予約・日程確保ともに未確定です。",
+                    "",
+                    "確認事項や追加のご連絡がある場合は、このメールへご返信ください。",
+                    "",
+                    signature
+                ].join("\n")
+            },
+            {
+                message_type: "schedule_response_agree_internal",
+                recipient: String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim(),
+                subject: `【PA日程調整依頼】回答を受信／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    "お客様から日程調整依頼が届きました。",
+                    "",
+                    ...internalSummary,
+                    "",
+                    "該当案件を開く",
+                    caseUrl,
+                    "",
+                    signature
+                ].join("\n")
+            }
+        ];
+    }
+
+    if (response.decision === "question") {
+        return [
+            {
+                message_type: "schedule_response_question_customer",
+                recipient: inquiry.email,
+                subject: `【ARA-TECH】ご質問を受け付けました／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    `${customerName} 様`,
+                    "",
+                    "日程確保フォームからのご質問を受け付けました。",
+                    ...caseSummary,
+                    "",
+                    "内容を確認後、ARA-TECHから回答いたします。",
+                    "追加のご連絡がある場合は、このメールへご返信ください。",
+                    "",
+                    signature
+                ].join("\n")
+            },
+            {
+                message_type: "schedule_response_question_internal",
+                recipient: String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim(),
+                subject: `【PA確認事項】お客様から質問を受信／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    "お客様から確認事項が届きました。",
+                    "",
+                    ...internalSummary,
+                    "",
+                    "質問内容",
+                    String(response.question_details || "内容なし").slice(0, 5_000),
+                    "",
+                    "該当案件を開く",
+                    caseUrl,
+                    "",
+                    signature
+                ].join("\n")
+            }
+        ];
+    }
+
+    if (response.decision === "decline") {
+        return [
+            {
+                message_type: "schedule_response_decline_customer",
+                recipient: inquiry.email,
+                subject: `【ARA-TECH】見送りの回答を受け付けました／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    `${customerName} 様`,
+                    "",
+                    "日程確保フォームから、日程調整を依頼しない旨の回答を受け付けました。",
+                    ...caseSummary,
+                    "",
+                    "この回答によって、予約や日程確保が行われることはありません。",
+                    "確認事項がある場合は、このメールへご返信ください。",
+                    "",
+                    signature
+                ].join("\n")
+            },
+            {
+                message_type: "schedule_response_decline_internal",
+                recipient: String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim(),
+                subject: `【PA見送り】日程調整を依頼しない回答／受付番号${inquiry.inquiry_number}`,
+                body: [
+                    "お客様が日程調整を依頼しないと回答しました。",
+                    "",
+                    ...internalSummary,
+                    `案件概要：${String(inquiry.request_summary || "未入力").slice(0, 1_200)}`,
+                    "",
+                    "該当案件を開く",
+                    caseUrl,
+                    "",
+                    signature
+                ].join("\n")
+            }
+        ];
+    }
+
+    throw new Error("invalid_schedule_decision");
+};
+
+const sendScheduleResponseEmails = async (inquiry, response, fetchImpl = fetch) => {
+    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
+        .replace(/\r\n?/gu, "\n")
+        .trim();
+    const templates = scheduleResponseTemplates(inquiry, response, signature);
+    return Promise.all(templates.map(async (template) => {
+        if (!template.recipient) {
+            return {
+                message_type: template.message_type,
+                status: "failed",
+                error_summary: "gmail_not_configured"
+            };
+        }
+        try {
+            return await createAndDeliver({
+                inquiry_id: inquiry.id,
+                message_type: template.message_type,
+                dedupe_key: `response:${response.id}:${template.message_type}`,
+                attempt_number: 1,
+                is_retry: false,
+                ...template
+            }, fetchImpl);
+        } catch (error) {
+            return {
+                message_type: template.message_type,
+                status: "failed",
+                error_summary: safeErrorCode(error)
+            };
+        }
+    }));
+};
+
+const submitScheduleResponseAndNotify = async ({
+    token,
+    response,
+    submissionKey
+}, fetchImpl = fetch) => {
+    const safeToken = String(token || "").trim();
+    if (!/^[A-Za-z0-9_-]{43,128}$/u.test(safeToken) || !isUuid(submissionKey)) {
+        throw new Error("invalid_submission");
+    }
+    if (!response || Array.isArray(response) || typeof response !== "object") {
+        throw new Error("invalid_submission");
+    }
+
+    const rows = await supabaseRequest("/rest/v1/rpc/submit_pa_schedule_response", {
+        method: "POST",
+        body: JSON.stringify({
+            p_token: safeToken,
+            p_response: response,
+            p_submission_key: submissionKey
+        })
+    }, fetchImpl);
+    const result = rows?.[0];
+    if (!result || result.result !== "accepted") {
+        return {
+            result: result?.result || "invalid",
+            submitted_at: result?.submitted_at || null,
+            deliveries: []
+        };
+    }
+
+    const storedResponse = await getScheduleResponseBySubmissionKey(submissionKey, fetchImpl);
+    const inquiry = await getInquiry(storedResponse.inquiry_id, fetchImpl);
+    const deliveries = await sendScheduleResponseEmails(inquiry, storedResponse, fetchImpl);
+    return {
+        result: "accepted",
+        submitted_at: result.submitted_at || storedResponse.submitted_at,
+        inquiry_number: inquiry.inquiry_number,
+        deliveries
+    };
+};
+
 const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
     const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
         .replace(/\r\n?/gu, "\n")
@@ -420,6 +672,118 @@ const createScheduleDelivery = async ({
     }, fetchImpl);
 };
 
+const assertCustomerMessageSafe = (subject, body) => {
+    const text = `${subject}\n${body}`;
+    if (
+        /pa-admin(?:\.html)?|[?&]token=|内部ID|内部メモ|OAuth|client[_ -]?secret|refresh[_ -]?token/iu.test(text)
+        || /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(text)
+    ) {
+        throw new Error("unsafe_customer_message");
+    }
+};
+
+const createScheduleResultDelivery = async ({
+    inquiry,
+    result,
+    subject,
+    body,
+    actorUserId
+}, fetchImpl = fetch) => {
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    if (!["confirmed", "unavailable"].includes(result)) throw new Error("invalid_schedule_result");
+
+    const response = await getScheduleResponseByInquiry(inquiry.id, fetchImpl);
+    if (response.decision !== "agree") throw new Error("result_not_allowed");
+
+    const targetStatus = result === "confirmed" ? "schedule_confirmed" : "schedule_unavailable";
+    if (![targetStatus, "schedule_adjusting"].includes(inquiry.status)) {
+        throw new Error("result_not_allowed");
+    }
+
+    const safeSubject = cleanHeader(subject, 240);
+    const safeBodyInput = cleanBody(body);
+    assertCustomerMessageSafe(safeSubject, safeBodyInput);
+    if (!safeSubject.includes(inquiry.inquiry_number) || !safeBodyInput.includes(inquiry.inquiry_number)) {
+        throw new Error("invalid_result_message");
+    }
+    if (result === "confirmed" && !(
+        safeBodyInput.includes("見積")
+        && safeBodyInput.includes("契約")
+        && safeBodyInput.includes("正式予約")
+    )) {
+        throw new Error("invalid_result_message");
+    }
+    if (result === "unavailable" && !/日程を確保でき(?:ませんでした|なかった)/u.test(safeBodyInput)) {
+        throw new Error("invalid_result_message");
+    }
+
+    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
+        .replace(/\r\n?/gu, "\n")
+        .trim();
+    const safeBody = cleanBody(
+        safeBodyInput.endsWith(signature)
+            ? safeBodyInput
+            : `${safeBodyInput}\n\n${cleanBody(signature, 2_000)}`
+    );
+    const messageType = result === "confirmed"
+        ? "schedule_result_confirmed"
+        : "schedule_result_unavailable";
+
+    return createAndDeliver({
+        inquiry_id: inquiry.id,
+        message_type: messageType,
+        dedupe_key: `schedule-result:${inquiry.id}:${result}`,
+        attempt_number: 1,
+        is_retry: false,
+        recipient: inquiry.email,
+        subject: safeSubject,
+        body: safeBody,
+        created_by: actorUserId
+    }, fetchImpl);
+};
+
+const finalizeScheduleResult = async ({ inquiryId, delivery, result }, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId) || !isUuid(delivery?.id) || delivery.status !== "sent") {
+        throw new Error("result_delivery_not_sent");
+    }
+    const rows = await supabaseRequest("/rest/v1/rpc/finalize_pa_schedule_result", {
+        method: "POST",
+        body: JSON.stringify({
+            p_inquiry_id: inquiryId,
+            p_delivery_id: delivery.id,
+            p_result: result
+        })
+    }, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("result_transition_failed");
+    return rows[0];
+};
+
+const resultForMessageType = (messageType) => {
+    if (messageType === "schedule_result_confirmed") return "confirmed";
+    if (messageType === "schedule_result_unavailable") return "unavailable";
+    return null;
+};
+
+const sendScheduleResultAndFinalize = async ({
+    inquiry,
+    result,
+    subject,
+    body,
+    actorUserId
+}, fetchImpl = fetch) => {
+    const delivery = await createScheduleResultDelivery({
+        inquiry,
+        result,
+        subject,
+        body,
+        actorUserId
+    }, fetchImpl);
+    const caseState = delivery.status === "sent"
+        ? await finalizeScheduleResult({ inquiryId: inquiry.id, delivery, result }, fetchImpl)
+        : null;
+    return { delivery, caseState };
+};
+
 const getDelivery = async (deliveryId, fetchImpl = fetch) => {
     if (!isUuid(deliveryId)) throw new Error("invalid_delivery");
     const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, select: "*", limit: "1" });
@@ -467,26 +831,39 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 module.exports = {
     ADMIN_URL,
     AUTOMATIC_TYPES,
+    SCHEDULE_RESPONSE_TYPES,
+    SCHEDULE_RESULT_TYPES,
+    adminCaseUrl,
+    assertCustomerMessageSafe,
     buildRawMessage,
     cleanBody,
     cleanHeader,
     createAndDeliver,
     createScheduleDelivery,
+    createScheduleResultDelivery,
     customerReceiptTemplate,
     deliver,
+    finalizeScheduleResult,
     formatDate,
     formatDateTime,
     getDelivery,
     getGmailAccessToken,
     getInquiry,
+    getScheduleResponseByInquiry,
+    getScheduleResponseBySubmissionKey,
     insertDelivery,
     internalNotificationTemplate,
     isUuid,
     mailConfig,
+    resultForMessageType,
     retryDelivery,
     safeErrorCode,
     sendAutomaticInquiryEmails,
     sendGmail,
+    sendScheduleResponseEmails,
+    sendScheduleResultAndFinalize,
+    scheduleResponseTemplates,
+    submitScheduleResponseAndNotify,
     supabaseRequest,
     updateDelivery,
     verifyAdmin

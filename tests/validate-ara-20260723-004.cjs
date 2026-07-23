@@ -21,13 +21,13 @@ assert.match(adminHtml, /PA予約管理/);
 assert.match(adminHtml, /日程確保フォームURLを発行/);
 assert.match(adminHtml, /この内容でGmail送信/);
 assert.doesNotMatch(adminHtml, /件名をコピー|本文をコピー|メールアプリで開く|mailto:/);
-assert.match(adminHtml, /確定連絡後に「日程確保完了」へ変更/);
+assert.match(adminHtml, /結果メールのGmail送信成功後にだけ更新/);
 
 assert.match(adminJs, /crypto\.getRandomValues\(bytes\)/);
 assert.match(adminJs, /new Uint8Array\(32\)/);
 assert.match(adminJs, /issue_pa_schedule_token/);
 assert.match(adminJs, /revoke_pa_schedule_token/);
-assert.match(adminJs, /confirm_pa_schedule/);
+assert.match(adminJs, /action: "send_result"/);
 assert.match(adminJs, /日程確保フォームへの回答だけでは、契約・予約または日程確保は確定しません/);
 assert.doesNotMatch(adminJs, /service_role/i);
 
@@ -41,7 +41,7 @@ assert.doesNotMatch(scheduleHtml, /内部メモ/);
 
 assert.match(scheduleJs, /window\.history\.replaceState\(null, "", window\.location\.pathname\)/);
 assert.match(scheduleJs, /get_pa_schedule_case/);
-assert.match(scheduleJs, /submit_pa_schedule_response/);
+assert.match(scheduleJs, /\/api\/pa-schedule-response/);
 assert.match(scheduleJs, /credentials: "omit"/);
 assert.match(scheduleJs, /referrerPolicy: "no-referrer"/);
 assert.doesNotMatch(scheduleJs, /localStorage|sessionStorage|document\.cookie/);

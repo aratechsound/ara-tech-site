@@ -1,8 +1,11 @@
 const {
     createScheduleDelivery,
+    finalizeScheduleResult,
     getInquiry,
+    resultForMessageType,
     retryDelivery,
     safeErrorCode,
+    sendScheduleResultAndFinalize,
     verifyAdmin
 } = require("./_pa-mail.cjs");
 
@@ -67,6 +70,7 @@ module.exports = async (request, response) => {
         const input = parseBody(request);
         const inquiry = await getInquiry(input.inquiry_id);
         let delivery;
+        let caseState = null;
         if (input.action === "send_schedule") {
             delivery = await createScheduleDelivery({
                 inquiry,
@@ -76,12 +80,30 @@ module.exports = async (request, response) => {
                 operationKey: input.operation_key,
                 actorUserId: user.id
             });
+        } else if (input.action === "send_result") {
+            const outcome = await sendScheduleResultAndFinalize({
+                inquiry,
+                result: input.result,
+                subject: input.subject,
+                body: input.body,
+                actorUserId: user.id
+            });
+            delivery = outcome.delivery;
+            caseState = outcome.caseState;
         } else if (input.action === "retry") {
             delivery = await retryDelivery({
                 deliveryId: input.delivery_id,
                 inquiry,
                 actorUserId: user.id
             });
+            const result = resultForMessageType(delivery.message_type);
+            if (result && delivery.status === "sent") {
+                caseState = await finalizeScheduleResult({
+                    inquiryId: inquiry.id,
+                    delivery,
+                    result
+                });
+            }
         } else {
             throw new Error("invalid_action");
         }
@@ -101,7 +123,8 @@ module.exports = async (request, response) => {
                 error_summary: delivery.error_summary,
                 is_retry: delivery.is_retry,
                 attempt_number: delivery.attempt_number
-            }
+            },
+            case_state: caseState
         });
     } catch (error) {
         const code = String(error?.message || "");
@@ -114,6 +137,13 @@ module.exports = async (request, response) => {
             "invalid_operation",
             "invalid_schedule_url",
             "invalid_schedule_message",
+            "invalid_schedule_result",
+            "invalid_result_message",
+            "unsafe_customer_message",
+            "result_not_allowed",
+            "result_delivery_not_sent",
+            "result_transition_failed",
+            "schedule_response_not_found",
             "retry_not_allowed",
             "inquiry_not_found",
             "delivery_not_found"

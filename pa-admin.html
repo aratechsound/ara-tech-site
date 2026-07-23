@@ -84,7 +84,11 @@
                             <option value="second_form_issued">日程確保フォーム発行済み</option>
                             <option value="customer_responded">お客様回答済み</option>
                             <option value="schedule_unconfirmed">日程確保未確定</option>
+                            <option value="schedule_adjusting">日程調整中</option>
+                            <option value="needs_confirmation">確認事項あり</option>
+                            <option value="declined">見送り</option>
                             <option value="schedule_confirmed">日程確保完了</option>
+                            <option value="schedule_unavailable">日程確保不可</option>
                             <option value="on_hold">保留</option>
                             <option value="cancelled">取消</option>
                             <option value="closed">対応終了</option>
@@ -157,6 +161,12 @@
 
                     <div id="automatic-mail-status" class="mail-status-grid" aria-label="受付メールの状態"></div>
 
+                    <div id="workflow-state-panel" class="action-panel action-panel--state">
+                        <h4 id="workflow-state-title">PA予約・お問い合わせ内容を確認</h4>
+                        <p id="workflow-state-description" class="small-note"></p>
+                        <div id="workflow-question" class="workflow-question hidden"></div>
+                    </div>
+
                     <div id="token-section" class="action-panel hidden">
                         <h4>日程確保フォーム専用URL</h4>
                         <p class="small-note">希望日を確保するための条件確認・同意を、お客様にお願いする専用フォームです。</p>
@@ -206,6 +216,39 @@
                         <p id="email-message" class="alert hidden" aria-live="polite"></p>
                     </div>
 
+                    <div id="result-action-panel" class="action-panel action-panel--result hidden">
+                        <h4>日程確保の判断結果をお客様へ連絡</h4>
+                        <p class="small-note">お客様への結果メールがGmailから正常に送信された場合だけ、案件状態が更新されます。</p>
+                        <div class="actions actions--compact result-actions">
+                            <button id="prepare-result-confirmed" class="button button--confirm" type="button">日程を確保できました</button>
+                            <button id="prepare-result-unavailable" class="button button--danger" type="button">日程を確保できませんでした</button>
+                        </div>
+                    </div>
+
+                    <div id="result-email-section" class="action-panel action-panel--result-email hidden">
+                        <h4 id="result-email-title">日程確保結果メール</h4>
+                        <p class="small-note">宛先は案件へ登録された担当者メールアドレスで固定されます。件名と本文を確認し、必要に応じて編集してください。</p>
+                        <input id="result-email-kind" type="hidden">
+                        <div class="field">
+                            <label for="result-email-recipient">宛先</label>
+                            <input id="result-email-recipient" type="email" readonly>
+                        </div>
+                        <div class="field">
+                            <label for="result-email-subject">件名</label>
+                            <input id="result-email-subject" type="text" maxlength="240">
+                        </div>
+                        <div class="field">
+                            <label for="result-email-body">本文</label>
+                            <textarea id="result-email-body" class="email-body" maxlength="20000"></textarea>
+                            <p class="small-note">ARA-TECHの正式署名は送信時にサーバー側で自動付与されます。</p>
+                        </div>
+                        <div class="actions actions--compact">
+                            <button id="send-result-email" class="button" type="button">この内容でGmail送信</button>
+                            <button id="cancel-result-email" class="button button--secondary" type="button">編集を閉じる</button>
+                        </div>
+                        <p id="result-email-message" class="alert hidden" aria-live="polite"></p>
+                    </div>
+
                     <div class="action-panel">
                         <h4>送信履歴</h4>
                         <div id="email-history" class="mail-history"></div>
@@ -230,7 +273,11 @@
                                     <option value="second_form_issued">日程確保フォーム発行済み</option>
                                     <option value="customer_responded">お客様回答済み</option>
                                     <option value="schedule_unconfirmed">日程確保未確定</option>
-                                    <option value="schedule_confirmed">日程確保完了</option>
+                                    <option value="schedule_adjusting">日程調整中</option>
+                                    <option value="needs_confirmation">確認事項あり</option>
+                                    <option value="declined">見送り</option>
+                                    <option value="schedule_confirmed" disabled>日程確保完了（結果メール送信後に自動更新）</option>
+                                    <option value="schedule_unavailable" disabled>日程確保不可（結果メール送信後に自動更新）</option>
                                     <option value="on_hold">保留</option>
                                     <option value="cancelled">取消</option>
                                     <option value="closed">対応終了</option>
@@ -351,10 +398,9 @@
                 </section>
 
                 <section id="schedule-section" class="subsection subsection--confirm">
-                    <h3>日程確保</h3>
+                    <h3>日程確保の結果</h3>
                     <p id="schedule-state" class="schedule-state"></p>
-                    <p class="small-note">日程確保フォームでの条件確認・同意だけでは、契約・予約・日程確保は完了しません。お客様へ確定連絡を送った後にだけ実行してください。</p>
-                    <button id="confirm-schedule" class="button button--confirm" type="button">確定連絡後に「日程確保完了」へ変更</button>
+                    <p class="small-note">日程確保フォームでの条件確認・同意だけでは、契約・予約・日程確保は完了しません。状態は結果メールのGmail送信成功後にだけ更新されます。</p>
                     <p id="schedule-message" class="alert hidden" aria-live="polite"></p>
                 </section>
 
@@ -371,6 +417,6 @@
         </section>
     </main>
 
-    <script type="module" src="js/pa-admin.js"></script>
+    <script type="module" src="js/pa-admin.js?v=ara-20260724-001"></script>
 </body>
 </html>

@@ -103,6 +103,11 @@ td { font-size: .84rem; }
 
 .action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }
 .action-panel h4 { margin: 0 0 6px; }
+.action-panel--state { background: #f8fbff; border-color: #b9d7f3; }
+.action-panel--result { background: #f2fbf6; border-color: #b7dfc7; }
+.action-panel--result-email { border: 2px solid #83b5e8; }
+.workflow-question { background: #fff8e6; border-left: 4px solid #c58a00; margin-top: 12px; overflow-wrap: anywhere; padding: 12px 14px; white-space: pre-wrap; }
+.result-actions { margin-top: 14px; }
 .mail-status-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }
 .mail-status-card { border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 6px; padding: 14px; }
 .mail-status-card strong { font-size: .86rem; }
@@ -129,6 +134,7 @@ td { font-size: .84rem; }
 .alert--info { background: #eaf4ff; color: #14456e; }
 .alert--error { background: #fff0f1; color: #a12431; }
 .alert--success { background: #e7f8ee; color: #15643a; }
+.alert--warning { background: #fff6dc; color: #725000; }
 
 @media (max-width: 900px) {
     .filters { grid-template-columns: 1fr; }
@@ -146,6 +152,7 @@ td { font-size: .84rem; }
     .detail-list { grid-template-columns: 1fr; }
     .detail-list dd { padding-top: 0; }
     .case-overview, .mail-status-grid { grid-template-columns: 1fr; }
+    .result-actions .button { width: 100%; }
     .action-panel { padding: 14px; }
     .detail-section__body { padding: 16px; }
     .detail-section__note { margin-inline: 16px; }

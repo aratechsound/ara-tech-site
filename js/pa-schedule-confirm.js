@@ -86,6 +86,23 @@ const callRpc = async (functionName, payload) => {
     return response.json();
 };
 
+const submitResponseApi = async (payload) => {
+    const response = await fetch("/api/pa-schedule-response", {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json"
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.result) {
+        throw new Error(result.code || `request_failed_${response.status}`);
+    }
+    return result;
+};
+
 const formatDate = (value) => {
     if (!value) return "未設定";
     return new Intl.DateTimeFormat("ja-JP", {
@@ -470,7 +487,7 @@ const showCompletion = () => {
     const decision = checkedValue("decision");
     if (decision === "agree") {
         completionStatus.textContent = "日程調整の依頼を受け付けました。";
-        completionDescription.textContent = "日程確保は完了していません。ARA-TECHから「日程確保完了」の連絡をした時点で、予約・日程確保が成立します。";
+        completionDescription.textContent = "現在は日程未確定です。ARA-TECHから「日程確保完了」の連絡をした時点で日程確保が完了しますが、正式予約・契約成立ではありません。";
     } else if (decision === "question") {
         completionStatus.textContent = "ARA-TECHへの確認希望を受け付けました。";
         completionDescription.textContent = "ARA-TECHが内容を確認し、あらためてご連絡します。";
@@ -491,12 +508,12 @@ const submitResponse = async () => {
     submissionStatus.textContent = "送信しています。画面を閉じずにお待ちください。";
 
     try {
-        const rows = await callRpc("submit_pa_schedule_response", {
-            p_token: accessToken,
-            p_response: responsePayload(),
-            p_submission_key: submissionKey
+        const response = await submitResponseApi({
+            token: accessToken,
+            response: responsePayload(),
+            submission_key: submissionKey
         });
-        const result = rows?.[0]?.result;
+        const result = response.result;
         if (result === "accepted") {
             showCompletion();
             return;
