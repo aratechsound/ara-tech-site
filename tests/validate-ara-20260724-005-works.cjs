@@ -9,7 +9,7 @@ const worksHtml = fs.readFileSync(path.join(root, 'works.html'), 'utf8');
 
 assert.match(worksJs, /\/storage\/v1\/render\/image\/public\//);
 assert.match(worksJs, /\[320, 480, 640\]/);
-assert.match(worksJs, /quality', '72'/);
+assert.match(worksJs, /quality', '66'/);
 assert.match(worksJs, /resize', 'contain'/);
 assert.match(worksJs, /image\.srcset =/);
 assert.match(worksJs, /image\.sizes = workImageSizes/);

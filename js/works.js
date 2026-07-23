@@ -55,7 +55,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         const url = new URL(publicFlyerUrl(path));
         url.pathname = url.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
         url.searchParams.set('width', String(width));
-        url.searchParams.set('quality', '72');
+        url.searchParams.set('quality', '66');
         url.searchParams.set('resize', 'contain');
         return url.href;
     };
