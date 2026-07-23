@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="referrer" content="no-referrer">
+    <meta name="theme-color" content="#007bff">
+    <title>PA予約受付管理 | ARA-TECH</title>
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="pa-admin.css">
+</head>
+<body>
+    <header class="admin-header">
+        <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>PRIVATE ADMIN</span></a>
+        <nav class="admin-nav" aria-label="管理画面">
+            <a href="admin.html">WORKS管理</a>
+            <a href="pa-admin.html" aria-current="page">PA予約管理</a>
+        </nav>
+    </header>
+
+    <main>
+        <p class="eyebrow">PA INQUIRY ADMINISTRATION</p>
+        <h1>PA予約受付管理</h1>
+        <p class="intro">問い合わせ受付、第2フォームの案内、回答、日程確保状態を一つの画面で管理します。</p>
+
+        <section id="config-message" class="card hidden" aria-live="polite"></section>
+
+        <section id="login-panel" class="card login-card">
+            <h2>ログイン</h2>
+            <p class="intro">WORKS管理と同じ登録済み管理者アカウントを使用します。</p>
+            <form id="login-form" class="form-grid" novalidate>
+                <div class="field field--full">
+                    <label for="login-email">メールアドレス</label>
+                    <input id="login-email" type="email" autocomplete="email" required>
+                </div>
+                <div class="field field--full">
+                    <label for="login-password">パスワード</label>
+                    <input id="login-password" type="password" autocomplete="current-password" required>
+                </div>
+                <div class="field field--full">
+                    <button class="button" type="submit">ログインする</button>
+                </div>
+            </form>
+            <p id="login-status" class="alert hidden" aria-live="polite"></p>
+        </section>
+
+        <section id="dashboard" class="hidden">
+            <div class="dashboard-head">
+                <div>
+                    <p id="session-email" class="session-email"></p>
+                    <p class="small-note">第1フォームの通知を確認後、案件を手入力してください。</p>
+                </div>
+                <div class="actions actions--compact">
+                    <button id="new-case" class="button" type="button">問い合わせを手入力</button>
+                    <button id="sign-out" class="button button--secondary" type="button">ログアウト</button>
+                </div>
+            </div>
+
+            <section class="card">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">INQUIRIES</p>
+                        <h2>問い合わせ一覧</h2>
+                    </div>
+                    <button id="refresh-cases" class="button button--secondary button--small" type="button">再読み込み</button>
+                </div>
+
+                <div class="filters">
+                    <div class="field">
+                        <label for="case-search">検索</label>
+                        <input id="case-search" type="search" placeholder="番号・お客様名・イベント名・会場">
+                    </div>
+                    <div class="field">
+                        <label for="case-status-filter">状態</label>
+                        <select id="case-status-filter">
+                            <option value="">すべて</option>
+                            <option value="new">新規受付</option>
+                            <option value="reviewing">内容確認中</option>
+                            <option value="second_form_not_issued">第2フォーム未発行</option>
+                            <option value="second_form_issued">第2フォーム発行済み</option>
+                            <option value="customer_responded">お客様回答済み</option>
+                            <option value="schedule_unconfirmed">日程確保未確定</option>
+                            <option value="schedule_confirmed">日程確保完了</option>
+                            <option value="on_hold">保留</option>
+                            <option value="cancelled">取消</option>
+                            <option value="closed">対応終了</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="case-sort">並び順</label>
+                        <select id="case-sort">
+                            <option value="received-desc">受付日の新しい順</option>
+                            <option value="received-asc">受付日の古い順</option>
+                            <option value="event-asc">開催日の早い順</option>
+                            <option value="event-desc">開催日の遅い順</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p id="list-status" class="alert hidden" aria-live="polite"></p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>問い合わせ</th>
+                                <th>受付日時</th>
+                                <th>お客様／イベント</th>
+                                <th>希望日／会場</th>
+                                <th>状態</th>
+                                <th>第2フォーム</th>
+                                <th>最終更新</th>
+                            </tr>
+                        </thead>
+                        <tbody id="case-list"></tbody>
+                    </table>
+                </div>
+                <p id="empty-cases" class="empty hidden">条件に一致する問い合わせはありません。</p>
+            </section>
+
+            <section id="detail-card" class="card hidden" aria-labelledby="detail-title">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">CASE DETAILS</p>
+                        <h2 id="detail-title">問い合わせ案件</h2>
+                        <p id="detail-number" class="case-number"></p>
+                    </div>
+                    <button id="close-detail" class="button button--secondary button--small" type="button">閉じる</button>
+                </div>
+
+                <form id="case-form" novalidate>
+                    <input id="case-id" type="hidden">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="case-received-at">受付日時</label>
+                            <input id="case-received-at" type="datetime-local" required>
+                        </div>
+                        <div class="field">
+                            <label for="case-status">現在の状態</label>
+                            <select id="case-status" required>
+                                <option value="new">新規受付</option>
+                                <option value="reviewing">内容確認中</option>
+                                <option value="second_form_not_issued">第2フォーム未発行</option>
+                                <option value="second_form_issued">第2フォーム発行済み</option>
+                                <option value="customer_responded">お客様回答済み</option>
+                                <option value="schedule_unconfirmed">日程確保未確定</option>
+                                <option value="schedule_confirmed">日程確保完了</option>
+                                <option value="on_hold">保留</option>
+                                <option value="cancelled">取消</option>
+                                <option value="closed">対応終了</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="customer-name">お客様名・担当者名</label>
+                            <input id="customer-name" type="text" maxlength="160" required>
+                        </div>
+                        <div class="field">
+                            <label for="organization-name">団体名・会社名</label>
+                            <input id="organization-name" type="text" maxlength="200">
+                        </div>
+                        <div class="field">
+                            <label for="customer-email">メールアドレス</label>
+                            <input id="customer-email" type="email" maxlength="320" required>
+                        </div>
+                        <div class="field">
+                            <label for="customer-phone">電話番号</label>
+                            <input id="customer-phone" type="tel" maxlength="60">
+                        </div>
+                        <div class="field field--full">
+                            <label for="event-name">イベント名・案件名</label>
+                            <input id="event-name" type="text" maxlength="240">
+                        </div>
+                        <div class="field">
+                            <label for="event-date">開催希望日</label>
+                            <input id="event-date" type="date">
+                        </div>
+                        <div class="field">
+                            <label for="event-time">開催予定時間</label>
+                            <input id="event-time" type="text" maxlength="120" placeholder="例：13:00〜19:00">
+                        </div>
+                        <div class="field field--full">
+                            <label for="venue">会場</label>
+                            <input id="venue" type="text" maxlength="300">
+                        </div>
+                        <div class="field field--full">
+                            <label for="request-summary">第1フォームの申告内容・依頼内容</label>
+                            <textarea id="request-summary" maxlength="5000"></textarea>
+                        </div>
+                    </div>
+
+                    <section class="subsection subsection--internal">
+                        <h3>ARA-TECH内部メモ</h3>
+                        <p class="small-note">この欄はお客様側の画面・メールへ使用しません。</p>
+                        <div class="field">
+                            <label for="internal-memo">内部メモ</label>
+                            <textarea id="internal-memo" maxlength="10000"></textarea>
+                        </div>
+                    </section>
+
+                    <section class="subsection subsection--public">
+                        <h3>第2フォームへ表示する情報</h3>
+                        <p class="small-note">空欄のイベント名・日付・時間・会場は案件情報を使用します。内部メモは使用されません。</p>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="public-addressee">宛名</label>
+                                <input id="public-addressee" type="text" maxlength="160">
+                            </div>
+                            <div class="field">
+                                <label for="public-event-name">イベント名</label>
+                                <input id="public-event-name" type="text" maxlength="240">
+                            </div>
+                            <div class="field">
+                                <label for="public-event-date">開催希望日</label>
+                                <input id="public-event-date" type="date">
+                            </div>
+                            <div class="field">
+                                <label for="public-event-time">開催予定時間</label>
+                                <input id="public-event-time" type="text" maxlength="120">
+                            </div>
+                            <div class="field field--full">
+                                <label for="public-venue">会場</label>
+                                <input id="public-venue" type="text" maxlength="300">
+                            </div>
+                            <div class="field field--full">
+                                <label for="public-request-summary">お客様へ表示する依頼内容</label>
+                                <textarea id="public-request-summary" maxlength="5000"></textarea>
+                            </div>
+                            <div class="field field--full">
+                                <label for="public-guidance">お客様へ表示する案内</label>
+                                <textarea id="public-guidance" maxlength="10000"></textarea>
+                            </div>
+                            <div class="field field--full">
+                                <label for="public-conditions">概算・条件等の公開用案内</label>
+                                <textarea id="public-conditions" maxlength="10000"></textarea>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="actions">
+                        <button id="save-case" class="button" type="submit">案件を保存</button>
+                        <button id="cancel-case-edit" class="button button--secondary" type="button">編集をやめる</button>
+                        <p id="case-status-message" class="alert hidden" aria-live="polite"></p>
+                    </div>
+                </form>
+
+                <section id="token-section" class="subsection hidden">
+                    <h3>第2フォーム専用URL</h3>
+                    <p id="token-state" class="small-note"></p>
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="token-expiry">回答期限</label>
+                            <input id="token-expiry" type="datetime-local">
+                        </div>
+                        <div class="field field--actions">
+                            <button id="issue-token" class="button" type="button">第2フォームURLを発行</button>
+                            <button id="revoke-token" class="button button--danger" type="button">現在のURLを無効化</button>
+                        </div>
+                        <div class="field field--full">
+                            <label for="issued-url">発行したURL</label>
+                            <div class="copy-row">
+                                <input id="issued-url" type="text" readonly>
+                                <button id="copy-url" class="button button--secondary button--small" type="button">URLをコピー</button>
+                            </div>
+                            <p class="small-note">生のトークンはDBへ保存しません。画面を閉じてURLを失った場合は再発行してください。</p>
+                        </div>
+                    </div>
+                    <p id="token-message" class="alert hidden" aria-live="polite"></p>
+                </section>
+
+                <section id="email-section" class="subsection hidden">
+                    <h3>返信メール文</h3>
+                    <div class="field">
+                        <label for="email-subject">件名</label>
+                        <input id="email-subject" type="text" readonly>
+                    </div>
+                    <div class="field">
+                        <label for="email-body">本文</label>
+                        <textarea id="email-body" class="email-body" readonly></textarea>
+                    </div>
+                    <div class="actions actions--compact">
+                        <button id="copy-subject" class="button button--secondary" type="button">件名をコピー</button>
+                        <button id="copy-body" class="button button--secondary" type="button">本文をコピー</button>
+                        <button id="copy-email" class="button button--secondary" type="button">件名と本文をコピー</button>
+                        <a id="open-mail-app" class="button" href="#">メールアプリで開く</a>
+                    </div>
+                    <p class="small-note">管理画面から直接送信はしません。内容を確認してから、お使いのメールで送信してください。</p>
+                </section>
+
+                <section id="response-section" class="subsection">
+                    <div class="section-head">
+                        <div>
+                            <h3>第2フォーム回答</h3>
+                            <p id="response-state" class="small-note">回答はまだありません。</p>
+                        </div>
+                    </div>
+                    <dl id="response-details" class="detail-list"></dl>
+                </section>
+
+                <section id="schedule-section" class="subsection subsection--confirm">
+                    <h3>日程確保</h3>
+                    <p id="schedule-state" class="schedule-state"></p>
+                    <p class="small-note">第2フォームの回答だけでは確保完了になりません。お客様へ確定連絡を送った後にだけ実行してください。</p>
+                    <button id="confirm-schedule" class="button button--confirm" type="button">確定連絡後に「日程確保完了」へ変更</button>
+                    <p id="schedule-message" class="alert hidden" aria-live="polite"></p>
+                </section>
+
+                <section id="audit-section" class="subsection">
+                    <h3>操作履歴</h3>
+                    <ul id="audit-list" class="audit-list"></ul>
+                </section>
+            </section>
+        </section>
+    </main>
+
+    <script type="module" src="js/pa-admin.js"></script>
+</body>
+</html>

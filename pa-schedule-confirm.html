@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+    <meta name="referrer" content="no-referrer">
+    <title>日程確保条件のご確認 | ARA-TECH</title>
+    <meta name="description" content="ARA-TECHから専用URLをご案内したお客様向けの日程確保条件確認フォームです。">
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="stylesheet" href="pa-schedule-confirm.css?v=ara-20260723-004-1">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">本文へ移動</a>
+
+    <header class="site-header">
+        <div class="container header-inner">
+            <div class="brand" aria-label="ARA-TECH">
+                <img src="img/ARA-TECH%20ロゴ横%20白.png" alt="ARA-TECH" width="2919" height="422">
+            </div>
+            <p class="prototype-label"><span aria-hidden="true"></span>SECURE FORM</p>
+        </div>
+    </header>
+
+    <main id="main-content">
+        <section class="page-hero" aria-labelledby="page-title">
+            <div class="container hero-inner">
+                <p class="eyebrow">SCHEDULE CONFIRMATION</p>
+                <h1 id="page-title">
+                    <span class="heading-line">日程確保条件の</span>
+                    <span class="heading-line">ご確認</span>
+                </h1>
+                <p class="hero-lead">ARA-TECHが既存案件を調整して、ご希望の日程を確保する必要がある場合にご案内する確認ページです。</p>
+                <p class="hero-status">現在は、予約も日程確保も完了していません。</p>
+            </div>
+            <div class="hero-wave" aria-hidden="true">
+                <svg viewBox="0 0 500 80" preserveAspectRatio="none" focusable="false">
+                    <path d="M0,32 C140,78 355,-15 500,28 L500,80 L0,80 Z"></path>
+                </svg>
+            </div>
+        </section>
+
+        <section id="access-message" class="container page-shell" role="status" aria-live="polite">
+            <aside class="prototype-notice">
+                <strong id="access-message-title">専用URLを確認しています</strong>
+                <p id="access-message-text">画面を閉じずにお待ちください。</p>
+            </aside>
+        </section>
+
+        <div class="container page-shell" id="case-content" hidden>
+            <aside class="prototype-notice" role="note" aria-label="専用ページについて">
+                <strong>このページは案件専用です</strong>
+                <p>ご案内を受けた方だけが使用できます。URLを第三者へ転送せず、表示された案件情報を確認してからご回答ください。</p>
+            </aside>
+
+            <section class="content-section case-section" aria-labelledby="case-title">
+                <div class="section-heading">
+                    <p class="section-kicker">CASE DETAILS</p>
+                    <h2 id="case-title">ご確認いただく案件</h2>
+                    <p>ARA-TECHが受付内容を確認し、この専用ページへ設定した情報です。</p>
+                </div>
+
+                <dl class="case-grid" id="case-summary">
+                    <div class="case-item">
+                        <dt>受付番号・問い合わせ番号</dt>
+                        <dd data-case-value="reference">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>イベント名・案件名</dt>
+                        <dd data-case-value="event">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>開催希望日</dt>
+                        <dd data-case-value="date">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>開催予定時間</dt>
+                        <dd data-case-value="time">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>会場名</dt>
+                        <dd data-case-value="venue">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>回答期限</dt>
+                        <dd data-case-value="deadline">確認中</dd>
+                    </div>
+                    <div class="case-item">
+                        <dt>ご案内先</dt>
+                        <dd data-case-value="addressee">確認中</dd>
+                    </div>
+                    <div class="case-item case-item-wide">
+                        <dt>ご依頼内容</dt>
+                        <dd data-case-value="request">確認中</dd>
+                    </div>
+                </dl>
+
+                <div class="current-status" id="case-guidance-wrap" hidden>
+                    <p class="status-label">ARA-TECHからのご案内</p>
+                    <p id="case-guidance"></p>
+                </div>
+            </section>
+
+            <section class="content-section conditions-section" aria-labelledby="conditions-title">
+                <div class="section-heading">
+                    <p class="section-kicker">TERMS &amp; PROCESS</p>
+                    <h2 id="conditions-title">同意の前にご確認ください</h2>
+                    <p>内容をご確認いただき、日程調整を進めることに同意される場合のみご回答ください。</p>
+                </div>
+
+                <div class="current-status">
+                    <p class="status-label">現在の状態</p>
+                    <p><strong>予約・日程確保は完了していません。</strong>ご希望日には既存案件が入っている、または調整が必要な状態です。</p>
+                </div>
+
+                <ol class="condition-list">
+                    <li class="condition-block">
+                        <div class="condition-number" aria-hidden="true">1</div>
+                        <div>
+                            <h3>この回答後に調整を開始します</h3>
+                            <p>条件への同意を受けた後、ARA-TECHが既存案件の調整を開始します。同意しただけで、ご希望の日程を必ず確保できるとは限りません。</p>
+                        </div>
+                    </li>
+                    <li class="condition-block">
+                        <div class="condition-number" aria-hidden="true">2</div>
+                        <div>
+                            <h3>「日程確保完了」の連絡で成立します</h3>
+                            <p>調整できた場合、ARA-TECHから「日程確保完了」の連絡を行います。日程確保は、その連絡をした時点で成立します。それ以前は日程確保済みではありません。</p>
+                        </div>
+                    </li>
+                    <li class="condition-block">
+                        <div class="condition-number" aria-hidden="true">3</div>
+                        <div>
+                            <h3>日程確保後に料金が発生する場合</h3>
+                            <p>ARA-TECHが既存案件を断るなどして日程を確保した後、お客様都合で中止または日程変更となった場合は、<strong class="fee-amount">日程確保料33,000円</strong>が発生します。</p>
+                            <p>通常のキャンセル規定によるキャンセル料が33,000円を超える場合は、通常のキャンセル料のみを適用します。日程確保料と通常のキャンセル料を重複して請求するものではありません。</p>
+                        </div>
+                    </li>
+                    <li class="condition-block">
+                        <div class="condition-number" aria-hidden="true">4</div>
+                        <div>
+                            <h3>料金が発生しない場合</h3>
+                            <p>ARA-TECH側の調整が成立せず、日程を確保できなかった場合、日程確保料は発生しません。ARA-TECHから「日程確保完了」の連絡を行う前に調整を中止した場合も、日程確保料は発生しません。</p>
+                        </div>
+                    </li>
+                </ol>
+
+                <div class="condition-comparison" aria-label="日程確保料の発生条件">
+                    <section>
+                        <p class="comparison-label comparison-label-applies">発生する場合</p>
+                        <h3>確保完了後のお客様都合</h3>
+                        <p>日程確保完了の連絡後に、お客様都合で中止・日程変更した場合。</p>
+                    </section>
+                    <section>
+                        <p class="comparison-label comparison-label-free">発生しない場合</p>
+                        <h3>確保できなかった場合</h3>
+                        <p>調整が成立しなかった場合、または確保完了の連絡前に調整を中止した場合。</p>
+                    </section>
+                </div>
+
+                <div class="current-status" id="case-conditions-wrap" hidden>
+                    <p class="status-label">この案件に関する補足条件</p>
+                    <p id="case-conditions"></p>
+                </div>
+            </section>
+
+            <section class="content-section response-section" aria-labelledby="response-title">
+                <div class="section-heading">
+                    <p class="section-kicker">YOUR RESPONSE</p>
+                    <h2 id="response-title">回答者情報とご回答</h2>
+                    <p>主催者、支払責任者、または正式に権限を与えられた担当者がご回答ください。</p>
+                </div>
+
+                <form id="consent-form" novalidate autocomplete="off">
+                    <div class="error-summary" id="error-summary" role="alert" tabindex="-1" hidden>
+                        <h3>入力内容をご確認ください</h3>
+                        <ul id="error-list"></ul>
+                    </div>
+
+                    <fieldset class="form-group">
+                        <legend><span class="group-number">01</span>回答者の確認</legend>
+
+                        <div class="field-grid">
+                            <div class="field">
+                                <label for="respondent-name">回答者氏名<span class="required-mark">必須</span></label>
+                                <input id="respondent-name" name="respondentName" type="text" autocomplete="off" aria-describedby="respondent-name-hint respondent-name-error">
+                                <p class="field-hint" id="respondent-name-hint">条件を確認するご本人の氏名</p>
+                                <p class="field-error" id="respondent-name-error" hidden></p>
+                            </div>
+
+                            <div class="field">
+                                <label for="organization">会社名・団体名<span class="optional-mark">任意</span></label>
+                                <input id="organization" name="organization" type="text" autocomplete="off">
+                            </div>
+
+                            <div class="field">
+                                <label for="email">メールアドレス<span class="required-mark">必須</span></label>
+                                <input id="email" name="email" type="email" inputmode="email" autocomplete="off" aria-describedby="email-error" placeholder="example@mail.com">
+                                <p class="field-error" id="email-error" hidden></p>
+                            </div>
+
+                            <div class="field">
+                                <label for="phone">電話番号<span class="required-mark">必須</span></label>
+                                <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="off" aria-describedby="phone-error" placeholder="082-000-0000">
+                                <p class="field-error" id="phone-error" hidden></p>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label for="relationship">この案件との関係<span class="required-mark">必須</span></label>
+                            <select id="relationship" name="relationship" aria-describedby="relationship-error">
+                                <option value="">選択してください</option>
+                                <option value="organizer">主催者本人</option>
+                                <option value="organization-representative">主催団体の代表者</option>
+                                <option value="organization-staff">主催団体の担当者</option>
+                                <option value="payer">支払責任者</option>
+                                <option value="requester">依頼者</option>
+                                <option value="authorized-representative">正式に権限を与えられた担当者</option>
+                                <option value="contact-only">連絡窓口のみ</option>
+                                <option value="other">その他</option>
+                            </select>
+                            <p class="field-error" id="relationship-error" hidden></p>
+                        </div>
+
+                        <div class="field conditional-field" id="relationship-other-wrap" hidden>
+                            <label for="relationship-other">案件との関係をご記入ください<span class="required-mark">必須</span></label>
+                            <input id="relationship-other" name="relationshipOther" type="text" aria-describedby="relationship-other-error">
+                            <p class="field-error" id="relationship-other-error" hidden></p>
+                        </div>
+
+                        <fieldset class="choice-fieldset" id="authority-group" aria-describedby="authority-error" tabindex="-1">
+                            <legend>発注および条件同意の権限<span class="required-mark">必須</span></legend>
+                            <div class="choice-row">
+                                <label class="choice-pill"><input type="radio" name="authority" value="yes"><span>ある</span></label>
+                                <label class="choice-pill"><input type="radio" name="authority" value="no"><span>ない</span></label>
+                                <label class="choice-pill"><input type="radio" name="authority" value="unknown"><span>分からない</span></label>
+                            </div>
+                            <p class="field-error" id="authority-error" hidden></p>
+                        </fieldset>
+
+                        <div class="authority-notice" id="authority-notice" role="status" aria-live="polite" hidden>
+                            <strong>このまま正式同意として完了することはできません。</strong>
+                            <p>主催者または支払責任者など、条件に同意できる権限を持つ方への確認が必要です。「同意しない」または「ARA-TECHへ確認したい」という回答は確認画面へ進めます。</p>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="form-group">
+                        <legend><span class="group-number">02</span>重要条件の個別確認</legend>
+                        <p class="group-intro">「条件に同意して日程調整を依頼する」を選ぶ場合は、すべての項目をご本人が個別に確認してください。</p>
+
+                        <div class="check-list" id="agreement-group" aria-describedby="agreements-error" tabindex="-1">
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="not-secured">
+                                <span>現在は予約・日程確保が完了していないことを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="adjustment-starts">
+                                <span>この回答後にARA-TECHが既存案件の調整を開始することを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="completion-notice">
+                                <span>ARA-TECHから日程確保完了の連絡を受けた時点で日程確保が成立することを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="schedule-fee">
+                                <span>日程確保後、お客様都合で中止・日程変更した場合、日程確保料33,000円が発生することを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="cancellation-fee">
+                                <span>通常のキャンセル料が33,000円を超える場合は、通常のキャンセル料のみが適用されることを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="no-fee-if-unsecured">
+                                <span>日程を確保できなかった場合は、日程確保料が発生しないことを確認しました</span>
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" name="agreement" value="authorized">
+                                <span>私は、この案件について条件を確認・同意できる権限を持っています</span>
+                            </label>
+                        </div>
+                        <p class="field-error group-error" id="agreements-error" hidden></p>
+                    </fieldset>
+
+                    <fieldset class="form-group">
+                        <legend><span class="group-number">03</span>最終回答</legend>
+
+                        <div class="decision-list" id="decision-group" aria-describedby="decision-error" tabindex="-1">
+                            <label class="decision-option">
+                                <input type="radio" name="decision" value="agree">
+                                <span>
+                                    <strong>条件に同意し、日程調整を依頼する</strong>
+                                    <small>すべての条件と権限を確認したうえで、ARA-TECHへ調整開始を依頼します。</small>
+                                </span>
+                            </label>
+                            <label class="decision-option">
+                                <input type="radio" name="decision" value="decline">
+                                <span>
+                                    <strong>条件に同意せず、日程調整を依頼しない</strong>
+                                    <small>この条件による既存案件の調整を依頼しません。</small>
+                                </span>
+                            </label>
+                            <label class="decision-option">
+                                <input type="radio" name="decision" value="question">
+                                <span>
+                                    <strong>内容についてARA-TECHへ確認したい</strong>
+                                    <small>正式な回答の前に、条件や権限について確認します。</small>
+                                </span>
+                            </label>
+                        </div>
+                        <p class="field-error group-error" id="decision-error" hidden></p>
+
+                        <div class="field conditional-field" id="question-details-wrap" hidden>
+                            <label for="question-details">確認したい内容<span class="required-mark">必須</span></label>
+                            <textarea id="question-details" name="questionDetails" rows="5" aria-describedby="question-details-error"></textarea>
+                            <p class="field-error" id="question-details-error" hidden></p>
+                        </div>
+
+                        <div class="field confirmation-name-field">
+                            <label for="confirmation-name">確認者氏名（再入力）<span class="required-mark">必須</span></label>
+                            <input id="confirmation-name" name="confirmationName" type="text" autocomplete="off" aria-describedby="confirmation-name-hint confirmation-name-error">
+                            <p class="field-hint" id="confirmation-name-hint">回答者氏名と同じ氏名を、確認のためもう一度入力してください。</p>
+                            <p class="field-error" id="confirmation-name-error" hidden></p>
+                        </div>
+                    </fieldset>
+
+                    <div class="submit-area">
+                        <p class="final-caution"><strong>この操作だけでは日程確保は完了しません。</strong>ARA-TECHから日程確保完了の連絡を受けた時点で確保成立となります。</p>
+                        <button class="submit-button" id="review-button" type="submit">回答内容を確認する</button>
+                        <p class="local-only-note">確認画面を表示しただけでは送信されません。</p>
+                    </div>
+                </form>
+
+                <section class="confirmation-panel" id="confirmation-panel" aria-labelledby="confirmation-title" hidden>
+                    <p class="confirmation-kicker">FINAL REVIEW</p>
+                    <h2 id="confirmation-title" tabindex="-1">回答内容の確認</h2>
+                    <div class="confirmation-alert">
+                        <strong>まだ送信されていません。</strong>
+                        <p>内容に誤りがないことを確認してから、回答を送信してください。</p>
+                    </div>
+
+                    <dl class="confirmation-summary">
+                        <div><dt>受付番号</dt><dd id="confirm-reference"></dd></div>
+                        <div><dt>案件名</dt><dd id="confirm-event"></dd></div>
+                        <div><dt>開催希望日</dt><dd id="confirm-date"></dd></div>
+                        <div><dt>回答者</dt><dd id="confirm-respondent"></dd></div>
+                        <div><dt>メールアドレス</dt><dd id="confirm-email"></dd></div>
+                        <div><dt>電話番号</dt><dd id="confirm-phone"></dd></div>
+                        <div><dt>案件との関係</dt><dd id="confirm-relationship"></dd></div>
+                        <div><dt>同意権限</dt><dd id="confirm-authority"></dd></div>
+                        <div><dt>確認者氏名</dt><dd id="confirm-confirmation-name"></dd></div>
+                        <div class="confirmation-summary-wide"><dt>最終回答</dt><dd id="confirm-decision"></dd></div>
+                        <div class="confirmation-summary-wide" id="confirm-question-row" hidden><dt>確認したい内容</dt><dd id="confirm-question"></dd></div>
+                        <div class="confirmation-summary-wide">
+                            <dt>個別同意項目</dt>
+                            <dd>
+                                <ul class="confirmation-agreement-list" id="confirm-agreements"></ul>
+                                <p class="confirmation-agreement-note" id="confirm-agreements-note" hidden></p>
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <section class="confirmation-conditions" aria-labelledby="confirmation-conditions-title">
+                        <h3 id="confirmation-conditions-title">重要条件の再確認</h3>
+                        <ul>
+                            <li>現在は予約・日程確保が完了していません。</li>
+                            <li>同意後、ARA-TECHが既存案件の調整を開始します。必ず確保できるとは限りません。</li>
+                            <li>ARA-TECHから「日程確保完了」の連絡をした時点で、日程確保が成立します。</li>
+                            <li>確保完了後、お客様都合で中止・日程変更した場合は日程確保料33,000円が発生します。通常のキャンセル料が33,000円を超える場合は、通常のキャンセル料のみを適用し、重複請求はしません。</li>
+                            <li>日程を確保できなかった場合、または確保完了の連絡前に調整を中止した場合は、日程確保料は発生しません。</li>
+                        </ul>
+                    </section>
+
+                    <div class="confirmation-caution">
+                        <strong id="confirmation-caution-title">日程確保はまだ完了していません。</strong>
+                        <p id="confirmation-caution-text">本番実装でも、ARA-TECHから日程確保完了の連絡を受けるまでは確保成立となりません。</p>
+                    </div>
+
+                    <div class="confirmation-actions">
+                        <button class="secondary-button" id="edit-button" type="button">入力内容を修正する</button>
+                        <button class="submit-button" id="complete-button" type="button">この回答を確定する</button>
+                    </div>
+                    <p id="submission-status" class="local-only-note" role="status" aria-live="polite"></p>
+                </section>
+
+                <section class="completion-panel" id="completion-panel" aria-labelledby="completion-title" hidden>
+                    <p class="confirmation-kicker">RESPONSE RECEIVED</p>
+                    <h2 id="completion-title" tabindex="-1">回答を受け付けました</h2>
+
+                    <div class="completion-message">
+                        <strong id="completion-status"></strong>
+                        <p id="completion-description"></p>
+                    </div>
+
+                    <div class="confirmation-caution">
+                        <strong>日程確保はまだ完了していません。</strong>
+                        <p>ARA-TECHが回答内容を確認し、「日程確保完了」の連絡をした時点で確保成立となります。</p>
+                    </div>
+                </section>
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved.</small>
+        </div>
+    </footer>
+
+    <noscript>
+        <div class="noscript-message">案件情報の確認と回答にはJavaScriptが必要です。ブラウザのJavaScriptを有効にしてください。</div>
+    </noscript>
+    <script type="module" src="js/pa-schedule-confirm.js?v=ara-20260723-004-1"></script>
+</body>
+</html>
