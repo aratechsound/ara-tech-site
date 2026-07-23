@@ -57,6 +57,8 @@ const payerRequiredFields = [
     document.querySelector("#payer-name"),
     document.querySelector("#payer-email")
 ];
+const submissionKeyStorage = "ara-tech-pa-inquiry-submission-key";
+let fallbackSubmissionKey = "";
 
 const routeConfig = {
     "pa-rental": {
@@ -303,36 +305,96 @@ const createSummary = () => {
     });
 };
 
+const createSubmissionKey = () => {
+    if (typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+};
+
+const getSubmissionKey = () => {
+    try {
+        const existing = sessionStorage.getItem(submissionKeyStorage);
+        if (existing) return existing;
+        const created = createSubmissionKey();
+        sessionStorage.setItem(submissionKeyStorage, created);
+        return created;
+    } catch {
+        fallbackSubmissionKey ||= createSubmissionKey();
+        return fallbackSubmissionKey;
+    }
+};
+
+const clearSubmissionKey = () => {
+    fallbackSubmissionKey = "";
+    try {
+        sessionStorage.removeItem(submissionKeyStorage);
+    } catch {
+        // sessionStorageが利用できない環境では、ページ遷移でフォールバック値を破棄します。
+    }
+};
+
+const createSubmissionPayload = () => {
+    const data = new FormData(form);
+    const payload = {};
+    for (const [key, value] of data.entries()) {
+        if (key === "requested_services") continue;
+        payload[key] = String(value);
+    }
+    payload.requested_services = data.getAll("requested_services").map(String);
+    payload.submission_key = getSubmissionKey();
+    return payload;
+};
+
 const submitInquiry = async () => {
     sendInquiryButton.disabled = true;
     submissionStatus.classList.remove("is-error");
     submissionStatus.textContent = "送信しています。画面を閉じずにお待ちください。";
 
-    const submission = new FormData(form);
-    submission.set("希望する業務（確認用）", requestedServicesLabel());
-    submission.set("開催時間（確認用）", eventTimeLabel());
-    submission.set("依頼者（確認用）", requesterDisplayName());
-    submission.set("連絡窓口（確認用）", `${contactDisplayName()} / ${contactDisplayEmail()}`);
-    submission.set("支払責任者（確認用）", payerSourceLabel());
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
 
     try {
         const response = await fetch(form.action, {
             method: "POST",
-            body: submission,
-            headers: { Accept: "application/json" }
+            body: JSON.stringify(createSubmissionPayload()),
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json"
+            },
+            credentials: "same-origin",
+            signal: controller.signal
         });
+        const responseBody = await response.json().catch(() => ({}));
 
-        if (!response.ok) {
-            throw new Error(`Form submission failed: ${response.status}`);
+        if (!response.ok || !responseBody.ok || !responseBody.inquiry_number) {
+            const error = new Error("submission_failed");
+            error.status = response.status;
+            throw error;
         }
 
-        window.location.assign("thanks.html?sent=1&form=pa-inquiry");
+        clearSubmissionKey();
+        window.location.assign(
+            `thanks.html?sent=1&form=pa-inquiry&receipt=${encodeURIComponent(responseBody.inquiry_number)}`
+        );
     } catch (error) {
-        console.error("PA inquiry submission error", error);
-        submissionStatus.textContent = "送信できませんでした。通信状況をご確認のうえ、もう一度お試しください。";
+        if (error.status === 400) {
+            submissionStatus.textContent = "送信内容を確認できませんでした。入力内容を修正して、もう一度お試しください。";
+        } else if (error.status === 429) {
+            submissionStatus.textContent = "短時間に送信が集中しています。しばらく待ってから、もう一度お試しください。";
+        } else {
+            submissionStatus.textContent = "送信を完了できませんでした。通信状況をご確認のうえ再送してください。繰り返し失敗する場合は、一般お問い合わせフォームからご連絡ください。";
+        }
         submissionStatus.classList.add("is-error");
         sendInquiryButton.disabled = false;
         sendInquiryButton.focus();
+    } finally {
+        window.clearTimeout(timeout);
     }
 };
 

@@ -85,6 +85,8 @@ const tokenSection = $("#token-section");
 const emailSection = $("#email-section");
 const responseDetails = $("#response-details");
 const auditList = $("#audit-list");
+const firstFormSection = $("#first-form-section");
+const firstFormDetails = $("#first-form-details");
 
 let supabase;
 let cases = [];
@@ -277,6 +279,8 @@ const resetForm = () => {
     $("#public-conditions").value = defaultConditions;
     $("#detail-title").textContent = "問い合わせを手入力";
     $("#detail-number").textContent = "保存時に問い合わせ番号を発行します。";
+    firstFormSection.classList.add("hidden");
+    firstFormDetails.replaceChildren();
     currentCase = null;
     currentToken = null;
     currentResponse = null;
@@ -300,6 +304,7 @@ const populateCaseForm = (item) => {
     $("#case-status").value = item.status;
     $("#customer-name").value = item.customer_name || "";
     $("#organization-name").value = item.organization_name || "";
+    $("#contact-name").value = item.contact_name || "";
     $("#customer-email").value = item.email || "";
     $("#customer-phone").value = item.phone || "";
     $("#event-name").value = item.event_name || "";
@@ -317,7 +322,75 @@ const populateCaseForm = (item) => {
     $("#public-guidance").value = item.public_guidance || "";
     $("#public-conditions").value = item.public_conditions || defaultConditions;
     $("#detail-title").textContent = item.event_name || "問い合わせ案件";
-    $("#detail-number").textContent = `${item.inquiry_number} ／ 受付 ${formatDateTime(item.received_at)}`;
+    const sourceLabel = item.submission_source === "public_form" ? "Webフォーム" : "手入力";
+    $("#detail-number").textContent = `${item.inquiry_number} ／ 受付 ${formatDateTime(item.received_at)} ／ ${sourceLabel}`;
+    renderFirstFormData(item);
+};
+
+const firstFormLabels = {
+    form_source: "参照元",
+    form_service: "サービス種別",
+    event_name: "イベント名・案件名",
+    event_date: "開催希望日",
+    event_time: "開催時間",
+    venue_name: "会場名",
+    venue_address: "会場住所",
+    venue_type: "会場種別",
+    expected_attendance: "想定来場者数",
+    event_overview: "イベント内容・開催概要",
+    event_status: "開催状況",
+    requested_services: "希望する業務",
+    organizer_type: "主催者区分",
+    organizer_name: "主催者・主催団体名",
+    organizer_representative: "主催団体代表者",
+    organizer_email: "主催者メール",
+    organizer_phone: "主催者電話番号",
+    requester_relation: "依頼者と主催者の関係",
+    requester_name: "依頼者名",
+    requester_organization: "依頼者の会社・団体名",
+    requester_authority: "発注・条件同意の権限",
+    contact_source: "連絡窓口の選択",
+    contact_name: "連絡担当者名",
+    contact_email: "連絡先メール",
+    contact_phone: "連絡先電話番号",
+    preferred_contact_method: "希望連絡方法",
+    payer_source: "支払責任者の選択",
+    invoice_name: "請求先名義",
+    payer_name: "支払責任者名",
+    payer_organization: "支払責任者の会社・団体名",
+    payer_email: "支払責任者メール",
+    payer_phone: "支払責任者電話番号",
+    estimate_notes: "見積り・準備に必要な情報",
+    questions: "質問・連絡事項",
+    confirmation_consent: "確認事項への同意"
+};
+
+const appendFirstFormDetail = (term, description) => {
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = description || "未入力";
+    firstFormDetails.append(dt, dd);
+};
+
+const renderFirstFormData = (item) => {
+    firstFormDetails.replaceChildren();
+    const isPublicForm = item.submission_source === "public_form";
+    firstFormSection.classList.toggle("hidden", !isPublicForm);
+    if (!isPublicForm) return;
+
+    const data = item.first_form_data && typeof item.first_form_data === "object"
+        ? item.first_form_data
+        : {};
+    for (const [key, label] of Object.entries(firstFormLabels)) {
+        const value = data[key];
+        const displayValue = Array.isArray(value)
+            ? value.join("、")
+            : value === true ? "同意済み"
+                : value === false ? "未同意"
+                    : String(value || "");
+        appendFirstFormDetail(label, displayValue);
+    }
 };
 
 const renderTokenState = () => {
@@ -465,6 +538,7 @@ const casePayload = () => ({
     status: $("#case-status").value,
     customer_name: $("#customer-name").value.trim(),
     organization_name: valueOrNull("#organization-name"),
+    contact_name: valueOrNull("#contact-name"),
     email: $("#customer-email").value.trim(),
     phone: valueOrNull("#customer-phone"),
     event_name: valueOrNull("#event-name"),

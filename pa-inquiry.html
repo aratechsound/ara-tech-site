@@ -72,7 +72,7 @@
                 <p>
                     ご希望の日程やイベント内容を確認するためのフォームです。このフォームの送信だけでは、
                     <strong>予約や日程確保は成立しません。</strong>
-                    内容を確認後、ARA-TECHからメール等でご連絡します。
+                    送信内容はARA-TECHの予約管理システムへ安全に登録され、確認後にメール等でご連絡します。
                 </p>
                 <div class="prototype-status" role="note">
                     <strong>受付の流れ</strong>
@@ -80,10 +80,13 @@
                 </div>
             </div>
 
-            <form id="pa-inquiry-form" action="https://formspree.io/f/mojqjwnr" method="post" accept-charset="UTF-8">
-                <input type="hidden" name="_subject" value="ARA-TECH PA・イベント依頼／空き状況確認">
-                <input id="form-source" type="hidden" name="参照元" value="direct">
-                <input id="form-service" type="hidden" name="サービス種別" value="">
+            <form id="pa-inquiry-form" action="/api/pa-inquiry" method="post" accept-charset="UTF-8">
+                <input id="form-source" type="hidden" name="form_source" value="direct">
+                <input id="form-service" type="hidden" name="form_service" value="">
+                <div class="honeypot" aria-hidden="true">
+                    <label for="website">この項目は入力しないでください</label>
+                    <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+                </div>
                 <p class="field-guide" id="field-guide">
                     <span class="badge badge-required">必須</span> は入力が必要です。
                     <span class="badge badge-optional">任意</span> は分かる範囲でご入力ください。
@@ -98,7 +101,7 @@
 
                     <div class="field">
                         <label for="event-name">イベント名・案件名 <span class="badge badge-optional">任意</span></label>
-                        <input id="event-name" name="event_name" type="text" autocomplete="off" placeholder="未定の場合は空欄で構いません">
+                        <input id="event-name" name="event_name" type="text" maxlength="240" autocomplete="off" placeholder="未定の場合は空欄で構いません">
                     </div>
 
                     <div class="form-grid form-grid-2">
@@ -129,11 +132,11 @@
                     <div class="form-grid form-grid-2">
                         <div class="field">
                             <label for="venue-name">会場名 <span class="badge badge-required">必須</span></label>
-                            <input id="venue-name" name="venue_name" type="text" autocomplete="organization" required>
+                            <input id="venue-name" name="venue_name" type="text" maxlength="160" autocomplete="organization" required>
                         </div>
                         <div class="field">
                             <label for="venue-address">会場所在地 <span class="badge badge-required">必須</span></label>
-                            <input id="venue-address" name="venue_address" type="text" autocomplete="street-address" placeholder="例：広島県○○市○○町" required>
+                            <input id="venue-address" name="venue_address" type="text" maxlength="160" autocomplete="street-address" placeholder="例：広島県○○市○○町" required>
                         </div>
                     </div>
 
@@ -164,7 +167,7 @@
 
                     <div class="field">
                         <label for="event-overview">イベント内容・開催概要 <span class="badge badge-required">必須</span></label>
-                        <textarea id="event-overview" name="event_overview" rows="5" placeholder="出演内容、進行、PAが必要な場面など、現時点で分かる範囲をご記入ください。" required></textarea>
+                        <textarea id="event-overview" name="event_overview" rows="5" maxlength="5000" placeholder="出演内容、進行、PAが必要な場面など、現時点で分かる範囲をご記入ください。" required></textarea>
                     </div>
 
                     <div class="field">
@@ -197,7 +200,7 @@
                     </div>
                     <div class="field conditional-field" id="service-other-field" hidden>
                         <label for="service-other-detail">「その他」の内容 <span class="badge badge-required">必須</span></label>
-                        <input id="service-other-detail" name="requested_service_other" type="text">
+                        <input id="service-other-detail" name="requested_service_other" type="text" maxlength="200">
                     </div>
                 </fieldset>
 
@@ -218,13 +221,13 @@
 
                     <div class="field">
                         <label for="organizer-name"><span id="organizer-name-label-text">主催者・主催団体名</span> <span class="badge badge-required">必須</span></label>
-                        <input id="organizer-name" name="organizer_name" type="text" autocomplete="organization" required>
+                        <input id="organizer-name" name="organizer_name" type="text" maxlength="200" autocomplete="organization" required>
                     </div>
 
                     <div class="field conditional-field" id="organizer-representative-field" hidden>
                         <label for="organizer-representative">主催者側の担当者名 <span class="badge badge-required">必須</span></label>
                         <p class="field-help">ARA-TECHから連絡する際の宛先となる方をご入力ください。</p>
-                        <input id="organizer-representative" name="organizer_representative" type="text" autocomplete="name" disabled>
+                        <input id="organizer-representative" name="organizer_representative" type="text" maxlength="160" autocomplete="name" disabled>
                     </div>
 
                     <div class="form-grid form-grid-2">
@@ -268,7 +271,7 @@
                     </div>
                     <div class="field conditional-field" id="requester-relation-other-field" hidden>
                         <label for="requester-relation-other">主催者との関係（その他） <span class="badge badge-required">必須</span></label>
-                        <input id="requester-relation-other" name="requester_relation_other" type="text">
+                        <input id="requester-relation-other" name="requester_relation_other" type="text" maxlength="200">
                     </div>
 
                     <div id="requester-copy-note" class="copy-note" role="status" hidden>
@@ -278,11 +281,11 @@
                     <div id="requester-identity-fields" class="form-grid form-grid-2">
                         <div class="field">
                             <label for="requester-name">依頼者名 <span class="badge badge-required">必須</span></label>
-                            <input id="requester-name" name="requester_name" type="text" autocomplete="name" required>
+                            <input id="requester-name" name="requester_name" type="text" maxlength="160" autocomplete="name" required>
                         </div>
                         <div class="field">
                             <label for="requester-organization">会社名・団体名 <span class="badge badge-optional">任意</span></label>
-                            <input id="requester-organization" name="requester_organization" type="text" autocomplete="organization">
+                            <input id="requester-organization" name="requester_organization" type="text" maxlength="200" autocomplete="organization">
                         </div>
                     </div>
 
@@ -317,7 +320,7 @@
 
                     <div id="contact-name-field" class="field" hidden>
                         <label for="contact-name">担当者名 <span class="badge badge-required">必須</span></label>
-                        <input id="contact-name" name="contact_name" type="text" autocomplete="name">
+                        <input id="contact-name" name="contact_name" type="text" maxlength="160" autocomplete="name">
                     </div>
 
                     <div id="contact-detail-fields" class="form-grid form-grid-2" hidden>
@@ -366,15 +369,15 @@
                         <div class="form-grid form-grid-2">
                             <div class="field">
                                 <label for="invoice-name">請求先名義 <span class="badge badge-required">必須</span></label>
-                                <input id="invoice-name" name="invoice_name" type="text" autocomplete="organization">
+                                <input id="invoice-name" name="invoice_name" type="text" maxlength="200" autocomplete="organization">
                             </div>
                             <div class="field">
                                 <label for="payer-name">支払責任者名 <span class="badge badge-required">必須</span></label>
-                                <input id="payer-name" name="payer_name" type="text" autocomplete="name">
+                                <input id="payer-name" name="payer_name" type="text" maxlength="160" autocomplete="name">
                             </div>
                             <div class="field">
                                 <label for="payer-organization">会社名・団体名 <span class="badge badge-optional">任意</span></label>
-                                <input id="payer-organization" name="payer_organization" type="text" autocomplete="organization">
+                                <input id="payer-organization" name="payer_organization" type="text" maxlength="200" autocomplete="organization">
                             </div>
                             <div class="field">
                                 <label for="payer-email">メールアドレス <span class="badge badge-required">必須</span></label>
@@ -397,11 +400,11 @@
 
                     <div class="field">
                         <label for="estimate-notes">見積りや打ち合わせに必要な補足事項 <span class="badge badge-optional">任意</span></label>
-                        <textarea id="estimate-notes" name="estimate_notes" rows="4" placeholder="搬入時間、出演者構成、既設機材、雨天時の予定など"></textarea>
+                        <textarea id="estimate-notes" name="estimate_notes" rows="4" maxlength="5000" placeholder="搬入時間、出演者構成、既設機材、雨天時の予定など"></textarea>
                     </div>
                     <div class="field">
                         <label for="questions">備考・質問 <span class="badge badge-optional">任意</span></label>
-                        <textarea id="questions" name="questions" rows="4"></textarea>
+                        <textarea id="questions" name="questions" rows="4" maxlength="5000"></textarea>
                     </div>
 
                     <label class="consent-row" for="confirmation-consent">

@@ -67,7 +67,8 @@ assert.match(migration, /grant execute on function public\.get_pa_schedule_case\
 assert.match(migration, /grant execute on function public\.submit_pa_schedule_response\(text, jsonb, uuid\) to anon, authenticated/);
 assert.doesNotMatch(migration, /token\s+text\s+not null/i);
 
-assert.match(inquiryHtml, /action="https:\/\/formspree\.io\/f\/mojqjwnr"/);
+assert.match(inquiryHtml, /action="\/api\/pa-inquiry"/);
+assert.doesNotMatch(inquiryHtml, /formspree/i);
 assert.match(inquiryJs, /fetch\(form\.action/);
 assert.doesNotMatch(inquiryJs, /pa_inquiries|create_pa_inquiry/);
 

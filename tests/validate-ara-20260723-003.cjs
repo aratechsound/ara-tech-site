@@ -24,12 +24,13 @@ assert.match(read('tour-pa.html'), /contact\.html#general-inquiry/);
 assert.match(read('installation.html'), /contact\.html#general-inquiry/);
 
 assert.match(inquiry, /<link rel="canonical" href="https:\/\/ara-tech\.cc\/pa-inquiry\.html">/);
-assert.match(inquiry, /<form id="pa-inquiry-form" action="https:\/\/formspree\.io\/f\/mojqjwnr"/);
+assert.match(inquiry, /<form id="pa-inquiry-form" action="\/api\/pa-inquiry"/);
+assert.doesNotMatch(inquiry, /formspree/i);
 assert.match(inquiry, /このフォームの送信だけでは、予約または日程確保は完了しません/);
 assert.doesNotMatch(inquiry, /noindex|ローカル試作|LOCAL PROTOTYPE/);
 assert.match(inquiryScript, /new URLSearchParams\(window\.location\.search\)/);
 assert.match(inquiryScript, /allowedSources/);
-assert.match(inquiryScript, /headers: \{ Accept: "application\/json" \}/);
+assert.match(inquiryScript, /"Content-Type": "application\/json"/);
 assert.doesNotMatch(inquiryScript, /\.innerHTML\s*=/);
 
 assert.match(sitemap, /\['\/pa-inquiry\.html', '0\.7'\]/);

@@ -162,6 +162,10 @@
                             <input id="organization-name" type="text" maxlength="200">
                         </div>
                         <div class="field">
+                            <label for="contact-name">連絡担当者名</label>
+                            <input id="contact-name" type="text" maxlength="160">
+                        </div>
+                        <div class="field">
                             <label for="customer-email">メールアドレス</label>
                             <input id="customer-email" type="email" maxlength="320" required>
                         </div>
@@ -187,9 +191,15 @@
                         </div>
                         <div class="field field--full">
                             <label for="request-summary">第1フォームの申告内容・依頼内容</label>
-                            <textarea id="request-summary" maxlength="5000"></textarea>
+                            <textarea id="request-summary" maxlength="20000"></textarea>
                         </div>
                     </div>
+
+                    <section id="first-form-section" class="subsection hidden">
+                        <h3>第1フォームの申告内容</h3>
+                        <p class="small-note">Webフォームから登録された元の入力内容です。表示時はテキストとして安全に処理します。</p>
+                        <dl id="first-form-details" class="detail-list"></dl>
+                    </section>
 
                     <section class="subsection subsection--internal">
                         <h3>ARA-TECH内部メモ</h3>
@@ -226,7 +236,7 @@
                             </div>
                             <div class="field field--full">
                                 <label for="public-request-summary">お客様へ表示する依頼内容</label>
-                                <textarea id="public-request-summary" maxlength="5000"></textarea>
+                                <textarea id="public-request-summary" maxlength="20000"></textarea>
                             </div>
                             <div class="field field--full">
                                 <label for="public-guidance">お客様へ表示する案内</label>
