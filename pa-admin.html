@@ -25,7 +25,7 @@
     <main>
         <p class="eyebrow">PA INQUIRY ADMINISTRATION</p>
         <h1>PA予約受付管理</h1>
-        <p class="intro">問い合わせ受付、第2フォームの案内、回答、日程確保状態を一つの画面で管理します。</p>
+        <p class="intro">PA予約・お問い合わせ受付、日程確保フォームの案内・回答、日程確保状態を一つの画面で管理します。</p>
 
         <section id="config-message" class="card hidden" aria-live="polite"></section>
 
@@ -80,8 +80,8 @@
                             <option value="">すべて</option>
                             <option value="new">新規受付</option>
                             <option value="reviewing">内容確認中</option>
-                            <option value="second_form_not_issued">第2フォーム未発行</option>
-                            <option value="second_form_issued">第2フォーム発行済み</option>
+                            <option value="second_form_not_issued">日程確保フォーム未発行</option>
+                            <option value="second_form_issued">日程確保フォーム発行済み</option>
                             <option value="customer_responded">お客様回答済み</option>
                             <option value="schedule_unconfirmed">日程確保未確定</option>
                             <option value="schedule_confirmed">日程確保完了</option>
@@ -111,7 +111,7 @@
                                 <th>お客様／イベント</th>
                                 <th>希望日／会場</th>
                                 <th>状態</th>
-                                <th>第2フォーム</th>
+                                <th>日程確保フォーム</th>
                                 <th>最終更新</th>
                             </tr>
                         </thead>
@@ -124,96 +124,165 @@
             <section id="detail-card" class="card hidden" aria-labelledby="detail-title">
                 <div class="section-head">
                     <div>
-                        <p class="eyebrow">CASE DETAILS</p>
+                        <p class="eyebrow">案件詳細</p>
                         <h2 id="detail-title">問い合わせ案件</h2>
                         <p id="detail-number" class="case-number"></p>
                     </div>
                     <button id="close-detail" class="button button--secondary button--small" type="button">閉じる</button>
                 </div>
 
-                <form id="case-form" novalidate>
-                    <input id="case-id" type="hidden">
-                    <div class="form-grid">
-                        <div class="field">
-                            <label for="case-received-at">受付日時</label>
-                            <input id="case-received-at" type="datetime-local" required>
-                        </div>
-                        <div class="field">
-                            <label for="case-status">現在の状態</label>
-                            <select id="case-status" required>
-                                <option value="new">新規受付</option>
-                                <option value="reviewing">内容確認中</option>
-                                <option value="second_form_not_issued">第2フォーム未発行</option>
-                                <option value="second_form_issued">第2フォーム発行済み</option>
-                                <option value="customer_responded">お客様回答済み</option>
-                                <option value="schedule_unconfirmed">日程確保未確定</option>
-                                <option value="schedule_confirmed">日程確保完了</option>
-                                <option value="on_hold">保留</option>
-                                <option value="cancelled">取消</option>
-                                <option value="closed">対応終了</option>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label for="customer-name">お客様名・担当者名</label>
-                            <input id="customer-name" type="text" maxlength="160" required>
-                        </div>
-                        <div class="field">
-                            <label for="organization-name">団体名・会社名</label>
-                            <input id="organization-name" type="text" maxlength="200">
-                        </div>
-                        <div class="field">
-                            <label for="contact-name">連絡担当者名</label>
-                            <input id="contact-name" type="text" maxlength="160">
-                        </div>
-                        <div class="field">
-                            <label for="customer-email">メールアドレス</label>
-                            <input id="customer-email" type="email" maxlength="320" required>
-                        </div>
-                        <div class="field">
-                            <label for="customer-phone">電話番号</label>
-                            <input id="customer-phone" type="tel" maxlength="60">
-                        </div>
-                        <div class="field field--full">
-                            <label for="event-name">イベント名・案件名</label>
-                            <input id="event-name" type="text" maxlength="240">
-                        </div>
-                        <div class="field">
-                            <label for="event-date">開催希望日</label>
-                            <input id="event-date" type="date">
-                        </div>
-                        <div class="field">
-                            <label for="event-time">開催予定時間</label>
-                            <input id="event-time" type="text" maxlength="120" placeholder="例：13:00〜19:00">
-                        </div>
-                        <div class="field field--full">
-                            <label for="venue">会場</label>
-                            <input id="venue" type="text" maxlength="300">
-                        </div>
-                        <div class="field field--full">
-                            <label for="request-summary">第1フォームの申告内容・依頼内容</label>
-                            <textarea id="request-summary" maxlength="20000"></textarea>
+                <section id="case-overview" class="case-overview" aria-label="案件概要">
+                    <div><span>受付番号</span><strong id="overview-number">未発行</strong></div>
+                    <div><span>開催希望日</span><strong id="overview-date">未設定</strong></div>
+                    <div><span>担当者</span><strong id="overview-contact">未設定</strong></div>
+                    <div><span>会場</span><strong id="overview-venue">未設定</strong></div>
+                    <div><span>現在の対応状態</span><strong id="overview-status">未設定</strong></div>
+                    <div class="case-overview__next"><span>次に行う操作</span><strong id="overview-next-action">内容を確認</strong></div>
+                </section>
+
+                <section id="next-action-section" class="subsection subsection--next hidden">
+                    <div class="section-head">
+                        <div>
+                            <h3>次の対応</h3>
+                            <p class="small-note">日程調整が必要な案件は、専用URLの発行からGmail送信までこのブロックで完了します。</p>
                         </div>
                     </div>
+                    <ol class="workflow-list" aria-label="対応の流れ">
+                        <li>PA予約・お問い合わせ内容を確認</li>
+                        <li>日程調整が必要か判断</li>
+                        <li>日程確保フォームの専用URLを発行</li>
+                        <li>お客様へ案内メールを送信</li>
+                        <li>条件確認・同意の回答を確認</li>
+                    </ol>
 
-                    <section id="first-form-section" class="subsection hidden">
-                        <h3>第1フォームの申告内容</h3>
-                        <p class="small-note">Webフォームから登録された元の入力内容です。表示時はテキストとして安全に処理します。</p>
-                        <dl id="first-form-details" class="detail-list"></dl>
-                    </section>
+                    <div id="automatic-mail-status" class="mail-status-grid" aria-label="受付メールの状態"></div>
 
-                    <section class="subsection subsection--internal">
-                        <h3>ARA-TECH内部メモ</h3>
-                        <p class="small-note">この欄はお客様側の画面・メールへ使用しません。</p>
-                        <div class="field">
-                            <label for="internal-memo">内部メモ</label>
-                            <textarea id="internal-memo" maxlength="10000"></textarea>
-                        </div>
-                    </section>
-
-                    <section class="subsection subsection--public">
-                        <h3>第2フォームへ表示する情報</h3>
-                        <p class="small-note">空欄のイベント名・日付・時間・会場は案件情報を使用します。内部メモは使用されません。</p>
+                    <div id="token-section" class="action-panel hidden">
+                        <h4>日程確保フォーム専用URL</h4>
+                        <p class="small-note">希望日を確保するための条件確認・同意を、お客様にお願いする専用フォームです。</p>
+                        <p id="token-state" class="small-note"></p>
                         <div class="form-grid">
+                            <div class="field">
+                                <label for="token-expiry">回答期限</label>
+                                <input id="token-expiry" type="datetime-local">
+                            </div>
+                            <div class="field field--actions">
+                                <button id="issue-token" class="button" type="button">日程確保フォームURLを発行</button>
+                                <button id="revoke-token" class="button button--danger" type="button">現在のURLを無効化</button>
+                            </div>
+                            <div class="field field--full">
+                                <label for="issued-url">発行した専用URL</label>
+                                <input id="issued-url" type="text" readonly>
+                                <p class="small-note">生のトークンはDBへ保存しません。画面を閉じてURLを失った場合は再発行してください。</p>
+                            </div>
+                        </div>
+                        <p id="token-message" class="alert hidden" aria-live="polite"></p>
+                    </div>
+
+                    <div id="email-section" class="action-panel hidden">
+                        <h4>担当者への案内メール</h4>
+                        <p class="small-note">ARA-TECHのGmailから直接送信します。宛先は案件へ登録された担当者メールアドレスで固定されます。</p>
+                        <div class="field">
+                            <label for="email-recipient">宛先</label>
+                            <input id="email-recipient" type="email" readonly>
+                        </div>
+                        <div class="field">
+                            <label for="email-subject">件名</label>
+                            <input id="email-subject" type="text" maxlength="240">
+                        </div>
+                        <div class="field">
+                            <label for="email-body">本文</label>
+                            <textarea id="email-body" class="email-body" maxlength="20000"></textarea>
+                            <p class="small-note">ARA-TECHの正式署名は送信時にサーバー側で自動付与されます。</p>
+                        </div>
+                        <div class="field">
+                            <label for="email-schedule-url">日程確保フォーム専用URL</label>
+                            <input id="email-schedule-url" type="text" readonly>
+                        </div>
+                        <div class="actions actions--compact">
+                            <button id="send-email" class="button" type="button">この内容でGmail送信</button>
+                        </div>
+                        <p id="email-send-state" class="small-note">未送信</p>
+                        <p id="email-message" class="alert hidden" aria-live="polite"></p>
+                    </div>
+
+                    <div class="action-panel">
+                        <h4>送信履歴</h4>
+                        <div id="email-history" class="mail-history"></div>
+                    </div>
+                </section>
+
+                <form id="case-form" novalidate>
+                    <input id="case-id" type="hidden">
+                    <details class="detail-section" open>
+                        <summary>案件情報を編集</summary>
+                        <div class="form-grid detail-section__body">
+                            <div class="field">
+                                <label for="case-received-at">受付日時</label>
+                                <input id="case-received-at" type="datetime-local" required>
+                            </div>
+                            <div class="field">
+                                <label for="case-status">現在の状態</label>
+                                <select id="case-status" required>
+                                    <option value="new">新規受付</option>
+                                    <option value="reviewing">内容確認中</option>
+                                    <option value="second_form_not_issued">日程確保フォーム未発行</option>
+                                    <option value="second_form_issued">日程確保フォーム発行済み</option>
+                                    <option value="customer_responded">お客様回答済み</option>
+                                    <option value="schedule_unconfirmed">日程確保未確定</option>
+                                    <option value="schedule_confirmed">日程確保完了</option>
+                                    <option value="on_hold">保留</option>
+                                    <option value="cancelled">取消</option>
+                                    <option value="closed">対応終了</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="customer-name">お客様名・担当者名</label>
+                                <input id="customer-name" type="text" maxlength="160" required>
+                            </div>
+                            <div class="field">
+                                <label for="organization-name">団体名・会社名</label>
+                                <input id="organization-name" type="text" maxlength="200">
+                            </div>
+                            <div class="field">
+                                <label for="contact-name">連絡担当者名</label>
+                                <input id="contact-name" type="text" maxlength="160">
+                            </div>
+                            <div class="field">
+                                <label for="customer-email">メールアドレス</label>
+                                <input id="customer-email" type="email" maxlength="320" required>
+                            </div>
+                            <div class="field">
+                                <label for="customer-phone">電話番号</label>
+                                <input id="customer-phone" type="tel" maxlength="60">
+                            </div>
+                            <div class="field field--full">
+                                <label for="event-name">イベント名・案件名</label>
+                                <input id="event-name" type="text" maxlength="240">
+                            </div>
+                            <div class="field">
+                                <label for="event-date">開催希望日</label>
+                                <input id="event-date" type="date">
+                            </div>
+                            <div class="field">
+                                <label for="event-time">開催予定時間</label>
+                                <input id="event-time" type="text" maxlength="120" placeholder="例：13:00〜19:00">
+                            </div>
+                            <div class="field field--full">
+                                <label for="venue">会場</label>
+                                <input id="venue" type="text" maxlength="300">
+                            </div>
+                            <div class="field field--full">
+                                <label for="request-summary">PA予約・お問い合わせ内容</label>
+                                <textarea id="request-summary" maxlength="20000"></textarea>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details class="detail-section detail-section--public">
+                        <summary>日程確保フォームへ表示する情報</summary>
+                        <p class="small-note detail-section__note">空欄のイベント名・日付・時間・会場は案件情報を使用します。内部メモは使用されません。</p>
+                        <div class="form-grid detail-section__body">
                             <div class="field">
                                 <label for="public-addressee">宛名</label>
                                 <input id="public-addressee" type="text" maxlength="160">
@@ -247,7 +316,22 @@
                                 <textarea id="public-conditions" maxlength="10000"></textarea>
                             </div>
                         </div>
-                    </section>
+                    </details>
+
+                    <details id="first-form-section" class="detail-section hidden">
+                        <summary>PA予約・お問い合わせフォームの元入力</summary>
+                        <p class="small-note detail-section__note">初回受付時の元データです。通常の確認では上部の案件概要と依頼内容を使用してください。</p>
+                        <dl id="first-form-details" class="detail-list detail-section__body"></dl>
+                    </details>
+
+                    <details class="detail-section detail-section--internal">
+                        <summary>ARA-TECH内部メモ</summary>
+                        <p class="small-note detail-section__note">この欄はお客様側の画面・メールへ使用しません。</p>
+                        <div class="field detail-section__body">
+                            <label for="internal-memo">内部メモ</label>
+                            <textarea id="internal-memo" maxlength="10000"></textarea>
+                        </div>
+                    </details>
 
                     <div class="actions">
                         <button id="save-case" class="button" type="submit">案件を保存</button>
@@ -256,53 +340,10 @@
                     </div>
                 </form>
 
-                <section id="token-section" class="subsection hidden">
-                    <h3>第2フォーム専用URL</h3>
-                    <p id="token-state" class="small-note"></p>
-                    <div class="form-grid">
-                        <div class="field">
-                            <label for="token-expiry">回答期限</label>
-                            <input id="token-expiry" type="datetime-local">
-                        </div>
-                        <div class="field field--actions">
-                            <button id="issue-token" class="button" type="button">第2フォームURLを発行</button>
-                            <button id="revoke-token" class="button button--danger" type="button">現在のURLを無効化</button>
-                        </div>
-                        <div class="field field--full">
-                            <label for="issued-url">発行したURL</label>
-                            <div class="copy-row">
-                                <input id="issued-url" type="text" readonly>
-                                <button id="copy-url" class="button button--secondary button--small" type="button">URLをコピー</button>
-                            </div>
-                            <p class="small-note">生のトークンはDBへ保存しません。画面を閉じてURLを失った場合は再発行してください。</p>
-                        </div>
-                    </div>
-                    <p id="token-message" class="alert hidden" aria-live="polite"></p>
-                </section>
-
-                <section id="email-section" class="subsection hidden">
-                    <h3>返信メール文</h3>
-                    <div class="field">
-                        <label for="email-subject">件名</label>
-                        <input id="email-subject" type="text" readonly>
-                    </div>
-                    <div class="field">
-                        <label for="email-body">本文</label>
-                        <textarea id="email-body" class="email-body" readonly></textarea>
-                    </div>
-                    <div class="actions actions--compact">
-                        <button id="copy-subject" class="button button--secondary" type="button">件名をコピー</button>
-                        <button id="copy-body" class="button button--secondary" type="button">本文をコピー</button>
-                        <button id="copy-email" class="button button--secondary" type="button">件名と本文をコピー</button>
-                        <a id="open-mail-app" class="button" href="#">メールアプリで開く</a>
-                    </div>
-                    <p class="small-note">管理画面から直接送信はしません。内容を確認してから、お使いのメールで送信してください。</p>
-                </section>
-
                 <section id="response-section" class="subsection">
                     <div class="section-head">
                         <div>
-                            <h3>第2フォーム回答</h3>
+                            <h3>日程確保フォームの回答</h3>
                             <p id="response-state" class="small-note">回答はまだありません。</p>
                         </div>
                     </div>
@@ -312,15 +353,20 @@
                 <section id="schedule-section" class="subsection subsection--confirm">
                     <h3>日程確保</h3>
                     <p id="schedule-state" class="schedule-state"></p>
-                    <p class="small-note">第2フォームの回答だけでは確保完了になりません。お客様へ確定連絡を送った後にだけ実行してください。</p>
+                    <p class="small-note">日程確保フォームでの条件確認・同意だけでは、契約・予約・日程確保は完了しません。お客様へ確定連絡を送った後にだけ実行してください。</p>
                     <button id="confirm-schedule" class="button button--confirm" type="button">確定連絡後に「日程確保完了」へ変更</button>
                     <p id="schedule-message" class="alert hidden" aria-live="polite"></p>
                 </section>
 
                 <section id="audit-section" class="subsection">
-                    <h3>操作履歴</h3>
+                    <h3>案件履歴</h3>
                     <ul id="audit-list" class="audit-list"></ul>
                 </section>
+
+                <details class="detail-section detail-section--technical">
+                    <summary>技術情報</summary>
+                    <dl id="technical-details" class="detail-list detail-section__body"></dl>
+                </details>
             </section>
         </section>
     </main>

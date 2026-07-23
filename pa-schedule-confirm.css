@@ -1014,7 +1014,7 @@ textarea:focus {
     }
 
     .page-hero h1 {
-        font-size: clamp(2.2rem, 12vw, 3.1rem);
+        font-size: clamp(2rem, 10vw, 2.7rem);
     }
 
     .heading-line {

@@ -61,6 +61,7 @@
             <h1 id="thanks-title">お問い合わせを受け付けました</h1>
             <p class="lead">ご連絡ありがとうございます。内容を確認のうえ、ARA-TECHよりご連絡いたします。</p>
             <p id="receipt-number" class="note" hidden></p>
+            <p id="pa-receipt-status" class="note" hidden></p>
             <p class="note">お急ぎの場合や内容の追加がある場合は、あらためてお問い合わせフォームからお送りください。</p>
             <a class="btn btn-primary" href="./">トップページへ戻る</a>
         </section>
@@ -77,6 +78,11 @@
                 const receiptElement = document.getElementById('receipt-number');
                 receiptElement.textContent = `問い合わせ番号：${receipt}`;
                 receiptElement.hidden = false;
+                const mailElement = document.getElementById('pa-receipt-status');
+                mailElement.textContent = parameters.get('mail') === 'sent'
+                    ? '入力されたメールアドレスへ受付確認メールを送信しました。これは予約確定通知ではありません。内容確認後、ARA-TECHより改めてご連絡します。'
+                    : 'お問い合わせは正常に登録されました。受付確認メールを送信できていない場合も、内容確認後にARA-TECHより改めてご連絡します。これは予約確定通知ではありません。';
+                mailElement.hidden = false;
             }
             gtag('event', 'generate_lead', { form_name: formName });
             window.history.replaceState({}, document.title, 'thanks.html');

@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { sendAutomaticInquiryEmails } = require("./_pa-mail.cjs");
 
 const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const MAX_BODY_BYTES = 48_000;
@@ -396,11 +397,23 @@ module.exports = async (request, response) => {
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
         const result = await registerInquiry(record);
+        let customerReceiptStatus = "unchanged";
+        let internalNotificationStatus = "unchanged";
+        if (!result.duplicate) {
+            const deliveries = await sendAutomaticInquiryEmails({
+                ...record,
+                ...result
+            }).catch(() => []);
+            customerReceiptStatus = deliveries.find((item) => item.message_type === "customer_receipt")?.status || "failed";
+            internalNotificationStatus = deliveries.find((item) => item.message_type === "internal_new_inquiry")?.status || "failed";
+        }
         return sendJson(response, 200, {
             ok: true,
             inquiry_number: result.inquiry_number,
             received_at: result.received_at,
-            duplicate: result.duplicate
+            duplicate: result.duplicate,
+            customer_receipt_status: customerReceiptStatus,
+            internal_notification_status: internalNotificationStatus
         });
     } catch (error) {
         if (error instanceof ValidationError) {

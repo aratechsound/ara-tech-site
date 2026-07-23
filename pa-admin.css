@@ -81,6 +81,7 @@ td { font-size: .84rem; }
 .subsection--internal { background: #fff9ec; border-color: #ecd7a9; }
 .subsection--public { background: #f2f8ff; border-color: #bddbfa; }
 .subsection--confirm { background: #f2fbf6; border-color: #bfe2cd; }
+.subsection--next { background: #f7fbff; border-color: #a9d0f7; }
 .copy-row { display: grid; gap: 10px; grid-template-columns: 1fr auto; }
 .detail-list { display: grid; gap: 0; grid-template-columns: minmax(160px, .45fr) minmax(0, 1fr); margin: 12px 0 0; }
 .detail-list dt, .detail-list dd { border-bottom: 1px solid var(--line); margin: 0; padding: 10px; }
@@ -90,6 +91,40 @@ td { font-size: .84rem; }
 .audit-list { color: var(--muted); font-size: .8rem; margin: 10px 0 0; padding-left: 20px; }
 .audit-list li + li { margin-top: 6px; }
 
+.case-overview { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 24px; }
+.case-overview > div { background: #f6f9fc; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 5px; min-width: 0; padding: 14px; }
+.case-overview span { color: var(--muted); font-size: .74rem; font-weight: 900; }
+.case-overview strong { overflow-wrap: anywhere; }
+.case-overview__next { background: #eaf4ff !important; border-color: #aed3f7 !important; }
+
+.workflow-list { counter-reset: workflow; display: grid; gap: 8px; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; margin: 18px 0 0; padding: 0; }
+.workflow-list li { background: white; border: 1px solid var(--line); border-radius: 10px; font-size: .78rem; font-weight: 900; min-width: 0; padding: 12px; }
+.workflow-list li::before { align-items: center; background: var(--blue); border-radius: 50%; color: white; content: counter(workflow); counter-increment: workflow; display: inline-flex; font-size: .7rem; height: 22px; justify-content: center; margin-right: 7px; width: 22px; }
+
+.action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }
+.action-panel h4 { margin: 0 0 6px; }
+.mail-status-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }
+.mail-status-card { border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 6px; padding: 14px; }
+.mail-status-card strong { font-size: .86rem; }
+.mail-status-card p { color: var(--muted); font-size: .78rem; margin: 0; overflow-wrap: anywhere; }
+.mail-status-card--failed { background: #fff6f6; border-color: #efb7bd; }
+.mail-status-card--sent { background: #f0fbf5; border-color: #b7dfc7; }
+.mail-history { display: grid; gap: 10px; margin-top: 12px; }
+.mail-history__item { border-left: 4px solid var(--line); padding: 8px 10px; }
+.mail-history__item--sent { border-color: var(--success); }
+.mail-history__item--failed { border-color: var(--danger); }
+.mail-history__item strong, .mail-history__item span { display: block; overflow-wrap: anywhere; }
+.mail-history__item span { color: var(--muted); font-size: .77rem; margin-top: 3px; }
+
+.detail-section { background: white; border: 1px solid var(--line); border-radius: 14px; margin-top: 24px; overflow: hidden; }
+.detail-section summary { cursor: pointer; font-weight: 900; padding: 17px 20px; }
+.detail-section[open] summary { border-bottom: 1px solid var(--line); }
+.detail-section__body { margin: 0; padding: 20px; }
+.detail-section__note { margin: 14px 20px 0; }
+.detail-section--public { background: #f7fbff; border-color: #bddbfa; }
+.detail-section--internal { background: #fffaf0; border-color: #ecd7a9; }
+.detail-section--technical { background: #f6f7f8; }
+
 .alert { border-radius: 10px; font-size: .86rem; margin: 16px 0 0; padding: 11px 13px; }
 .alert--info { background: #eaf4ff; color: #14456e; }
 .alert--error { background: #fff0f1; color: #a12431; }
@@ -97,6 +132,7 @@ td { font-size: .84rem; }
 
 @media (max-width: 900px) {
     .filters { grid-template-columns: 1fr; }
+    .workflow-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {
@@ -109,4 +145,8 @@ td { font-size: .84rem; }
     .copy-row { grid-template-columns: 1fr; }
     .detail-list { grid-template-columns: 1fr; }
     .detail-list dd { padding-top: 0; }
+    .case-overview, .mail-status-grid { grid-template-columns: 1fr; }
+    .action-panel { padding: 14px; }
+    .detail-section__body { padding: 16px; }
+    .detail-section__note { margin-inline: 16px; }
 }

@@ -379,8 +379,9 @@ const submitInquiry = async () => {
         }
 
         clearSubmissionKey();
+        const mailState = responseBody.customer_receipt_status === "sent" ? "sent" : "pending";
         window.location.assign(
-            `thanks.html?sent=1&form=pa-inquiry&receipt=${encodeURIComponent(responseBody.inquiry_number)}`
+            `thanks.html?sent=1&form=pa-inquiry&receipt=${encodeURIComponent(responseBody.inquiry_number)}&mail=${mailState}`
         );
     } catch (error) {
         if (error.status === 400) {

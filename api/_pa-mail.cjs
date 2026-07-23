@@ -1,0 +1,493 @@
+const crypto = require("node:crypto");
+
+const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
+const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
+const SITE_URL = "https://ara-tech.cc/";
+const AUTOMATIC_TYPES = new Set(["internal_new_inquiry", "customer_receipt"]);
+const ALLOWED_TYPES = new Set([...AUTOMATIC_TYPES, "schedule_request"]);
+
+const cleanHeader = (value, maxLength = 320) => {
+    const text = String(value || "").trim();
+    if (!text || text.length > maxLength || /[\r\n]/u.test(text)) throw new Error("invalid_header");
+    return text;
+};
+
+const cleanBody = (value, maxLength = 20_000) => {
+    const text = String(value || "").replace(/\r\n?/gu, "\n").trim();
+    if (!text || text.length > maxLength || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/u.test(text)) {
+        throw new Error("invalid_body");
+    }
+    return text;
+};
+
+const isUuid = (value) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(String(value || ""));
+
+const formatDate = (value) => {
+    if (!value) return "未設定";
+    const date = new Date(`${String(value).slice(0, 10)}T00:00:00+09:00`);
+    if (Number.isNaN(date.getTime())) return "未設定";
+    return new Intl.DateTimeFormat("ja-JP", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "Asia/Tokyo"
+    }).format(date);
+};
+
+const formatDateTime = (value) => {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return "未設定";
+    return new Intl.DateTimeFormat("ja-JP", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Tokyo"
+    }).format(date);
+};
+
+const mailConfig = () => {
+    const config = {
+        clientId: String(process.env.GMAIL_CLIENT_ID || "").trim(),
+        clientSecret: String(process.env.GMAIL_CLIENT_SECRET || "").trim(),
+        refreshToken: String(process.env.GMAIL_REFRESH_TOKEN || "").trim(),
+        senderAddress: String(process.env.GMAIL_SENDER_ADDRESS || "").trim(),
+        senderName: String(process.env.GMAIL_SENDER_NAME || "ARA-TECH").trim(),
+        notificationAddress: String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim(),
+        replyTo: String(process.env.GMAIL_REPLY_TO || "").trim(),
+        signature: String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`).replace(/\r\n?/gu, "\n").trim()
+    };
+    if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.senderAddress || !config.replyTo) {
+        throw new Error("gmail_not_configured");
+    }
+    cleanHeader(config.senderAddress);
+    cleanHeader(config.senderName, 120);
+    cleanHeader(config.replyTo);
+    cleanBody(config.signature, 2_000);
+    return config;
+};
+
+const supabaseConfig = () => {
+    const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (!serviceRoleKey) throw new Error("supabase_not_configured");
+    return {
+        url: String(process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL).replace(/\/+$/u, ""),
+        serviceRoleKey
+    };
+};
+
+const supabaseHeaders = (serviceRoleKey, prefer) => ({
+    apikey: serviceRoleKey,
+    authorization: `Bearer ${serviceRoleKey}`,
+    "content-type": "application/json",
+    accept: "application/json",
+    ...(prefer ? { prefer } : {})
+});
+
+const supabaseRequest = async (path, options = {}, fetchImpl = fetch) => {
+    const { url, serviceRoleKey } = supabaseConfig();
+    const response = await fetchImpl(`${url}${path}`, {
+        ...options,
+        headers: {
+            ...supabaseHeaders(serviceRoleKey, options.prefer),
+            ...(options.headers || {})
+        }
+    });
+    if (!response.ok) {
+        const error = new Error(`supabase_${response.status}`);
+        error.status = response.status;
+        throw error;
+    }
+    if (response.status === 204) return null;
+    return response.json();
+};
+
+const getInquiry = async (inquiryId, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId)) throw new Error("invalid_inquiry");
+    const parameters = new URLSearchParams({
+        id: `eq.${inquiryId}`,
+        select: "*",
+        limit: "1"
+    });
+    const rows = await supabaseRequest(`/rest/v1/pa_inquiries?${parameters}`, {}, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("inquiry_not_found");
+    return rows[0];
+};
+
+const verifyAdmin = async (accessToken, fetchImpl = fetch) => {
+    const token = String(accessToken || "").trim();
+    if (!token || token.length > 4_096) throw new Error("not_authorized");
+    const { url, serviceRoleKey } = supabaseConfig();
+    const userResponse = await fetchImpl(`${url}/auth/v1/user`, {
+        headers: {
+            apikey: serviceRoleKey,
+            authorization: `Bearer ${token}`,
+            accept: "application/json"
+        }
+    });
+    if (!userResponse.ok) throw new Error("not_authorized");
+    const user = await userResponse.json();
+    if (!isUuid(user?.id)) throw new Error("not_authorized");
+
+    const parameters = new URLSearchParams({
+        user_id: `eq.${user.id}`,
+        select: "user_id",
+        limit: "1"
+    });
+    const rows = await supabaseRequest(`/rest/v1/work_admins?${parameters}`, {}, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("not_authorized");
+    return user;
+};
+
+const encodeWord = (value) => `=?UTF-8?B?${Buffer.from(cleanHeader(value, 240), "utf8").toString("base64")}?=`;
+
+const buildRawMessage = ({ to, subject, body, config = mailConfig() }) => {
+    const recipient = cleanHeader(to);
+    const safeSubject = cleanHeader(subject, 240);
+    const safeBody = cleanBody(body);
+    const lines = [
+        `From: ${encodeWord(config.senderName)} <${cleanHeader(config.senderAddress)}>`,
+        `To: ${recipient}`,
+        `Reply-To: ${cleanHeader(config.replyTo)}`,
+        `Subject: ${encodeWord(safeSubject)}`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        safeBody
+    ];
+    return Buffer.from(lines.join("\r\n"), "utf8")
+        .toString("base64")
+        .replace(/\+/gu, "-")
+        .replace(/\//gu, "_")
+        .replace(/=+$/gu, "");
+};
+
+const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => {
+    const response = await fetchImpl("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            client_id: config.clientId,
+            client_secret: config.clientSecret,
+            refresh_token: config.refreshToken,
+            grant_type: "refresh_token"
+        }).toString()
+    });
+    if (!response.ok) throw new Error(`gmail_oauth_${response.status}`);
+    const payload = await response.json();
+    if (!payload?.access_token) throw new Error("gmail_oauth_invalid");
+    return payload.access_token;
+};
+
+const sendGmail = async ({ to, subject, body }, fetchImpl = fetch) => {
+    const config = mailConfig();
+    const accessToken = await getGmailAccessToken(config, fetchImpl);
+    const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+            accept: "application/json"
+        },
+        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, config }) })
+    });
+    if (!response.ok) throw new Error(`gmail_send_${response.status}`);
+    const payload = await response.json();
+    if (!payload?.id) throw new Error("gmail_send_invalid");
+    return { id: String(payload.id), threadId: payload.threadId ? String(payload.threadId) : null };
+};
+
+const insertDelivery = async (delivery, fetchImpl = fetch) => {
+    if (!ALLOWED_TYPES.has(delivery.message_type)) throw new Error("invalid_message_type");
+    const parameters = new URLSearchParams({
+        on_conflict: "dedupe_key,attempt_number",
+        select: "*"
+    });
+    const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
+        method: "POST",
+        prefer: "return=representation,resolution=ignore-duplicates",
+        body: JSON.stringify(delivery)
+    }, fetchImpl);
+    if (Array.isArray(rows) && rows[0]) return { row: rows[0], created: true };
+
+    const lookup = new URLSearchParams({
+        dedupe_key: `eq.${delivery.dedupe_key}`,
+        attempt_number: `eq.${delivery.attempt_number}`,
+        select: "*",
+        limit: "1"
+    });
+    const existing = await supabaseRequest(`/rest/v1/pa_email_deliveries?${lookup}`, {}, fetchImpl);
+    if (!Array.isArray(existing) || !existing[0]) throw new Error("delivery_not_found");
+    return { row: existing[0], created: false };
+};
+
+const updateDelivery = async (deliveryId, patch, fetchImpl = fetch) => {
+    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, select: "*" });
+    const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
+        method: "PATCH",
+        prefer: "return=representation",
+        body: JSON.stringify(patch)
+    }, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("delivery_update_failed");
+    return rows[0];
+};
+
+const safeErrorCode = (error) => {
+    const message = String(error?.message || "");
+    if (/^(gmail_not_configured|gmail_oauth_(?:\d{3}|invalid)|gmail_send_(?:\d{3}|invalid))$/u.test(message)) {
+        return message;
+    }
+    if (/^supabase_\d{3}$/u.test(message)) return message;
+    return "mail_delivery_failed";
+};
+
+const deliver = async (row, fetchImpl = fetch) => {
+    try {
+        const gmail = await sendGmail({
+            to: row.recipient,
+            subject: row.subject,
+            body: row.body
+        }, fetchImpl);
+        return updateDelivery(row.id, {
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            failed_at: null,
+            gmail_message_id: gmail.id,
+            gmail_thread_id: gmail.threadId,
+            error_summary: null
+        }, fetchImpl);
+    } catch (error) {
+        const code = safeErrorCode(error);
+        try {
+            return await updateDelivery(row.id, {
+                status: "failed",
+                failed_at: new Date().toISOString(),
+                gmail_message_id: null,
+                gmail_thread_id: null,
+                error_summary: code
+            }, fetchImpl);
+        } catch {
+            const wrapped = new Error(code);
+            wrapped.deliveryId = row.id;
+            throw wrapped;
+        }
+    }
+};
+
+const createAndDeliver = async (delivery, fetchImpl = fetch) => {
+    const result = await insertDelivery({
+        ...delivery,
+        recipient: cleanHeader(delivery.recipient),
+        subject: cleanHeader(delivery.subject, 240),
+        body: cleanBody(delivery.body),
+        status: "sending",
+        requested_at: new Date().toISOString()
+    }, fetchImpl);
+    if (!result.created) return result.row;
+    return deliver(result.row, fetchImpl);
+};
+
+const customerReceiptTemplate = (inquiry, signature) => ({
+    subject: `【ARA-TECH】PA予約のお問い合わせを受け付けました／受付番号${inquiry.inquiry_number}`,
+    body: [
+        `${inquiry.contact_name || inquiry.customer_name}様`,
+        "",
+        "このたびはARA-TECHへお問い合わせいただき、ありがとうございます。",
+        "以下の内容でお問い合わせを受け付けました。",
+        "",
+        `受付番号：${inquiry.inquiry_number}`,
+        `開催希望日：${formatDate(inquiry.event_date)}`,
+        `会場・開催場所：${inquiry.venue || "未設定"}`,
+        "",
+        "内容を確認後、ARA-TECHより改めてご連絡いたします。",
+        "",
+        "このメールはお問い合わせの受付をお知らせするものであり、",
+        "予約の確定や開催日の確保を保証するものではありません。",
+        "",
+        "お問い合わせ内容に心当たりがない場合や、内容の訂正がある場合は、",
+        "このメールへご返信ください。",
+        "",
+        signature
+    ].join("\n")
+});
+
+const internalNotificationTemplate = (inquiry, signature) => ({
+    subject: `【PA予約受付】新規問い合わせ／受付番号${inquiry.inquiry_number}`,
+    body: [
+        "PA予約・お問い合わせフォーム（初回受付）に新しい問い合わせが登録されました。",
+        "",
+        `受付番号：${inquiry.inquiry_number}`,
+        `受付日時：${formatDateTime(inquiry.received_at)}`,
+        `イベント担当者名：${inquiry.contact_name || inquiry.customer_name}`,
+        `連絡先メールアドレス：${inquiry.email}`,
+        `開催希望日：${formatDate(inquiry.event_date)}`,
+        `会場・開催場所：${inquiry.venue || "未設定"}`,
+        `問い合わせ概要：${String(inquiry.request_summary || "未入力").slice(0, 1_200)}`,
+        "",
+        "PA予約受付管理ページ",
+        ADMIN_URL,
+        "",
+        signature
+    ].join("\n")
+});
+
+const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
+    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
+        .replace(/\r\n?/gu, "\n")
+        .trim();
+    const notificationAddress = String(process.env.GMAIL_NOTIFICATION_ADDRESS || "").trim();
+    const customer = customerReceiptTemplate(inquiry, signature);
+    const internal = internalNotificationTemplate(inquiry, signature);
+    const deliveries = [
+        {
+            inquiry_id: inquiry.id,
+            message_type: "customer_receipt",
+            dedupe_key: `auto:${inquiry.id}:customer_receipt`,
+            attempt_number: 1,
+            is_retry: false,
+            recipient: inquiry.email,
+            ...customer
+        },
+        {
+            inquiry_id: inquiry.id,
+            message_type: "internal_new_inquiry",
+            dedupe_key: `auto:${inquiry.id}:internal_new_inquiry`,
+            attempt_number: 1,
+            is_retry: false,
+            recipient: notificationAddress,
+            ...internal
+        }
+    ];
+    return Promise.all(deliveries.map(async (delivery) => {
+        if (!delivery.recipient) {
+            return {
+                message_type: delivery.message_type,
+                status: "failed",
+                error_summary: "gmail_not_configured"
+            };
+        }
+        try {
+            return await createAndDeliver(delivery, fetchImpl);
+        } catch (error) {
+            return {
+                message_type: delivery.message_type,
+                status: "failed",
+                error_summary: safeErrorCode(error)
+            };
+        }
+    }));
+};
+
+const createScheduleDelivery = async ({
+    inquiry,
+    subject,
+    body,
+    scheduleUrl,
+    operationKey,
+    actorUserId
+}, fetchImpl = fetch) => {
+    if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+    const safeUrl = String(scheduleUrl || "").trim();
+    if (!/^https:\/\/ara-tech\.cc\/pa-schedule-confirm\.html\?token=[A-Za-z0-9_-]{43,128}$/u.test(safeUrl)) {
+        throw new Error("invalid_schedule_url");
+    }
+    const safeSubject = cleanHeader(subject, 240);
+    const signature = String(process.env.GMAIL_SIGNATURE_TEXT || `ARA-TECH\n${SITE_URL}`)
+        .replace(/\r\n?/gu, "\n")
+        .trim();
+    const safeBodyInput = cleanBody(body);
+    const safeBody = cleanBody(
+        safeBodyInput.endsWith(signature)
+            ? safeBodyInput
+            : `${safeBodyInput}\n\n${cleanBody(signature, 2_000)}`
+    );
+    if (!safeSubject.includes(inquiry.inquiry_number) || !safeBody.includes(safeUrl)) {
+        throw new Error("invalid_schedule_message");
+    }
+    return createAndDeliver({
+        inquiry_id: inquiry.id,
+        message_type: "schedule_request",
+        dedupe_key: `schedule:${inquiry.id}:${operationKey.toLowerCase()}`,
+        attempt_number: 1,
+        is_retry: false,
+        recipient: inquiry.email,
+        subject: safeSubject,
+        body: safeBody,
+        created_by: actorUserId
+    }, fetchImpl);
+};
+
+const getDelivery = async (deliveryId, fetchImpl = fetch) => {
+    if (!isUuid(deliveryId)) throw new Error("invalid_delivery");
+    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, select: "*", limit: "1" });
+    const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("delivery_not_found");
+    return rows[0];
+};
+
+const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = fetch) => {
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    const previous = await getDelivery(deliveryId, fetchImpl);
+    if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
+
+    const successLookup = new URLSearchParams({
+        dedupe_key: `eq.${previous.dedupe_key}`,
+        status: "eq.sent",
+        select: "id",
+        limit: "1"
+    });
+    const successes = await supabaseRequest(`/rest/v1/pa_email_deliveries?${successLookup}`, {}, fetchImpl);
+    if (Array.isArray(successes) && successes[0]) throw new Error("retry_not_allowed");
+
+    const parameters = new URLSearchParams({
+        dedupe_key: `eq.${previous.dedupe_key}`,
+        select: "attempt_number",
+        order: "attempt_number.desc",
+        limit: "1"
+    });
+    const attempts = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
+    const attemptNumber = Number(attempts?.[0]?.attempt_number || 0) + 1;
+    return createAndDeliver({
+        inquiry_id: inquiry.id,
+        message_type: previous.message_type,
+        dedupe_key: previous.dedupe_key,
+        attempt_number: attemptNumber,
+        is_retry: true,
+        retry_of: previous.id,
+        recipient: previous.recipient,
+        subject: previous.subject,
+        body: previous.body,
+        created_by: actorUserId
+    }, fetchImpl);
+};
+
+module.exports = {
+    ADMIN_URL,
+    AUTOMATIC_TYPES,
+    buildRawMessage,
+    cleanBody,
+    cleanHeader,
+    createAndDeliver,
+    createScheduleDelivery,
+    customerReceiptTemplate,
+    deliver,
+    formatDate,
+    formatDateTime,
+    getDelivery,
+    getGmailAccessToken,
+    getInquiry,
+    insertDelivery,
+    internalNotificationTemplate,
+    isUuid,
+    mailConfig,
+    retryDelivery,
+    safeErrorCode,
+    sendAutomaticInquiryEmails,
+    sendGmail,
+    supabaseRequest,
+    updateDelivery,
+    verifyAdmin
+};
