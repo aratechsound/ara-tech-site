@@ -16,8 +16,8 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .navbar-collapse { display: flex; flex-basis: auto; flex-grow: 1; }
 .navbar-nav { align-items: center; display: flex; margin-left: auto; text-align: center; }
 .nav-link { color: white; display: block; font-size: .88rem; font-weight: 700; margin-left: 14px; padding: 8px 0; text-decoration: none; }
-.nav-link:hover { opacity: .8; }
-.nav-link[aria-current='page'] { text-decoration: underline; text-underline-offset: 4px; }
+.nav-link:hover { opacity: 1; }
+.nav-link[aria-current='page'] { text-decoration: none; }
 .detail-shell { margin: 0 auto; max-width: 1180px; min-height: 60vh; padding: clamp(32px, 6vw, 68px) 24px 84px; }
 .breadcrumb-nav { color: #567089; font-size: .82rem; margin-bottom: 20px; }
 .breadcrumb-nav ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }

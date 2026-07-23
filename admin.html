@@ -21,7 +21,6 @@
         .brand { align-items: center; display: flex; gap: 16px; text-decoration: none; color: white; }
         .brand img { height: 36px; width: auto; }
         .brand span { border-left: 1px solid rgba(255,255,255,.45); font-size: .8rem; font-weight: 900; letter-spacing: .12em; padding-left: 16px; }
-        .back-link { color: white; font-size: .88rem; font-weight: 700; }
         main { margin: 0 auto; max-width: 1180px; padding: 48px 24px 80px; }
         .eyebrow { color: var(--blue); font-size: .78rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 4px; }
         h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.2; margin: 0 0 10px; }
@@ -74,14 +73,15 @@
         .post-actions .button { font-size: .8rem; padding: 8px 10px; }
         @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } }
     </style>
+    <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-004">
 </head>
 <body>
     <header class="admin-header">
         <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>WORKS ADMIN</span></a>
-        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-            <a class="back-link" href="pa-admin.html">PA予約管理</a>
-            <a class="back-link" href="works.html">公開ページを見る</a>
-        </div>
+        <nav class="admin-nav" aria-label="管理画面">
+            <a class="admin-nav__link--works" href="admin.html" aria-current="page">WORKS管理</a>
+            <a class="admin-nav__link--pa" href="pa-admin.html">PA案件管理</a>
+        </nav>
     </header>
 
     <main>

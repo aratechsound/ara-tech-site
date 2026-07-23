@@ -239,6 +239,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     <link rel="preconnect" href="https://kogbnremsouajxxsgxro.supabase.co" crossorigin>
     <link rel="preload" as="image" href="${escapeHtml(displayImageUrl)}" imagesrcset="${escapeHtml(displayImageSrcset)}" imagesizes="${escapeHtml(displayImageSizes)}" fetchpriority="high">
     <link rel="stylesheet" href="/work-detail.css">
+    <link rel="stylesheet" href="/site-navigation.css?v=ara-20260724-005">
     <script type="application/ld+json">${safeJson(structuredData)}</script>
 </head>
 <body>

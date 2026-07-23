@@ -1,0 +1,100 @@
+.navbar .navbar-nav {
+    align-items: center;
+    gap: 6px;
+}
+
+.navbar .nav-link,
+.navbar .site-nav a {
+    align-items: center;
+    background: #005bb9;
+    border: 1px solid rgba(255, 255, 255, .72);
+    border-radius: 999px;
+    color: white !important;
+    display: inline-flex;
+    font-size: .78rem;
+    font-weight: 700;
+    justify-content: center;
+    line-height: 1.2;
+    margin-left: 0 !important;
+    min-height: 32px;
+    opacity: 1 !important;
+    padding: 6px 9px !important;
+    text-align: center;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+
+.navbar .nav-link:hover,
+.navbar .site-nav a:hover {
+    background: #004f9f;
+    border-color: #b8ddff;
+    color: white !important;
+    opacity: 1 !important;
+    text-decoration: none !important;
+}
+
+.navbar .nav-link:active,
+.navbar .site-nav a:active {
+    background: #004685;
+    border-color: white;
+    color: white !important;
+}
+
+.navbar .nav-link[aria-current="page"],
+.navbar .site-nav a[aria-current="page"] {
+    background: white;
+    border-color: white;
+    color: #005bb9 !important;
+    opacity: 1 !important;
+    text-decoration: none !important;
+}
+
+.navbar .nav-link[aria-current="page"]:hover,
+.navbar .site-nav a[aria-current="page"]:hover {
+    background: #eef6ff;
+    border-color: #eef6ff;
+    color: #004f9f !important;
+}
+
+.navbar .nav-link[aria-current="page"]:active,
+.navbar .site-nav a[aria-current="page"]:active {
+    background: #dcecff;
+    border-color: #dcecff;
+    color: #004685 !important;
+}
+
+.navbar .nav-link:focus-visible,
+.navbar .site-nav a:focus-visible {
+    outline: 3px solid #ffd166;
+    outline-offset: 2px;
+    text-decoration: none !important;
+}
+
+@media (max-width: 991px) {
+    .navbar .navbar-nav {
+        gap: 6px;
+        padding: 10px 0;
+    }
+
+    .navbar .nav-link,
+    .navbar .site-nav a {
+        justify-self: center;
+        margin: 0 !important;
+        width: min(100%, 220px);
+    }
+}
+
+.public-page-heading {
+    font-size: clamp(1.8rem, 5.2vw, 3.4rem) !important;
+    font-weight: 900 !important;
+    letter-spacing: .03em !important;
+    line-height: 1.3 !important;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center !important;
+    text-wrap: balance;
+}
+
+.public-page-heading .phrase-lock {
+    white-space: normal;
+}
