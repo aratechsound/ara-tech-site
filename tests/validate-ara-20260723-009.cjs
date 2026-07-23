@@ -22,11 +22,13 @@ for (const term of [
     '店舗・施設の照明設備', 'ステージ照明', '演出照明', '調光・照明制御',
     'LEDスクリーン（LEDビジョン）', 'プロジェクター', '投影スクリーン', 'モニター', '映像信号・配線',
     '総合設備設計', '新規開店・新規導入', '改装・設備追加', '古い設備の更新', '既存設備の改善',
-    '約30年の現場経験', '代表者本人', '一人運営の技術会社'
+    '約30年の現場経験', '代表者本人'
 ]) {
     assert.ok(installation.includes(term), `installation.html is missing required text: ${term}`);
 }
 
+assert.match(installation, /<p>約30年の現場経験を持つ代表者本人が直接状況を確認し、機材を設置するだけでなく、実際の営業や運用で使いやすい構成をご提案します。<\/p>/);
+assert.doesNotMatch(installation, /一人運営|ひとり運営|一人で運営|少人数の(?:会社|組織|チーム)/);
 assert.match(installation, /href="contact\.html#general-inquiry"/);
 assert.match(installation, /<nav aria-label="パンくず">/);
 assert.doesNotMatch(installation, /業界No\.1|最安|必ず改善|プロ集団|現場を知り尽くしたスタッフ/);
