@@ -37,6 +37,42 @@ const statusBadgeClasses = {
     closed: "closed"
 };
 
+const completedStatuses = new Set([
+    "schedule_unavailable",
+    "declined",
+    "cancelled",
+    "closed"
+]);
+
+const isCompletedStatus = (status) => completedStatuses.has(status);
+
+const inquirySequenceNumber = (inquiryNumber) => {
+    const match = String(inquiryNumber || "").match(/(\d+)$/);
+    return match ? Number.parseInt(match[1], 10) : -1;
+};
+
+const receivedTimestamp = (value) => {
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const compareCasesForList = (a, b) => {
+    const completionDifference = Number(isCompletedStatus(a.status)) - Number(isCompletedStatus(b.status));
+    if (completionDifference !== 0) return completionDifference;
+
+    const receivedDifference = receivedTimestamp(b.received_at) - receivedTimestamp(a.received_at);
+    if (receivedDifference !== 0) return receivedDifference;
+
+    const sequenceDifference = inquirySequenceNumber(b.inquiry_number) - inquirySequenceNumber(a.inquiry_number);
+    if (sequenceDifference !== 0) return sequenceDifference;
+
+    return String(b.inquiry_number || "").localeCompare(
+        String(a.inquiry_number || ""),
+        "ja",
+        { numeric: true }
+    );
+};
+
 const relationshipLabels = {
     organizer: "主催者本人",
     "organization-representative": "主催団体の代表者",
@@ -343,7 +379,6 @@ const textBlock = (mainText, subText) => {
 const filteredCases = () => {
     const query = $("#case-search").value.trim().toLocaleLowerCase("ja");
     const status = $("#case-status-filter").value;
-    const sort = $("#case-sort").value;
     const result = cases.filter((item) => {
         if (status && item.status !== status) return false;
         if (!query) return true;
@@ -356,16 +391,7 @@ const filteredCases = () => {
         ].filter(Boolean).join(" ").toLocaleLowerCase("ja").includes(query);
     });
 
-    result.sort((a, b) => {
-        if (sort.startsWith("event")) {
-            const aDate = a.event_date || (sort === "event-asc" ? "9999-12-31" : "0000-01-01");
-            const bDate = b.event_date || (sort === "event-asc" ? "9999-12-31" : "0000-01-01");
-            return sort === "event-asc" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
-        }
-        const aTime = new Date(a.received_at).getTime();
-        const bTime = new Date(b.received_at).getTime();
-        return sort === "received-asc" ? aTime - bTime : bTime - aTime;
-    });
+    result.sort(compareCasesForList);
 
     return result;
 };
@@ -377,14 +403,28 @@ const renderCases = () => {
 
     visibleCases.forEach((item) => {
         const row = document.createElement("tr");
+        const isCompleted = isCompletedStatus(item.status);
+        row.classList.toggle("case-row--completed", isCompleted);
+        row.dataset.completionState = isCompleted ? "completed" : "active";
 
         const numberCell = document.createElement("td");
+        const caseReference = document.createElement("div");
+        caseReference.className = "case-reference";
         const openButton = document.createElement("button");
         openButton.className = "case-link";
         openButton.type = "button";
         openButton.textContent = item.inquiry_number;
         openButton.addEventListener("click", () => openCase(item.id));
-        numberCell.append(openButton);
+        caseReference.append(openButton);
+        if (isCompleted) {
+            const completedStamp = document.createElement("span");
+            completedStamp.className = "completed-stamp";
+            completedStamp.textContent = "済";
+            completedStamp.setAttribute("aria-label", "問い合わせ管理工程の対応済み");
+            completedStamp.title = "問い合わせ管理工程の対応済み";
+            caseReference.append(completedStamp);
+        }
+        numberCell.append(caseReference);
 
         const receivedCell = document.createElement("td");
         receivedCell.textContent = formatDateTime(item.received_at);

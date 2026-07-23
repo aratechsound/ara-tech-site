@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css">
+    <link rel="stylesheet" href="pa-admin.css?v=ara-20260724-002">
 </head>
 <body>
     <header class="admin-header">
@@ -97,10 +97,7 @@
                     <div class="field">
                         <label for="case-sort">並び順</label>
                         <select id="case-sort">
-                            <option value="received-desc">受付日の新しい順</option>
-                            <option value="received-asc">受付日の古い順</option>
-                            <option value="event-asc">開催日の早い順</option>
-                            <option value="event-desc">開催日の遅い順</option>
+                            <option value="case-progress">継続案件を優先・受付日時の新しい順</option>
                         </select>
                     </div>
                 </div>
@@ -417,6 +414,6 @@
         </section>
     </main>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260724-001"></script>
+    <script type="module" src="js/pa-admin.js?v=ara-20260724-002"></script>
 </body>
 </html>
