@@ -51,7 +51,6 @@ const publicHtml = [
     'contact.html',
     'pa-inquiry.html',
     'pa-rental.html',
-    'pa-rental - コピー.html',
     'stage-production.html',
     'tour-pa.html',
     'installation.html',
