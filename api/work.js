@@ -125,7 +125,7 @@ const renderErrorPage = (status, heading, message) => `<!doctype html>
 
 const serviceFor = (post, roleTypes) => {
     if (post.category === 'STAGE PRODUCTION') return { href: '/stage-production.html', title: 'ステージ制作', text: 'ステージ制作サービスをご案内します。' };
-    if (post.category === 'INSTALLATION') return { href: '/installation.html', title: '音響・映像設備工事', text: '音響・映像設備工事サービスをご案内します。' };
+    if (post.category === 'INSTALLATION') return { href: '/installation.html', title: '音響・照明・映像設備施工', text: '店舗・施設の音響・照明・映像設備施工サービスをご案内します。' };
     if (roleTypes.includes('artist_pa_operation') || post.category === 'TOUR PA') return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAとライブオペレートに関連するサービスをご案内します。' };
     return { href: '/pa-rental.html', title: 'PAレンタル・イベント音響', text: '現場技術サポートとPAサービスをご案内します。' };
 };
