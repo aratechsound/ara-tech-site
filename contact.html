@@ -43,7 +43,7 @@
         .wave-container svg { display: block; width: 100%; height: 60px; }
         .wave-fill { fill: #f8f9fa; }
 
-        /* フォームセクション */
+        /* 問い合わせ窓口の選択 */
         .contact-wrapper { padding: 0 12px 80px; position: relative; z-index: 10; margin-top: -20px; }
         .contact-card {
             background: white;
@@ -51,7 +51,7 @@
             box-shadow: 0 15px 35px rgba(0,0,0,0.1);
             padding: clamp(25px, 5%, 50px);
         }
-        .contact-routing { margin-bottom: 48px; }
+        .contact-routing { margin-bottom: 0; }
         .contact-routing h2 { border-left: 5px solid var(--primary-blue); padding-left: 15px; }
         .route-grid { display: grid; gap: 22px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .route-card { border: 1px solid #dce6ef; border-radius: 14px; display: flex; flex-direction: column; padding: 26px; }
@@ -62,57 +62,13 @@
         .route-button-secondary { background: white; color: #005eb8; }
         .route-button-secondary:hover { background: #eef6ff; color: #00498f; }
         .phrase-lock { display: inline-block; }
-        .route-button:focus-visible, .btn-submit:focus-visible, .btn-back:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
+        .route-button:focus-visible, .btn-back:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
         #general-inquiry { scroll-margin-top: 90px; }
-        .form-label { font-weight: 700; color: #444; margin-bottom: 8px; font-size: 0.95rem; }
-        .form-control, .form-select {
-            border: 1px solid #e0e0e0;
-            padding: 12px 15px;
-            border-radius: 8px;
-            transition: 0.3s;
-            background-color: #fff;
-        }
-        .required-badge {
-            background: #e63946;
-            color: white;
-            font-size: 0.7rem;
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-left: 8px;
-        }
-
-        /* 送信ボタン */
-        .btn-submit {
-            background: var(--primary-blue);
-            color: white;
-            padding: 18px 50px;
-            font-weight: 900;
-            border-radius: 50px;
-            border: none;
-            transition: 0.3s;
-            box-shadow: 0 10px 20px rgba(0, 123, 255, 0.3);
-            cursor: pointer;
-            width: 100%;
-            max-width: 400px;
-        }
-        .btn-submit:hover {
-            transform: translateY(-3px);
-            background: #0056b3;
-        }
-        .btn-submit:disabled { cursor: wait; opacity: .72; transform: none; }
-        .form-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; display: none; font-size: .9rem; font-weight: 700; margin-bottom: 20px; padding: 12px 14px; }
-        .form-error[data-fs-active] { display: block; }
-        [data-fs-field][aria-invalid="true"] { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .12); }
-
-        .info-box { background: #eef6ff; border-radius: 15px; padding: 30px; height: 100%; }
-        .info-item { display: flex; align-items: flex-start; margin-bottom: 25px; }
-        .info-item i { color: var(--primary-blue); font-size: 1.4rem; margin-right: 15px; margin-top: 4px; }
 
         .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; transition: 0.3s; display: inline-block; }
 
         @media (max-width: 991px) {
             .page-header { background-attachment: scroll; padding: 80px 0 60px 0; }
-            .info-box { margin-top: 40px; }
             .contact-wrapper { margin-top: 0; }
         }
         @media (max-width: 767px) {
@@ -181,7 +137,7 @@
                                 </ul>
                                 <a class="route-button" href="pa-inquiry.html?source=contact">イベント依頼・空き状況確認フォームへ</a>
                             </article>
-                            <article class="route-card">
+                            <article class="route-card" id="general-inquiry">
                                 <h3>その他のお問い合わせ</h3>
                                 <ul>
                                     <li>ツアーPA</li>
@@ -189,79 +145,10 @@
                                     <li>技術講習、営業・取材</li>
                                     <li>既存案件についてのご連絡、その他</li>
                                 </ul>
-                                <a class="route-button route-button-secondary" href="#general-inquiry">一般お問い合わせフォームへ</a>
+                                <a class="route-button route-button-secondary" href="general-inquiry.html">一般お問い合わせフォームへ</a>
                             </article>
                         </div>
                     </section>
-
-                    <div class="row" id="general-inquiry">
-                        <div class="col-lg-7 px-md-4">
-                            <h2 class="fw-bold mb-4" style="border-left: 5px solid var(--primary-blue); padding-left: 15px;">一般お問い合わせフォーム</h2>
-                            
-                            <div class="form-error" data-fs-error role="alert"></div>
-                            <form id="contact-form" action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
-                                <div class="mb-4">
-                                    <label for="inquiry-type" class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
-                                    <select id="inquiry-type" name="種類" class="form-select" data-fs-field required>
-                                        <option value="" selected disabled>選択してください</option>
-                                        <option value="ツアーPA">ツアー・ライブPA派遣</option>
-                                        <option value="設備導入">店舗設備（音響・照明・映像）導入・保守</option>
-                                        <option value="保守・修理">保守・修理</option>
-                                        <option value="技術講習">技術講習・機材導入相談</option>
-                                        <option value="営業・取材">営業・取材</option>
-                                        <option value="既存案件">既存案件についての連絡</option>
-                                        <option value="その他">その他</option>
-                                    </select>
-                                </div>
-                                <div class="mb-4">
-                                    <label for="name" class="form-label">お名前 / 貴社名<span class="required-badge">必須</span></label>
-                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" data-fs-field required>
-                                </div>
-                                <div class="mb-4">
-                                    <label for="email" class="form-label">メールアドレス<span class="required-badge">必須</span></label>
-                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" data-fs-field required>
-                                </div>
-                                <div class="mb-4">
-                                    <label for="tel" class="form-label">電話番号</label>
-                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678" data-fs-field>
-                                </div>
-                                <div class="mb-4">
-                                    <label for="message" class="form-label">ご相談内容<span class="required-badge">必須</span></label>
-                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="開催日時、場所、予定人数、ご予算など、わかる範囲でご記入ください。" data-fs-field required></textarea>
-                                </div>
-                                <div class="text-center mt-5">
-                                    <button type="submit" class="btn-submit shadow" data-fs-submit-btn>内容を送信する</button>
-                                </div>
-                            </form>
-                        </div>
-
-                        <div class="col-lg-5 px-md-4">
-                            <div class="info-box">
-                                <h2 class="fw-bold mb-4">ご案内</h2>
-                                <div class="info-item">
-                                    <i class="fas fa-clock"></i>
-                                    <div>
-                                        <p class="fw-bold">営業時間</p>
-                                        <p class="small text-muted">10:00 - 19:00 (不定休)</p>
-                                    </div>
-                                </div>
-                                <div class="info-item">
-                                    <i class="fas fa-envelope-open-text"></i>
-                                    <div>
-                                        <p class="fw-bold">返信について</p>
-                                        <p class="small text-muted">通常1〜2営業日以内にご連絡いたします。</p>
-                                    </div>
-                                </div>
-                                <div class="info-item">
-                                    <i class="fas fa-map-marker-alt"></i>
-                                    <div>
-                                        <p class="fw-bold">対応エリア</p>
-                                        <p class="small text-muted">広島県内を中心に、全国各地へ対応可能です。</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -278,18 +165,5 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        window.formspree = window.formspree || function () {
-            (window.formspree.q = window.formspree.q || []).push(arguments);
-        };
-        window.formspree('initForm', {
-            formElement: '#contact-form',
-            formId: 'mojqjwnr',
-            onSuccess: function () {
-                window.location.assign('thanks.html?sent=1');
-            }
-        });
-    </script>
-    <script src="https://unpkg.com/@formspree/ajax@1" defer></script>
 </body>
 </html>

@@ -32,7 +32,7 @@ assert.doesNotMatch(installation, /一人運営|ひとり運営|一人で運営|
 assert.match(installation, /<i class="fas fa-tv"><\/i>/);
 assert.doesNotMatch(installation, /fa-display|LEDスクリーン/);
 assert.doesNotMatch(read('index.html'), /LEDスクリーン/);
-assert.match(installation, /href="contact\.html#general-inquiry"/);
+assert.match(installation, /href="general-inquiry\.html"/);
 assert.match(installation, /<nav aria-label="パンくず">/);
 assert.doesNotMatch(installation, /業界No\.1|最安|必ず改善|プロ集団|現場を知り尽くしたスタッフ/);
 
@@ -62,12 +62,13 @@ for (const [index, script] of inlineScripts.entries()) {
 const relatedCopy = [
     read('index.html'),
     read('contact.html'),
+    read('general-inquiry.html'),
     read('api/work.js')
 ].join('\n');
 assert.match(relatedCopy, /音響・照明・映像設備施工/);
 assert.doesNotMatch(read('index.html'), /店舗音響の設備施工|店舗や施設の音響・照明システム|プロ集団/);
 assert.doesNotMatch(read('contact.html'), /店舗音響・設備施工、保守・修理/);
-assert.match(read('contact.html'), /店舗設備（音響・照明・映像）導入・保守/);
+assert.match(read('general-inquiry.html'), /店舗設備（音響・照明・映像）導入・保守/);
 assert.doesNotMatch(read('api/work.js'), /音響・映像設備工事/);
 
 for (const match of installation.matchAll(/\s(?:href|src)="([^"]+)"/g)) {

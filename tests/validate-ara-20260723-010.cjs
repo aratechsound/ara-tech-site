@@ -20,7 +20,7 @@ const adminApi = read("api/pa-mail.js");
 const mailSource = read("api/_pa-mail.cjs");
 const mail = require(path.join(root, "api", "_pa-mail.cjs"));
 
-assert.match(inquiryHtml, /PA予約・お問い合わせフォーム（初回受付）/);
+assert.match(inquiryHtml, /イベント依頼・空き状況確認フォーム/);
 assert.match(inquiryHtml, /予約や日程確保は成立しません/);
 assert.match(scheduleHtml, /日程確保フォーム/);
 assert.match(scheduleHtml, /条件確認・同意/);

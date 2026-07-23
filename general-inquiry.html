@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="index, follow">
+
+    <title>一般お問い合わせフォーム | ARA-TECH（広島）</title>
+    <meta name="description" content="ツアーPA、音響・照明・映像設備の施工・保守、技術講習、営業・取材、既存案件などの一般お問い合わせ窓口です。">
+    <link rel="canonical" href="https://ara-tech.cc/general-inquiry.html">
+
+    <link rel="icon" href="img/favicon.ico">
+    <link rel="preload" as="image" href="img/cta-bg.jpg" fetchpriority="high">
+
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <style>
+        :root { --primary-blue: #007bff; --dark-text: #1d1d1f; }
+        body { font-family: 'Noto Sans JP', sans-serif; margin: 0; color: var(--dark-text); line-height: 1.8; background-color: #f8f9fa; }
+
+        .navbar { background-color: var(--primary-blue) !important; padding: 10px 0; position: sticky; top: 0; z-index: 1000; }
+        .navbar-brand img { height: 40px; width: auto; }
+        .nav-link { color: white !important; font-weight: 700; margin-left: 15px; font-size: 0.9rem; }
+
+        .page-header {
+            position: relative;
+            background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('img/cta-bg.jpg');
+            background-size: cover; background-position: center; background-attachment: fixed;
+            align-items: center; color: white; display: flex; height: 407px; overflow: hidden; text-align: left;
+        }
+        .page-header .container { padding-bottom: 54px; position: relative; z-index: 3; }
+        .page-header .eyebrow { color: #a9d5ff; font-size: .78rem; font-weight: 900; letter-spacing: .2em; margin-bottom: .5rem; }
+        .page-header h1.page-title-ja { font-size: clamp(2rem, 5vw, 4.2rem); font-weight: 900; letter-spacing: .03em; line-height: 1.25; margin: .2rem 0 1rem; }
+        .page-header .lead { font-size: 1.05rem; margin-bottom: 0; max-width: 680px; }
+        .phrase-lock { display: inline-block; }
+
+        .wave-container { position: relative; width: 100%; line-height: 0; background: transparent; z-index: 5; margin-top: -50px; }
+        .wave-container svg { display: block; width: 100%; height: 60px; }
+        .wave-fill { fill: #f8f9fa; }
+
+        .contact-wrapper { padding: 0 12px 80px; position: relative; z-index: 10; margin-top: -20px; }
+        .contact-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            padding: clamp(25px, 5%, 50px);
+        }
+        .form-heading { border-left: 5px solid var(--primary-blue); padding-left: 15px; }
+        .general-notice { background: #eef6ff; border: 1px solid #c8e1f8; border-radius: 14px; color: #294c6b; margin-bottom: 34px; padding: 20px 22px; }
+        .general-notice p { margin-bottom: 12px; }
+        .event-form-link { color: #004f9d; font-weight: 900; }
+        .event-form-link:focus-visible, .btn-submit:focus-visible, .btn-back:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
+
+        .form-label { font-weight: 700; color: #444; margin-bottom: 8px; font-size: 0.95rem; }
+        .form-control, .form-select {
+            border: 1px solid #e0e0e0;
+            padding: 12px 15px;
+            border-radius: 8px;
+            transition: 0.3s;
+            background-color: #fff;
+        }
+        .required-badge {
+            background: #e63946;
+            color: white;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+        }
+        .btn-submit {
+            background: var(--primary-blue);
+            color: white;
+            padding: 18px 50px;
+            font-weight: 900;
+            border-radius: 50px;
+            border: none;
+            transition: 0.3s;
+            box-shadow: 0 10px 20px rgba(0, 123, 255, 0.3);
+            cursor: pointer;
+            width: 100%;
+            max-width: 400px;
+        }
+        .btn-submit:hover { transform: translateY(-3px); background: #0056b3; }
+        .btn-submit:disabled { cursor: wait; opacity: .72; transform: none; }
+        .form-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; display: none; font-size: .9rem; font-weight: 700; margin-bottom: 20px; padding: 12px 14px; }
+        .form-error[data-fs-active] { display: block; }
+        [data-fs-field][aria-invalid="true"] { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .12); }
+
+        .info-box { background: #eef6ff; border-radius: 15px; padding: 30px; height: 100%; }
+        .info-item { display: flex; align-items: flex-start; margin-bottom: 25px; }
+        .info-item i { color: var(--primary-blue); font-size: 1.4rem; margin-right: 15px; margin-top: 4px; }
+        .btn-back { background: #333; color: white; border-radius: 5px; padding: 12px 30px; text-decoration: none; font-weight: bold; transition: 0.3s; display: inline-block; }
+
+        @media (max-width: 991px) {
+            .page-header { background-attachment: scroll; padding: 80px 0 60px; }
+            .info-box { margin-top: 40px; }
+            .contact-wrapper { margin-top: 0; }
+        }
+        @media (max-width: 575px) {
+            .contact-card { padding-left: 20px; padding-right: 20px; }
+            .general-notice { padding: 18px; }
+            .btn-submit { padding-left: 24px; padding-right: 24px; }
+        }
+    </style>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){ dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-K8VZM111TY');
+    </script>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="メニューを開く">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto text-center">
+                    <a class="nav-link" href="./">HOME</a>
+                    <a class="nav-link" href="pa-rental.html">PA RENTAL</a>
+                    <a class="nav-link" href="stage-production.html">STAGE</a>
+                    <a class="nav-link" href="tour-pa.html">TOUR PA</a>
+                    <a class="nav-link" href="installation.html">INSTALLATION</a>
+                    <a class="nav-link" href="works.html">WORKS</a>
+                    <a class="nav-link" href="contact.html">CONTACT</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <header class="page-header">
+        <div class="container">
+            <p class="eyebrow">GENERAL INQUIRY</p>
+            <h1 class="page-title-ja"><span class="phrase-lock">一般お問い合わせ</span><span class="phrase-lock">フォーム</span></h1>
+            <p class="lead fw-bold">ツアーPA、設備施工・保守、技術講習、営業・取材、既存案件などのご相談窓口です。</p>
+        </div>
+    </header>
+
+    <div class="wave-container">
+        <svg viewBox="0 0 500 150" preserveAspectRatio="none"><path d="M0.00,49.98 C150.00,150.00 349.20,-49.98 500.00,49.98 L500.00,150.00 L0.00,150.00 Z" class="wave-fill"></path></svg>
+    </div>
+
+    <main class="contact-wrapper container">
+        <div class="row justify-content-center">
+            <div class="col-lg-11">
+                <div class="contact-card">
+                    <section class="general-notice" aria-labelledby="general-notice-title">
+                        <h2 id="general-notice-title" class="h5 fw-bold">このフォームの対象</h2>
+                        <p>このフォームは、ツアーPA、設備施工・保守、技術講習、営業・取材、既存案件などのお問い合わせ窓口です。イベントPA・ステージ制作の新規依頼は、イベント依頼・空き状況確認フォームをご利用ください。</p>
+                        <a class="event-form-link" href="pa-inquiry.html">イベント依頼・空き状況確認フォームへ</a>
+                    </section>
+
+                    <div class="row">
+                        <div class="col-lg-7 px-md-4">
+                            <h2 class="form-heading fw-bold mb-4">一般お問い合わせフォーム</h2>
+
+                            <div class="form-error" data-fs-error role="alert"></div>
+                            <form id="contact-form" action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
+                                <div class="mb-4">
+                                    <label for="inquiry-type" class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
+                                    <select id="inquiry-type" name="種類" class="form-select" data-fs-field required>
+                                        <option value="" selected disabled>選択してください</option>
+                                        <option value="ツアーPA">ツアー・ライブPA派遣</option>
+                                        <option value="設備導入">店舗設備（音響・照明・映像）導入・保守</option>
+                                        <option value="保守・修理">保守・修理</option>
+                                        <option value="技術講習">技術講習・機材導入相談</option>
+                                        <option value="営業・取材">営業・取材</option>
+                                        <option value="既存案件">既存案件についての連絡</option>
+                                        <option value="その他">その他</option>
+                                    </select>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="name" class="form-label">お名前 / 貴社名<span class="required-badge">必須</span></label>
+                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" data-fs-field required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="email" class="form-label">メールアドレス<span class="required-badge">必須</span></label>
+                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" data-fs-field required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="tel" class="form-label">電話番号</label>
+                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678" data-fs-field>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="message" class="form-label">ご相談内容<span class="required-badge">必須</span></label>
+                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="ご相談の概要、対象の設備・サービス、ご希望の連絡時期などを、わかる範囲でご記入ください。" data-fs-field required></textarea>
+                                </div>
+                                <div class="text-center mt-5">
+                                    <button type="submit" class="btn-submit shadow" data-fs-submit-btn>内容を送信する</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="col-lg-5 px-md-4">
+                            <div class="info-box">
+                                <h2 class="fw-bold mb-4">ご案内</h2>
+                                <div class="info-item">
+                                    <i class="fas fa-clock" aria-hidden="true"></i>
+                                    <div>
+                                        <p class="fw-bold">営業時間</p>
+                                        <p class="small text-muted">10:00 - 19:00 (不定休)</p>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <i class="fas fa-envelope-open-text" aria-hidden="true"></i>
+                                    <div>
+                                        <p class="fw-bold">返信について</p>
+                                        <p class="small text-muted">通常1〜2営業日以内にご連絡いたします。</p>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
+                                    <div>
+                                        <p class="fw-bold">対応エリア</p>
+                                        <p class="small text-muted">広島県内を中心に、全国各地へ対応可能です。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 mb-5">
+            <a href="contact.html" class="btn-back"><i class="fas fa-arrow-left me-2" aria-hidden="true"></i>問い合わせ窓口の選択へ戻る</a>
+        </div>
+    </main>
+
+    <footer class="py-4 border-top text-center text-muted bg-white">
+        <div class="container">
+            <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        window.formspree = window.formspree || function () {
+            (window.formspree.q = window.formspree.q || []).push(arguments);
+        };
+        window.formspree('initForm', {
+            formElement: '#contact-form',
+            formId: 'mojqjwnr',
+            onSuccess: function () {
+                window.location.assign('thanks.html?sent=1');
+            }
+        });
+    </script>
+    <script src="https://unpkg.com/@formspree/ajax@1" defer></script>
+</body>
+</html>

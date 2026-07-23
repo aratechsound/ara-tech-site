@@ -66,7 +66,8 @@ global.fetch = async (url) => {
     await sitemapHandler({ method: 'GET', query: {} }, sitemapResponse);
     assert.equal(sitemapResponse.statusCode, 200);
     assert.match(sitemapResponse.headers['content-type'], /^application\/xml/);
-    assert.equal((sitemapResponse.body.match(/<url>/g) || []).length, 12);
+    assert.equal((sitemapResponse.body.match(/<url>/g) || []).length, 13);
+    assert.ok(sitemapResponse.body.includes('https://ara-tech.cc/general-inquiry.html'));
     assert.ok(sitemapResponse.body.includes('https://ara-tech.cc/pa-inquiry.html'));
     assert.ok(sitemapResponse.body.includes('https://ara-tech.cc/works/2026-hyakka-ryoran-vol-20.html'));
     assert.ok(!sitemapResponse.body.includes('work.html?id='));
@@ -80,7 +81,7 @@ global.fetch = async (url) => {
     await sitemapHandler({ method: 'GET', query: {} }, fallbackSitemapResponse);
     console.error = originalConsoleError;
     assert.equal(fallbackSitemapResponse.statusCode, 200);
-    assert.equal((fallbackSitemapResponse.body.match(/<url>/g) || []).length, 45);
+    assert.equal((fallbackSitemapResponse.body.match(/<url>/g) || []).length, 46);
     assert.ok(fallbackSitemapResponse.body.includes('https://ara-tech.cc/works/2026-sonsi.html'));
 
     const adminHtml = fs.readFileSync(path.join(repoRoot, 'admin.html'), 'utf8');

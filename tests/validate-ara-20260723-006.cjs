@@ -104,7 +104,7 @@ assert.match(adminJs, /renderFirstFormData/);
 assert.match(adminJs, /submission_source === "public_form"/);
 assert.doesNotMatch(adminJs, /\.innerHTML\s*=/);
 
-assert.match(privacyHtml, /PA予約・お問い合わせフォーム（初回受付）/);
+assert.match(privacyHtml, /イベント依頼・空き状況確認フォーム/);
 assert.match(privacyHtml, /PA予約管理システム/);
 
 const validateIdempotentLookup = async () => {
