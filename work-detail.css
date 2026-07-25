@@ -30,9 +30,10 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .detail-flyer img { box-shadow: 0 15px 32px rgba(16, 42, 70, .22); display: block; height: auto; max-height: 760px; max-width: 100%; object-fit: contain; }
 .detail-body { align-self: center; padding: clamp(28px, 5vw, 58px); }
 .eyebrow { color: #146dc0; font-size: .76rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 12px; }
-.detail-tag, .detail-role { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
+.detail-tag-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-tag, .detail-plan, .detail-role { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
 .detail-tag { background: #e8f3ff; color: #0069d9; }
-.detail-role { margin-left: 6px; }
+.detail-plan { background: #e9f8ef; border: 1px solid #99d5af; color: #176b39; }
 .detail-role--operation { background: #0c75dc; color: white; }
 .detail-role--support { border: 1px solid #315ca8; color: #315ca8; }
 .detail-title { font-size: clamp(2rem, 3vw, 3.15rem); font-weight: 900; letter-spacing: .02em; line-height: 1.3; margin: 20px 0; overflow-wrap: anywhere; }
@@ -96,7 +97,6 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 @media (max-width: 640px) {
     .detail-shell { padding-inline: 14px; }
     .detail-card { border-radius: 16px; }
-    .detail-role { margin: 6px 4px 0 0; }
     .detail-meta div { grid-template-columns: 1fr; }
     .contact-panel { align-items: flex-start; flex-direction: column; }
     .contact-panel .button { width: 100%; text-align: center; }

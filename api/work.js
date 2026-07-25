@@ -4,8 +4,10 @@ const {
     escapeHtml,
     fetchWorks,
     formatDate,
+    getAssignmentItemLabels,
     getFlyerDimensions,
     getRoleTypes,
+    getServicePlanLabel,
     getWorkYear,
     isValidWorkSlug,
     publicFlyerTransformedUrl,
@@ -124,9 +126,9 @@ const renderErrorPage = (status, heading, message) => `<!doctype html>
 <body><main class="detail-shell"><section class="not-found"><p class="eyebrow">${status}</p><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p><a class="button" href="/works.html">実績一覧へ戻る</a></section></main></body></html>`;
 
 const serviceFor = (post, roleTypes) => {
-    if (post.category === 'STAGE PRODUCTION') return { href: '/stage-production.html', title: 'ステージ制作', text: 'ステージ制作サービスをご案内します。' };
-    if (post.category === 'INSTALLATION') return { href: '/installation.html', title: '音響・照明・映像設備施工', text: '店舗・施設の音響・照明・映像設備施工サービスをご案内します。' };
-    if (roleTypes.includes('artist_pa_operation') || post.category === 'TOUR PA') return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAとライブオペレートに関連するサービスをご案内します。' };
+    if (['STAGE PRODUCTION', 'ステージ・照明'].includes(post.category)) return { href: '/stage-production.html', title: 'ステージ制作', text: 'ステージ制作サービスをご案内します。' };
+    if (['INSTALLATION', '音響設備・施工'].includes(post.category)) return { href: '/installation.html', title: '音響・照明・映像設備施工', text: '店舗・施設の音響・照明・映像設備施工サービスをご案内します。' };
+    if (roleTypes.includes('artist_pa_operation') || ['TOUR PA', 'ツアーPA', 'ライブ・アーティストPA'].includes(post.category)) return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAとライブオペレートに関連するサービスをご案内します。' };
     return { href: '/pa-rental.html', title: 'PAレンタル・イベント音響', text: '現場技術サポートとPAサービスをご案内します。' };
 };
 
@@ -152,6 +154,10 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     const service = serviceFor(post, roleTypes);
     const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
     const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
+    const servicePlanLabel = getServicePlanLabel(post.service_plan);
+    const assignmentLabels = getAssignmentItemLabels(post);
+    const systemSetup = String(post.system_setup || '').trim();
+    const systemSetupHtml = escapeHtml(systemSetup).replace(/\r?\n/g, '<br>');
 
     const breadcrumbItems = [
         { name: 'トップ', item: `${SITE_URL}/` },
@@ -176,6 +182,9 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     const metaRows = [
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
         post.venue ? `<div><dt>会場</dt><dd>${escapeHtml(post.venue)}</dd></div>` : '',
+        servicePlanLabel ? `<div><dt>提供プラン</dt><dd>${escapeHtml(servicePlanLabel)}</dd></div>` : '',
+        assignmentLabels.length ? `<div><dt>担当内容</dt><dd>${escapeHtml(assignmentLabels.join('、'))}</dd></div>` : '',
+        systemSetup ? `<div><dt>機材・システム構成</dt><dd>${systemSetupHtml}</dd></div>` : '',
         roleTypes.length ? `<div><dt>対応業務</dt><dd>${escapeHtml(roleTypes.map((role) => roleDetails[role].description).join('、'))}</dd></div>` : ''
     ].filter(Boolean).join('');
 
@@ -258,7 +267,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
             <div class="detail-grid">
                 <figure class="detail-flyer"><img src="${escapeHtml(displayImageUrl)}" srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}" alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async"></figure>
                 <div class="detail-body">
-                    <p class="eyebrow">FIELD REPORT</p><span class="detail-tag">${escapeHtml(post.category || 'WORKS')}</span>${roleTags}
+                    <p class="eyebrow">FIELD REPORT</p><div class="detail-tag-row"><span class="detail-tag">${escapeHtml(post.category || 'WORKS')}</span>${servicePlanLabel ? `<span class="detail-plan">${escapeHtml(servicePlanLabel)}</span>` : ''}${roleTags}</div>
                     <h1 class="detail-title${post.title.length > 60 ? ' detail-title--long' : post.title.length > 34 ? ' detail-title--medium' : ''}">${escapeHtml(post.title)}</h1>
                     <p class="work-summary">${escapeHtml(summary)}</p>
                     ${roleAssignments ? `<div class="role-assignments">${roleAssignments}</div>` : post.artists ? `<p class="artist">担当アーティスト：${escapeHtml(post.artists)}</p>` : ''}

@@ -6,10 +6,41 @@ const WORKS_BUCKET = 'work-flyers';
 const flyerDimensions = require('./flyer-dimensions.json');
 
 const WORK_FIELDS = [
+    'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'system_setup',
+    'role_type', 'role_types', 'event_date', 'venue',
+    'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
+    'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
+].join(',');
+
+const WORK_FIELDS_LEGACY = [
     'id', 'slug', 'title', 'category', 'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');
+
+const servicePlanLabels = {
+    compact_pa: 'Compact PA',
+    standard_live: 'Standard LIVE',
+    matsuri_pack: 'Matsuri Pack',
+    school_festival_pack: 'School Festival Pack',
+    pa_operator_only: 'PA Operator Only',
+    large_scale: 'Large Scale',
+    technical_advisor_training: 'Technical Advisor / Training',
+    custom: 'その他・個別対応'
+};
+
+const assignmentItemLabels = {
+    sound_equipment: '音響機材一式',
+    pa_operation: 'PAオペレート',
+    load_in_setup_strike: '搬入・設営・撤去',
+    simple_lighting: '簡易照明',
+    lighting_operation: '照明オペレート',
+    stage_production: 'ステージ制作',
+    equipment_rental_only: '機材のみレンタル',
+    sound_installation: '音響設備・施工',
+    event_operation: '本番対応',
+    other: 'その他'
+};
 
 const roleDetails = {
     artist_pa_operation: {
@@ -76,6 +107,17 @@ const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types
     ? post.role_types.filter((role) => roleDetails[role])
     : post.role_type && roleDetails[post.role_type] ? [post.role_type] : [];
 
+const getServicePlanLabel = (value) => servicePlanLabels[String(value || '').trim()] || '';
+
+const getAssignmentItems = (post) => [...new Set(
+    (Array.isArray(post?.assignment_items) ? post.assignment_items : [])
+        .map((value) => String(value || '').trim())
+        .filter((value) => assignmentItemLabels[value])
+)];
+
+const getAssignmentItemLabels = (post) => getAssignmentItems(post)
+    .map((value) => assignmentItemLabels[value]);
+
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
 
 const getFlyerDimensions = (path) => {
@@ -125,13 +167,22 @@ const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
     if (slug) endpoint.searchParams.set('slug', `eq.${slug}`);
     if (!id && !slug) endpoint.searchParams.set('order', 'event_date.desc.nullslast,created_at.desc,id.desc');
     if (id || slug) endpoint.searchParams.set('limit', '1');
-    const response = await fetch(endpoint, {
+    const requestWorks = () => fetch(endpoint, {
         headers: {
             apikey: SUPABASE_PUBLISHABLE_KEY,
             authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
             accept: 'application/json'
         }
     });
+    let response = await requestWorks();
+    if (!response.ok && !sitemap && response.status === 400) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const missingClassificationColumn = errorPayload.code === '42703'
+            && /service_plan|assignment_items|system_setup/.test(errorPayload.message || '');
+        if (!missingClassificationColumn) throw new Error(`Supabase returned ${response.status}`);
+        endpoint.searchParams.set('select', WORK_FIELDS_LEGACY);
+        response = await requestWorks();
+    }
     if (!response.ok) throw new Error(`Supabase returned ${response.status}`);
     return response.json();
 };
@@ -143,13 +194,18 @@ module.exports = {
     fallbackWorks,
     fetchWorks,
     formatDate,
+    getAssignmentItemLabels,
+    getAssignmentItems,
     getRoleTypes,
+    getServicePlanLabel,
     getFlyerDimensions,
     getWorkYear,
     isValidWorkSlug,
     publicFlyerTransformedUrl,
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
+    assignmentItemLabels,
     roleDetails,
+    servicePlanLabels,
     safeJson
 };

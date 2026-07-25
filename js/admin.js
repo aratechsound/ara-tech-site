@@ -1,5 +1,12 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
+import {
+    getAssignmentItemLabels,
+    getServicePlanLabel,
+    isAllowedWorkCategory,
+    normalizeAssignmentItems,
+    normalizeServicePlan
+} from './work-taxonomy.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const configMessage = $('#config-message');
@@ -32,6 +39,9 @@ const publishAtInput = $('#post-publish-at');
 const slugInput = $('#post-slug');
 const slugPreview = $('#slug-preview');
 const unlockSlugButton = $('#unlock-slug');
+const servicePlanInput = $('#post-service-plan');
+const systemSetupInput = $('#post-system-setup');
+const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
 
 let supabase;
 let posts = [];
@@ -44,6 +54,16 @@ const roleLabels = {
 };
 
 const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
+const getSelectedAssignmentItems = () => normalizeAssignmentItems(
+    assignmentInputs.filter((input) => input.checked).map((input) => input.value)
+);
+
+const loadClassification = (post = {}) => {
+    servicePlanInput.value = normalizeServicePlan(post.service_plan) || '';
+    const selected = new Set(normalizeAssignmentItems(post.assignment_items));
+    assignmentInputs.forEach((input) => { input.checked = selected.has(input.value); });
+    systemSetupInput.value = post.system_setup || '';
+};
 
 const updateRoleFields = () => {
     operationArtistsField.classList.toggle('hidden', !operationRoleInput.checked);
@@ -183,7 +203,8 @@ const isAdmin = async (user) => {
 const resetPostForm = () => {
     editingPost = null;
     postForm.reset();
-    $('#post-category').value = 'WORKS';
+    $('#post-category').value = '';
+    loadClassification();
     operationRoleInput.checked = false;
     supportRoleInput.checked = false;
     updateRoleFields();
@@ -253,6 +274,7 @@ const copyFromPost = (id) => {
     $('#post-title').value = source.title || '';
     $('#post-date').value = source.event_date || '';
     $('#post-category').value = source.category || 'WORKS';
+    loadClassification(source);
     loadRoleAssignment(source);
     $('#post-venue').value = source.venue || '';
     $('#post-description').value = source.description || '';
@@ -299,6 +321,20 @@ const renderPosts = () => {
             role.textContent = roleLabels[roleType];
             body.append(role);
         });
+        const servicePlanLabel = getServicePlanLabel(post.service_plan);
+        if (servicePlanLabel) {
+            const plan = document.createElement('p');
+            plan.className = 'post-service';
+            plan.textContent = `提供プラン：${servicePlanLabel}`;
+            body.append(plan);
+        }
+        const assignmentLabels = getAssignmentItemLabels(post.assignment_items);
+        if (assignmentLabels.length) {
+            const assignments = document.createElement('p');
+            assignments.className = 'post-service';
+            assignments.textContent = `担当内容：${assignmentLabels.join('、')}`;
+            body.append(assignments);
+        }
         const operationArtists = post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null);
         const supportArtists = post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null);
         if (operationArtists) {
@@ -359,6 +395,7 @@ const beginEdit = (id) => {
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
     $('#post-category').value = editingPost.category || 'WORKS';
+    loadClassification(editingPost);
     loadRoleAssignment(editingPost);
     $('#post-venue').value = editingPost.venue || '';
     $('#post-description').value = editingPost.description || '';
@@ -455,7 +492,9 @@ if (!isSupabaseConfigured) {
         clearMessage(postStatus);
         const file = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
+        const category = $('#post-category').value;
         if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
+        if (!isAllowedWorkCategory(category)) { setMessage(postStatus, '実績カテゴリーを選択してください。', 'error'); return; }
         if (!editingPost && !file) { setMessage(postStatus, 'フライヤー画像を選択してください。', 'error'); return; }
         if (publicationMode.value === 'scheduled' && !publishAtInput.value) {
             setMessage(postStatus, '予約投稿では、公開日時を入力してください。', 'error');
@@ -485,8 +524,12 @@ if (!isSupabaseConfigured) {
             const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
             const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
             const supportArtists = supportRoleInput.checked ? supportArtistsInput.value.trim() || null : null;
+            const assignmentItems = getSelectedAssignmentItems();
             const payload = {
-                title, slug, event_date: $('#post-date').value || null, category: $('#post-category').value,
+                title, slug, event_date: $('#post-date').value || null, category,
+                service_plan: normalizeServicePlan(servicePlanInput.value),
+                assignment_items: assignmentItems.length ? assignmentItems : null,
+                system_setup: systemSetupInput.value.trim() || null,
                 role_type: roleTypes.length === 1 ? roleTypes[0] : null, role_types: roleTypes,
                 operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
                 venue: $('#post-venue').value.trim() || null,
@@ -510,7 +553,11 @@ if (!isSupabaseConfigured) {
                     : `保存しました。公開URL：${savedUrl}`);
         } catch (error) {
             if (uploadedFlyerPath) await supabase.storage.from(WORKS_BUCKET).remove([uploadedFlyerPath]);
-            const message = error.code === '23505' ? 'この公開URLはすでに使用されています。別のURLを入力してください。' : error.message;
+            const message = error.code === '23505'
+                ? 'この公開URLはすでに使用されています。別のURLを入力してください。'
+                : error.code === '23514'
+                    ? 'カテゴリー、提供プラン、担当内容、または機材構成の入力値を確認してください。'
+                    : error.message;
             setMessage(postStatus, message || '保存できませんでした。', 'error');
         } finally { saveButton.disabled = false; }
     });

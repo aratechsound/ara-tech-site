@@ -1,5 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
+import { getServicePlanLabel } from './work-taxonomy.mjs';
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
@@ -91,6 +92,13 @@ if (grid && emptyState && isSupabaseConfigured) {
         tag.className = 'work-card__tag';
         tag.textContent = post.category || 'WORKS';
         body.append(tag);
+        const servicePlanLabel = getServicePlanLabel(post.service_plan);
+        if (servicePlanLabel) {
+            const plan = document.createElement('span');
+            plan.className = 'work-card__service-plan';
+            plan.textContent = servicePlanLabel;
+            body.append(plan);
+        }
 
         const roleTypes = getRoleTypes(post);
         roleTypes.forEach((roleType) => {
@@ -214,10 +222,13 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
+        const newFields = 'id, slug, title, category, service_plan, assignment_items, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
         const legacyFields = 'id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
-        if (error) ({ data, error } = await queryWorks(legacyFields));
+        const missingOptionalColumn = error
+            && ['42703', 'PGRST204'].includes(error.code)
+            && /service_plan|assignment_items|system_setup|role_types|operation_artists|support_artists/.test(error.message || '');
+        if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         renderYearTabs(data);
     };
