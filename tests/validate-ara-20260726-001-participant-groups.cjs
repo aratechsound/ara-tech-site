@@ -7,6 +7,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const adminHtml = read('admin.html');
 const adminJs = read('js/admin.js');
+const worksJs = read('js/works.js');
 const sharedJs = read('api/_shared.cjs');
 const workHandler = require('../api/work.js');
 const { rows } = require('./fixtures.cjs');
@@ -18,6 +19,10 @@ assert.match(adminHtml, /専属アーティストPAとは別に/);
 assert.match(adminJs, /participant_groups: participantGroupsInput\.value\.trim\(\) \|\| null/);
 assert.match(adminJs, /participantGroupsInput\.value = post\.participant_groups \|\| ''/);
 assert.match(adminJs, /出演・参加団体：\$\{post\.participant_groups\}/);
+assert.match(worksJs, /createArtistLine\('出演・参加団体', post\.participant_groups\)/);
+assert.match(worksJs, /assignment_items, participant_groups, system_setup/);
+assert.doesNotMatch(worksJs, /description\.textContent = post\.description/);
+assert.doesNotMatch(worksJs, /support_artists, description, flyer_path/);
 assert.match(sharedJs, /'participant_groups'/);
 assert.match(sharedJs, /service_plan\|assignment_items\|participant_groups\|system_setup/);
 

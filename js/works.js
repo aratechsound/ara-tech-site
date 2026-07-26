@@ -130,13 +130,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         if (operationArtists) body.append(createArtistLine('OPERATION', operationArtists));
         if (supportArtists) body.append(createArtistLine('SUPPORT', supportArtists));
         if (!operationArtists && !supportArtists && post.artists) body.append(createArtistLine('担当アーティスト', post.artists));
-
-        if (post.description) {
-            const description = document.createElement('p');
-            description.className = 'mt-3';
-            description.textContent = post.description;
-            body.append(description);
-        }
+        if (post.participant_groups) body.append(createArtistLine('出演・参加団体', post.participant_groups));
 
         const link = document.createElement('span');
         link.className = 'work-card__link';
@@ -222,12 +216,12 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, service_plan, assignment_items, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, description, flyer_path, flyer_alt';
-        const legacyFields = 'id, title, category, role_type, event_date, venue, artists, description, flyer_path, flyer_alt';
+        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
+        const legacyFields = 'id, title, category, role_type, event_date, venue, artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error
             && ['42703', 'PGRST204'].includes(error.code)
-            && /service_plan|assignment_items|system_setup|role_types|operation_artists|support_artists/.test(error.message || '');
+            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists/.test(error.message || '');
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         renderYearTabs(data);
