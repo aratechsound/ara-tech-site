@@ -14,8 +14,9 @@ assert.match(installation, /<meta property="og:url" content="https:\/\/ara-tech\
 assert.match(installation, /<meta name="twitter:card" content="summary_large_image">/);
 
 const h1 = installation.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1] || '';
-assert.match(h1, /店舗・施設の/);
+assert.doesNotMatch(h1, /店舗・施設の/);
 assert.match(h1, /音響・照明・映像設備施工/);
+assert.equal(h1.replace(/<[^>]+>/g, '').trim(), '音響・照明・映像設備施工');
 
 for (const term of [
     'スピーカー', 'アンプ', 'ミキサー', 'マイク', 'BGM設備', '音声配線', '音響調整',
@@ -33,7 +34,8 @@ assert.match(installation, /<i class="fas fa-tv"><\/i>/);
 assert.doesNotMatch(installation, /fa-display|LEDスクリーン/);
 assert.doesNotMatch(read('index.html'), /LEDスクリーン/);
 assert.match(installation, /href="general-inquiry\.html"/);
-assert.match(installation, /<nav aria-label="パンくず">/);
+assert.doesNotMatch(installation, /<nav aria-label="パンくず">/);
+assert.doesNotMatch(installation, /class="container breadcrumb-wrap"/);
 assert.doesNotMatch(installation, /業界No\.1|最安|必ず改善|プロ集団|現場を知り尽くしたスタッフ/);
 
 const jsonLdText = installation.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
