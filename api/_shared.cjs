@@ -6,7 +6,7 @@ const WORKS_BUCKET = 'work-flyers';
 const flyerDimensions = require('./flyer-dimensions.json');
 
 const WORK_FIELDS = [
-    'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'system_setup',
+    'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'participant_groups', 'system_setup',
     'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
@@ -178,7 +178,7 @@ const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
     if (!response.ok && !sitemap && response.status === 400) {
         const errorPayload = await response.json().catch(() => ({}));
         const missingClassificationColumn = errorPayload.code === '42703'
-            && /service_plan|assignment_items|system_setup/.test(errorPayload.message || '');
+            && /service_plan|assignment_items|participant_groups|system_setup/.test(errorPayload.message || '');
         if (!missingClassificationColumn) throw new Error(`Supabase returned ${response.status}`);
         endpoint.searchParams.set('select', WORK_FIELDS_LEGACY);
         response = await requestWorks();

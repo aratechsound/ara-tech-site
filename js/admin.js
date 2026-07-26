@@ -40,6 +40,7 @@ const slugInput = $('#post-slug');
 const slugPreview = $('#slug-preview');
 const unlockSlugButton = $('#unlock-slug');
 const servicePlanInput = $('#post-service-plan');
+const participantGroupsInput = $('#post-participant-groups');
 const systemSetupInput = $('#post-system-setup');
 const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
 
@@ -62,6 +63,7 @@ const loadClassification = (post = {}) => {
     servicePlanInput.value = normalizeServicePlan(post.service_plan) || '';
     const selected = new Set(normalizeAssignmentItems(post.assignment_items));
     assignmentInputs.forEach((input) => { input.checked = selected.has(input.value); });
+    participantGroupsInput.value = post.participant_groups || '';
     systemSetupInput.value = post.system_setup || '';
 };
 
@@ -335,6 +337,12 @@ const renderPosts = () => {
             assignments.textContent = `担当内容：${assignmentLabels.join('、')}`;
             body.append(assignments);
         }
+        if (post.participant_groups) {
+            const participants = document.createElement('p');
+            participants.className = 'post-service';
+            participants.textContent = `出演・参加団体：${post.participant_groups}`;
+            body.append(participants);
+        }
         const operationArtists = post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null);
         const supportArtists = post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null);
         if (operationArtists) {
@@ -529,6 +537,7 @@ if (!isSupabaseConfigured) {
                 title, slug, event_date: $('#post-date').value || null, category,
                 service_plan: normalizeServicePlan(servicePlanInput.value),
                 assignment_items: assignmentItems.length ? assignmentItems : null,
+                participant_groups: participantGroupsInput.value.trim() || null,
                 system_setup: systemSetupInput.value.trim() || null,
                 role_type: roleTypes.length === 1 ? roleTypes[0] : null, role_types: roleTypes,
                 operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,

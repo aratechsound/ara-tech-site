@@ -156,6 +156,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
     const servicePlanLabel = getServicePlanLabel(post.service_plan);
     const assignmentLabels = getAssignmentItemLabels(post);
+    const participantGroups = String(post.participant_groups || '').trim();
     const systemSetup = String(post.system_setup || '').trim();
     const systemSetupHtml = escapeHtml(systemSetup).replace(/\r?\n/g, '<br>');
 
@@ -183,6 +184,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
         post.venue ? `<div><dt>会場</dt><dd>${escapeHtml(post.venue)}</dd></div>` : '',
         servicePlanLabel ? `<div><dt>提供プラン</dt><dd>${escapeHtml(servicePlanLabel)}</dd></div>` : '',
+        participantGroups ? `<div><dt>出演・参加団体</dt><dd>${escapeHtml(participantGroups)}</dd></div>` : '',
         assignmentLabels.length ? `<div><dt>担当内容</dt><dd>${escapeHtml(assignmentLabels.join('、'))}</dd></div>` : '',
         systemSetup ? `<div><dt>機材・システム構成</dt><dd>${systemSetupHtml}</dd></div>` : '',
         roleTypes.length ? `<div><dt>対応業務</dt><dd>${escapeHtml(roleTypes.map((role) => roleDetails[role].description).join('、'))}</dd></div>` : ''
