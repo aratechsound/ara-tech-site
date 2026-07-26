@@ -188,7 +188,16 @@ const auditLabels = {
     schedule_result_confirmed_after_mail: "結果メール送信後に日程確保済み",
     schedule_result_unavailable_after_mail: "結果メール送信後に日程確保不可",
     case_progress_updated: "案件進捗を更新",
-    payment_confirmed_and_closed: "入金確認後にケースクローズ"
+    payment_confirmed_and_closed: "入金確認後にケースクローズ",
+    case_moved_to_trash: "案件をゴミ箱へ移動",
+    case_restored_from_trash: "案件をゴミ箱から復元"
+};
+
+const deleteReasonLabels = {
+    test_case: "テスト案件",
+    duplicate: "重複登録",
+    input_error: "入力ミス",
+    other: "その他"
 };
 
 const defaultConditions = [
@@ -228,9 +237,16 @@ const progressManagementSection = $("#progress-management-section");
 const progressForm = $("#progress-form");
 const paymentSection = $("#payment-section");
 const paymentForm = $("#payment-form");
+const normalCasePanel = $("#normal-case-panel");
+const trashPanel = $("#trash-panel");
+const trashList = $("#trash-list");
+const emptyTrash = $("#empty-trash");
+const trashStatus = $("#trash-status");
+const caseTrashSection = $("#case-trash-section");
 
 let supabase;
 let cases = [];
+let trashedCases = [];
 let currentCase = null;
 let currentProgress = null;
 let currentPayments = [];
@@ -245,6 +261,9 @@ let issuedRawToken = "";
 let emailOperationKey = "";
 let mailActionInProgress = false;
 let requestedCaseHandled = false;
+let selectedTrashCase = null;
+let trashActionInProgress = false;
+let purgeImpactLoaded = false;
 
 const setMessage = (element, text, type = "info") => {
     element.textContent = text;
@@ -597,7 +616,7 @@ const renderCaseTabs = () => {
             .map(eventYearForCase)
             .filter(Number.isFinite)
     )].sort((a, b) => b - a);
-    const availableTabs = new Set(["active", ...years.map((year) => `year-${year}`)]);
+    const availableTabs = new Set(["active", ...years.map((year) => `year-${year}`), "trash"]);
     if (!availableTabs.has(activeCaseTab)) activeCaseTab = "active";
 
     const tabs = [
@@ -606,7 +625,8 @@ const renderCaseTabs = () => {
             id: `year-${year}`,
             label: `${year}年`,
             count: cases.filter((item) => isClosedCase(item) && eventYearForCase(item) === year).length
-        }))
+        })),
+        { id: "trash", label: "ゴミ箱", count: trashedCases.length }
     ];
 
     tabs.forEach((tab) => {
@@ -620,12 +640,17 @@ const renderCaseTabs = () => {
         button.addEventListener("click", () => {
             activeCaseTab = tab.id;
             activeProgressFilter = "";
+            if (tab.id === "trash") detailCard.classList.add("hidden");
             renderCaseTabs();
             renderProgressSummary();
             renderCases();
         });
         tabList.append(button);
     });
+
+    const trashSelected = activeCaseTab === "trash";
+    normalCasePanel.classList.toggle("hidden", trashSelected);
+    trashPanel.classList.toggle("hidden", !trashSelected);
 };
 
 const renderProgressSummary = () => {
@@ -661,6 +686,7 @@ const renderProgressSummary = () => {
 };
 
 const filteredCases = () => {
+    if (activeCaseTab === "trash") return [];
     const query = $("#case-search").value.trim().toLocaleLowerCase("ja");
     const status = $("#case-status-filter").value;
     const result = cases.filter((item) => {
@@ -760,22 +786,301 @@ const renderCases = () => {
     });
 };
 
+const trashCaseSummary = (item, prefix) => {
+    $(`#${prefix}-number`).textContent = item?.inquiry_number || "未発行";
+    $(`#${prefix}-customer`).textContent = item?.contact_name || item?.customer_name || "未設定";
+    $(`#${prefix}-event`).textContent = item?.event_name || "未設定";
+    $(`#${prefix}-date`).textContent = formatDate(item?.event_date);
+};
+
+const trashErrorMessage = (code) => ({
+    invalid_reason: "削除理由を選択してください。",
+    invalid_confirmation: "受付番号を正確に入力してください。",
+    confirmation_mismatch: "入力した受付番号が一致しません。",
+    not_trashed: "この案件はゴミ箱にないため、完全削除できません。",
+    not_found: "案件が見つかりません。再読み込みしてください。",
+    not_authorized: "管理者認証を確認できませんでした。再ログインしてください。",
+    rate_limited: "操作が続いたため一時的に制限しました。少し待ってから再試行してください。",
+    service_unavailable: "削除サービスを利用できません。DBマイグレーションと環境設定を確認してください。"
+}[code] || "処理を完了できませんでした。再読み込みしてから再試行してください。");
+
+const setTrashControlsDisabled = (disabled) => {
+    trashActionInProgress = disabled;
+    $("#confirm-trash-case").disabled = disabled;
+    $("#confirm-restore-case").disabled = disabled;
+    $("#confirm-purge-case").disabled = disabled
+        || !purgeImpactLoaded
+        || $("#purge-confirmation").value !== selectedTrashCase?.inquiry_number;
+    trashList.querySelectorAll("button").forEach((button) => {
+        button.disabled = disabled;
+    });
+    document.querySelectorAll("[data-close-dialog]").forEach((button) => {
+        button.disabled = disabled;
+    });
+};
+
+const callTrashApi = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-case-trash", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({ ok: false, code: "service_unavailable" }));
+    if (!response.ok || !result.ok) throw new Error(result.code || "service_unavailable");
+    return result;
+};
+
+const closeCaseDialog = (dialogId) => {
+    const dialog = $(`#${dialogId}`);
+    if (dialog.open) dialog.close();
+};
+
+const renderTrashCases = () => {
+    trashList.replaceChildren();
+    emptyTrash.classList.toggle("hidden", trashedCases.length > 0);
+
+    trashedCases.forEach((item) => {
+        const row = document.createElement("tr");
+
+        const numberCell = document.createElement("td");
+        numberCell.textContent = item.inquiry_number || "未発行";
+
+        const customerCell = document.createElement("td");
+        customerCell.textContent = item.contact_name || item.customer_name || "未設定";
+
+        const eventCell = document.createElement("td");
+        eventCell.textContent = item.event_name || "未設定";
+
+        const eventDateCell = document.createElement("td");
+        eventDateCell.textContent = formatDate(item.event_date);
+
+        const deletedAtCell = document.createElement("td");
+        deletedAtCell.textContent = formatDateTime(item.deleted_at);
+
+        const reasonCell = document.createElement("td");
+        reasonCell.textContent = deleteReasonLabels[item.delete_reason] || item.delete_reason || "未設定";
+
+        const actionCell = document.createElement("td");
+        const actions = document.createElement("div");
+        actions.className = "actions actions--compact";
+
+        const restoreButton = document.createElement("button");
+        restoreButton.type = "button";
+        restoreButton.className = "button button--confirm button--small";
+        restoreButton.textContent = "復元";
+        restoreButton.addEventListener("click", () => openRestoreDialog(item));
+
+        const purgeButton = document.createElement("button");
+        purgeButton.type = "button";
+        purgeButton.className = "button button--danger button--small";
+        purgeButton.textContent = "完全削除";
+        purgeButton.addEventListener("click", () => openPurgeDialog(item));
+
+        actions.append(restoreButton, purgeButton);
+        actionCell.append(actions);
+        row.append(
+            numberCell,
+            customerCell,
+            eventCell,
+            eventDateCell,
+            deletedAtCell,
+            reasonCell,
+            actionCell
+        );
+        trashList.append(row);
+    });
+};
+
+const openTrashDialog = () => {
+    if (!currentCase || currentCase.deleted_at) return;
+    selectedTrashCase = currentCase;
+    trashCaseSummary(currentCase, "trash-confirm");
+    $("#trash-reason").value = "";
+    clearMessage($("#trash-dialog-message"));
+    $("#trash-case-dialog").showModal();
+    $("#trash-reason").focus();
+};
+
+const confirmTrashCase = async () => {
+    if (trashActionInProgress || !selectedTrashCase) return;
+    const reason = $("#trash-reason").value;
+    if (!deleteReasonLabels[reason]) {
+        setMessage($("#trash-dialog-message"), "削除理由を選択してください。", "error");
+        return;
+    }
+
+    clearMessage($("#trash-dialog-message"));
+    setTrashControlsDisabled(true);
+    try {
+        await callTrashApi({
+            action: "trash",
+            inquiry_id: selectedTrashCase.id,
+            reason
+        });
+        const number = selectedTrashCase.inquiry_number;
+        closeCaseDialog("trash-case-dialog");
+        detailCard.classList.add("hidden");
+        currentCase = null;
+        selectedTrashCase = null;
+        activeCaseTab = "trash";
+        await loadCases();
+        setMessage(trashStatus, `${number} をゴミ箱へ移動しました。メールは送信していません。`, "success");
+    } catch (error) {
+        setMessage($("#trash-dialog-message"), trashErrorMessage(error.message), "error");
+    } finally {
+        setTrashControlsDisabled(false);
+    }
+};
+
+const openRestoreDialog = (item) => {
+    if (trashActionInProgress) return;
+    selectedTrashCase = item;
+    trashCaseSummary(item, "restore-confirm");
+    clearMessage($("#restore-dialog-message"));
+    $("#restore-case-dialog").showModal();
+    $("#confirm-restore-case").focus();
+};
+
+const confirmRestoreCase = async () => {
+    if (trashActionInProgress || !selectedTrashCase) return;
+    clearMessage($("#restore-dialog-message"));
+    setTrashControlsDisabled(true);
+    const restoredId = selectedTrashCase.id;
+    const restoredNumber = selectedTrashCase.inquiry_number;
+    try {
+        const result = await callTrashApi({
+            action: "restore",
+            inquiry_id: restoredId
+        });
+        closeCaseDialog("restore-case-dialog");
+        selectedTrashCase = null;
+        activeCaseTab = "active";
+        await loadCases();
+        const restoredCase = cases.find((item) => item.id === restoredId);
+        if (restoredCase && isClosedCase(restoredCase)) {
+            activeCaseTab = `year-${eventYearForCase(restoredCase)}`;
+            renderCaseTabs();
+            renderProgressSummary();
+            renderCases();
+        }
+        const tokenMessage = result.case.active_token_restored
+            ? "削除前に有効だった顧客用URLも、期限内のため再び利用できます。"
+            : "期限切れ・無効化済み・回答済みの顧客用URLは再有効化していません。";
+        setMessage(listStatus, `${restoredNumber} を復元しました。${tokenMessage}`, "success");
+    } catch (error) {
+        setMessage($("#restore-dialog-message"), trashErrorMessage(error.message), "error");
+    } finally {
+        setTrashControlsDisabled(false);
+    }
+};
+
+const renderPurgeImpact = (impact) => {
+    const list = $("#purge-impact-list");
+    list.replaceChildren();
+    [
+        ["案件進捗", impact.progress_count],
+        ["入金記録", impact.payment_count],
+        ["専用URL／トークン", impact.token_count],
+        ["顧客回答", impact.response_count],
+        ["Gmail送信履歴", impact.email_count],
+        ["案件監査履歴", impact.audit_count]
+    ].forEach(([label, count]) => {
+        const item = document.createElement("li");
+        item.textContent = `${label}：${Number(count || 0)}件`;
+        list.append(item);
+    });
+};
+
+const updatePurgeConfirmationState = () => {
+    $("#confirm-purge-case").disabled = trashActionInProgress
+        || !purgeImpactLoaded
+        || $("#purge-confirmation").value !== selectedTrashCase?.inquiry_number;
+};
+
+const openPurgeDialog = async (item) => {
+    if (trashActionInProgress) return;
+    selectedTrashCase = item;
+    purgeImpactLoaded = false;
+    $("#purge-confirm-number").textContent = item.inquiry_number;
+    $("#purge-confirmation").value = "";
+    $("#purge-impact-list").replaceChildren();
+    setMessage($("#purge-dialog-message"), "関連記録を確認しています。", "info");
+    updatePurgeConfirmationState();
+    $("#purge-case-dialog").showModal();
+
+    try {
+        const result = await callTrashApi({
+            action: "inspect",
+            inquiry_id: item.id
+        });
+        if (selectedTrashCase?.id !== item.id) return;
+        renderPurgeImpact(result.case);
+        purgeImpactLoaded = true;
+        clearMessage($("#purge-dialog-message"));
+        updatePurgeConfirmationState();
+        $("#purge-confirmation").focus();
+    } catch (error) {
+        setMessage($("#purge-dialog-message"), trashErrorMessage(error.message), "error");
+    }
+};
+
+const confirmPurgeCase = async () => {
+    if (
+        trashActionInProgress
+        || !purgeImpactLoaded
+        || !selectedTrashCase
+        || $("#purge-confirmation").value !== selectedTrashCase.inquiry_number
+    ) return;
+
+    clearMessage($("#purge-dialog-message"));
+    setTrashControlsDisabled(true);
+    const deletedNumber = selectedTrashCase.inquiry_number;
+    try {
+        await callTrashApi({
+            action: "purge",
+            inquiry_id: selectedTrashCase.id,
+            confirmation: $("#purge-confirmation").value
+        });
+        closeCaseDialog("purge-case-dialog");
+        selectedTrashCase = null;
+        purgeImpactLoaded = false;
+        activeCaseTab = "trash";
+        await loadCases();
+        setMessage(trashStatus, `${deletedNumber} を完全削除しました。この操作は元に戻せません。`, "success");
+    } catch (error) {
+        setMessage($("#purge-dialog-message"), trashErrorMessage(error.message), "error");
+    } finally {
+        setTrashControlsDisabled(false);
+    }
+};
+
 const loadCases = async () => {
     clearMessage(listStatus);
-    const [caseResult, progressResult] = await Promise.all([
+    const [caseResult, trashResult, progressResult] = await Promise.all([
         supabase
             .from("pa_inquiries")
             .select("*")
+            .is("deleted_at", null)
             .order("received_at", { ascending: false }),
+        supabase
+            .from("pa_inquiries")
+            .select("*")
+            .not("deleted_at", "is", null)
+            .order("deleted_at", { ascending: false }),
         supabase
             .from("pa_case_progress")
             .select("*")
     ]);
 
-    if (caseResult.error || progressResult.error) {
+    if (caseResult.error || trashResult.error || progressResult.error) {
         setMessage(
             listStatus,
-            "PA案件一覧を読み込めませんでした。進捗DBマイグレーションと権限設定をご確認ください。",
+            "PA案件一覧を読み込めませんでした。ゴミ箱・進捗DBマイグレーションと権限設定をご確認ください。",
             "error"
         );
         return;
@@ -788,9 +1093,11 @@ const loadCases = async () => {
         ...item,
         progress: progressByInquiry.get(item.id) || progressForCase(item)
     }));
+    trashedCases = trashResult.data || [];
     renderCaseTabs();
     renderProgressSummary();
     renderCases();
+    renderTrashCases();
 };
 
 const resetForm = () => {
@@ -819,6 +1126,7 @@ const resetForm = () => {
     nextActionSection.classList.add("hidden");
     progressManagementSection.classList.add("hidden");
     paymentSection.classList.add("hidden");
+    caseTrashSection.classList.add("hidden");
     progressForm.reset();
     paymentForm.reset();
     $("#payment-history").replaceChildren();
@@ -1442,6 +1750,7 @@ const openCase = async (id) => {
         .from("pa_inquiries")
         .select("*")
         .eq("id", id)
+        .is("deleted_at", null)
         .single();
 
     if (error || !item) {
@@ -1516,6 +1825,7 @@ const openCase = async (id) => {
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
+    caseTrashSection.classList.remove("hidden");
     issuedRawToken = "";
     emailOperationKey = "";
     $("#result-email-kind").value = "";
@@ -2146,6 +2456,29 @@ if (!isSupabaseConfigured) {
 
     $("#issue-token").addEventListener("click", issueToken);
     $("#revoke-token").addEventListener("click", revokeToken);
+    $("#move-case-to-trash").addEventListener("click", openTrashDialog);
+    $("#confirm-trash-case").addEventListener("click", confirmTrashCase);
+    $("#confirm-restore-case").addEventListener("click", confirmRestoreCase);
+    $("#confirm-purge-case").addEventListener("click", confirmPurgeCase);
+    $("#purge-confirmation").addEventListener("input", updatePurgeConfirmationState);
+    document.querySelectorAll("[data-close-dialog]").forEach((button) => {
+        button.addEventListener("click", () => {
+            if (trashActionInProgress) return;
+            closeCaseDialog(button.dataset.closeDialog);
+            selectedTrashCase = null;
+            purgeImpactLoaded = false;
+        });
+    });
+    document.querySelectorAll(".case-dialog").forEach((dialog) => {
+        dialog.addEventListener("cancel", (event) => {
+            if (trashActionInProgress) {
+                event.preventDefault();
+                return;
+            }
+            selectedTrashCase = null;
+            purgeImpactLoaded = false;
+        });
+    });
     $("#send-email").addEventListener("click", sendEmail);
     $("#prepare-result-confirmed").addEventListener("click", () => prepareResultEmail("confirmed"));
     $("#prepare-result-unavailable").addEventListener("click", () => prepareResultEmail("unavailable"));

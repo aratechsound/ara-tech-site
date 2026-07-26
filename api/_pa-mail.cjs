@@ -287,6 +287,7 @@ const getInquiry = async (inquiryId, fetchImpl = fetch) => {
     if (!isUuid(inquiryId)) throw new Error("invalid_inquiry");
     const parameters = new URLSearchParams({
         id: `eq.${inquiryId}`,
+        deleted_at: "is.null",
         select: "*",
         limit: "1"
     });

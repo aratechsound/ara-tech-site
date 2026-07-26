@@ -72,6 +72,7 @@
 
                 <div id="case-tabs" class="case-tabs" role="tablist" aria-label="案件の表示期間"></div>
 
+                <div id="normal-case-panel">
                 <section id="progress-summary-section" class="progress-summary-section" aria-labelledby="progress-summary-title">
                     <div class="section-head">
                         <div>
@@ -134,6 +135,34 @@
                     </table>
                 </div>
                 <p id="empty-cases" class="empty hidden">条件に一致する問い合わせはありません。</p>
+                </div>
+
+                <section id="trash-panel" class="trash-panel hidden" aria-labelledby="trash-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="trash-title">ゴミ箱</h3>
+                            <p class="small-note">業務完了の「済」とは別の領域です。ここにはテスト案件・重複登録・入力ミスなど、削除対象として整理した案件だけを表示します。</p>
+                        </div>
+                    </div>
+                    <p id="trash-status" class="alert hidden" aria-live="polite"></p>
+                    <div class="table-wrap">
+                        <table class="trash-table">
+                            <thead>
+                                <tr>
+                                    <th>受付番号</th>
+                                    <th>依頼者名</th>
+                                    <th>イベント名</th>
+                                    <th>開催予定日</th>
+                                    <th>削除日時</th>
+                                    <th>削除理由</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trash-list"></tbody>
+                        </table>
+                    </div>
+                    <p id="empty-trash" class="empty hidden">ゴミ箱に案件はありません。</p>
+                </section>
             </section>
 
             <section id="detail-card" class="card hidden" aria-labelledby="detail-title">
@@ -561,6 +590,12 @@
                     </div>
                 </form>
 
+                <section id="case-trash-section" class="subsection subsection--danger-zone hidden" aria-labelledby="case-trash-title">
+                    <h3 id="case-trash-title">不要案件の整理</h3>
+                    <p class="small-note">通常の業務完了案件は削除せず、「済／ケースクローズ」として年別履歴に残してください。</p>
+                    <button id="move-case-to-trash" class="button button--danger" type="button">ゴミ箱へ移動</button>
+                </section>
+
                 <section id="response-section" class="subsection">
                     <div class="section-head">
                         <div>
@@ -591,6 +626,70 @@
         </section>
     </main>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260724-003-2"></script>
+    <dialog id="trash-case-dialog" class="case-dialog" aria-labelledby="trash-case-dialog-title">
+        <div class="case-dialog__body">
+            <h2 id="trash-case-dialog-title">案件をゴミ箱へ移動</h2>
+            <p>案件の進捗状態は保持されますが、通常一覧・検索・年別履歴から除外され、顧客用URLは利用できなくなります。メールは送信されません。</p>
+            <dl class="dialog-summary">
+                <dt>受付番号</dt><dd id="trash-confirm-number"></dd>
+                <dt>依頼者名</dt><dd id="trash-confirm-customer"></dd>
+                <dt>イベント名</dt><dd id="trash-confirm-event"></dd>
+                <dt>開催予定日</dt><dd id="trash-confirm-date"></dd>
+            </dl>
+            <div class="field">
+                <label for="trash-reason">削除理由</label>
+                <select id="trash-reason" required>
+                    <option value="">選択してください</option>
+                    <option value="test_case">テスト案件</option>
+                    <option value="duplicate">重複登録</option>
+                    <option value="input_error">入力ミス</option>
+                    <option value="other">その他</option>
+                </select>
+            </div>
+            <p id="trash-dialog-message" class="alert hidden" aria-live="polite"></p>
+            <div class="actions case-dialog__actions">
+                <button id="confirm-trash-case" class="button button--danger" type="button">ゴミ箱へ移動する</button>
+                <button class="button button--secondary" type="button" data-close-dialog="trash-case-dialog">キャンセル</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="restore-case-dialog" class="case-dialog" aria-labelledby="restore-case-dialog-title">
+        <div class="case-dialog__body">
+            <h2 id="restore-case-dialog-title">案件を復元</h2>
+            <p>削除前の進捗状態と本来の表示位置へ戻します。期限切れ・無効化済み・回答済みの顧客用トークンは再有効化しません。</p>
+            <dl class="dialog-summary">
+                <dt>受付番号</dt><dd id="restore-confirm-number"></dd>
+                <dt>依頼者名</dt><dd id="restore-confirm-customer"></dd>
+                <dt>イベント名</dt><dd id="restore-confirm-event"></dd>
+                <dt>開催予定日</dt><dd id="restore-confirm-date"></dd>
+            </dl>
+            <p id="restore-dialog-message" class="alert hidden" aria-live="polite"></p>
+            <div class="actions case-dialog__actions">
+                <button id="confirm-restore-case" class="button button--confirm" type="button">この案件を復元する</button>
+                <button class="button button--secondary" type="button" data-close-dialog="restore-case-dialog">キャンセル</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="purge-case-dialog" class="case-dialog case-dialog--danger" aria-labelledby="purge-case-dialog-title">
+        <div class="case-dialog__body">
+            <h2 id="purge-case-dialog-title">案件を完全削除</h2>
+            <p class="alert alert--error"><strong>この操作は元に戻せません。</strong> 案件本体と、下記の進捗・入金・専用URL／トークン・回答・メール送信履歴・監査履歴を同じトランザクションで削除します。</p>
+            <p>受付番号：<strong id="purge-confirm-number"></strong></p>
+            <ul id="purge-impact-list" class="purge-impact-list"></ul>
+            <div class="field">
+                <label for="purge-confirmation">確認のため受付番号を入力してください</label>
+                <input id="purge-confirmation" type="text" autocomplete="off" spellcheck="false">
+            </div>
+            <p id="purge-dialog-message" class="alert hidden" aria-live="polite"></p>
+            <div class="actions case-dialog__actions">
+                <button id="confirm-purge-case" class="button button--danger button--solid-danger" type="button" disabled>完全削除する</button>
+                <button class="button button--secondary" type="button" data-close-dialog="purge-case-dialog">キャンセル</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script type="module" src="js/pa-admin.js?v=ara-20260726-003"></script>
 </body>
 </html>
