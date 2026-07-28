@@ -1,12 +1,16 @@
-const crypto = require("node:crypto");
 const {
     isUuid,
     supabaseRequest,
     verifyAdmin
 } = require("./_pa-mail.cjs");
+const {
+    applyOriginPolicy,
+    checkRateLimit,
+    isOriginAllowed,
+    isRateLimitUnavailable
+} = require("./_request-security.cjs");
 
 const MAX_BODY_BYTES = 4_096;
-const RATE_WINDOW_MS = 60_000;
 const DELETE_REASONS = new Set(["test_case", "duplicate", "input_error", "other"]);
 const ACTION_LIMITS = Object.freeze({
     inspect: 60,
@@ -14,23 +18,16 @@ const ACTION_LIMITS = Object.freeze({
     restore: 20,
     purge: 5
 });
-const rateWindows = new Map();
+const RATE_LIMIT_POLICY_BY_ACTION = Object.freeze({
+    inspect: "CASE_TRASH_INSPECT",
+    trash: "CASE_TRASH_TRASH",
+    restore: "CASE_TRASH_RESTORE",
+    purge: "CASE_TRASH_PURGE"
+});
 
-const requestOriginMatchesHost = (request) => {
-    const origin = request.headers?.origin;
-    if (!origin) return true;
-    try {
-        const originUrl = new URL(origin);
-        const forwardedHost = String(request.headers?.["x-forwarded-host"] || request.headers?.host || "")
-            .split(",")[0]
-            .trim()
-            .toLowerCase();
-        return originUrl.host.toLowerCase() === forwardedHost
-            && (originUrl.protocol === "https:" || process.env.NODE_ENV !== "production");
-    } catch {
-        return false;
-    }
-};
+const requestOriginMatchesHost = (request, response) => (
+    response ? applyOriginPolicy(request, response) : isOriginAllowed(request)
+);
 
 const bearerToken = (request) => {
     const authorization = String(request.headers?.authorization || "");
@@ -58,32 +55,15 @@ const parseBody = (request) => {
     return input;
 };
 
-const clientHash = (request) => {
-    const forwarded = String(request.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
-    const source = forwarded || String(request.socket?.remoteAddress || "unknown");
-    return crypto.createHash("sha256").update(source).digest("hex");
-};
-
-const rateLimit = (request, userId, action) => {
-    const now = Date.now();
-    const key = `${clientHash(request)}:${userId}:${action}`;
-    const limit = ACTION_LIMITS[action] || 10;
-    let window = rateWindows.get(key);
-    if (!window || window.expiresAt <= now) {
-        window = { count: 0, expiresAt: now + RATE_WINDOW_MS };
-        rateWindows.set(key, window);
-    }
-    window.count += 1;
-
-    if (rateWindows.size > 1_000) {
-        for (const [bucketKey, bucket] of rateWindows) {
-            if (bucket.expiresAt <= now) rateWindows.delete(bucketKey);
-        }
-    }
-
+const rateLimit = async (request, userId, action) => {
+    const state = await checkRateLimit({
+        request,
+        policyName: RATE_LIMIT_POLICY_BY_ACTION[action],
+        scope: userId
+    });
     return {
-        limited: window.count > limit,
-        retryAfter: Math.max(1, Math.ceil((window.expiresAt - now) / 1_000))
+        limited: !state.allowed,
+        retryAfter: Math.max(1, state.retryAfter)
     };
 };
 
@@ -170,7 +150,7 @@ module.exports = async (request, response) => {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
     }
-    if (!requestOriginMatchesHost(request)) {
+    if (!requestOriginMatchesHost(request, response)) {
         return sendJson(response, 403, { ok: false, code: "invalid_origin" });
     }
 
@@ -178,7 +158,7 @@ module.exports = async (request, response) => {
         const input = parseBody(request);
         const action = validateInput(input);
         const user = await verifyAdmin(bearerToken(request));
-        const rate = rateLimit(request, user.id, action);
+        const rate = await rateLimit(request, user.id, action);
         if (rate.limited) {
             response.setHeader("Retry-After", String(rate.retryAfter));
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
@@ -210,6 +190,10 @@ module.exports = async (request, response) => {
             "invalid_confirmation"
         ].includes(code)) {
             return sendJson(response, 400, { ok: false, code });
+        }
+        if (isRateLimitUnavailable(error)) {
+            console.error("pa-case-trash failed", "service_unavailable");
+            return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         }
         console.error("pa-case-trash failed", /^supabase_\d{3}$/u.test(code) ? code : "internal_error");
         return sendJson(response, 503, { ok: false, code: "service_unavailable" });

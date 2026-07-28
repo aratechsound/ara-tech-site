@@ -8,24 +8,23 @@ const {
     sendScheduleResultAndFinalize,
     verifyAdmin
 } = require("./_pa-mail.cjs");
+const {
+    applyOriginPolicy,
+    checkRateLimit,
+    isOriginAllowed,
+    isRateLimitUnavailable
+} = require("./_request-security.cjs");
 
 const MAX_BODY_BYTES = 32_000;
+const RATE_LIMIT_POLICY_BY_ACTION = Object.freeze({
+    send_schedule: "PA_MAIL_SEND_SCHEDULE",
+    send_result: "PA_MAIL_SEND_RESULT",
+    retry: "PA_MAIL_RETRY"
+});
 
-const requestOriginMatchesHost = (request) => {
-    const origin = request.headers?.origin;
-    if (!origin) return true;
-    try {
-        const originUrl = new URL(origin);
-        const forwardedHost = String(request.headers?.["x-forwarded-host"] || request.headers?.host || "")
-            .split(",")[0]
-            .trim()
-            .toLowerCase();
-        return originUrl.host.toLowerCase() === forwardedHost
-            && (originUrl.protocol === "https:" || process.env.NODE_ENV !== "production");
-    } catch {
-        return false;
-    }
-};
+const requestOriginMatchesHost = (request, response) => (
+    response ? applyOriginPolicy(request, response) : isOriginAllowed(request)
+);
 
 const parseBody = (request) => {
     let input;
@@ -61,13 +60,24 @@ module.exports = async (request, response) => {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
     }
-    if (!requestOriginMatchesHost(request)) {
+    if (!requestOriginMatchesHost(request, response)) {
         return sendJson(response, 403, { ok: false, code: "invalid_origin" });
     }
 
     try {
         const user = await verifyAdmin(bearerToken(request));
         const input = parseBody(request);
+        const rateLimitPolicy = RATE_LIMIT_POLICY_BY_ACTION[input.action];
+        if (!rateLimitPolicy) throw new Error("invalid_action");
+        const rate = await checkRateLimit({
+            request,
+            policyName: rateLimitPolicy,
+            scope: user.id
+        });
+        if (!rate.allowed) {
+            response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
+            return sendJson(response, 429, { ok: false, code: "rate_limited" });
+        }
         const inquiry = await getInquiry(input.inquiry_id);
         let delivery;
         let caseState = null;
@@ -150,9 +160,13 @@ module.exports = async (request, response) => {
         ].includes(code)) {
             return sendJson(response, 400, { ok: false, code });
         }
+        if (isRateLimitUnavailable(error)) {
+            console.error("pa-mail delivery failed", "service_unavailable");
+            return sendJson(response, 503, { ok: false, code: "service_unavailable" });
+        }
         const safeCode = safeErrorCode(error);
         console.error("pa-mail delivery failed", safeCode);
-        return sendJson(response, 503, { ok: false, code: safeCode });
+        return sendJson(response, 503, { ok: false, code: "service_unavailable" });
     }
 };
 

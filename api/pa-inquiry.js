@@ -1,11 +1,14 @@
-const crypto = require("node:crypto");
 const { sendAutomaticInquiryEmails } = require("./_pa-mail.cjs");
+const {
+    applyOriginPolicy,
+    checkRateLimit,
+    isOriginAllowed,
+    isRateLimitUnavailable
+} = require("./_request-security.cjs");
 
 const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const MAX_BODY_BYTES = 48_000;
-const RATE_WINDOW_MS = 10 * 60 * 1000;
-const RATE_LIMIT = 8;
-const rateWindows = new Map();
+const RATE_LIMIT_POLICY = "PUBLIC_INQUIRY";
 
 const allowedServices = new Set([
     "PA・音響",
@@ -288,44 +291,9 @@ const normalizeInquiry = (input) => {
     };
 };
 
-const requestOriginMatchesHost = (request) => {
-    const origin = request.headers?.origin;
-    if (!origin) return true;
-    try {
-        const originUrl = new URL(origin);
-        const forwardedHost = String(request.headers?.["x-forwarded-host"] || request.headers?.host || "")
-            .split(",")[0]
-            .trim()
-            .toLowerCase();
-        return originUrl.host.toLowerCase() === forwardedHost
-            && (originUrl.protocol === "https:" || process.env.NODE_ENV !== "production");
-    } catch {
-        return false;
-    }
-};
-
-const getClientHash = (request) => {
-    const forwarded = String(request.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
-    const source = forwarded || String(request.socket?.remoteAddress || "unknown");
-    return crypto.createHash("sha256").update(source).digest("hex");
-};
-
-const isRateLimited = (request, submissionKey) => {
-    const now = Date.now();
-    const clientHash = getClientHash(request);
-    let window = rateWindows.get(clientHash);
-    if (!window || window.expiresAt <= now) {
-        window = { expiresAt: now + RATE_WINDOW_MS, keys: new Set() };
-        rateWindows.set(clientHash, window);
-    }
-    window.keys.add(submissionKey);
-    if (rateWindows.size > 1000) {
-        for (const [key, value] of rateWindows) {
-            if (value.expiresAt <= now) rateWindows.delete(key);
-        }
-    }
-    return window.keys.size > RATE_LIMIT;
-};
+const requestOriginMatchesHost = (request, response) => (
+    response ? applyOriginPolicy(request, response) : isOriginAllowed(request)
+);
 
 const parseBody = (request) => {
     if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)) return request.body;
@@ -387,13 +355,18 @@ module.exports = async (request, response) => {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
     }
-    if (!requestOriginMatchesHost(request)) {
+    if (!requestOriginMatchesHost(request, response)) {
         return sendJson(response, 403, { ok: false, code: "invalid_origin" });
     }
 
     try {
         const record = normalizeInquiry(parseBody(request));
-        if (isRateLimited(request, record.submission_key)) {
+        const rate = await checkRateLimit({
+            request,
+            policyName: RATE_LIMIT_POLICY
+        });
+        if (!rate.allowed) {
+            response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
         const result = await registerInquiry(record);
@@ -419,7 +392,9 @@ module.exports = async (request, response) => {
         if (error instanceof ValidationError) {
             return sendJson(response, 400, { ok: false, code: "invalid_input" });
         }
-        const code = error?.message === "configuration" ? "service_unavailable" : "registration_failed";
+        const code = isRateLimitUnavailable(error) || error?.message === "configuration"
+            ? "service_unavailable"
+            : "registration_failed";
         console.error("pa-inquiry registration failed", code);
         return sendJson(response, 503, { ok: false, code });
     }
