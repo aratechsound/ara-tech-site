@@ -40,7 +40,7 @@ returns table (
   remaining integer,
   retry_after_seconds integer,
   reset_at timestamptz,
-  limit integer
+  "limit" integer
 )
 language plpgsql
 security definer
@@ -120,7 +120,7 @@ begin
     )
   end;
   reset_at := v_bucket.window_expires_at;
-  limit := p_limit;
+  "limit" := p_limit;
   return next;
 end;
 $$;

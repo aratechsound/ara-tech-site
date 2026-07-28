@@ -161,6 +161,8 @@ assert.match(migration, /^commit;/mu);
 assert.match(migration, /create table if not exists public\.api_rate_limit_buckets/u);
 assert.match(migration, /create or replace function public\.consume_rate_limit\(/u);
 assert.match(migration, /on conflict \(bucket_key\) do update/u);
+assert.match(migration, /"limit" integer/u);
+assert.match(migration, /"limit" := p_limit/u);
 assert.match(migration, /security definer/u);
 assert.match(migration, /set search_path = pg_catalog, public/u);
 assert.match(migration, /enable row level security/u);
