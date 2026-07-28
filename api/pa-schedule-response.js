@@ -2,24 +2,19 @@ const {
     safeErrorCode,
     submitScheduleResponseAndNotify
 } = require("./_pa-mail.cjs");
+const {
+    applyOriginPolicy,
+    checkRateLimit,
+    isOriginAllowed,
+    isRateLimitUnavailable
+} = require("./_request-security.cjs");
 
 const MAX_BODY_BYTES = 40_000;
+const RATE_LIMIT_POLICY = "SCHEDULE_RESPONSE";
 
-const requestOriginMatchesHost = (request) => {
-    const origin = request.headers?.origin;
-    if (!origin) return true;
-    try {
-        const originUrl = new URL(origin);
-        const forwardedHost = String(request.headers?.["x-forwarded-host"] || request.headers?.host || "")
-            .split(",")[0]
-            .trim()
-            .toLowerCase();
-        return originUrl.host.toLowerCase() === forwardedHost
-            && (originUrl.protocol === "https:" || process.env.NODE_ENV !== "production");
-    } catch {
-        return false;
-    }
-};
+const requestOriginMatchesHost = (request, response) => (
+    response ? applyOriginPolicy(request, response) : isOriginAllowed(request)
+);
 
 const parseBody = (request) => {
     let input;
@@ -48,12 +43,20 @@ module.exports = async (request, response) => {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
     }
-    if (!requestOriginMatchesHost(request)) {
+    if (!requestOriginMatchesHost(request, response)) {
         return sendJson(response, 403, { ok: false, code: "invalid_origin" });
     }
 
     try {
         const input = parseBody(request);
+        const rate = await checkRateLimit({
+            request,
+            policyName: RATE_LIMIT_POLICY
+        });
+        if (!rate.allowed) {
+            response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
+            return sendJson(response, 429, { ok: false, code: "rate_limited" });
+        }
         const result = await submitScheduleResponseAndNotify({
             token: input.token,
             response: input.response,
@@ -68,7 +71,7 @@ module.exports = async (request, response) => {
                 message_type: delivery.message_type,
                 status: delivery.status,
                 sent_at: delivery.sent_at || null,
-                error_summary: delivery.error_summary || null
+                error_summary: delivery.error_summary ? "notification_failed" : null
             }))
         });
     } catch (error) {
@@ -76,9 +79,13 @@ module.exports = async (request, response) => {
         if (code === "invalid_submission") {
             return sendJson(response, 400, { ok: false, code });
         }
+        if (isRateLimitUnavailable(error)) {
+            console.error("pa schedule response failed", "service_unavailable");
+            return sendJson(response, 503, { ok: false, code: "service_unavailable" });
+        }
         const safeCode = safeErrorCode(error);
         console.error("pa schedule response failed", safeCode);
-        return sendJson(response, 503, { ok: false, code: safeCode });
+        return sendJson(response, 503, { ok: false, code: "service_unavailable" });
     }
 };
 

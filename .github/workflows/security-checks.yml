@@ -1,0 +1,45 @@
+name: Security checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate ARA-20260724-010
+        run: node tests/validate-ara-20260724-010.cjs
+
+      - name: Run all ARA validators
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in tests/validate-ara-*.cjs; do
+            node "$test_file"
+          done
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r source_file; do
+            node --check "$source_file"
+          done < <(git ls-files '*.js' '*.cjs')
+
+      - name: Check patch whitespace
+        run: git diff --check

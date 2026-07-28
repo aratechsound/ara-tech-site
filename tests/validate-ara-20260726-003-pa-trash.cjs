@@ -59,12 +59,15 @@ assert.match(adminJs, /#purge-confirmation"\)\.value !== selectedTrashCase\?\.in
 assert.match(adminJs, /if \(trashActionInProgress \|\| !selectedTrashCase\) return/);
 assert.match(adminJs, /メールは送信していません。/);
 
-const renderCasesSource = adminJs.match(/const renderCases = \(\) => \{([\s\S]*?)\n\};\n\nconst trashCaseSummary/);
+const renderCasesSource = adminJs.match(
+    /const renderCases = \(\) => \{([\s\S]*?)\r?\n\};\r?\n\r?\nconst trashCaseSummary/
+);
 assert.ok(renderCasesSource, "normal case renderer must remain separate from trash renderer");
 assert.doesNotMatch(renderCasesSource[1], /完全削除|confirmPurgeCase|openPurgeDialog/);
 
 assert.match(trashApiSource, /verifyAdmin\(bearerToken\(request\)\)/);
-assert.match(trashApiSource, /requestOriginMatchesHost\(request\)/);
+assert.match(trashApiSource, /require\("\.\/_request-security\.cjs"\)/);
+assert.match(trashApiSource, /requestOriginMatchesHost\(request, response\)/);
 assert.match(trashApiSource, /MAX_BODY_BYTES = 4_096/);
 assert.match(trashApiSource, /purge:\s*5/);
 assert.match(trashApiSource, /Retry-After/);
@@ -180,6 +183,7 @@ const testApi = async () => {
     const previousFetch = global.fetch;
     const previousUrl = process.env.SUPABASE_URL;
     const previousServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const previousAllowedOrigins = process.env.ALLOWED_ORIGINS;
     const calls = [];
     const rpcResults = new Map([
         ["trash_pa_case", [
@@ -201,6 +205,7 @@ const testApi = async () => {
 
     process.env.SUPABASE_URL = "https://test-project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
+    process.env.ALLOWED_ORIGINS = "https://ara-tech.cc";
     global.fetch = async (url, options = {}) => {
         const target = String(url);
         calls.push({ target, options });
@@ -220,6 +225,20 @@ const testApi = async () => {
         }
         const rpcMatch = target.match(/\/rest\/v1\/rpc\/([a-z_]+)$/);
         if (rpcMatch) {
+            if (rpcMatch[1] === "consume_rate_limit") {
+                const body = JSON.parse(options.body);
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => [{
+                        allowed: true,
+                        remaining: Math.max(0, body.p_limit - 1),
+                        retry_after_seconds: 0,
+                        reset_at: "2026-07-26T12:01:00Z",
+                        limit: body.p_limit
+                    }]
+                };
+            }
             const queue = rpcResults.get(rpcMatch[1]);
             assert.ok(queue?.length, `unexpected RPC call ${rpcMatch[1]}`);
             return {
@@ -299,8 +318,19 @@ const testApi = async () => {
         assert.equal(repeatedPurge.statusCode, 404);
         assert.equal(repeatedPurge.payload.code, "not_found");
 
-        const rpcCalls = calls.filter((call) => call.target.includes("/rest/v1/rpc/"));
+        const rateLimitCalls = calls.filter((call) => call.target.endsWith("/rest/v1/rpc/consume_rate_limit"));
+        const rpcCalls = calls.filter((call) => (
+            call.target.includes("/rest/v1/rpc/")
+            && !call.target.endsWith("/rest/v1/rpc/consume_rate_limit")
+        ));
+        assert.equal(rateLimitCalls.length, 7);
         assert.equal(rpcCalls.length, 7);
+        rateLimitCalls.forEach((call) => {
+            const body = JSON.parse(call.options.body);
+            assert.match(body.p_bucket_key, /^pa-api:v1:pa-case-trash-/);
+            assert.ok(Number.isInteger(body.p_limit));
+            assert.ok(Number.isInteger(body.p_window_ms));
+        });
         rpcCalls.forEach((call) => {
             const body = JSON.parse(call.options.body);
             assert.equal(body.p_actor_user_id, "00000000-0000-4000-8000-000000000999");
@@ -313,6 +343,8 @@ const testApi = async () => {
         else process.env.SUPABASE_URL = previousUrl;
         if (previousServiceRole === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
         else process.env.SUPABASE_SERVICE_ROLE_KEY = previousServiceRole;
+        if (previousAllowedOrigins === undefined) delete process.env.ALLOWED_ORIGINS;
+        else process.env.ALLOWED_ORIGINS = previousAllowedOrigins;
     }
 };
 
