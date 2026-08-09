@@ -40,6 +40,7 @@ assert.match(adminJs, /p_candidate_hash: post\.candidate_hash/);
 assert.match(adminJs, /「\$\{post\.title\}」を開催予定として公開します。よろしいですか？/);
 assert.match(adminJs, /imageUsageStatusInput\.value !== 'confirmed'/);
 assert.match(adminJs, /use_image_on_public_page: usePublicImageInput\.checked/);
+assert.match(adminJs, /const flyerPath = uploadedFlyerPath \|\| editingPost\?\.flyer_path \|\| '';/);
 assert.match(adminJs, /if \(!post\.is_published\) actions\.append\(remove\)/);
 
 assert.match(migration, /work_candidate_content_hash/);

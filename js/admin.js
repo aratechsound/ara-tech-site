@@ -876,7 +876,9 @@ if (!isSupabaseConfigured) {
             updateSlugPreview();
 
             uploadedFlyerPath = file ? await uploadFlyer(file) : null;
-            const flyerPath = uploadedFlyerPath || editingPost?.flyer_path || null;
+            // The existing production schema stores "no public flyer" as an empty string
+            // because flyer_path predates optional images and remains NOT NULL.
+            const flyerPath = uploadedFlyerPath || editingPost?.flyer_path || '';
             const isPublished = !pendingCandidate && publicationMode.value !== 'draft';
             const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
             const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
