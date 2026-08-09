@@ -68,7 +68,9 @@ node scripts/add-upcoming-event.mjs revise --candidate <candidate.json> --patch 
 - 「プレビュー」は認証済みAPIから生成され、`noindex`・`no-store` の管理画面内iframeだけで表示する
 - 「編集」「保存」で修正し、保存後の新しい候補ハッシュを確認する
 - 確認用画像と一般公開画像は分離する
-- 画像利用確認が「確認済み」で、公開画像がStorageにある場合だけ「公開ページで画像を使用」をONにする
+- フライヤーを確認した代表が「このフライヤーを公開ページに掲載する」をONにして保存すると、明示確認を監査記録へ残し、認証済みAPIが同じ公式画像を検証して既存 `work-flyers` Storageへコピーする
+- チェックがOFFなら確認用画像だけを管理画面に表示し、一般公開ページは画像なしにする。コピーや整合性確認に失敗した場合は保存・公開へ進まない
+- 画像掲載のON/OFF、Storage上の画像、取得元または画像ハッシュが変わると候補ハッシュが更新され、以前の承認は無効になる
 - 「見送り」は候補だけを非公開のまま見送りにし、既存公開実績は削除しない
 - サービスロールキーや認証回避は使わない
 
@@ -84,4 +86,4 @@ node scripts/add-upcoming-event.mjs revise --candidate <candidate.json> --patch 
 
 ## DBへの対応
 
-OPEN / START、SEO、候補ハッシュ、承認ハッシュ、確認用画像URL、画像取得方法、画像利用確認状態、公開画像ON/OFFを `work_posts` に保持する。一般公開画像は従来どおり既存 `work-flyers` Storageを使用し、確認用外部画像を自動再ホストしない。
+OPEN / START、SEO、候補ハッシュ、承認ハッシュ、確認用画像URL、画像取得方法、画像利用確認状態、公開画像ON/OFF、公開画像の取得元・SHA-256・明示確認者・確認日時を `work_posts` に保持する。一般公開画像は従来どおり既存 `work-flyers` Storageを使用し、代表が公開画像を明示選択した場合だけ認証済み経路でコピーする。選択・再確認・解除は `work_candidate_image_audit` に追記する。

@@ -232,6 +232,7 @@ const updatePublicationControls = () => {
     publicationModeField.classList.toggle('hidden', candidate);
     publicationMode.disabled = candidate;
     lifecycleStatusInput.disabled = candidate;
+    imageUsageStatusInput.disabled = candidate;
     candidateContext.classList.toggle('hidden', !candidate);
     candidateActions.classList.toggle('hidden', !candidate);
     if (candidate) {
@@ -304,6 +305,35 @@ const uploadFlyer = async (file) => {
     const { error } = await supabase.storage.from(WORKS_BUCKET).upload(path, file, { cacheControl: '31536000', upsert: false });
     if (error) throw error;
     return path;
+};
+
+const fileSha256 = async (file) => {
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const fetchReviewImageFile = async (post) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('ログイン状態を確認できません。再ログインしてください。');
+    const response = await fetch('/api/work-review-image', {
+        method: 'POST',
+        headers: {
+            authorization: `Bearer ${session.access_token}`,
+            'content-type': 'application/json'
+        },
+        body: JSON.stringify({ id: post.id, candidate_hash: post.candidate_hash })
+    });
+    if (response.status === 409) throw new Error('候補が更新されています。再読み込みしてから画像掲載を選択してください。');
+    if (!response.ok) throw new Error('確認用フライヤーを安全に保存できませんでした。画像は掲載せず、公開処理を停止しました。');
+    const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const extension = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[contentType];
+    if (!extension) throw new Error('確認用フライヤーの形式を確認できません。画像は掲載していません。');
+    const blob = await response.blob();
+    const file = new File([blob], `review-flyer.${extension}`, { type: contentType });
+    const sha256 = await fileSha256(file);
+    const expectedHash = response.headers.get('x-ara-image-sha256');
+    if (!expectedHash || expectedHash !== sha256) throw new Error('確認用フライヤーの整合性を確認できません。画像は掲載していません。');
+    return { file, sha256 };
 };
 
 const addHistoryOptions = (datalist, values) => {
@@ -759,6 +789,11 @@ if (!isSupabaseConfigured) {
     imageUsageStatusInput.addEventListener('change', () => {
         if (imageUsageStatusInput.value !== 'confirmed') usePublicImageInput.checked = false;
     });
+    usePublicImageInput.addEventListener('change', () => {
+        if (isPendingCandidate(editingPost) && usePublicImageInput.checked) {
+            imageUsageStatusInput.value = 'confirmed';
+        }
+    });
 
     templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
     $('#post-title').addEventListener('input', refreshGeneratedSlug);
@@ -804,7 +839,7 @@ if (!isSupabaseConfigured) {
     postForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         clearMessage(postStatus);
-        const file = flyerInput.files?.[0];
+        const selectedFile = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
         const category = $('#post-category').value;
         const pendingCandidate = isPendingCandidate(editingPost);
@@ -821,16 +856,21 @@ if (!isSupabaseConfigured) {
                 return;
             }
         }
-        if (usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed') {
+        if (!pendingCandidate && usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed') {
             setMessage(postStatus, '公開ページで画像を使用する場合は、画像利用確認状態を「利用確認済み」にしてください。', 'error');
             return;
         }
-        if (pendingCandidate && file && !usePublicImageInput.checked) {
+        if (pendingCandidate && selectedFile && !usePublicImageInput.checked) {
             setMessage(postStatus, '選択したファイルは公開用画像です。公開しない場合はファイル選択を解除してください。', 'error');
             return;
         }
-        if (pendingCandidate && usePublicImageInput.checked && !file && !editingPost?.flyer_path) {
-            setMessage(postStatus, '公開ページで画像を使用するには、公開用フライヤー画像を選択してください。', 'error');
+        if (pendingCandidate && usePublicImageInput.checked && !selectedFile && !editingPost?.flyer_path && !reviewImageUrl) {
+            setMessage(postStatus, '掲載する確認用フライヤーがありません。画像は掲載せず、保存を停止しました。', 'error');
+            return;
+        }
+        if (pendingCandidate && usePublicImageInput.checked && !selectedFile && !editingPost?.flyer_path
+            && reviewImageUrl !== (editingPost?.review_image_url || '')) {
+            setMessage(postStatus, '確認用画像URLが未保存です。いったん画像掲載をOFFにして候補を保存し、再確認してからONにしてください。', 'error');
             return;
         }
         if (lifecycleStatus === 'upcoming' && isPublishing) {
@@ -864,6 +904,16 @@ if (!isSupabaseConfigured) {
         saveButton.disabled = true;
         let uploadedFlyerPath = null;
         try {
+            let file = selectedFile;
+            let publicImageSha256 = editingPost?.public_image_sha256 || null;
+            if (pendingCandidate && usePublicImageInput.checked && !file && !editingPost?.flyer_path) {
+                setMessage(postStatus, '確認用フライヤーをARA-TECH側へ安全に保存しています。');
+                const imported = await fetchReviewImageFile(editingPost);
+                file = imported.file;
+                publicImageSha256 = imported.sha256;
+            } else if (file) {
+                publicImageSha256 = await fileSha256(file);
+            }
             const normalizedSlug = normalizeSlug(slugInput.value || generatedSlug());
             if (!hasValidSlug(normalizedSlug)) throw new Error('公開URLは半角小文字・数字・ハイフンだけで入力してください。');
             const slug = !editingPost && !slugWasEdited
@@ -906,8 +956,10 @@ if (!isSupabaseConfigured) {
                 flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
                 review_image_url: reviewImageUrl || null,
                 review_image_acquisition_method: reviewImageMethodInput.value.trim() || null,
-                image_usage_status: imageUsageStatusInput.value || 'unknown',
+                image_usage_status: pendingCandidate && usePublicImageInput.checked ? 'confirmed' : imageUsageStatusInput.value || 'unknown',
                 use_image_on_public_page: usePublicImageInput.checked,
+                public_image_source_url: reviewImageUrl || editingPost?.public_image_source_url || null,
+                public_image_sha256: publicImageSha256,
                 seo_title: seoTitleInput.value.trim() || null,
                 meta_description: metaDescriptionInput.value.trim() || null,
                 publication_review_status: pendingCandidate ? PENDING_STATUS : editingPost?.publication_review_status || null,
@@ -934,7 +986,9 @@ if (!isSupabaseConfigured) {
             const message = error.code === '23505'
                 ? 'この公開URLはすでに使用されています。別のURLを入力してください。'
                 : error.code === '23514'
-                    ? 'カテゴリー、提供プラン、担当内容、または機材構成の入力値を確認してください。'
+                    ? pendingCandidate && usePublicImageInput.checked
+                        ? 'フライヤーの保存または画像掲載の明示確認を検証できませんでした。画像は掲載せず、保存を停止しました。'
+                        : 'カテゴリー、提供プラン、担当内容、または機材構成の入力値を確認してください。'
                     : error.message;
             setMessage(postStatus, message || '保存できませんでした。', 'error');
         } finally { saveButton.disabled = false; }

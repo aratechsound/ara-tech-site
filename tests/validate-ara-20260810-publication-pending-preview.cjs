@@ -31,7 +31,7 @@ const workHandler = require('../api/work.js');
 ].forEach((id) => assert.ok(adminHtml.includes(`id="${id}"`), `${id} is missing`));
 
 assert.match(adminHtml, /公開待ち/);
-assert.match(adminHtml, /公開ページで画像を使用する/);
+assert.match(adminHtml, /このフライヤーを公開ページに掲載する/);
 assert.match(adminHtml, /sandbox="allow-same-origin"/);
 assert.match(adminJs, /publication_pending_approval/);
 assert.match(adminJs, /publish_work_candidate/);
