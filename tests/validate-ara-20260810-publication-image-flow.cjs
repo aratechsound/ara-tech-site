@@ -8,6 +8,7 @@ const adminHtml = read('admin.html');
 const adminJs = read('js/admin.js');
 const migration = read('supabase/migrations/20260810020000_work_candidate_image_publication_audit.sql');
 const pendingMigration = read('supabase/migrations/20260810010000_works_publication_pending_preview.sql');
+const restoreMigration = read('supabase/migrations/20260810030000_restore_pending_flyer_candidates.sql');
 const imageApi = require('../api/work-review-image.js');
 
 assert.match(adminHtml, /id="review-image-preview"/u);
@@ -38,6 +39,13 @@ assert.match(migration, /v_work\.image_publication_confirmed_at is null/u);
 assert.match(migration, /v_work\.image_publication_confirmed_by is null/u);
 assert.match(migration, /enable row level security/u);
 assert.match(migration, /grant select on public\.work_candidate_image_audit to authenticated/u);
+assert.match(restoreMigration, /v_target_count <> 3 or v_public_count <> 3/u);
+assert.equal((restoreMigration.match(/publication_pending_approval/gu) || []).length, 1);
+assert.equal((restoreMigration.match(/2026-08-14-bark-lagoon-hiroshima/gu) || []).length, 3);
+assert.equal((restoreMigration.match(/2026-08-28-cream-lagoon-hiroshima/gu) || []).length, 3);
+assert.equal((restoreMigration.match(/2026-09-11-ife-city-of-heaven-tour-lagoon-hiroshima/gu) || []).length, 3);
+assert.match(restoreMigration, /use_image_on_public_page = false/u);
+assert.doesNotMatch(restoreMigration, /verry/iu);
 
 assert.equal(imageApi.bearerToken({ headers: { authorization: 'Bearer admin-token' } }), 'admin-token');
 assert.throws(() => imageApi.bearerToken({ headers: {} }), /not_authorized/u);
