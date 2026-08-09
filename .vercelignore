@@ -24,8 +24,10 @@ assets/
 backups/
 plans/
 reports/
+scripts/
 supabase/
 tests/
+work/
 
 img - コピー/
 * - コピー.html

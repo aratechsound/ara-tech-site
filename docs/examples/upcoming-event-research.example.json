@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "workflow_id": "2027-01-15-sample-artist-example-hall",
+  "checked_on": "2027-01-01",
+  "resolved": {
+    "title": "SAMPLE ARTIST LIVE 2027",
+    "performer_name": "SAMPLE ARTIST",
+    "event_date": "2027-01-15",
+    "open_time": "18:00",
+    "start_time": "19:00",
+    "venue": "EXAMPLE HALL",
+    "area": "広島県広島市",
+    "venue_address": "広島県広島市中区1-2-3",
+    "organizer_name": "EXAMPLE HALL",
+    "ticket_information": "詳細は公式情報をご確認ください。",
+    "official_announcement_url": "https://example.com/events/sample-2027"
+  },
+  "official_sources": [
+    {
+      "type": "venue_official_web",
+      "label": "EXAMPLE HALL公式告知",
+      "url": "https://example.com/events/sample-2027",
+      "confirms": {
+        "event_date": "2027-01-15",
+        "venue": "EXAMPLE HALL",
+        "performer_or_event_name": "SAMPLE ARTIST"
+      }
+    }
+  ],
+  "conflicts": [],
+  "image": {
+    "status": "no_image_available",
+    "acquisition_method": "none",
+    "source_url": null,
+    "local_path": null,
+    "usage_permission": "not_confirmed",
+    "alt": "SAMPLE ARTIST LIVE 2027のフライヤー"
+  },
+  "research_notes": "これはfixture用の架空例です。"
+}
