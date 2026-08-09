@@ -12,17 +12,26 @@ const restoreMigration = read('supabase/migrations/20260810030000_restore_pendin
 const imageApi = require('../api/work-review-image.js');
 
 assert.match(adminHtml, /id="review-image-preview"/u);
-assert.match(adminHtml, /このフライヤーを公開ページに掲載する/u);
-assert.match(adminHtml, /代表による画像掲載の明示確認/u);
+assert.match(adminHtml, /id="post-omit-public-image"/u);
+assert.match(adminHtml, /画像を掲載しない/u);
+assert.match(adminHtml, /公開待ちのフライヤーは通常「公開する」だけで掲載されます/u);
+assert.doesNotMatch(adminHtml, /このフライヤーを公開ページに掲載する/u);
 assert.match(adminJs, /fetch\('\/api\/work-review-image'/u);
 assert.match(adminJs, /candidate_hash: post\.candidate_hash/u);
-assert.match(adminJs, /確認用フライヤーをARA-TECH側へ安全に保存しています/u);
-assert.match(adminJs, /await uploadFlyer\(file\)/u);
-assert.match(adminJs, /public_image_source_url: reviewImageUrl \|\| editingPost\?\.public_image_source_url \|\| null/u);
+assert.match(adminJs, /pendingDisplayedImages/u);
+assert.match(adminJs, /URL\.createObjectURL\(displayed\.file\)/u);
+assert.match(adminJs, /一覧で確認したフライヤーをARA-TECH側Storageへ保存しています/u);
+assert.match(adminJs, /await uploadFlyer\(displayed\.file\)/u);
+assert.match(adminJs, /\.eq\('candidate_hash', post\.candidate_hash\)/u);
+assert.match(adminJs, /p_candidate_hash: publishablePost\.candidate_hash/u);
+assert.match(adminJs, /public_image_source_url: displayed\.origin === 'review'/u);
 assert.match(adminJs, /public_image_sha256: publicImageSha256/u);
-assert.match(adminJs, /image_usage_status: pendingCandidate && usePublicImageInput\.checked \? 'confirmed'/u);
+assert.match(adminJs, /pendingImageOmitted \? 'not_permitted'/u);
+assert.match(adminJs, /image_usage_status: 'confirmed'/u);
 assert.match(adminJs, /if \(uploadedFlyerPath\) await supabase\.storage\.from\(WORKS_BUCKET\)\.remove/u);
-assert.match(adminJs, /確認用画像URLが未保存です/u);
+assert.match(adminJs, /一覧のフライヤーとStorage画像が一致しません/u);
+assert.match(adminJs, /公演情報・掲載文章・SEO/u);
+assert.match(adminJs, /候補SHA-256/u);
 
 assert.match(migration, /create table if not exists public\.work_candidate_image_audit/u);
 assert.match(migration, /'public_image_selected'/u);
@@ -104,6 +113,28 @@ const publicResolver = async () => [{ address: '93.184.216.34', family: 4 }];
     assert.deepEqual(downloaded.buffer, png);
     assert.match(downloaded.sha256, /^[0-9a-f]{64}$/u);
 
+    const stored = await imageApi.downloadStoredImage({
+        storagePath: 'flyers/pending.png',
+        expectedSha256: downloaded.sha256,
+        fetchImpl: async (url) => {
+            assert.match(String(url), /\/storage\/v1\/object\/public\/work-flyers\/flyers\/pending\.png$/u);
+            return new Response(png, {
+                status: 200,
+                headers: { 'content-type': 'image/png', 'content-length': String(png.length) }
+            });
+        }
+    });
+    assert.equal(stored.sha256, downloaded.sha256);
+    await assert.rejects(
+        imageApi.downloadStoredImage({
+            storagePath: 'flyers/pending.png',
+            expectedSha256: '0'.repeat(64),
+            fetchImpl: async () => new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+        }),
+        /image_hash_mismatch/u
+    );
+    assert.throws(() => imageApi.storageObjectUrl('flyers/../secret.png'), /image_source_invalid/u);
+
     await assert.rejects(
         imageApi.downloadImage({
             imageUrl: 'https://lagoon-hiroshima.com/flyer.svg',
@@ -117,7 +148,7 @@ const publicResolver = async () => [{ address: '93.184.216.34', family: 4 }];
         /image_type_invalid/u
     );
 
-    console.log('ARA-20260810 explicit pending flyer publication, Storage import, audit, and fail-closed validation passed');
+    console.log('ARA-20260810 one-click pending flyer publication, exact displayed bytes, Storage import, audit, and fail-closed validation passed');
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

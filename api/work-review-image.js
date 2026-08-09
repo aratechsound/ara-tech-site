@@ -8,6 +8,8 @@ const MAX_BODY_BYTES = 2_048;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const DEFAULT_SUPABASE_URL = 'https://kogbnremsouajxxsgxro.supabase.co';
+const WORKS_BUCKET = 'work-flyers';
 
 const bearerToken = (request) => {
     const match = String(request.headers?.authorization || '').match(/^Bearer ([^\s]+)$/u);
@@ -38,7 +40,7 @@ const parseBody = (request) => {
 const loadPendingWork = async (id, fetchImpl = fetch) => {
     const query = new URLSearchParams({
         id: `eq.${id}`,
-        select: 'id,title,candidate_hash,publication_review_status,is_published,review_image_url,official_announcement_url',
+        select: 'id,title,candidate_hash,publication_review_status,is_published,review_image_url,official_announcement_url,flyer_path,use_image_on_public_page,public_image_sha256',
         limit: '1'
     });
     const rows = await supabaseRequest(`/rest/v1/work_posts?${query}`, {}, fetchImpl);
@@ -131,6 +133,19 @@ const matchesImageSignature = (buffer, contentType) => {
     return false;
 };
 
+const responseImage = async (response) => {
+    if (!response.ok) throw new Error('image_download_failed');
+    const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!ALLOWED_IMAGE_TYPES.has(contentType)) throw new Error('image_type_invalid');
+    const buffer = await readLimitedBody(response);
+    if (!matchesImageSignature(buffer, contentType)) throw new Error('image_type_invalid');
+    return {
+        buffer,
+        contentType,
+        sha256: createHash('sha256').update(buffer).digest('hex')
+    };
+};
+
 const downloadImage = async ({ imageUrl, officialUrl, fetchImpl = fetch, resolver = lookup }) => {
     let current = await validateImageUrl(imageUrl, officialUrl, resolver);
     for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
@@ -149,18 +164,30 @@ const downloadImage = async ({ imageUrl, officialUrl, fetchImpl = fetch, resolve
             current = await validateImageUrl(new URL(location, current).href, officialUrl, resolver);
             continue;
         }
-        if (!response.ok) throw new Error('image_download_failed');
-        const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-        if (!ALLOWED_IMAGE_TYPES.has(contentType)) throw new Error('image_type_invalid');
-        const buffer = await readLimitedBody(response);
-        if (!matchesImageSignature(buffer, contentType)) throw new Error('image_type_invalid');
-        return {
-            buffer,
-            contentType,
-            sha256: createHash('sha256').update(buffer).digest('hex')
-        };
+        return responseImage(response);
     }
     throw new Error('image_redirect_invalid');
+};
+
+const storageObjectUrl = (storagePath) => {
+    const path = String(storagePath || '');
+    if (path.length > 500 || !/^flyers\/[A-Za-z0-9._/-]+$/u.test(path) || path.split('/').includes('..')) {
+        throw new Error('image_source_invalid');
+    }
+    const baseUrl = String(process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL).replace(/\/+$/u, '');
+    return `${baseUrl}/storage/v1/object/public/${WORKS_BUCKET}/${path.split('/').map(encodeURIComponent).join('/')}`;
+};
+
+const downloadStoredImage = async ({ storagePath, expectedSha256, fetchImpl = fetch }) => {
+    if (!/^[0-9a-f]{64}$/u.test(String(expectedSha256 || ''))) throw new Error('image_hash_mismatch');
+    const response = await fetchImpl(storageObjectUrl(storagePath), {
+        method: 'GET',
+        redirect: 'error',
+        headers: { accept: 'image/webp,image/png,image/jpeg;q=0.9,*/*;q=0.1' }
+    });
+    const image = await responseImage(response);
+    if (image.sha256 !== expectedSha256) throw new Error('image_hash_mismatch');
+    return image;
 };
 
 const sendText = (response, status, body) => {
@@ -182,10 +209,11 @@ module.exports = async (request, response) => {
         await verifyAdmin(bearerToken(request));
         const work = await loadPendingWork(id);
         if (work.candidate_hash !== candidateHash) return sendText(response, 409, 'Candidate changed');
-        const image = await downloadImage({
-            imageUrl: work.review_image_url,
-            officialUrl: work.official_announcement_url
-        });
+        const stored = Boolean(work.flyer_path && work.public_image_sha256
+            && (work.use_image_on_public_page || !work.review_image_url));
+        const image = stored
+            ? await downloadStoredImage({ storagePath: work.flyer_path, expectedSha256: work.public_image_sha256 })
+            : await downloadImage({ imageUrl: work.review_image_url, officialUrl: work.official_announcement_url });
         response.setHeader('Content-Type', image.contentType);
         response.setHeader('Content-Length', String(image.buffer.length));
         response.setHeader('Content-Disposition', 'inline');
@@ -193,13 +221,14 @@ module.exports = async (request, response) => {
         response.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
         response.setHeader('X-Content-Type-Options', 'nosniff');
         response.setHeader('X-ARA-Image-SHA256', image.sha256);
+        response.setHeader('X-ARA-Image-Origin', stored ? 'storage' : 'review');
         return response.status(200).send(image.buffer);
     } catch (error) {
         const code = String(error?.message || '');
         if (code === 'not_authorized') return sendText(response, 401, 'Unauthorized');
         if (code === 'invalid_input') return sendText(response, 400, 'Invalid input');
         if (code === 'not_found') return sendText(response, 404, 'Candidate not found');
-        if (/^image_(source_invalid|redirect_invalid|download_failed|too_large|type_invalid)$/u.test(code)) {
+        if (/^image_(source_invalid|redirect_invalid|download_failed|too_large|type_invalid|hash_mismatch)$/u.test(code)) {
             return sendText(response, 422, 'Image import unavailable');
         }
         console.error('work review image error', /^supabase_\d{3}$/u.test(code) ? code : 'internal_error');
@@ -211,8 +240,10 @@ module.exports.MAX_IMAGE_BYTES = MAX_IMAGE_BYTES;
 module.exports.bearerToken = bearerToken;
 module.exports.domainsAreRelated = domainsAreRelated;
 module.exports.downloadImage = downloadImage;
+module.exports.downloadStoredImage = downloadStoredImage;
 module.exports.isPrivateAddress = isPrivateAddress;
 module.exports.loadPendingWork = loadPendingWork;
 module.exports.matchesImageSignature = matchesImageSignature;
 module.exports.parseBody = parseBody;
 module.exports.validateImageUrl = validateImageUrl;
+module.exports.storageObjectUrl = storageObjectUrl;
