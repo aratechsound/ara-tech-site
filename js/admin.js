@@ -87,6 +87,7 @@ const publishingCandidateIds = new Set();
 
 const PENDING_STATUS = 'publication_pending_approval';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
+const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
 
 const roleLabels = {
@@ -229,6 +230,7 @@ const getLifecycleState = (post) => post.lifecycle_status === 'upcoming'
 const updateSaveButton = () => {
     if (isPendingCandidate(editingPost)) { saveButton.textContent = '公開待ちを保存'; return; }
     if (editingPost) { saveButton.textContent = '変更を保存'; return; }
+    if (isCreatingPendingCandidate()) { saveButton.textContent = '公開待ち候補として保存'; return; }
     if (publicationMode.value === 'scheduled') { saveButton.textContent = '予約して保存'; return; }
     if (publicationMode.value === 'now') { saveButton.textContent = '公開して保存'; return; }
     saveButton.textContent = '下書き保存';
@@ -236,24 +238,28 @@ const updateSaveButton = () => {
 
 const updatePublicationControls = () => {
     const candidate = isPendingCandidate(editingPost);
+    const creatingCandidate = isCreatingPendingCandidate();
+    const pendingForm = candidate || creatingCandidate;
     publicationModeField.classList.toggle('hidden', candidate);
     publicationMode.disabled = candidate;
-    lifecycleStatusInput.disabled = candidate;
-    imageUsageStatusInput.disabled = candidate;
-    imageUsageStatusField.classList.toggle('hidden', candidate);
-    standardPublicImageChoice.classList.toggle('hidden', candidate);
+    lifecycleStatusInput.disabled = pendingForm;
+    imageUsageStatusInput.disabled = pendingForm;
+    imageUsageStatusField.classList.toggle('hidden', pendingForm);
+    standardPublicImageChoice.classList.toggle('hidden', pendingForm);
     pendingImageOmitChoice.classList.toggle('hidden', !candidate);
     omitPublicImageInput.disabled = !candidate;
     candidateContext.classList.toggle('hidden', !candidate);
     candidateActions.classList.toggle('hidden', !candidate);
+    if (pendingForm) {
+        lifecycleStatusInput.value = 'upcoming';
+    }
     if (candidate) {
         publicationMode.value = 'draft';
-        lifecycleStatusInput.value = 'upcoming';
         candidateHash.textContent = `候補ハッシュ：${editingPost.candidate_hash || '再読み込みが必要です'}`;
     } else {
         candidateHash.textContent = '';
     }
-    const isScheduled = !candidate && publicationMode.value === 'scheduled';
+    const isScheduled = !pendingForm && publicationMode.value === 'scheduled';
     publishAtField.classList.toggle('hidden', !isScheduled);
     publishAtInput.required = isScheduled;
     if (!isScheduled) publishAtInput.value = '';
@@ -961,7 +967,7 @@ if (!isSupabaseConfigured) {
         const selectedFile = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
         const category = $('#post-category').value;
-        const pendingCandidate = isPendingCandidate(editingPost);
+        const pendingCandidate = isPendingCandidate(editingPost) || isCreatingPendingCandidate();
         const pendingImageOmitted = pendingCandidate && omitPublicImageInput.checked;
         if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
         if (!isAllowedWorkCategory(category)) { setMessage(postStatus, '実績カテゴリーを選択してください。', 'error'); return; }
@@ -984,7 +990,7 @@ if (!isSupabaseConfigured) {
             setMessage(postStatus, '画像を差し替える場合は「画像を掲載しない」を解除してください。', 'error');
             return;
         }
-        if (lifecycleStatus === 'upcoming' && isPublishing) {
+        if (lifecycleStatus === 'upcoming' && (isPublishing || pendingCandidate)) {
             const officialUrl = officialAnnouncementUrlInput.value.trim();
             let officialUrlIsValid = false;
             try { officialUrlIsValid = new URL(officialUrl).protocol === 'https:'; } catch { officialUrlIsValid = false; }
