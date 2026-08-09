@@ -107,7 +107,7 @@ assert.doesNotMatch(adminJs, /!editingPost && !file/);
 assert.match(adminJs, /lifecycle_status: lifecycleStatus/);
 assert.match(adminJs, /開催予定を公開するには、アーティスト名またはイベント名・開催日・会場・地域・担当内容・HTTPSの公式告知URL・告知解禁確認日が必要です/);
 assert.match(adminJs, /開催予定の開催日に過去の日付は指定できません/);
-assert.match(adminJs, /flyerPath \? flyerAltInput\.value\.trim\(\) \|\| `\$\{title\}のフライヤー` : null/);
+assert.match(adminJs, /flyerAltInput\.value\.trim\(\) \|\| \(flyerPath \|\| reviewImageUrl \? `\$\{title\}のフライヤー` : null\)/);
 assert.match(worksHtml, /id="upcoming"/);
 assert.match(worksHtml, /ARA-TECHは掲載イベントの主催者ではありません/);
 assert.match(worksJs, /data\.filter\(isUpcomingWork\)/);

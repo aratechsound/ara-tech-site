@@ -17,6 +17,8 @@ const loginStatus = $('#login-status');
 const postForm = $('#post-form');
 const postStatus = $('#post-status');
 const postList = $('#admin-posts');
+const pendingList = $('#pending-posts');
+const pendingCount = $('#pending-count');
 const flyerInput = $('#post-flyer');
 const flyerPreview = $('#flyer-preview');
 const cancelEdit = $('#cancel-edit');
@@ -50,12 +52,35 @@ const organizerNameInput = $('#post-organizer-name');
 const officialAnnouncementUrlInput = $('#post-official-announcement-url');
 const announcementConfirmedOnInput = $('#post-announcement-confirmed-on');
 const flyerAltInput = $('#post-flyer-alt');
+const openTimeInput = $('#post-open-time');
+const startTimeInput = $('#post-start-time');
+const seoTitleInput = $('#post-seo-title');
+const metaDescriptionInput = $('#post-meta-description');
+const reviewImageUrlInput = $('#post-review-image-url');
+const reviewImageMethodInput = $('#post-review-image-method');
+const reviewImagePreview = $('#review-image-preview');
+const imageUsageStatusInput = $('#post-image-usage-status');
+const usePublicImageInput = $('#post-use-public-image');
+const publicationModeField = $('#publication-mode-field');
+const candidateContext = $('#candidate-context');
+const candidateHash = $('#candidate-hash');
+const candidateActions = $('#candidate-actions');
+const previewCandidateButton = $('#preview-candidate');
+const publishCandidateButton = $('#publish-candidate');
+const rejectCandidateButton = $('#reject-candidate');
+const previewDialog = $('#preview-dialog');
+const previewFrame = $('#preview-frame');
 const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
 
 let supabase;
 let posts = [];
 let editingPost = null;
 let slugWasEdited = false;
+let candidateFormDirty = false;
+
+const PENDING_STATUS = 'publication_pending_approval';
+const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
+const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
 
 const roleLabels = {
     artist_pa_operation: 'ARTIST PA OPERATION ｜ アーティストPA・音響オペレート',
@@ -195,6 +220,7 @@ const getLifecycleState = (post) => post.lifecycle_status === 'upcoming'
     : { className: 'published', label: '終了済み' };
 
 const updateSaveButton = () => {
+    if (isPendingCandidate(editingPost)) { saveButton.textContent = '公開待ちを保存'; return; }
     if (editingPost) { saveButton.textContent = '変更を保存'; return; }
     if (publicationMode.value === 'scheduled') { saveButton.textContent = '予約して保存'; return; }
     if (publicationMode.value === 'now') { saveButton.textContent = '公開して保存'; return; }
@@ -202,7 +228,20 @@ const updateSaveButton = () => {
 };
 
 const updatePublicationControls = () => {
-    const isScheduled = publicationMode.value === 'scheduled';
+    const candidate = isPendingCandidate(editingPost);
+    publicationModeField.classList.toggle('hidden', candidate);
+    publicationMode.disabled = candidate;
+    lifecycleStatusInput.disabled = candidate;
+    candidateContext.classList.toggle('hidden', !candidate);
+    candidateActions.classList.toggle('hidden', !candidate);
+    if (candidate) {
+        publicationMode.value = 'draft';
+        lifecycleStatusInput.value = 'upcoming';
+        candidateHash.textContent = `候補ハッシュ：${editingPost.candidate_hash || '再読み込みが必要です'}`;
+    } else {
+        candidateHash.textContent = '';
+    }
+    const isScheduled = !candidate && publicationMode.value === 'scheduled';
     publishAtField.classList.toggle('hidden', !isScheduled);
     publishAtInput.required = isScheduled;
     if (!isScheduled) publishAtInput.value = '';
@@ -216,6 +255,7 @@ const isAdmin = async (user) => {
 
 const resetPostForm = () => {
     editingPost = null;
+    candidateFormDirty = false;
     postForm.reset();
     $('#post-category').value = '';
     loadClassification();
@@ -223,11 +263,15 @@ const resetPostForm = () => {
     supportRoleInput.checked = false;
     updateRoleFields();
     publicationMode.value = 'draft';
+    publicationMode.disabled = false;
+    lifecycleStatusInput.disabled = false;
     templateSelect.value = '';
     updatePublicationControls();
     prepareNewSlug();
     flyerPreview.removeAttribute('src');
     flyerPreview.classList.add('hidden');
+    reviewImagePreview.removeAttribute('src');
+    reviewImagePreview.classList.add('hidden');
     formTitle.textContent = '新しい掲載ページを追加';
     cancelEdit.classList.add('hidden');
     clearMessage(postStatus);
@@ -238,6 +282,16 @@ const setPreview = (source) => {
     if (!source) { flyerPreview.removeAttribute('src'); flyerPreview.classList.add('hidden'); return; }
     flyerPreview.src = source;
     flyerPreview.classList.remove('hidden');
+};
+
+const setReviewImagePreview = (source) => {
+    if (!source) {
+        reviewImagePreview.removeAttribute('src');
+        reviewImagePreview.classList.add('hidden');
+        return;
+    }
+    reviewImagePreview.src = source;
+    reviewImagePreview.classList.remove('hidden');
 };
 
 const uploadFlyer = async (file) => {
@@ -271,7 +325,7 @@ const populateHistories = () => {
     initial.value = '';
     initial.textContent = '過去の投稿を選んで入力内容をコピー';
     templateSelect.append(initial);
-    posts.forEach((post) => {
+    posts.filter((post) => !isPendingCandidate(post)).forEach((post) => {
         const option = document.createElement('option');
         option.value = post.id;
         const details = [post.operation_artists || post.support_artists || post.artists ? '担当情報あり' : '', post.event_date ? formatDate(post.event_date) : ''].filter(Boolean).join(' ｜ ');
@@ -287,6 +341,8 @@ const copyFromPost = (id) => {
     editingPost = null;
     $('#post-title').value = source.title || '';
     $('#post-date').value = source.event_date || '';
+    openTimeInput.value = toTimeInput(source.open_time);
+    startTimeInput.value = toTimeInput(source.start_time);
     lifecycleStatusInput.value = source.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     $('#post-category').value = source.category || 'WORKS';
     loadClassification(source);
@@ -300,6 +356,13 @@ const copyFromPost = (id) => {
     announcementConfirmedOnInput.value = source.announcement_confirmed_on || '';
     $('#post-description').value = source.description || '';
     flyerAltInput.value = source.flyer_alt || '';
+    seoTitleInput.value = '';
+    metaDescriptionInput.value = '';
+    reviewImageUrlInput.value = '';
+    reviewImageMethodInput.value = '';
+    imageUsageStatusInput.value = 'unknown';
+    usePublicImageInput.checked = false;
+    setReviewImagePreview('');
     prepareNewSlug();
     publicationMode.value = 'draft';
     publishAtInput.value = '';
@@ -313,10 +376,84 @@ const copyFromPost = (id) => {
     postForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
+const imageUsageLabel = (value) => ({
+    confirmed: { label: '画像利用確認済み', className: 'confirmed' },
+    not_permitted: { label: '公開画像に使用しない', className: 'not-permitted' },
+    unknown: { label: '画像利用未確認', className: 'unknown' }
+}[value] || { label: '画像利用未確認', className: 'unknown' });
+
+const renderPendingPosts = () => {
+    pendingList.replaceChildren();
+    const candidates = posts.filter(isPendingCandidate)
+        .sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));
+    pendingCount.textContent = `${candidates.length}件`;
+    if (!candidates.length) {
+        pendingList.textContent = '現在、公開待ちの候補はありません。';
+        return;
+    }
+    candidates.forEach((post) => {
+        const row = document.createElement('article');
+        row.className = 'pending-row';
+        const image = document.createElement('img');
+        const reviewImage = post.review_image_url || (post.flyer_path ? fileUrl(post.flyer_path) : '');
+        if (reviewImage) {
+            image.src = reviewImage;
+            image.alt = post.flyer_alt || `${post.title}の確認用フライヤー`;
+        } else {
+            image.src = 'img/cta-bg.jpg';
+            image.alt = '確認用画像なし';
+        }
+        const body = document.createElement('div');
+        const title = document.createElement('h3');
+        title.textContent = post.title;
+        const status = document.createElement('span');
+        status.className = 'status status--pending';
+        status.textContent = '公開待ち';
+        title.append(status);
+        const usage = imageUsageLabel(post.image_usage_status);
+        const usageBadge = document.createElement('span');
+        usageBadge.className = `status status--${usage.className}`;
+        usageBadge.textContent = usage.label;
+        title.append(usageBadge);
+        const performer = document.createElement('p');
+        performer.className = 'pending-meta';
+        performer.textContent = `アーティスト：${post.performer_name || '未設定'}`;
+        const assignmentLabels = getAssignmentItemLabels(post.assignment_items);
+        const meta = document.createElement('p');
+        meta.className = 'pending-meta';
+        meta.textContent = [formatDate(post.event_date), post.venue, assignmentLabels.length ? assignmentLabels.join('、') : '担当未設定'].filter(Boolean).join(' ｜ ');
+        const imageState = document.createElement('p');
+        imageState.className = 'pending-meta';
+        imageState.textContent = `${reviewImage ? '確認用画像あり' : '確認用画像なし'} ｜ 公開画像：${post.use_image_on_public_page ? 'ON' : 'OFF'}`;
+        const source = document.createElement('a');
+        source.className = 'pending-source';
+        source.href = post.official_announcement_url;
+        source.target = '_blank';
+        source.rel = 'external noopener noreferrer';
+        source.textContent = `公式情報元：${post.official_announcement_url || '未設定'}`;
+        body.append(title, performer, meta, imageState, source);
+        const actions = document.createElement('div');
+        actions.className = 'pending-actions';
+        const preview = document.createElement('button');
+        preview.className = 'button button--secondary'; preview.type = 'button'; preview.textContent = 'プレビュー';
+        preview.addEventListener('click', () => previewPendingCandidate(post.id));
+        const edit = document.createElement('button');
+        edit.className = 'button button--secondary'; edit.type = 'button'; edit.textContent = '編集';
+        edit.addEventListener('click', () => beginEdit(post.id));
+        const publish = document.createElement('button');
+        publish.className = 'button'; publish.type = 'button'; publish.textContent = '公開する';
+        publish.addEventListener('click', () => publishPendingCandidate(post.id));
+        actions.append(preview, edit, publish);
+        row.append(image, body, actions);
+        pendingList.append(row);
+    });
+};
+
 const renderPosts = () => {
     postList.replaceChildren();
-    if (!posts.length) { postList.textContent = 'まだ登録された実績はありません。'; return; }
-    posts.forEach((post) => {
+    const savedPosts = posts.filter((post) => !isPendingCandidate(post));
+    if (!savedPosts.length) { postList.textContent = 'まだ登録された実績はありません。'; return; }
+    savedPosts.forEach((post) => {
         const row = document.createElement('article');
         row.className = 'post-row';
         const image = post.flyer_path ? document.createElement('img') : document.createElement('div');
@@ -413,7 +550,8 @@ const renderPosts = () => {
         const remove = document.createElement('button');
         remove.className = 'button button--danger'; remove.type = 'button'; remove.textContent = '削除';
         remove.addEventListener('click', () => deletePost(post.id));
-        actions.append(edit, remove);
+        actions.append(edit);
+        if (!post.is_published) actions.append(remove);
         row.append(image, body, actions);
         postList.append(row);
     });
@@ -424,14 +562,18 @@ const loadPosts = async () => {
     if (error) { setMessage(postStatus, '投稿一覧を読み込めませんでした。設定を確認してください。', 'error'); return; }
     posts = data || [];
     populateHistories();
+    renderPendingPosts();
     renderPosts();
 };
 
 const beginEdit = (id) => {
     editingPost = posts.find((post) => post.id === id);
     if (!editingPost) return;
+    candidateFormDirty = false;
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
+    openTimeInput.value = toTimeInput(editingPost.open_time);
+    startTimeInput.value = toTimeInput(editingPost.start_time);
     lifecycleStatusInput.value = editingPost.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     $('#post-category').value = editingPost.category || 'WORKS';
     loadClassification(editingPost);
@@ -445,12 +587,21 @@ const beginEdit = (id) => {
     announcementConfirmedOnInput.value = editingPost.announcement_confirmed_on || '';
     $('#post-description').value = editingPost.description || '';
     flyerAltInput.value = editingPost.flyer_alt || '';
+    seoTitleInput.value = editingPost.seo_title || '';
+    metaDescriptionInput.value = editingPost.meta_description || '';
+    reviewImageUrlInput.value = editingPost.review_image_url || '';
+    reviewImageMethodInput.value = editingPost.review_image_acquisition_method || '';
+    imageUsageStatusInput.value = editingPost.image_usage_status || 'unknown';
+    usePublicImageInput.checked = editingPost.use_image_on_public_page === true;
     prepareExistingSlug(editingPost.slug);
     publicationMode.value = !editingPost.is_published ? 'draft' : (editingPost.publish_at && new Date(editingPost.publish_at).getTime() > Date.now() ? 'scheduled' : 'now');
     publishAtInput.value = toLocalDateTimeInput(editingPost.publish_at);
     templateSelect.value = '';
     setPreview(fileUrl(editingPost.flyer_path));
-    formTitle.textContent = editingPost.lifecycle_status === 'upcoming' ? '開催予定を編集' : '実績を編集';
+    setReviewImagePreview(editingPost.review_image_url || '');
+    formTitle.textContent = isPendingCandidate(editingPost)
+        ? '公開待ち候補を編集'
+        : editingPost.lifecycle_status === 'upcoming' ? '開催予定を編集' : '実績を編集';
     cancelEdit.classList.remove('hidden');
     clearMessage(postStatus);
     updatePublicationControls();
@@ -459,12 +610,108 @@ const beginEdit = (id) => {
 
 const deletePost = async (id) => {
     const post = posts.find((item) => item.id === id);
+    if (post?.is_published) {
+        setMessage(postStatus, '公開済み実績はこの画面から削除できません。必要な場合は状態を確認して別途対応してください。', 'error');
+        return;
+    }
+    if (isPendingCandidate(post)) {
+        await rejectPendingCandidate(id);
+        return;
+    }
     if (!post || !window.confirm(`「${post.title}」を削除しますか？`)) return;
     const { error } = await supabase.from('work_posts').delete().eq('id', id);
     if (error) { setMessage(postStatus, '削除できませんでした。', 'error'); return; }
     if (post.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([post.flyer_path]);
     if (editingPost?.id === id) resetPostForm();
     await loadPosts();
+};
+
+const previewPendingCandidate = async (id) => {
+    const post = posts.find((item) => item.id === id);
+    if (!isPendingCandidate(post)) return;
+    if (editingPost?.id === id && candidateFormDirty) {
+        setMessage(postStatus, '未保存の変更があります。先に「公開待ちを保存」を実行してからプレビューしてください。', 'error');
+        return;
+    }
+    clearMessage(postStatus);
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('ログイン状態を確認できません。再ログインしてください。');
+        const response = await fetch('/api/work-preview', {
+            method: 'POST',
+            headers: {
+                authorization: `Bearer ${session.access_token}`,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({ id })
+        });
+        if (!response.ok) throw new Error('プレビューを生成できませんでした。保存状態とログイン状態を確認してください。');
+        previewFrame.classList.remove('preview-frame--mobile');
+        previewFrame.srcdoc = await response.text();
+        previewDialog.showModal();
+    } catch (error) {
+        setMessage(postStatus, error.message || 'プレビューを表示できませんでした。', 'error');
+    }
+};
+
+const publishResultMessage = (result) => ({
+    candidate_changed: '候補が編集されています。最新内容を再読み込みしてから、もう一度確認してください。',
+    validation_failed: '必須項目が不足しています。内容を編集・保存してから公開してください。',
+    event_date_past: '開催日が過去になっています。終了済み実績として扱うか確認してください。',
+    image_not_approved: '公開画像を使用するには、画像利用確認済み・公開画像ありの両方が必要です。',
+    invalid_state: 'この候補は現在公開できない状態です。',
+    not_authorized: '公開権限を確認できません。再ログインしてください。',
+    not_found: '公開待ち候補が見つかりません。'
+}[result] || '公開処理を完了できませんでした。');
+
+const publishPendingCandidate = async (id) => {
+    const post = posts.find((item) => item.id === id);
+    if (!isPendingCandidate(post)) return;
+    if (editingPost?.id === id && candidateFormDirty) {
+        setMessage(postStatus, '未保存の変更があります。先に保存・プレビューしてから公開してください。', 'error');
+        return;
+    }
+    const confirmation = `「${post.title}」を開催予定として公開します。よろしいですか？`;
+    if (!window.confirm(confirmation)) return;
+    clearMessage(postStatus);
+    publishCandidateButton.disabled = true;
+    try {
+        const { data, error } = await supabase.rpc('publish_work_candidate', {
+            p_work_id: post.id,
+            p_candidate_hash: post.candidate_hash
+        });
+        if (error) throw error;
+        const result = Array.isArray(data) ? data[0] : data;
+        if (result?.result !== 'published') {
+            await loadPosts();
+            throw new Error(publishResultMessage(result?.result));
+        }
+        resetPostForm();
+        await loadPosts();
+        setMessage(postStatus, `公開しました：${workUrl(result.public_slug)}`);
+    } catch (error) {
+        setMessage(postStatus, error.message || '公開できませんでした。', 'error');
+    } finally {
+        publishCandidateButton.disabled = false;
+    }
+};
+
+const rejectPendingCandidate = async (id) => {
+    const post = posts.find((item) => item.id === id);
+    if (!isPendingCandidate(post)) return;
+    if (!window.confirm(`「${post.title}」を見送りますか？公開は行わず、既存の公開実績は削除しません。`)) return;
+    clearMessage(postStatus);
+    try {
+        const { data, error } = await supabase.rpc('reject_work_candidate', { p_work_id: post.id });
+        if (error) throw error;
+        const result = Array.isArray(data) ? data[0] : data;
+        if (result?.result !== 'rejected') throw new Error('見送り処理を完了できませんでした。');
+        if (editingPost?.id === id) resetPostForm();
+        await loadPosts();
+        setMessage(postStatus, '候補を見送りました。本番公開は行っていません。');
+    } catch (error) {
+        setMessage(postStatus, error.message || '見送り処理に失敗しました。', 'error');
+    }
 };
 
 const showDashboard = async (user) => {
@@ -508,6 +755,10 @@ if (!isSupabaseConfigured) {
         const file = flyerInput.files?.[0];
         setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
     });
+    reviewImageUrlInput.addEventListener('input', () => setReviewImagePreview(reviewImageUrlInput.value.trim()));
+    imageUsageStatusInput.addEventListener('change', () => {
+        if (imageUsageStatusInput.value !== 'confirmed') usePublicImageInput.checked = false;
+    });
 
     templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
     $('#post-title').addEventListener('input', refreshGeneratedSlug);
@@ -522,7 +773,11 @@ if (!isSupabaseConfigured) {
         updateSlugPreview();
     });
     unlockSlugButton.addEventListener('click', () => {
-        if (!editingPost || !window.confirm('公開URLを変更すると、現在のURLは使えなくなります。変更しますか？')) return;
+        if (!editingPost) return;
+        const message = isPendingCandidate(editingPost)
+            ? '公開前のURL案を変更しますか？変更後は候補ハッシュが更新されます。'
+            : '公開URLを変更すると、現在のURLは使えなくなります。変更しますか？';
+        if (!window.confirm(message)) return;
         slugInput.readOnly = false;
         slugWasEdited = true;
         unlockSlugButton.classList.add('hidden');
@@ -532,6 +787,19 @@ if (!isSupabaseConfigured) {
     supportRoleInput.addEventListener('change', updateRoleFields);
     publicationMode.addEventListener('change', updatePublicationControls);
     publishAtInput.addEventListener('input', updateSaveButton);
+    previewCandidateButton.addEventListener('click', () => editingPost && previewPendingCandidate(editingPost.id));
+    publishCandidateButton.addEventListener('click', () => editingPost && publishPendingCandidate(editingPost.id));
+    rejectCandidateButton.addEventListener('click', () => editingPost && rejectPendingCandidate(editingPost.id));
+    $('#close-preview').addEventListener('click', () => previewDialog.close());
+    $('#preview-desktop').addEventListener('click', () => previewFrame.classList.remove('preview-frame--mobile'));
+    $('#preview-mobile').addEventListener('click', () => previewFrame.classList.add('preview-frame--mobile'));
+    previewDialog.addEventListener('close', () => { previewFrame.srcdoc = ''; });
+    postForm.addEventListener('input', () => {
+        if (isPendingCandidate(editingPost)) candidateFormDirty = true;
+    });
+    postForm.addEventListener('change', () => {
+        if (isPendingCandidate(editingPost)) candidateFormDirty = true;
+    });
 
     postForm.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -539,10 +807,32 @@ if (!isSupabaseConfigured) {
         const file = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
         const category = $('#post-category').value;
+        const pendingCandidate = isPendingCandidate(editingPost);
         if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
         if (!isAllowedWorkCategory(category)) { setMessage(postStatus, '実績カテゴリーを選択してください。', 'error'); return; }
         const lifecycleStatus = lifecycleStatusInput.value === 'upcoming' ? 'upcoming' : 'completed';
-        const isPublishing = publicationMode.value !== 'draft';
+        const isPublishing = !pendingCandidate && publicationMode.value !== 'draft';
+        const reviewImageUrl = reviewImageUrlInput.value.trim();
+        if (reviewImageUrl) {
+            try {
+                if (new URL(reviewImageUrl).protocol !== 'https:') throw new Error();
+            } catch {
+                setMessage(postStatus, '管理画面の確認用画像URLはHTTPSのURLを入力してください。', 'error');
+                return;
+            }
+        }
+        if (usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed') {
+            setMessage(postStatus, '公開ページで画像を使用する場合は、画像利用確認状態を「利用確認済み」にしてください。', 'error');
+            return;
+        }
+        if (pendingCandidate && file && !usePublicImageInput.checked) {
+            setMessage(postStatus, '選択したファイルは公開用画像です。公開しない場合はファイル選択を解除してください。', 'error');
+            return;
+        }
+        if (pendingCandidate && usePublicImageInput.checked && !file && !editingPost?.flyer_path) {
+            setMessage(postStatus, '公開ページで画像を使用するには、公開用フライヤー画像を選択してください。', 'error');
+            return;
+        }
         if (lifecycleStatus === 'upcoming' && isPublishing) {
             const officialUrl = officialAnnouncementUrlInput.value.trim();
             let officialUrlIsValid = false;
@@ -587,7 +877,7 @@ if (!isSupabaseConfigured) {
 
             uploadedFlyerPath = file ? await uploadFlyer(file) : null;
             const flyerPath = uploadedFlyerPath || editingPost?.flyer_path || null;
-            const isPublished = publicationMode.value !== 'draft';
+            const isPublished = !pendingCandidate && publicationMode.value !== 'draft';
             const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
             const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
             const supportArtists = supportRoleInput.checked ? supportArtistsInput.value.trim() || null : null;
@@ -595,6 +885,8 @@ if (!isSupabaseConfigured) {
             const payload = {
                 title, slug, event_date: $('#post-date').value || null, category,
                 lifecycle_status: lifecycleStatus,
+                open_time: openTimeInput.value || null,
+                start_time: startTimeInput.value || null,
                 performer_name: performerNameInput.value.trim() || null,
                 area: areaInput.value.trim() || null,
                 venue_address: venueAddressInput.value.trim() || null,
@@ -609,8 +901,16 @@ if (!isSupabaseConfigured) {
                 operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
-                flyer_alt: flyerPath ? flyerAltInput.value.trim() || `${title}のフライヤー` : null, is_published: isPublished,
-                publish_at: publicationMode.value === 'scheduled' ? toIsoDateTime(publishAtInput.value) : null
+                flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
+                review_image_url: reviewImageUrl || null,
+                review_image_acquisition_method: reviewImageMethodInput.value.trim() || null,
+                image_usage_status: imageUsageStatusInput.value || 'unknown',
+                use_image_on_public_page: usePublicImageInput.checked,
+                seo_title: seoTitleInput.value.trim() || null,
+                meta_description: metaDescriptionInput.value.trim() || null,
+                publication_review_status: pendingCandidate ? PENDING_STATUS : editingPost?.publication_review_status || null,
+                is_published: isPublished,
+                publish_at: !pendingCandidate && publicationMode.value === 'scheduled' ? toIsoDateTime(publishAtInput.value) : null
             };
             const result = editingPost
                 ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id).select('id, slug').single()
@@ -619,12 +919,13 @@ if (!isSupabaseConfigured) {
             if (file && editingPost?.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([editingPost.flyer_path]);
             const publication = getPublicationState(payload);
             const savedUrl = workUrl(result.data.slug);
-            resetPostForm();
             await loadPosts();
+            if (pendingCandidate) beginEdit(result.data.id);
+            else resetPostForm();
             setMessage(postStatus, publication.className === 'scheduled'
                 ? `予約投稿を保存しました。公開後のURL：${savedUrl}`
                 : publication.className === 'draft'
-                    ? `下書きを保存しました。公開後のURL：${savedUrl}`
+                    ? `${pendingCandidate ? '公開待ち候補' : '下書き'}を保存しました。公開後のURL：${savedUrl}`
                     : `保存しました。公開URL：${savedUrl}`);
         } catch (error) {
             if (uploadedFlyerPath) await supabase.storage.from(WORKS_BUCKET).remove([uploadedFlyerPath]);

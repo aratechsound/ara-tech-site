@@ -71,7 +71,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
         let media;
-        if (post.flyer_path) {
+        if (post.flyer_path && post.use_image_on_public_page !== false) {
             const originalImageUrl = publicFlyerUrl(post.flyer_path);
             const image = document.createElement('img');
             image.srcset = [320, 480, 640]
@@ -256,12 +256,12 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on';
+        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
         const legacyFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error
             && ['42703', 'PGRST204'].includes(error.code)
-            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on/.test(error.message || '');
+            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on|use_image_on_public_page/.test(error.message || '');
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         const upcomingPosts = data.filter(isUpcomingWork).sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));

@@ -2,9 +2,9 @@
 
 ## 目的と境界
 
-代表から「2026年8月14日、BURK、Club L2、PA担当。開催予定に追加」のような短い指示を受け、Codexが公式情報の調査、掲載候補の生成、公開前レビューまで進める。レビュー表示後の明示承認があるまで、本番DB・Storage・管理画面には一切書き込まない。
+代表から「2026年8月14日、BURK、Club L2、PA担当。開催予定に追加」のような短い指示を受け、Codexが公式情報の調査、掲載候補の生成、認証済み管理画面の「公開待ち」への登録まで進める。公開待ちデータは非公開で、代表が管理画面の「公開する」を実行するまで一般公開しない。
 
-最初の依頼に含まれる「追加」「登録」は公開承認ではない。候補ハッシュ付きの公開予定内容を表示した後、別のユーザーメッセージで「OK」「公開して」「それでいい」等を受ける必要がある。
+最初の依頼に含まれる「追加」「登録」は公開承認ではない。最終承認は、認証済み管理画面に表示された候補を確認し、確認ダイアログを経て「公開する」を実行した操作だけとする。
 
 ## 1. 調査ブリーフを作る
 
@@ -49,7 +49,7 @@ node scripts/add-upcoming-event.mjs prepare `
 
 `candidate.json`、`review.md`、`state.json` が作られる。正常時の状態は `PUBLICATION_PENDING_APPROVAL`。この段階のDBペイロードは必ず `is_published: false` であり、CLIはネットワーク接続も本番更新も行わない。
 
-`review.md` の全文を代表へ表示し、「この内容で公開してよいか」を確認して停止する。
+調査内容を確認後、既存の認証と権限を使って候補を `work_posts` の `publication_review_status = PUBLICATION_PENDING_APPROVAL` として登録する。一般公開一覧・詳細・sitemapには出ない。レビュー用外部画像は `review_image_url` に保持し、利用確認済みでない限り `use_image_on_public_page = false` とする。
 
 ## 4. 修正する
 
@@ -59,31 +59,24 @@ node scripts/add-upcoming-event.mjs prepare `
 node scripts/add-upcoming-event.mjs revise --candidate <candidate.json> --patch <patch.json>
 ```
 
-修正すると候補ハッシュが変わり、以前の承認は無効になる。日付、タイトル、出演者、会場、公式URLを変えた場合は `RESEARCH_RECHECK_REQUIRED` になり、公式情報の再照合が必要。
+管理画面またはCLIで修正すると候補ハッシュが変わり、以前の承認ハッシュ・承認者・承認日時はDBトリガーにより無効になる。日付、タイトル、出演者、会場、公式URLを変えた場合は公式情報を再照合する。
 
-## 5. 明示承認後だけ公開用ペイロードを出す
+## 5. 既存管理画面でレビューする
 
-代表がレビュー後に明示承認したターンでのみ実行する。
+認証済み `https://ara-tech.cc/admin.html` の「公開待ち」から候補を開く。
 
-```powershell
-node scripts/add-upcoming-event.mjs approve --candidate <candidate.json> --approval "OK"
-node scripts/add-upcoming-event.mjs export --candidate <candidate.json> --approval-file <approval.json>
-```
-
-承認は候補SHA-256に紐づく。候補が1文字でも変わると `export` は失敗する。`export` 自体も本番更新を行わず、承認済み `publication-payload.json` を作るだけ。
-
-本番DBの `announcement_confirmed_on` には、Codexの調査日ではなく、公式リンクを含む候補を代表が承認した日を設定する。
-
-## 6. 既存管理画面で公開する
-
-承認済みペイロードだけを、既存の認証済み `https://ara-tech.cc/admin.html` へCodexが入力する。
-
-- 状態は「開催予定」
-- 公開方法は「今すぐ公開」または代表が承認した予約日時
-- 画像は `image_upload` が存在し、利用確認済みの場合だけ既存Storage経路でアップロード
-- slugの重複を管理画面で確認
-- slug重複で公開URL案を変える必要がある場合は、候補を修正して新しいURL案を再表示し、再承認を受ける
+- 「プレビュー」は認証済みAPIから生成され、`noindex`・`no-store` の管理画面内iframeだけで表示する
+- 「編集」「保存」で修正し、保存後の新しい候補ハッシュを確認する
+- 確認用画像と一般公開画像は分離する
+- 画像利用確認が「確認済み」で、公開画像がStorageにある場合だけ「公開ページで画像を使用」をONにする
+- 「見送り」は候補だけを非公開のまま見送りにし、既存公開実績は削除しない
 - サービスロールキーや認証回避は使わない
+
+## 6. 管理画面から明示承認して公開する
+
+最終内容をプレビューした代表が「公開する」を押し、確認ダイアログに同意した操作だけを承認とする。公開RPCは画面が送った候補SHA-256とDBの最新SHA-256を照合し、一致しない場合は公開しない。成功時に `approved_hash`、承認者、承認日時を記録し、その同じ行を公開状態へ変更する。
+
+本番DBの `announcement_confirmed_on` には、この最終公開操作の日を設定する。
 
 ## 7. 公開後確認
 
@@ -91,4 +84,4 @@ node scripts/add-upcoming-event.mjs export --candidate <candidate.json> --approv
 
 ## DBへの対応
 
-OPEN / START、画像取得状態、画像取得元は調査・承認成果物に保持する。現行 `work_posts` に専用列は追加せず、OPEN / STARTは掲載文章へ反映し、画像は既存 `work-flyers` Storage、その他は既存列へ対応付ける。これによりPhase 1のDB・管理画面・SEO・sitemap実装をそのまま再利用する。
+OPEN / START、SEO、候補ハッシュ、承認ハッシュ、確認用画像URL、画像取得方法、画像利用確認状態、公開画像ON/OFFを `work_posts` に保持する。一般公開画像は従来どおり既存 `work-flyers` Storageを使用し、確認用外部画像を自動再ホストしない。

@@ -10,7 +10,8 @@ const WORK_FIELDS = [
     'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'lifecycle_status', 'performer_name', 'area', 'venue_address', 'organizer_name',
-    'official_announcement_url', 'announcement_confirmed_on',
+    'official_announcement_url', 'announcement_confirmed_on', 'open_time', 'start_time',
+    'seo_title', 'meta_description', 'use_image_on_public_page',
     'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');
 
@@ -122,7 +123,8 @@ const getAssignmentItemLabels = (post) => getAssignmentItems(post)
 
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
 const isUpcomingWork = (post) => post?.lifecycle_status === 'upcoming';
-const hasFlyer = (post) => Boolean(String(post?.flyer_path || '').trim());
+const hasFlyer = (post) => post?.use_image_on_public_page !== false
+    && Boolean(String(post?.flyer_path || '').trim());
 
 const getFlyerDimensions = (path) => {
     const [width, height] = flyerDimensions[String(path || '')] || [];

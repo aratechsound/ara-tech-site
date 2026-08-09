@@ -154,27 +154,42 @@ const performerNames = (value) => String(value || '')
     .map((name) => name.trim())
     .filter(Boolean);
 
-const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks = [] } = {}) => {
+const formatClockTime = (value) => {
+    const match = String(value || '').match(/^(\d{2}):(\d{2})/u);
+    return match ? `${match[1]}:${match[2]}` : '';
+};
+
+const renderWorkPage = (post, {
+    olderWork = null,
+    newerWork = null,
+    relatedWorks = [],
+    preview = false
+} = {}) => {
     const canonical = `${SITE_URL}/works/${post.slug}.html`;
     const upcoming = isUpcomingWork(post);
-    const workHasFlyer = hasFlyer(post);
-    const imageUrl = workHasFlyer ? publicFlyerUrl(post.flyer_path) : `${SITE_URL}/img/cta-bg.jpg`;
-    const displayImageUrl = workHasFlyer ? publicFlyerTransformedUrl(post.flyer_path, 800, 78) : '';
-    const displayImageSrcset = workHasFlyer ? [480, 800, 1200]
+    const publicWorkHasFlyer = hasFlyer(post);
+    const reviewImageUrl = preview ? safeHttpsUrl(post.review_image_url) : '';
+    const workHasFlyer = publicWorkHasFlyer || Boolean(reviewImageUrl);
+    const imageUrl = publicWorkHasFlyer
+        ? publicFlyerUrl(post.flyer_path)
+        : reviewImageUrl || `${SITE_URL}/img/cta-bg.jpg`;
+    const displayImageUrl = publicWorkHasFlyer ? publicFlyerTransformedUrl(post.flyer_path, 800, 78) : reviewImageUrl;
+    const displayImageSrcset = publicWorkHasFlyer ? [480, 800, 1200]
         .map((width) => `${publicFlyerTransformedUrl(post.flyer_path, width, 78)} ${width}w`)
         .join(', ') : '';
     const displayImageSizes = '(max-width: 991px) calc(100vw - 72px), 52vw';
-    const displayImageDimensions = workHasFlyer ? getFlyerDimensions(post.flyer_path) : null;
+    const displayImageDimensions = publicWorkHasFlyer ? getFlyerDimensions(post.flyer_path) : null;
     const displayImageDimensionAttributes = displayImageDimensions
         ? ` width="${displayImageDimensions.width}" height="${displayImageDimensions.height}"`
         : '';
     const summary = buildSummary(post);
-    const seoDescription = truncate(summary, 155);
+    const seoDescription = truncate(post.meta_description || summary, 155);
     const date = formatDate(post.event_date);
     const year = post.event_date?.slice(0, 4) || '';
     const titleContext = [year ? `${year}年` : '', post.venue || ''].filter(Boolean).join(' ');
     const seoSuffix = upcoming ? 'ARA-TECH 音響担当予定' : 'ARA-TECH実績';
-    const pageTitle = `${post.title}${titleContext ? `｜${titleContext}` : ''}｜${seoSuffix}`;
+    const pageTitle = String(post.seo_title || '').trim()
+        || `${post.title}${titleContext ? `｜${titleContext}` : ''}｜${seoSuffix}`;
     const roleTypes = getRoleTypes(post);
     const service = serviceFor(post, roleTypes);
     const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
@@ -186,6 +201,8 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     const systemSetupHtml = escapeHtml(systemSetup).replace(/\r?\n/g, '<br>');
     const officialAnnouncementUrl = safeHttpsUrl(post.official_announcement_url);
     const announcementConfirmedDate = formatDate(post.announcement_confirmed_on);
+    const openTime = formatClockTime(post.open_time);
+    const startTime = formatClockTime(post.start_time);
 
     const breadcrumbItems = [
         { name: 'トップ', item: `${SITE_URL}/` },
@@ -213,6 +230,8 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
         `<div><dt>状態</dt><dd><span class="detail-status detail-status--${upcoming ? 'upcoming' : 'completed'}">${upcoming ? '開催予定' : '終了済み'}</span></dd></div>`,
         post.performer_name ? `<div><dt>アーティスト・イベント</dt><dd>${escapeHtml(post.performer_name)}</dd></div>` : '',
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
+        openTime ? `<div><dt>OPEN</dt><dd><time datetime="${escapeHtml(openTime)}">${escapeHtml(openTime)}</time></dd></div>` : '',
+        startTime ? `<div><dt>START</dt><dd><time datetime="${escapeHtml(startTime)}">${escapeHtml(startTime)}</time></dd></div>` : '',
         post.venue ? `<div><dt>会場</dt><dd>${escapeHtml(post.venue)}</dd></div>` : '',
         post.area ? `<div><dt>地域</dt><dd>${escapeHtml(post.area)}</dd></div>` : '',
         servicePlanLabel ? `<div><dt>提供プラン</dt><dd>${escapeHtml(servicePlanLabel)}</dd></div>` : '',
@@ -278,7 +297,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
             '@type': 'Event',
             '@id': `${canonical}#event`,
             name: post.title,
-            startDate: post.event_date,
+            startDate: `${post.event_date}${startTime || openTime ? `T${startTime || openTime}:00+09:00` : ''}`,
             eventStatus: 'https://schema.org/EventScheduled',
             eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
             location: {
@@ -306,39 +325,43 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
     };
 
     const detailMedia = workHasFlyer
-        ? `<figure class="detail-flyer"><img src="${escapeHtml(displayImageUrl)}" srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}" alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async"></figure>`
+        ? `<figure class="detail-flyer${preview && reviewImageUrl && !publicWorkHasFlyer ? ' detail-flyer--review' : ''}"><img src="${escapeHtml(displayImageUrl)}"${displayImageSrcset ? ` srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}"` : ''} alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async">${preview && reviewImageUrl && !publicWorkHasFlyer ? '<figcaption class="preview-image-note">管理画面の確認用画像です。公開画像としては未選択です。</figcaption>' : ''}</figure>`
         : '<div class="detail-flyer detail-flyer--placeholder" role="img" aria-label="画像は掲載されていません"><span>ARA-TECH</span><strong>画像は掲載されていません</strong></div>';
+
+    const analyticsScript = preview ? '' : `<script>(()=>{const button=document.querySelector('.navbar-toggler');const menu=document.getElementById('navbarNav');const closeMenu=()=>{button.setAttribute('aria-expanded','false');button.setAttribute('aria-label','メニューを開く');menu.classList.remove('is-open')};if(button&&menu){button.addEventListener('click',()=>{const willOpen=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(willOpen));button.setAttribute('aria-label',willOpen?'メニューを閉じる':'メニューを開く');menu.classList.toggle('is-open',willOpen)});document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&button.getAttribute('aria-expanded')==='true'){closeMenu();button.focus()}})}const loadAnalytics=()=>{window.dataLayer=window.dataLayer||[];window.gtag=function(){window.dataLayer.push(arguments)};const script=document.createElement('script');script.async=true;script.src='https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY';document.head.appendChild(script);window.gtag('js',new Date());window.gtag('config','G-K8VZM111TY')};window.addEventListener('load',()=>{'requestIdleCallback'in window?requestIdleCallback(loadAnalytics,{timeout:3000}):setTimeout(loadAnalytics,2000)},{once:true})})();</script>`;
 
     return `<!doctype html>
 <html lang="ja">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    ${preview ? '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'self\'; img-src \'self\' data: https:; font-src \'self\'; base-uri \'none\'; form-action \'none\'">' : ''}
     <title>${escapeHtml(pageTitle)}</title>
     <meta name="description" content="${escapeHtml(seoDescription)}">
-    <meta name="robots" content="index, follow">
+    <meta name="robots" content="${preview ? 'noindex, nofollow, noarchive, nosnippet' : 'index, follow'}">
     <link rel="canonical" href="${escapeHtml(canonical)}">
     <meta property="og:type" content="article">
     <meta property="og:locale" content="ja_JP">
     <meta property="og:site_name" content="ARA-TECH">
-    <meta property="og:title" content="${escapeHtml(`${post.title}｜${seoSuffix}`)}">
+    <meta property="og:title" content="${escapeHtml(pageTitle)}">
     <meta property="og:description" content="${escapeHtml(seoDescription)}">
     <meta property="og:url" content="${escapeHtml(canonical)}">
     <meta property="og:image" content="${escapeHtml(imageUrl)}">
     <meta property="og:image:alt" content="${escapeHtml(workHasFlyer ? post.flyer_alt || `${post.title}のフライヤー` : 'ARA-TECH 音響・ステージ制作')}">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${escapeHtml(`${post.title}｜${seoSuffix}`)}">
+    <meta name="twitter:title" content="${escapeHtml(pageTitle)}">
     <meta name="twitter:description" content="${escapeHtml(seoDescription)}">
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}">
     <meta name="theme-color" content="#007bff">
     <link rel="icon" href="/img/favicon.ico">
     <link rel="preconnect" href="https://kogbnremsouajxxsgxro.supabase.co" crossorigin>
-    ${workHasFlyer ? `<link rel="preload" as="image" href="${escapeHtml(displayImageUrl)}" imagesrcset="${escapeHtml(displayImageSrcset)}" imagesizes="${escapeHtml(displayImageSizes)}" fetchpriority="high">` : ''}
+    ${workHasFlyer ? `<link rel="preload" as="image" href="${escapeHtml(displayImageUrl)}"${displayImageSrcset ? ` imagesrcset="${escapeHtml(displayImageSrcset)}" imagesizes="${escapeHtml(displayImageSizes)}"` : ''} fetchpriority="high">` : ''}
     <link rel="stylesheet" href="/work-detail.css">
     <link rel="stylesheet" href="/site-navigation.css?v=ara-20260724-007">
     <script type="application/ld+json">${safeJson(structuredData)}</script>
 </head>
 <body>
+    ${preview ? '<aside class="admin-preview-banner" role="status"><strong>公開待ちプレビュー</strong><span>一般公開されていない管理画面内の確認表示です。</span></aside>' : ''}
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="/"><img src="/img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH" width="2919" height="422" decoding="async"></a>
@@ -370,7 +393,7 @@ const renderWorkPage = (post, { olderWork = null, newerWork = null, relatedWorks
         <a class="back" href="/works.html${upcoming ? '#upcoming' : year ? `#year-${year}` : ''}">← ${upcoming ? '開催予定' : year ? `${year}年のWORKS` : 'WORKS'}一覧へ戻る</a>
     </main>
     <footer class="site-footer"><small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="/privacy.html">プライバシーポリシー</a></small></footer>
-    <script>(()=>{const button=document.querySelector('.navbar-toggler');const menu=document.getElementById('navbarNav');const closeMenu=()=>{button.setAttribute('aria-expanded','false');button.setAttribute('aria-label','メニューを開く');menu.classList.remove('is-open')};if(button&&menu){button.addEventListener('click',()=>{const willOpen=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(willOpen));button.setAttribute('aria-label',willOpen?'メニューを閉じる':'メニューを開く');menu.classList.toggle('is-open',willOpen)});document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&button.getAttribute('aria-expanded')==='true'){closeMenu();button.focus()}})}const loadAnalytics=()=>{window.dataLayer=window.dataLayer||[];window.gtag=function(){window.dataLayer.push(arguments)};const script=document.createElement('script');script.async=true;script.src='https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY';document.head.appendChild(script);window.gtag('js',new Date());window.gtag('config','G-K8VZM111TY')};window.addEventListener('load',()=>{'requestIdleCallback'in window?requestIdleCallback(loadAnalytics,{timeout:3000}):setTimeout(loadAnalytics,2000)},{once:true})})();</script>
+    ${analyticsScript}
 </body>
 </html>`;
 };

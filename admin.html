@@ -71,12 +71,38 @@
         .status--upcoming { background: #fff2cc; color: #7a4d00; }
         .status--draft { background: #fff2cc; color: #855800; }
         .status--scheduled { background: #e6edff; color: #315ca8; }
+        .status--pending { background: #fff0bd; color: #6f4c00; }
+        .status--unknown { background: #edf1f5; color: #526170; }
+        .status--confirmed { background: #dff8ea; color: #13733c; }
+        .status--not-permitted { background: #fff0f1; color: #a12431; }
         .post-role { color: #315ca8; font-size: .74rem; font-weight: 900; letter-spacing: .04em; margin: 6px 0 0; }
         .post-service { color: #17639f; font-size: .8rem; font-weight: 900; margin: 5px 0 0; }
         .post-artists { color: #1b5d99; font-size: .83rem; font-weight: 900; margin: 5px 0 0; }
         .post-actions { display: flex; gap: 8px; }
         .post-actions .button { font-size: .8rem; padding: 8px 10px; }
-        @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid, .assignment-options { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img, .post-image-placeholder { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } }
+        .candidate-context { background: #fff9e8; border: 1px solid #e4c35d; border-radius: 12px; margin-bottom: 20px; padding: 16px; }
+        .candidate-context p { margin: 4px 0; }
+        .candidate-hash { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .72rem; overflow-wrap: anywhere; }
+        .pending-posts { display: grid; gap: 16px; margin-top: 20px; }
+        .pending-row { align-items: center; background: #fffaf0; border: 1px solid #e5c869; border-radius: 14px; display: grid; gap: 18px; grid-template-columns: 160px minmax(0, 1fr) auto; padding: 14px; }
+        .pending-row img { aspect-ratio: 16 / 9; border-radius: 9px; height: auto; object-fit: cover; width: 160px; }
+        .pending-row h3 { margin: 0; }
+        .pending-meta { color: var(--muted); font-size: .84rem; margin: 5px 0 0; }
+        .pending-source { color: #1764a2; font-size: .8rem; font-weight: 700; overflow-wrap: anywhere; }
+        .pending-actions { display: flex; flex-direction: column; gap: 8px; }
+        .pending-actions .button { font-size: .8rem; padding: 9px 12px; }
+        .candidate-actions { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 20px; }
+        .image-review-box { background: #f8fbfe; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+        .image-review-box img { display: block; margin-top: 10px; max-height: 320px; max-width: 100%; object-fit: contain; }
+        dialog.preview-dialog { border: 0; border-radius: 16px; height: min(92vh, 980px); max-width: none; padding: 0; width: min(96vw, 1320px); }
+        dialog.preview-dialog::backdrop { background: rgba(14, 27, 40, .72); }
+        .preview-dialog__head { align-items: center; background: #10263b; color: white; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px 16px; }
+        .preview-dialog__head strong { margin-right: auto; }
+        .preview-dialog__head .button { font-size: .78rem; padding: 7px 10px; }
+        .preview-frame-shell { background: #dfe7ee; display: flex; height: calc(100% - 62px); justify-content: center; overflow: auto; padding: 14px; }
+        .preview-frame { background: white; border: 0; height: 100%; max-width: 100%; transition: width .2s ease; width: 100%; }
+        .preview-frame--mobile { width: 390px; }
+        @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid, .assignment-options { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img, .post-image-placeholder { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } .pending-row { align-items: start; grid-template-columns: 110px 1fr; } .pending-row img { width: 110px; } .pending-actions { flex-direction: row; flex-wrap: wrap; grid-column: 1 / -1; } dialog.preview-dialog { height: 96vh; width: 98vw; } }
     </style>
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
@@ -108,17 +134,31 @@
         </section>
 
         <section id="dashboard" class="hidden">
+            <section class="card" aria-labelledby="pending-title">
+                <p class="eyebrow">PUBLICATION QUEUE</p>
+                <h2 id="pending-title">公開待ち <span id="pending-count" class="status status--pending">0件</span></h2>
+                <p class="intro">Codexが公式情報を確認した未公開候補です。内容を保存・プレビューし、最終確認後に「公開する」を実行してください。</p>
+                <div id="pending-posts" class="pending-posts" aria-live="polite"></div>
+            </section>
+
             <div class="card">
                 <div class="dashboard-head">
                     <div><p class="eyebrow">EVENT / WORKS POST</p><h2 id="form-title">新しい掲載ページを追加</h2></div>
                     <div><p id="session-email" class="session-email"></p><button id="sign-out" class="button button--secondary" type="button">ログアウト</button></div>
                 </div>
                 <form id="post-form" novalidate>
+                    <div id="candidate-context" class="candidate-context hidden" role="status">
+                        <strong>公開待ち候補を編集中</strong>
+                        <p>保存すると候補ハッシュが更新され、以前の承認は無効になります。</p>
+                        <p id="candidate-hash" class="candidate-hash"></p>
+                    </div>
                     <div class="form-grid">
                         <div class="form-field form-field--full"><label for="post-template">過去の投稿を複製 <span class="help">イベント名・分類・担当内容・日付・会場・紹介文などをコピーします。フライヤーは新しく選択してください。</span></label><select id="post-template"><option value="">過去の投稿を選んで入力内容をコピー</option></select></div>
                         <div class="form-field form-field--full"><label for="post-title">公演名・イベント名 <span class="help">必須・過去の入力候補から選べます</span></label><input id="post-title" type="text" maxlength="120" list="title-history" placeholder="例：SUMMER SOUND FES 2026" required><datalist id="title-history"></datalist></div>
                         <div class="form-field"><label for="post-date">開催日</label><input id="post-date" type="date"></div>
                         <div class="form-field"><label for="post-lifecycle-status">状態 <span class="help">開催後は同じ投稿を「終了済み」に変更します</span></label><select id="post-lifecycle-status"><option value="completed" selected>終了済み（実績）</option><option value="upcoming">開催予定</option></select></div>
+                        <div class="form-field"><label for="post-open-time">OPEN <span class="help">任意</span></label><input id="post-open-time" type="time"></div>
+                        <div class="form-field"><label for="post-start-time">START <span class="help">任意・未公表なら空欄</span></label><input id="post-start-time" type="time"></div>
                         <div class="form-field"><label for="post-category">実績カテゴリー <span class="help">必須・主カテゴリーを1件選択</span></label><select id="post-category" required><option value="">選択してください</option><optgroup label="新しい実績カテゴリー"><option value="お祭り・地域イベント音響">お祭り・地域イベント音響</option><option value="ライブ・アーティストPA">ライブ・アーティストPA</option><option value="DJイベント音響">DJイベント音響</option><option value="ステージ・照明">ステージ・照明</option><option value="ツアーPA">ツアーPA</option><option value="音響設備・施工">音響設備・施工</option><option value="機材レンタル">機材レンタル</option><option value="その他">その他</option></optgroup><optgroup label="既存カテゴリー（互換用）"><option value="WORKS">WORKS</option><option value="PA RENTAL">PA RENTAL</option><option value="STAGE PRODUCTION">STAGE PRODUCTION</option><option value="TOUR PA">TOUR PA</option><option value="INSTALLATION">INSTALLATION</option></optgroup></select></div>
                         <div class="form-field"><label for="post-service-plan">提供プラン <span class="help">任意</span></label><select id="post-service-plan"><option value="">未選択</option><option value="compact_pa">Compact PA</option><option value="standard_live">Standard LIVE</option><option value="matsuri_pack">Matsuri Pack</option><option value="school_festival_pack">School Festival Pack</option><option value="pa_operator_only">PA Operator Only</option><option value="large_scale">Large Scale</option><option value="technical_advisor_training">Technical Advisor / Training</option><option value="custom">その他・個別対応</option></select></div>
                         <div class="form-field form-field--full">
@@ -144,12 +184,18 @@
                         <div class="form-field"><label for="post-announcement-confirmed-on">告知解禁確認日 <span class="help">開催予定の公開時は必須</span></label><input id="post-announcement-confirmed-on" type="date"></div>
                         <div class="form-field form-field--full"><label for="post-official-announcement-url">会場・主催者の公式告知URL <span class="help">開催予定の公開時はHTTPS URL必須</span></label><input id="post-official-announcement-url" type="url" maxlength="2000" inputmode="url" placeholder="https://example.com/events/..."></div>
                         <div class="form-field form-field--full"><label for="post-description">紹介文 <span class="help">任意・空欄でも投稿できます</span></label><textarea id="post-description" maxlength="1000" placeholder="現場について補足したいときだけ入力してください。"></textarea></div>
-                        <div class="form-field form-field--full"><label for="post-flyer">フライヤー画像 <span class="help">任意・利用権を確認済みのPNG/JPG/WebPのみ・10MBまで。外部サイトから無断転載しないでください</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択したフライヤーのプレビュー"></div>
+                        <div class="form-field form-field--full image-review-box"><label for="post-review-image-url">管理画面の確認用画像URL <span class="help">一般公開ページには自動使用されません</span></label><input id="post-review-image-url" type="url" maxlength="2000" inputmode="url" placeholder="https://公式サイト/.../flyer.jpg"><label for="post-review-image-method">画像取得方法</label><input id="post-review-image-method" type="text" maxlength="120" placeholder="例：official_page_og_image"><img id="review-image-preview" class="hidden" alt="管理画面で確認するフライヤー"></div>
+                        <div class="form-field"><label for="post-image-usage-status">画像利用確認状態</label><select id="post-image-usage-status"><option value="unknown">未確認</option><option value="confirmed">利用確認済み</option><option value="not_permitted">利用しない／利用不可</option></select></div>
+                        <div class="form-field"><label class="checkbox" for="post-use-public-image"><input id="post-use-public-image" type="checkbox">公開ページで画像を使用する</label><span class="help">「利用確認済み」かつ公開用画像が保存されている場合だけ公開できます。</span></div>
+                        <div class="form-field form-field--full"><label for="post-flyer">公開用フライヤー画像 <span class="help">任意・利用権を確認済みのPNG/JPG/WebPのみ・10MBまで</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択した公開用フライヤーのプレビュー"></div>
                         <div class="form-field form-field--full"><label for="post-flyer-alt">画像alt <span class="help">画像を掲載する場合に入力。空欄時は公演名から生成します</span></label><input id="post-flyer-alt" type="text" maxlength="500" placeholder="例：○○ LIVE TOUR 2026 広島公演の公式フライヤー"></div>
-                        <div class="form-field"><label for="post-publication-mode">公開方法 <span class="help">開催日とは別に選択します</span></label><select id="post-publication-mode"><option value="draft" selected>下書きとして保存</option><option value="now">今すぐ公開</option><option value="scheduled">日時を指定して予約投稿</option></select><span class="help">誤って公開しないため、新規投稿は下書きが初期設定です。</span></div>
+                        <div class="form-field form-field--full"><label for="post-seo-title">SEO title <span class="help">任意・空欄時は自動生成</span></label><input id="post-seo-title" type="text" maxlength="200"></div>
+                        <div class="form-field form-field--full"><label for="post-meta-description">meta description <span class="help">任意・空欄時は紹介文から生成</span></label><textarea id="post-meta-description" maxlength="500"></textarea></div>
+                        <div id="publication-mode-field" class="form-field"><label for="post-publication-mode">公開方法 <span class="help">開催日とは別に選択します</span></label><select id="post-publication-mode"><option value="draft" selected>下書きとして保存</option><option value="now">今すぐ公開</option><option value="scheduled">日時を指定して予約投稿</option></select><span class="help">誤って公開しないため、新規投稿は下書きが初期設定です。</span></div>
                         <div id="publish-at-field" class="form-field hidden"><label for="post-publish-at">公開日時 <span class="help">予約投稿では必須・日本時間</span></label><input id="post-publish-at" type="datetime-local"><span class="help">この時刻まではWORKSページに表示されません。</span></div>
                     </div>
-                    <div class="actions"><button id="save-post" class="button" type="submit">公開して保存</button><button id="cancel-edit" class="button button--secondary hidden" type="button">編集をやめる</button><p id="post-status" class="alert hidden" aria-live="polite"></p></div>
+                    <div class="actions"><button id="save-post" class="button" type="submit">下書き保存</button><button id="cancel-edit" class="button button--secondary hidden" type="button">編集をやめる</button><p id="post-status" class="alert hidden" aria-live="polite"></p></div>
+                    <div id="candidate-actions" class="actions candidate-actions hidden"><button id="preview-candidate" class="button button--secondary" type="button">プレビュー</button><button id="publish-candidate" class="button" type="button">公開する</button><button id="reject-candidate" class="button button--danger" type="button">見送る</button></div>
                 </form>
             </div>
 
@@ -160,6 +206,10 @@
             </section>
         </section>
     </main>
+    <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-dialog-title">
+        <div class="preview-dialog__head"><strong id="preview-dialog-title">公開待ちプレビュー</strong><button id="preview-desktop" class="button button--secondary" type="button">PC表示</button><button id="preview-mobile" class="button button--secondary" type="button">モバイル表示</button><button id="close-preview" class="button" type="button">閉じる</button></div>
+        <div class="preview-frame-shell"><iframe id="preview-frame" class="preview-frame" title="公開予定ページのプレビュー" sandbox="allow-same-origin"></iframe></div>
+    </dialog>
     <script type="module" src="js/admin.js"></script>
 </body>
 </html>
