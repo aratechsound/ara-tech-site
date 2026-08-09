@@ -8,7 +8,28 @@ const { rows } = require('./fixtures.cjs');
 const root = path.resolve(__dirname, '..');
 const port = Number(process.env.NO001_PORT || 8765);
 const originalFetch = global.fetch;
-const localRows = [{
+const upcomingPreview = {
+    ...rows[0],
+    id: 1000,
+    slug: '2026-local-upcoming-preview',
+    title: '【ローカル検証用・架空】SAMPLE LIVE 2026 広島公演',
+    category: 'ライブ・アーティストPA',
+    lifecycle_status: 'upcoming',
+    performer_name: 'SAMPLE ARTIST',
+    event_date: '2026-12-20',
+    venue: '広島サンプルホール',
+    area: '広島県広島市',
+    venue_address: '広島県広島市中区サンプル1-2-3',
+    organizer_name: 'サンプル主催者',
+    official_announcement_url: 'https://example.com/events/sample-live',
+    announcement_confirmed_on: '2026-08-10',
+    assignment_items: ['sound_equipment', 'pa_operation'],
+    description: null,
+    flyer_path: null,
+    flyer_alt: null,
+    updated_at: '2026-08-10T00:00:00+00:00'
+};
+const localRows = [upcomingPreview, {
     ...rows[0],
     id: 999,
     slug: '2026-bozuyama-summer-night-preview',
@@ -58,6 +79,15 @@ http.createServer(async (request, response) => {
             .replace('<section id="login-panel" class="card login-card">', '<section id="login-panel" class="card login-card hidden">')
             .replace('<section id="dashboard" class="hidden">', '<section id="dashboard">')
             .replace('<script type="module" src="js/admin.js"></script>', '');
+        response.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return response.end(html);
+    }
+    if (url.pathname === '/__works-preview.html') {
+        const previewCard = `<a class="work-card work-card--link" href="/works/${upcomingPreview.slug}.html" aria-label="${upcomingPreview.title}の詳細を見る"><div class="work-card__image-placeholder" aria-hidden="true">ARA-TECH</div><div class="work-card__body"><span class="work-card__status">開催予定</span><span class="work-card__tag">${upcomingPreview.category}</span><h3>${upcomingPreview.title}</h3><p class="work-card__meta">2026年12月20日</p><p class="work-card__venue">${upcomingPreview.venue}</p><p class="work-card__venue">${upcomingPreview.area}</p><p class="work-card__artist">ARTIST / EVENT：${upcomingPreview.performer_name}</p><span class="work-card__link">VIEW EVENT →</span></div></a>`;
+        const html = fs.readFileSync(path.join(root, 'works.html'), 'utf8')
+            .replace('<div id="upcoming-works" class="works-grid" aria-live="polite"></div>', `<div id="upcoming-works" class="works-grid" aria-live="polite">${previewCard}</div>`)
+            .replace('<div id="upcoming-empty" class="notice">', '<div id="upcoming-empty" class="notice" hidden>')
+            .replace('<script type="module" src="js/works.js"></script>', '');
         response.setHeader('Content-Type', 'text/html; charset=utf-8');
         return response.end(html);
     }

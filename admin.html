@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="theme-color" content="#007bff">
-    <title>WORKS 管理 | ARA-TECH</title>
+    <title>開催予定・WORKS 管理 | ARA-TECH</title>
     <link rel="icon" href="img/favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,10 +63,12 @@
         .posts { display: grid; gap: 14px; margin-top: 20px; }
         .post-row { align-items: center; background: #f8fbfe; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 16px; grid-template-columns: 72px 1fr auto; padding: 12px; }
         .post-row img { border-radius: 8px; height: 72px; object-fit: cover; width: 72px; }
+        .post-image-placeholder { align-items: center; background: #e9f1f8; border-radius: 8px; color: #587087; display: flex; font-size: .7rem; font-weight: 900; height: 72px; justify-content: center; text-align: center; width: 72px; }
         .post-row h3 { font-size: 1rem; margin: 0; }
         .post-meta { color: var(--muted); font-size: .8rem; margin: 4px 0 0; }
         .status { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; margin-left: 8px; padding: 3px 8px; }
         .status--published { background: #dff8ea; color: #13733c; }
+        .status--upcoming { background: #fff2cc; color: #7a4d00; }
         .status--draft { background: #fff2cc; color: #855800; }
         .status--scheduled { background: #e6edff; color: #315ca8; }
         .post-role { color: #315ca8; font-size: .74rem; font-weight: 900; letter-spacing: .04em; margin: 6px 0 0; }
@@ -74,13 +76,13 @@
         .post-artists { color: #1b5d99; font-size: .83rem; font-weight: 900; margin: 5px 0 0; }
         .post-actions { display: flex; gap: 8px; }
         .post-actions .button { font-size: .8rem; padding: 8px 10px; }
-        @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid, .assignment-options { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } }
+        @media (max-width: 700px) { .admin-header { padding-inline: 20px; } .brand span { display: none; } main { padding: 32px 16px 56px; } .form-grid, .assignment-options { grid-template-columns: 1fr; } .dashboard-head { align-items: start; flex-direction: column; } .post-row { align-items: start; grid-template-columns: 60px 1fr; } .post-row img, .post-image-placeholder { height: 60px; width: 60px; } .post-actions { grid-column: 1 / -1; } }
     </style>
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
 <body>
     <header class="admin-header">
-        <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>WORKS ADMIN</span></a>
+        <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>EVENTS / WORKS ADMIN</span></a>
         <nav class="admin-nav" aria-label="管理画面">
             <a class="admin-nav__link--works" href="admin.html" aria-current="page">WORKS管理</a>
             <a class="admin-nav__link--pa" href="pa-admin.html">PA案件管理</a>
@@ -89,8 +91,8 @@
 
     <main>
         <p class="eyebrow">PRIVATE ADMINISTRATION</p>
-        <h1>実績を管理する</h1>
-        <p class="intro">フライヤーと現場情報を登録すると、公開済みの投稿がWORKSページの「最新の現場」に表示されます。</p>
+        <h1>開催予定・実績を管理する</h1>
+        <p class="intro">会場・主催者の公式告知を人間が確認した開催予定と、終了済みの現場実績を同じURLで管理します。新規投稿は下書きが初期設定です。</p>
 
         <section id="config-message" class="card hidden" aria-live="polite"></section>
 
@@ -108,14 +110,15 @@
         <section id="dashboard" class="hidden">
             <div class="card">
                 <div class="dashboard-head">
-                    <div><p class="eyebrow">WORKS POST</p><h2 id="form-title">新しい実績を追加</h2></div>
+                    <div><p class="eyebrow">EVENT / WORKS POST</p><h2 id="form-title">新しい掲載ページを追加</h2></div>
                     <div><p id="session-email" class="session-email"></p><button id="sign-out" class="button button--secondary" type="button">ログアウト</button></div>
                 </div>
                 <form id="post-form" novalidate>
                     <div class="form-grid">
                         <div class="form-field form-field--full"><label for="post-template">過去の投稿を複製 <span class="help">イベント名・分類・担当内容・日付・会場・紹介文などをコピーします。フライヤーは新しく選択してください。</span></label><select id="post-template"><option value="">過去の投稿を選んで入力内容をコピー</option></select></div>
-                        <div class="form-field form-field--full"><label for="post-title">イベント名 <span class="help">必須・過去の入力候補から選べます</span></label><input id="post-title" type="text" maxlength="120" list="title-history" placeholder="例：SUMMER SOUND FES 2026" required><datalist id="title-history"></datalist></div>
+                        <div class="form-field form-field--full"><label for="post-title">公演名・イベント名 <span class="help">必須・過去の入力候補から選べます</span></label><input id="post-title" type="text" maxlength="120" list="title-history" placeholder="例：SUMMER SOUND FES 2026" required><datalist id="title-history"></datalist></div>
                         <div class="form-field"><label for="post-date">開催日</label><input id="post-date" type="date"></div>
+                        <div class="form-field"><label for="post-lifecycle-status">状態 <span class="help">開催後は同じ投稿を「終了済み」に変更します</span></label><select id="post-lifecycle-status"><option value="completed" selected>終了済み（実績）</option><option value="upcoming">開催予定</option></select></div>
                         <div class="form-field"><label for="post-category">実績カテゴリー <span class="help">必須・主カテゴリーを1件選択</span></label><select id="post-category" required><option value="">選択してください</option><optgroup label="新しい実績カテゴリー"><option value="お祭り・地域イベント音響">お祭り・地域イベント音響</option><option value="ライブ・アーティストPA">ライブ・アーティストPA</option><option value="DJイベント音響">DJイベント音響</option><option value="ステージ・照明">ステージ・照明</option><option value="ツアーPA">ツアーPA</option><option value="音響設備・施工">音響設備・施工</option><option value="機材レンタル">機材レンタル</option><option value="その他">その他</option></optgroup><optgroup label="既存カテゴリー（互換用）"><option value="WORKS">WORKS</option><option value="PA RENTAL">PA RENTAL</option><option value="STAGE PRODUCTION">STAGE PRODUCTION</option><option value="TOUR PA">TOUR PA</option><option value="INSTALLATION">INSTALLATION</option></optgroup></select></div>
                         <div class="form-field"><label for="post-service-plan">提供プラン <span class="help">任意</span></label><select id="post-service-plan"><option value="">未選択</option><option value="compact_pa">Compact PA</option><option value="standard_live">Standard LIVE</option><option value="matsuri_pack">Matsuri Pack</option><option value="school_festival_pack">School Festival Pack</option><option value="pa_operator_only">PA Operator Only</option><option value="large_scale">Large Scale</option><option value="technical_advisor_training">Technical Advisor / Training</option><option value="custom">その他・個別対応</option></select></div>
                         <div class="form-field form-field--full">
@@ -127,15 +130,22 @@
                             <p id="slug-preview" class="url-preview" aria-live="polite">イベント名または開催日を入力すると、公開URLを表示します。</p>
                             <span class="help">使用できる文字は半角小文字・数字・ハイフンです。公開後のURLは、必要な場合だけ変更してください。</span>
                         </div>
+                        <div class="form-field form-field--full"><label for="post-performer-name">アーティスト名またはイベント名 <span class="help">開催予定の公開時は必須。イベント名のみの場合は公演名と同じ内容でも構いません</span></label><input id="post-performer-name" type="text" maxlength="500" placeholder="例：○○ BAND"></div>
                         <fieldset class="form-field form-field--full role-options"><legend>アーティストPA担当区分 <span class="help">既存実績との互換項目。該当する場合のみ選択できます</span></legend><label class="checkbox" for="post-role-operation"><input id="post-role-operation" type="checkbox">ARTIST PA OPERATION <span class="help">アーティストPA・音響オペレート</span></label><label class="checkbox" for="post-role-support"><input id="post-role-support" type="checkbox">LOCAL TECHNICAL SUPPORT <span class="help">乗り込みPA対応・現場技術サポート</span></label></fieldset>
                         <div id="operation-artists-field" class="form-field form-field--full hidden"><label for="post-operation-artists">オペレート担当アーティスト <span class="help">任意・複数いる場合は「、」で区切って入力</span></label><input id="post-operation-artists" type="text" maxlength="240" list="operation-artists-history" placeholder="例：ARA BAND、広島シンガーズ"><datalist id="operation-artists-history"></datalist></div>
                         <div id="support-artists-field" class="form-field form-field--full hidden"><label for="post-support-artists">乗り込みPA対応アーティスト <span class="help">任意・複数いる場合は「、」で区切って入力</span></label><input id="post-support-artists" type="text" maxlength="240" list="support-artists-history" placeholder="例：○○ BAND、△△"><datalist id="support-artists-history"></datalist></div>
                         <div class="form-field form-field--full"><label for="post-participant-groups">出演・参加団体 <span class="help">任意・専属アーティストPAとは別に、ダンススクール・学校・地域団体などを登録。複数いる場合は「、」で区切って入力</span></label><input id="post-participant-groups" type="text" maxlength="1000" placeholder="例：LOOP DANCE SCHOOL"></div>
                         <fieldset class="form-field form-field--full assignment-options"><legend>担当内容 <span class="help">複数選択可。「簡易照明」と「照明オペレート」、「機材のみ」と本番対応を区別して登録します</span></legend><label class="checkbox"><input type="checkbox" name="assignment-item" value="sound_equipment">音響機材一式</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="pa_operation">PAオペレート</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="load_in_setup_strike">搬入・設営・撤去</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="simple_lighting">簡易照明 <span class="help">設置・点灯中心</span></label><label class="checkbox"><input type="checkbox" name="assignment-item" value="lighting_operation">照明オペレート <span class="help">本格的な照明操作</span></label><label class="checkbox"><input type="checkbox" name="assignment-item" value="stage_production">ステージ制作</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="equipment_rental_only">機材のみレンタル <span class="help">オペレーター同行なし</span></label><label class="checkbox"><input type="checkbox" name="assignment-item" value="sound_installation">音響設備・施工</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="event_operation">本番対応</label><label class="checkbox"><input type="checkbox" name="assignment-item" value="other">その他</label></fieldset>
                         <div class="form-field form-field--full"><label for="post-system-setup">機材・システム構成 <span class="help">任意・現場ごとの構成を自由記入</span></label><textarea id="post-system-setup" maxlength="2000" placeholder="例：スタンドスピーカーによる会場音響、LEDバーによる簡易照明"></textarea></div>
-                        <div class="form-field form-field--full"><label for="post-venue">会場 <span class="help">過去の入力候補から選べます</span></label><input id="post-venue" type="text" maxlength="120" list="venue-history" placeholder="例：広島市〇〇公園"><datalist id="venue-history"></datalist></div>
+                        <div class="form-field"><label for="post-venue">会場 <span class="help">開催予定の公開時は必須</span></label><input id="post-venue" type="text" maxlength="120" list="venue-history" placeholder="例：広島市〇〇公園"><datalist id="venue-history"></datalist></div>
+                        <div class="form-field"><label for="post-area">地域 <span class="help">開催予定の公開時は必須</span></label><input id="post-area" type="text" maxlength="120" placeholder="例：広島県広島市"></div>
+                        <div class="form-field form-field--full"><label for="post-venue-address">会場住所 <span class="help">任意・Google Event構造化データを出す場合は詳細住所が必要</span></label><input id="post-venue-address" type="text" maxlength="500" placeholder="例：広島県広島市中区〇〇1-2-3"></div>
+                        <div class="form-field"><label for="post-organizer-name">会場・主催者名 <span class="help">任意・ARA-TECHを主催者として入力しない</span></label><input id="post-organizer-name" type="text" maxlength="240"></div>
+                        <div class="form-field"><label for="post-announcement-confirmed-on">告知解禁確認日 <span class="help">開催予定の公開時は必須</span></label><input id="post-announcement-confirmed-on" type="date"></div>
+                        <div class="form-field form-field--full"><label for="post-official-announcement-url">会場・主催者の公式告知URL <span class="help">開催予定の公開時はHTTPS URL必須</span></label><input id="post-official-announcement-url" type="url" maxlength="2000" inputmode="url" placeholder="https://example.com/events/..."></div>
                         <div class="form-field form-field--full"><label for="post-description">紹介文 <span class="help">任意・空欄でも投稿できます</span></label><textarea id="post-description" maxlength="1000" placeholder="現場について補足したいときだけ入力してください。"></textarea></div>
-                        <div class="form-field form-field--full"><label for="post-flyer">フライヤー画像 <span class="help">新規投稿では必須・PNG/JPG/WebP・10MBまで</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択したフライヤーのプレビュー"></div>
+                        <div class="form-field form-field--full"><label for="post-flyer">フライヤー画像 <span class="help">任意・利用権を確認済みのPNG/JPG/WebPのみ・10MBまで。外部サイトから無断転載しないでください</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択したフライヤーのプレビュー"></div>
+                        <div class="form-field form-field--full"><label for="post-flyer-alt">画像alt <span class="help">画像を掲載する場合に入力。空欄時は公演名から生成します</span></label><input id="post-flyer-alt" type="text" maxlength="500" placeholder="例：○○ LIVE TOUR 2026 広島公演の公式フライヤー"></div>
                         <div class="form-field"><label for="post-publication-mode">公開方法 <span class="help">開催日とは別に選択します</span></label><select id="post-publication-mode"><option value="draft" selected>下書きとして保存</option><option value="now">今すぐ公開</option><option value="scheduled">日時を指定して予約投稿</option></select><span class="help">誤って公開しないため、新規投稿は下書きが初期設定です。</span></div>
                         <div id="publish-at-field" class="form-field hidden"><label for="post-publish-at">公開日時 <span class="help">予約投稿では必須・日本時間</span></label><input id="post-publish-at" type="datetime-local"><span class="help">この時刻まではWORKSページに表示されません。</span></div>
                     </div>
@@ -145,7 +155,7 @@
 
             <section class="card">
                 <p class="eyebrow">SAVED POSTS</p>
-                <h2>登録済みの実績</h2>
+                <h2>登録済みの開催予定・実績</h2>
                 <div id="admin-posts" class="posts" aria-live="polite"></div>
             </section>
         </section>

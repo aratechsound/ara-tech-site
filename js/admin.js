@@ -42,6 +42,14 @@ const unlockSlugButton = $('#unlock-slug');
 const servicePlanInput = $('#post-service-plan');
 const participantGroupsInput = $('#post-participant-groups');
 const systemSetupInput = $('#post-system-setup');
+const lifecycleStatusInput = $('#post-lifecycle-status');
+const performerNameInput = $('#post-performer-name');
+const areaInput = $('#post-area');
+const venueAddressInput = $('#post-venue-address');
+const organizerNameInput = $('#post-organizer-name');
+const officialAnnouncementUrlInput = $('#post-official-announcement-url');
+const announcementConfirmedOnInput = $('#post-announcement-confirmed-on');
+const flyerAltInput = $('#post-flyer-alt');
 const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
 
 let supabase;
@@ -174,13 +182,17 @@ const findUniqueSlug = async (base, excludedId = null) => {
     throw new Error('一意な公開URLを作成できませんでした。URLを手動で入力してください。');
 };
 
-const fileUrl = (path) => supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl;
+const fileUrl = (path) => path ? supabase.storage.from(WORKS_BUCKET).getPublicUrl(path).data.publicUrl : '';
 
 const getPublicationState = (post) => {
     if (!post.is_published) return { className: 'draft', label: '下書き' };
     if (post.publish_at && new Date(post.publish_at).getTime() > Date.now()) return { className: 'scheduled', label: '予約中' };
     return { className: 'published', label: '公開中' };
 };
+
+const getLifecycleState = (post) => post.lifecycle_status === 'upcoming'
+    ? { className: 'upcoming', label: '開催予定' }
+    : { className: 'published', label: '終了済み' };
 
 const updateSaveButton = () => {
     if (editingPost) { saveButton.textContent = '変更を保存'; return; }
@@ -216,7 +228,7 @@ const resetPostForm = () => {
     prepareNewSlug();
     flyerPreview.removeAttribute('src');
     flyerPreview.classList.add('hidden');
-    formTitle.textContent = '新しい実績を追加';
+    formTitle.textContent = '新しい掲載ページを追加';
     cancelEdit.classList.add('hidden');
     clearMessage(postStatus);
     updateSaveButton();
@@ -275,17 +287,25 @@ const copyFromPost = (id) => {
     editingPost = null;
     $('#post-title').value = source.title || '';
     $('#post-date').value = source.event_date || '';
+    lifecycleStatusInput.value = source.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     $('#post-category').value = source.category || 'WORKS';
     loadClassification(source);
     loadRoleAssignment(source);
     $('#post-venue').value = source.venue || '';
+    performerNameInput.value = source.performer_name || '';
+    areaInput.value = source.area || '';
+    venueAddressInput.value = source.venue_address || '';
+    organizerNameInput.value = source.organizer_name || '';
+    officialAnnouncementUrlInput.value = source.official_announcement_url || '';
+    announcementConfirmedOnInput.value = source.announcement_confirmed_on || '';
     $('#post-description').value = source.description || '';
+    flyerAltInput.value = source.flyer_alt || '';
     prepareNewSlug();
     publicationMode.value = 'draft';
     publishAtInput.value = '';
     flyerInput.value = '';
     setPreview('');
-    formTitle.textContent = '過去の投稿を元に新しい実績を追加';
+    formTitle.textContent = '過去の投稿を元に新しい掲載ページを追加';
     cancelEdit.classList.remove('hidden');
     updatePublicationControls();
     setMessage(postStatus, '入力内容をコピーしました。開催日を確認し、新しいフライヤーを選択してから保存してください。');
@@ -299,9 +319,14 @@ const renderPosts = () => {
     posts.forEach((post) => {
         const row = document.createElement('article');
         row.className = 'post-row';
-        const image = document.createElement('img');
-        image.src = fileUrl(post.flyer_path);
-        image.alt = post.flyer_alt || `${post.title}のフライヤー`;
+        const image = post.flyer_path ? document.createElement('img') : document.createElement('div');
+        if (post.flyer_path) {
+            image.src = fileUrl(post.flyer_path);
+            image.alt = post.flyer_alt || `${post.title}のフライヤー`;
+        } else {
+            image.className = 'post-image-placeholder';
+            image.textContent = '画像なし';
+        }
         const body = document.createElement('div');
         const title = document.createElement('h3');
         title.textContent = post.title;
@@ -310,6 +335,11 @@ const renderPosts = () => {
         status.className = `status status--${publication.className}`;
         status.textContent = publication.label;
         title.append(status);
+        const lifecycle = getLifecycleState(post);
+        const lifecycleBadge = document.createElement('span');
+        lifecycleBadge.className = `status status--${lifecycle.className}`;
+        lifecycleBadge.textContent = lifecycle.label;
+        title.append(lifecycleBadge);
         const meta = document.createElement('p');
         meta.className = 'post-meta';
         const metaItems = [post.category, formatDate(post.event_date), post.venue].filter(Boolean);
@@ -402,17 +432,25 @@ const beginEdit = (id) => {
     if (!editingPost) return;
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
+    lifecycleStatusInput.value = editingPost.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     $('#post-category').value = editingPost.category || 'WORKS';
     loadClassification(editingPost);
     loadRoleAssignment(editingPost);
     $('#post-venue').value = editingPost.venue || '';
+    performerNameInput.value = editingPost.performer_name || '';
+    areaInput.value = editingPost.area || '';
+    venueAddressInput.value = editingPost.venue_address || '';
+    organizerNameInput.value = editingPost.organizer_name || '';
+    officialAnnouncementUrlInput.value = editingPost.official_announcement_url || '';
+    announcementConfirmedOnInput.value = editingPost.announcement_confirmed_on || '';
     $('#post-description').value = editingPost.description || '';
+    flyerAltInput.value = editingPost.flyer_alt || '';
     prepareExistingSlug(editingPost.slug);
     publicationMode.value = !editingPost.is_published ? 'draft' : (editingPost.publish_at && new Date(editingPost.publish_at).getTime() > Date.now() ? 'scheduled' : 'now');
     publishAtInput.value = toLocalDateTimeInput(editingPost.publish_at);
     templateSelect.value = '';
     setPreview(fileUrl(editingPost.flyer_path));
-    formTitle.textContent = '実績を編集';
+    formTitle.textContent = editingPost.lifecycle_status === 'upcoming' ? '開催予定を編集' : '実績を編集';
     cancelEdit.classList.remove('hidden');
     clearMessage(postStatus);
     updatePublicationControls();
@@ -424,7 +462,7 @@ const deletePost = async (id) => {
     if (!post || !window.confirm(`「${post.title}」を削除しますか？`)) return;
     const { error } = await supabase.from('work_posts').delete().eq('id', id);
     if (error) { setMessage(postStatus, '削除できませんでした。', 'error'); return; }
-    await supabase.storage.from(WORKS_BUCKET).remove([post.flyer_path]);
+    if (post.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([post.flyer_path]);
     if (editingPost?.id === id) resetPostForm();
     await loadPosts();
 };
@@ -503,7 +541,28 @@ if (!isSupabaseConfigured) {
         const category = $('#post-category').value;
         if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
         if (!isAllowedWorkCategory(category)) { setMessage(postStatus, '実績カテゴリーを選択してください。', 'error'); return; }
-        if (!editingPost && !file) { setMessage(postStatus, 'フライヤー画像を選択してください。', 'error'); return; }
+        const lifecycleStatus = lifecycleStatusInput.value === 'upcoming' ? 'upcoming' : 'completed';
+        const isPublishing = publicationMode.value !== 'draft';
+        if (lifecycleStatus === 'upcoming' && isPublishing) {
+            const officialUrl = officialAnnouncementUrlInput.value.trim();
+            let officialUrlIsValid = false;
+            try { officialUrlIsValid = new URL(officialUrl).protocol === 'https:'; } catch { officialUrlIsValid = false; }
+            const hasAssignment = getSelectedAssignmentItems().length || operationRoleInput.checked || supportRoleInput.checked;
+            if (!performerNameInput.value.trim() || !$('#post-date').value || !$('#post-venue').value.trim() || !areaInput.value.trim() || !hasAssignment || !announcementConfirmedOnInput.value || !officialUrlIsValid) {
+                setMessage(postStatus, '開催予定を公開するには、アーティスト名またはイベント名・開催日・会場・地域・担当内容・HTTPSの公式告知URL・告知解禁確認日が必要です。', 'error');
+                return;
+            }
+            const today = new Date();
+            const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            if (announcementConfirmedOnInput.value > todayText) {
+                setMessage(postStatus, '告知解禁確認日に未来の日付は指定できません。', 'error');
+                return;
+            }
+            if ($('#post-date').value < todayText) {
+                setMessage(postStatus, '開催予定の開催日に過去の日付は指定できません。終了済みとして登録してください。', 'error');
+                return;
+            }
+        }
         if (publicationMode.value === 'scheduled' && !publishAtInput.value) {
             setMessage(postStatus, '予約投稿では、公開日時を入力してください。', 'error');
             return;
@@ -527,7 +586,7 @@ if (!isSupabaseConfigured) {
             updateSlugPreview();
 
             uploadedFlyerPath = file ? await uploadFlyer(file) : null;
-            const flyerPath = uploadedFlyerPath || editingPost.flyer_path;
+            const flyerPath = uploadedFlyerPath || editingPost?.flyer_path || null;
             const isPublished = publicationMode.value !== 'draft';
             const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
             const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
@@ -535,6 +594,13 @@ if (!isSupabaseConfigured) {
             const assignmentItems = getSelectedAssignmentItems();
             const payload = {
                 title, slug, event_date: $('#post-date').value || null, category,
+                lifecycle_status: lifecycleStatus,
+                performer_name: performerNameInput.value.trim() || null,
+                area: areaInput.value.trim() || null,
+                venue_address: venueAddressInput.value.trim() || null,
+                organizer_name: organizerNameInput.value.trim() || null,
+                official_announcement_url: officialAnnouncementUrlInput.value.trim() || null,
+                announcement_confirmed_on: announcementConfirmedOnInput.value || null,
                 service_plan: normalizeServicePlan(servicePlanInput.value),
                 assignment_items: assignmentItems.length ? assignmentItems : null,
                 participant_groups: participantGroupsInput.value.trim() || null,
@@ -543,7 +609,7 @@ if (!isSupabaseConfigured) {
                 operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
-                flyer_alt: `${title}のフライヤー`, is_published: isPublished,
+                flyer_alt: flyerPath ? flyerAltInput.value.trim() || `${title}のフライヤー` : null, is_published: isPublished,
                 publish_at: publicationMode.value === 'scheduled' ? toIsoDateTime(publishAtInput.value) : null
             };
             const result = editingPost

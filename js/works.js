@@ -6,6 +6,8 @@ const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
 const yearTabs = document.querySelector('#works-year-tabs');
 const latestTitle = document.querySelector('#latest-title');
+const upcomingGrid = document.querySelector('#upcoming-works');
+const upcomingEmptyState = document.querySelector('#upcoming-empty');
 
 const roleLabels = {
     artist_pa_operation: 'ARTIST PA OPERATION',
@@ -13,6 +15,7 @@ const roleLabels = {
 };
 
 const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
+const isUpcomingWork = (post) => post.lifecycle_status === 'upcoming';
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
     : '/works.html';
@@ -67,27 +70,43 @@ if (grid && emptyState && isSupabaseConfigured) {
         card.href = publicWorkUrl(post);
         card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
-        const originalImageUrl = publicFlyerUrl(post.flyer_path);
-        const image = document.createElement('img');
-        image.srcset = [320, 480, 640]
-            .map((width) => `${publicFlyerThumbnailUrl(post.flyer_path, width)} ${width}w`)
-            .join(', ');
-        image.sizes = workImageSizes;
-        image.src = publicFlyerThumbnailUrl(post.flyer_path, 480);
-        image.alt = post.flyer_alt || `${post.title}のフライヤー`;
-        image.width = 3;
-        image.height = 4;
-        image.loading = index < eagerCount ? 'eager' : 'lazy';
-        image.decoding = index < eagerCount ? 'sync' : 'async';
-        if (index === 0) image.fetchPriority = 'high';
-        image.addEventListener('error', () => {
-            image.removeAttribute('srcset');
-            image.removeAttribute('sizes');
-            image.src = originalImageUrl;
-        }, { once: true });
+        let media;
+        if (post.flyer_path) {
+            const originalImageUrl = publicFlyerUrl(post.flyer_path);
+            const image = document.createElement('img');
+            image.srcset = [320, 480, 640]
+                .map((width) => `${publicFlyerThumbnailUrl(post.flyer_path, width)} ${width}w`)
+                .join(', ');
+            image.sizes = workImageSizes;
+            image.src = publicFlyerThumbnailUrl(post.flyer_path, 480);
+            image.alt = post.flyer_alt || `${post.title}のフライヤー`;
+            image.width = 3;
+            image.height = 4;
+            image.loading = index < eagerCount ? 'eager' : 'lazy';
+            image.decoding = index < eagerCount ? 'sync' : 'async';
+            if (index === 0) image.fetchPriority = 'high';
+            image.addEventListener('error', () => {
+                image.removeAttribute('srcset');
+                image.removeAttribute('sizes');
+                image.src = originalImageUrl;
+            }, { once: true });
+            media = image;
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'work-card__image-placeholder';
+            placeholder.textContent = 'ARA-TECH';
+            placeholder.setAttribute('aria-hidden', 'true');
+            media = placeholder;
+        }
 
         const body = document.createElement('div');
         body.className = 'work-card__body';
+        if (isUpcomingWork(post)) {
+            const status = document.createElement('span');
+            status.className = 'work-card__status';
+            status.textContent = '開催予定';
+            body.append(status);
+        }
         const tag = document.createElement('span');
         tag.className = 'work-card__tag';
         tag.textContent = post.category || 'WORKS';
@@ -125,6 +144,15 @@ if (grid && emptyState && isSupabaseConfigured) {
             body.append(venue);
         }
 
+        if (post.area) {
+            const area = document.createElement('p');
+            area.className = 'work-card__venue';
+            area.textContent = post.area;
+            body.append(area);
+        }
+
+        if (post.performer_name) body.append(createArtistLine('ARTIST / EVENT', post.performer_name));
+
         const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
         const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
         if (operationArtists) body.append(createArtistLine('OPERATION', operationArtists));
@@ -134,9 +162,9 @@ if (grid && emptyState && isSupabaseConfigured) {
 
         const link = document.createElement('span');
         link.className = 'work-card__link';
-        link.textContent = 'VIEW REPORT →';
+        link.textContent = isUpcomingWork(post) ? 'VIEW EVENT →' : 'VIEW REPORT →';
         body.append(link);
-        card.append(image, body);
+        card.append(media, body);
         return card;
     };
 
@@ -162,6 +190,18 @@ if (grid && emptyState && isSupabaseConfigured) {
         emptyState.hidden = true;
         const eagerCount = initialRowCount();
         visiblePosts.forEach((post, index) => grid.append(createCard(post, index, eagerCount)));
+    };
+
+    const renderUpcomingWorks = (posts) => {
+        if (!upcomingGrid || !upcomingEmptyState) return;
+        upcomingGrid.replaceChildren();
+        if (!posts.length) {
+            upcomingEmptyState.hidden = false;
+            return;
+        }
+        upcomingEmptyState.hidden = true;
+        const eagerCount = initialRowCount();
+        posts.forEach((post, index) => upcomingGrid.append(createCard(post, index, eagerCount)));
     };
 
     const renderYearTabs = (posts) => {
@@ -216,15 +256,18 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
-        const legacyFields = 'id, title, category, role_type, event_date, venue, artists, flyer_path, flyer_alt';
+        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on';
+        const legacyFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error
             && ['42703', 'PGRST204'].includes(error.code)
-            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists/.test(error.message || '');
+            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on/.test(error.message || '');
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
-        renderYearTabs(data);
+        const upcomingPosts = data.filter(isUpcomingWork).sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));
+        const completedPosts = data.filter((post) => !isUpcomingWork(post));
+        renderUpcomingWorks(upcomingPosts);
+        renderYearTabs(completedPosts);
     };
 
     loadWorks();

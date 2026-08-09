@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>実績 | ARA-TECH（広島）- 音響・ステージ制作の現場</title>
-    <meta name="description" content="ARA-TECHが手がけた音響・照明・ステージ制作の実績をご紹介。イベントフライヤーとともに、担当内容や現場の様子を掲載しています。">
+    <title>開催予定・実績 | ARA-TECH（広島）- 音響・ステージ制作</title>
+    <meta name="description" content="ARA-TECHが音響・現場対応を担当予定の一般公開済みイベントと、音響・照明・ステージ制作の実績をご紹介します。公演詳細は会場・主催者の公式情報をご確認ください。">
     <link rel="canonical" href="https://ara-tech.cc/works.html">
-    <meta property="og:title" content="実績 | ARA-TECH">
-    <meta property="og:description" content="音響・照明・ステージ制作の現場実績をご紹介します。">
+    <meta property="og:title" content="開催予定・実績 | ARA-TECH">
+    <meta property="og:description" content="ARA-TECHが担当予定の一般公開済みイベントと、音響・照明・ステージ制作の現場実績をご紹介します。">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ara-tech.cc/works.html">
     <meta property="og:image" content="https://ara-tech.cc/img/mr-1.jpg">
@@ -45,6 +45,7 @@
         .year-tab:hover { border-color: var(--primary); color: var(--primary); }
         .year-tab[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: white; }
         .works-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+        #upcoming-works { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
         #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 327px; }
         .work-card { background: white; border: 0; border-radius: 18px; box-shadow: 0 12px 30px rgba(17, 54, 88, .1); height: 100%; overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
         .work-card--link { color: inherit; display: block; text-decoration: none; }
@@ -56,6 +57,9 @@
         .work-card__venue { color: #53708d !important; font-size: .82rem !important; font-weight: 700; margin-top: 4px !important; }
         .work-card__artist { color: #17639f !important; font-size: .82rem !important; font-weight: 900; letter-spacing: .02em; margin: 10px 0 0 !important; }
         .work-card__tag { background: #e8f3ff; border-radius: 999px; color: #0069d9; display: inline-block; font-size: .74rem; font-weight: 900; letter-spacing: .04em; padding: 4px 10px; }
+        .work-card__status { background: #fff2cc; border: 1px solid #e0b64f; border-radius: 999px; color: #714700; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; margin-right: 6px; padding: 4px 10px; }
+        .work-card__image-placeholder { align-items: center; aspect-ratio: 3 / 4; background: linear-gradient(145deg, #e9f1f8, #f8fbfe); color: #587087; display: flex; font-size: .78rem; font-weight: 900; justify-content: center; letter-spacing: .12em; text-align: center; }
+        .upcoming-guidance { background: #fff8df; border-left: 4px solid #dcae34; border-radius: 12px; color: #62480c; margin: 0 0 22px; padding: 14px 18px; }
         .work-card__service-plan { background: #e9f8ef; border: 1px solid #99d5af; border-radius: 999px; color: #176b39; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .03em; margin-left: 6px; padding: 4px 10px; }
         .work-card__role { border: 1px solid #315ca8; border-radius: 999px; color: #315ca8; display: inline-block; font-size: .68rem; font-weight: 900; letter-spacing: .05em; margin-left: 6px; padding: 4px 9px; }
         .work-card__role--operation { background: #0c75dc; border-color: #0c75dc; color: white; }
@@ -114,9 +118,9 @@
 
     <header class="page-hero site-hero">
         <div class="container">
-            <p class="eyebrow mb-2">FIELD REPORTS</p>
-            <h1 class="page-title-ja public-page-heading site-hero__title site-hero__title--wide"><span class="d-block site-hero__title-main"><span class="phrase-lock">音響・照明・</span><span class="phrase-lock">ステージ制作実績</span></span><span class="site-hero__label">WORKS</span></h1>
-            <p class="mb-0">音響・照明・ステージ制作の現場を、イベントフライヤーとともにご紹介します。企画の規模やジャンルを問わず、心を動かす空間づくりを支えています。</p>
+            <p class="eyebrow mb-2">UPCOMING &amp; FIELD REPORTS</p>
+            <h1 class="page-title-ja public-page-heading site-hero__title site-hero__title--wide"><span class="d-block site-hero__title-main"><span class="phrase-lock">開催予定・</span><span class="phrase-lock">音響制作実績</span></span><span class="site-hero__label">WORKS</span></h1>
+            <p class="mb-0">一般公開済みの開催予定と、音響・照明・ステージ制作の現場実績をご紹介します。ARA-TECHは掲載イベントの主催者ではありません。</p>
         </div>
         <div class="wave-container" aria-hidden="true">
             <svg viewBox="0 0 500 150" preserveAspectRatio="none">
@@ -126,11 +130,26 @@
     </header>
 
     <main class="container py-5 py-lg-6">
+        <section id="upcoming" aria-labelledby="upcoming-title" class="mb-5">
+            <div class="works-section-header">
+                <div>
+                    <p class="eyebrow text-primary mb-2">UPCOMING EVENTS</p>
+                    <h2 id="upcoming-title" class="section-heading">開催予定</h2>
+                </div>
+            </div>
+            <p class="upcoming-guidance">会場または主催者が一般公開した情報を確認後に掲載しています。公演・チケット等の詳細は、各ページから会場・主催者の公式情報をご確認ください。</p>
+            <div id="upcoming-works" class="works-grid" aria-live="polite"></div>
+            <div id="upcoming-empty" class="notice">
+                <strong>現在、掲載中の開催予定はありません。</strong>
+                公式告知を確認できた案件のみ、順次掲載します。
+            </div>
+        </section>
+
         <section aria-labelledby="latest-title" class="mb-5">
             <div class="works-section-header">
                 <div>
-                    <p class="eyebrow text-primary mb-2">LATEST WORKS</p>
-                    <h2 id="latest-title" class="section-heading">最新の現場</h2>
+                    <p class="eyebrow text-primary mb-2">FIELD REPORTS</p>
+                    <h2 id="latest-title" class="section-heading">終了済みの実績</h2>
                 </div>
                 <div id="works-year-tabs" class="year-tabs" role="group" aria-label="表示する実績の年"></div>
             </div>

@@ -9,7 +9,9 @@ const WORK_FIELDS = [
     'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'participant_groups', 'system_setup',
     'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
-    'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
+    'flyer_alt', 'lifecycle_status', 'performer_name', 'area', 'venue_address', 'organizer_name',
+    'official_announcement_url', 'announcement_confirmed_on',
+    'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');
 
 const WORK_FIELDS_LEGACY = [
@@ -119,6 +121,8 @@ const getAssignmentItemLabels = (post) => getAssignmentItems(post)
     .map((value) => assignmentItemLabels[value]);
 
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
+const isUpcomingWork = (post) => post?.lifecycle_status === 'upcoming';
+const hasFlyer = (post) => Boolean(String(post?.flyer_path || '').trim());
 
 const getFlyerDimensions = (path) => {
     const [width, height] = flyerDimensions[String(path || '')] || [];
@@ -151,11 +155,20 @@ const buildSummary = (post) => {
     if (post.description) return String(post.description).trim();
     const date = formatDate(post.event_date);
     const venue = post.venue ? String(post.venue).trim() : '';
-    const whenWhere = date && venue ? `${date}、${venue}で開催された` : date ? `${date}に開催された` : venue ? `${venue}で開催された` : '';
+    const upcoming = isUpcomingWork(post);
+    const whenWhere = date && venue
+        ? `${date}、${venue}で${upcoming ? '開催予定の' : '開催された'}`
+        : date
+            ? `${date}に${upcoming ? '開催予定の' : '開催された'}`
+            : venue
+                ? `${venue}で${upcoming ? '開催予定の' : '開催された'}`
+                : '';
     const displayedTitle = /[「『“"]/u.test(post.title) ? post.title : `「${post.title}」`;
-    const lead = `${whenWhere ? `${whenWhere}` : ''}${displayedTitle}のARA-TECH実績です。`;
+    const lead = upcoming
+        ? `${whenWhere ? `${whenWhere}` : ''}${displayedTitle}で、ARA-TECHが音響・現場対応を担当予定です。`
+        : `${whenWhere ? `${whenWhere}` : ''}${displayedTitle}のARA-TECH実績です。`;
     const roles = getRoleTypes(post).map((role) => roleDetails[role].description);
-    return roles.length ? `${lead}担当：${roles.join('、')}。` : lead;
+    return roles.length ? `${lead}${upcoming ? '担当予定' : '担当'}：${roles.join('、')}。` : lead;
 };
 
 const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
@@ -178,7 +191,7 @@ const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
     if (!response.ok && !sitemap && response.status === 400) {
         const errorPayload = await response.json().catch(() => ({}));
         const missingClassificationColumn = errorPayload.code === '42703'
-            && /service_plan|assignment_items|participant_groups|system_setup/.test(errorPayload.message || '');
+            && /service_plan|assignment_items|participant_groups|system_setup|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on/.test(errorPayload.message || '');
         if (!missingClassificationColumn) throw new Error(`Supabase returned ${response.status}`);
         endpoint.searchParams.set('select', WORK_FIELDS_LEGACY);
         response = await requestWorks();
@@ -200,7 +213,9 @@ module.exports = {
     getServicePlanLabel,
     getFlyerDimensions,
     getWorkYear,
+    hasFlyer,
     isValidWorkSlug,
+    isUpcomingWork,
     publicFlyerTransformedUrl,
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
