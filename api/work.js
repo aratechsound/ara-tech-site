@@ -324,8 +324,13 @@ const renderWorkPage = (post, {
         '@graph': structuredGraph
     };
 
+    const previewImageNote = preview && reviewImageUrl && !publicWorkHasFlyer
+        ? post.image_usage_status === 'not_permitted'
+            ? '管理画面の確認用画像です。現在は「画像を掲載しない」設定です。'
+            : '公開待ち一覧で確認中の画像です。「公開する」で公開ページに掲載されます。'
+        : '';
     const detailMedia = workHasFlyer
-        ? `<figure class="detail-flyer${preview && reviewImageUrl && !publicWorkHasFlyer ? ' detail-flyer--review' : ''}"><img src="${escapeHtml(displayImageUrl)}"${displayImageSrcset ? ` srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}"` : ''} alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async">${preview && reviewImageUrl && !publicWorkHasFlyer ? '<figcaption class="preview-image-note">管理画面の確認用画像です。公開画像としては未選択です。</figcaption>' : ''}</figure>`
+        ? `<figure class="detail-flyer${previewImageNote ? ' detail-flyer--review' : ''}"><img src="${escapeHtml(displayImageUrl)}"${displayImageSrcset ? ` srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}"` : ''} alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async">${previewImageNote ? `<figcaption class="preview-image-note">${previewImageNote}</figcaption>` : ''}</figure>`
         : '<div class="detail-flyer detail-flyer--placeholder" role="img" aria-label="画像は掲載されていません"><span>ARA-TECH</span><strong>画像は掲載されていません</strong></div>';
 
     const analyticsScript = preview ? '' : `<script>(()=>{const button=document.querySelector('.navbar-toggler');const menu=document.getElementById('navbarNav');const closeMenu=()=>{button.setAttribute('aria-expanded','false');button.setAttribute('aria-label','メニューを開く');menu.classList.remove('is-open')};if(button&&menu){button.addEventListener('click',()=>{const willOpen=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(willOpen));button.setAttribute('aria-label',willOpen?'メニューを閉じる':'メニューを開く');menu.classList.toggle('is-open',willOpen)});document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&button.getAttribute('aria-expanded')==='true'){closeMenu();button.focus()}})}const loadAnalytics=()=>{window.dataLayer=window.dataLayer||[];window.gtag=function(){window.dataLayer.push(arguments)};const script=document.createElement('script');script.async=true;script.src='https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY';document.head.appendChild(script);window.gtag('js',new Date());window.gtag('config','G-K8VZM111TY')};window.addEventListener('load',()=>{'requestIdleCallback'in window?requestIdleCallback(loadAnalytics,{timeout:3000}):setTimeout(loadAnalytics,2000)},{once:true})})();</script>`;
