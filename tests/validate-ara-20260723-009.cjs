@@ -56,7 +56,8 @@ assert.equal((installation.match(/\bclass="showcase-img zoom-single"/g) || []).l
 assert.match(installation, /\.showcase-img \{ width: 100%; height: auto;/);
 
 const inlineScripts = [...installation.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
-assert.ok(inlineScripts.length >= 2);
+assert.ok(inlineScripts.length >= 1);
+assert.match(installation, /<script src="\/js\/analytics\.js" defer><\/script>/);
 for (const [index, script] of inlineScripts.entries()) {
     new vm.Script(script, { filename: `installation-inline-${index}.js` });
 }

@@ -95,7 +95,8 @@ for (const file of publicHtmlFiles) {
 }
 
 const generalInlineScripts = [...general.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
-assert.ok(generalInlineScripts.length >= 2);
+assert.ok(generalInlineScripts.length >= 1);
+assert.match(general, /<script src="\/js\/analytics\.js" defer><\/script>/);
 for (const [index, script] of generalInlineScripts.entries()) {
     new vm.Script(script, { filename: `general-inquiry-inline-${index}.js` });
 }

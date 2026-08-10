@@ -40,9 +40,10 @@ assert.ok(!html.includes('fonts.gstatic.com'));
 assert.ok(!html.includes('bootstrap.min.css'));
 assert.ok(!html.includes('bootstrap.bundle.min.js'));
 assert.ok(!html.includes('data-bs-toggle'));
-assert.match(html, /window\.addEventListener\('load'/);
 assert.ok(!html.includes('<script async src="https://www.googletagmanager.com/'));
-assert.match(html, /requestIdleCallback\(loadAnalytics/);
+assert.match(html, /<script src="\/js\/analytics\.js" data-analytics-load="idle" defer><\/script>/);
+const analytics = fs.readFileSync(path.join(repoRoot, 'js', 'analytics.js'), 'utf8');
+assert.match(analytics, /requestIdleCallback\(initialize/);
 
 const relatedSection = html.match(/<section class="content-section related-works"[\s\S]*?<\/section>/)?.[0] || '';
 assert.match(relatedSection, /\?width=240&amp;quality=72&amp;resize=contain/);

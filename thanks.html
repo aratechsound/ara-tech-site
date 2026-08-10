@@ -11,14 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){ dataLayer.push(arguments); }
-        gtag('js', new Date());
-        gtag('config', 'G-K8VZM111TY');
-    </script>
+    <script src="/js/analytics.js" defer></script>
     <style>
         :root { --primary: #007bff; --ink: #1d1d1f; --surface: #f5f8fc; }
         body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.7; }
@@ -90,8 +83,10 @@
                     : 'お問い合わせは正常に登録されました。受付確認メールを送信できていない場合も、内容確認後にARA-TECHより改めてご連絡します。これは予約確定通知ではありません。';
                 mailElement.hidden = false;
             }
-            gtag('event', 'generate_lead', { form_name: formName });
             window.history.replaceState({}, document.title, 'thanks.html');
+            const sendLeadEvent = () => window.gtag('event', 'generate_lead', { form_name: formName });
+            if (typeof window.gtag === 'function') sendLeadEvent();
+            else window.addEventListener('ara:analytics-ready', sendLeadEvent, { once: true });
         }
     </script>
 </body>

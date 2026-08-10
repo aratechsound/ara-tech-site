@@ -12,14 +12,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-K8VZM111TY"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){ dataLayer.push(arguments); }
-        gtag('js', new Date());
-        gtag('config', 'G-K8VZM111TY');
-    </script>
+    <script src="/js/analytics.js" defer></script>
     <style>
         :root { --primary: #007bff; --ink: #1d1d1f; --surface: #f5f8fc; }
         body { background: var(--surface); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; line-height: 1.8; }
@@ -65,7 +58,8 @@
             <p>お問い合わせフォームでご入力いただいた氏名・会社名・メールアドレス・電話番号・ご相談内容などは、お問い合わせへの回答、見積もり対応、サービスのご案内に必要な範囲で利用します。イベント依頼・空き状況確認フォームの入力情報は、当社サイトのサーバー受付処理を経由してPA予約管理システムへ登録します。一般お問い合わせフォームの送信にはFormspreeを利用します。</p>
 
             <h2>アクセス解析について</h2>
-            <p>当サイトでは、利用状況の把握とサイト改善のため、Google Analyticsを利用します。Google AnalyticsはCookieなどを利用してアクセスに関する情報を収集します。当社は、これらの情報を個人を特定する目的では利用しません。</p>
+            <p>当サイトでは、利用状況の把握とサイト改善のため、Google AnalyticsおよびVercel Web Analyticsを利用します。Google AnalyticsはCookieなどを利用し、Vercel Web AnalyticsはCookieを使用せず匿名化された集計情報を収集します。当社は、これらの情報を個人を特定する目的では利用しません。</p>
+            <p>アクセス解析へ送信するページURLと参照元URLからは、クエリパラメータとハッシュを除外します。お問い合わせフォームへ入力された氏名、メールアドレス、電話番号、相談内容、受付番号等をアクセス解析へ送信しません。</p>
             <p>Google Analyticsによる情報収集を停止したい場合は、ブラウザの設定を変更するか、<a href="https://tools.google.com/dlpage/gaoptout">Google Analytics オプトアウト アドオン</a>をご利用ください。Googleによるデータの取り扱いについては、<a href="https://policies.google.com/privacy">Google プライバシーポリシー</a>をご確認ください。</p>
 
             <h2>第三者への提供</h2>
