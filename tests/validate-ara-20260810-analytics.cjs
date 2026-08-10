@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const workHandler = require('../api/work.js');
 const { rows } = require('./fixtures.cjs');
 
@@ -39,12 +40,95 @@ const analytics = read('js/analytics.js');
 assert.equal(occurrences(analytics, /G-K8VZM111TY/g), 1);
 assert.match(analytics, /page_location: pageLocation/);
 assert.match(analytics, /pageReferrer = sanitizeUrl\(document\.referrer\)/);
-assert.match(analytics, /return `\$\{parsed\.origin\}\$\{parsed\.pathname\}`/);
-assert.doesNotMatch(analytics, /parsed\.search|parsed\.hash/);
+for (const name of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_id', 'utm_term', 'utm_content']) {
+    assert.ok(occurrences(analytics, new RegExp(`'${name}'`, 'g')) >= 1);
+}
+assert.match(analytics, /preserveCampaignParameters: true/);
+assert.doesNotMatch(analytics, /parsed\.hash/);
 assert.match(analytics, /window\.gtag\('config', measurementId, config\)/);
 assert.equal(occurrences(analytics, /window\.gtag\('config'/g), 1);
 assert.match(analytics, /window\.va\('beforeSend'/);
 assert.match(analytics, /\/_vercel\/insights\/script\.js/);
+
+const executeAnalytics = (href) => {
+    const appendedScripts = [];
+    const document = {
+        currentScript: { dataset: {} },
+        referrer: 'https://referrer.example/from?email=private%40example.com#private',
+        createElement: () => ({}),
+        head: { appendChild: (element) => appendedScripts.push(element) }
+    };
+    const window = {
+        location: { href, origin: 'https://ara-tech.cc' },
+        dispatchEvent: () => {}
+    };
+    const context = {
+        URL,
+        CustomEvent: function CustomEvent() {},
+        document,
+        window
+    };
+
+    vm.runInNewContext(analytics, context);
+
+    const configCalls = window.dataLayer
+        .map((entry) => Array.from(entry))
+        .filter(([command]) => command === 'config');
+    assert.equal(configCalls.length, 1, 'GA4 config must be sent exactly once');
+    return { config: configCalls[0][2], appendedScripts, window };
+};
+
+const utmUrl = [
+    'https://ara-tech.cc/pa-rental.html?',
+    'utm_source=google',
+    'utm_medium=cpc',
+    'utm_campaign=summer_sale',
+    'utm_id=1234567890',
+    'utm_term=live+sound',
+    'utm_content=hero_banner',
+    'email=private%40example.com',
+    'phone=09012345678',
+    'form_message=secret'
+].join('&').replace('?&', '?') + '#private';
+const validCampaign = executeAnalytics(utmUrl);
+const sentLocation = new URL(validCampaign.config.page_location);
+assert.equal(sentLocation.origin + sentLocation.pathname, 'https://ara-tech.cc/pa-rental.html');
+assert.deepEqual(
+    Object.fromEntries(sentLocation.searchParams),
+    {
+        utm_source: 'google',
+        utm_medium: 'cpc',
+        utm_campaign: 'summer_sale',
+        utm_id: '1234567890',
+        utm_term: 'live sound',
+        utm_content: 'hero_banner'
+    }
+);
+assert.equal(sentLocation.hash, '');
+assert.equal(sentLocation.searchParams.has('email'), false);
+assert.equal(sentLocation.searchParams.has('phone'), false);
+assert.equal(sentLocation.searchParams.has('form_message'), false);
+assert.equal(validCampaign.config.page_referrer, 'https://referrer.example/from');
+
+const unsafeCampaign = executeAnalytics(
+    'https://ara-tech.cc/?utm_source=mail%40example.com&utm_medium=email&utm_campaign=https%3A%2F%2Fexample.com&utm_term=09012345678&utm_content=valid'
+);
+const unsafeLocation = new URL(unsafeCampaign.config.page_location);
+assert.deepEqual(Object.fromEntries(unsafeLocation.searchParams), {
+    utm_medium: 'email',
+    utm_content: 'valid'
+});
+
+const beforeSendRegistration = validCampaign.window.vaq
+    .map((entry) => Array.from(entry))
+    .find(([command]) => command === 'beforeSend');
+assert.ok(beforeSendRegistration, 'Vercel beforeSend sanitizer must be registered');
+const sanitizedVercelEvent = beforeSendRegistration[1]({
+    url: utmUrl,
+    referrer: 'https://external.example/page?token=secret#private'
+});
+assert.equal(sanitizedVercelEvent.url, 'https://ara-tech.cc/pa-rental.html');
+assert.equal(sanitizedVercelEvent.referrer, 'https://external.example/page');
 
 const publicWorkHtml = workHandler.renderWorkPage(rows[0]);
 assert.equal(occurrences(publicWorkHtml, /src="\/js\/analytics\.js"/g), 1);
