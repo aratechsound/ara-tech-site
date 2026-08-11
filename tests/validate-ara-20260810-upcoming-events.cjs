@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const workHandler = require('../api/work.js');
 const sitemapHandler = require('../api/sitemap.js');
+const shared = require('../api/_shared.cjs');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -41,6 +42,10 @@ const upcoming = {
 };
 
 const upcomingHtml = workHandler.renderWorkPage(upcoming);
+assert.equal(shared.formatDate('2026-08-14'), '2026年8月14日(金)');
+assert.equal(shared.formatDate('2026-08-16'), '2026年8月16日(日)');
+assert.equal(shared.formatDate(null), '');
+assert.match(upcomingHtml, /2026年12月20日\(日\)/u);
 assert.match(upcomingHtml, /<title>SAMPLE LIVE 2026 広島公演｜2026年 広島サンプルホール｜ARA-TECH 音響担当予定<\/title>/);
 assert.match(upcomingHtml, /<link rel="canonical" href="https:\/\/ara-tech\.cc\/works\/2026-sample-live-hiroshima\.html">/);
 assert.match(upcomingHtml, /<span class="detail-status detail-status--upcoming">開催予定<\/span>/);
@@ -89,7 +94,7 @@ const adminHtml = read('admin.html');
 const adminJs = read('js/admin.js');
 const worksHtml = read('works.html');
 const worksJs = read('js/works.js');
-const shared = read('api/_shared.cjs');
+const sharedSource = read('api/_shared.cjs');
 const migration = read('supabase/migrations/20260810000000_works_upcoming_events.sql');
 
 [
@@ -113,8 +118,10 @@ assert.match(worksHtml, /ARA-TECHは掲載イベントの主催者ではあり�
 assert.match(worksJs, /data\.filter\(isUpcomingWork\)/);
 assert.match(worksJs, /data\.filter\(\(post\) => !isUpcomingWork\(post\)\)/);
 assert.match(worksJs, /post\.flyer_path/);
-assert.match(shared, /const isUpcomingWork =/);
-assert.match(shared, /担当予定です/);
+assert.match(sharedSource, /const isUpcomingWork =/);
+assert.match(sharedSource, /担当予定です/);
+assert.match(worksJs, /日\(\$\{weekdays\[value\.getUTCDay\(\)\]\}\)/u);
+assert.match(adminJs, /日\(\$\{weekdays\[value\.getUTCDay\(\)\]\}\)/u);
 
 assert.match(migration, /add column if not exists lifecycle_status text not null default 'completed'/);
 assert.match(migration, /work_posts_upcoming_publication_evidence/);

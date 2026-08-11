@@ -134,7 +134,14 @@ const clearMessage = (element) => {
     element.className = 'alert hidden';
 };
 
-const formatDate = (date) => date ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00`)) : '開催日未設定';
+const formatDate = (date) => {
+    const match = String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+    if (!match) return '開催日未設定';
+    const [, year, month, day] = match;
+    const value = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    return `${Number(year)}年${Number(month)}月${Number(day)}日(${weekdays[value.getUTCDay()]})`;
+};
 const formatDateTime = (dateTime) => dateTime ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(dateTime)) : '';
 const toLocalDateTimeInput = (dateTime) => {
     if (!dateTime) return '';
