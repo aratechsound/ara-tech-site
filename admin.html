@@ -99,6 +99,13 @@
         .image-omit-choice { background: #fff4f1; border-color: #dc8f7e; }
         .pending-review-summary { background: #f8fbfe; border-left: 3px solid #82b7df; margin: 10px 0 0; padding: 9px 11px; }
         .pending-review-summary p { margin: 4px 0; overflow-wrap: anywhere; }
+        .analytics-exclusion-control { align-items: flex-start; background: #f8fbfe; border: 1px solid var(--line); border-radius: 12px; display: flex; gap: 12px; margin-top: 20px; padding: 16px; }
+        .analytics-exclusion-control input { accent-color: var(--blue); flex: 0 0 auto; height: 18px; margin-top: 5px; width: 18px; }
+        .analytics-exclusion-control strong { display: block; }
+        .analytics-exclusion-state { border-radius: 999px; display: inline-block; font-size: .86rem; font-weight: 900; margin: 8px 0 0; padding: 7px 12px; }
+        .analytics-exclusion-state--on { background: #fff0f1; color: #a12431; }
+        .analytics-exclusion-state--off { background: #dff8ea; color: #13733c; }
+        .analytics-exclusion-description { margin: 12px 0 0; }
         dialog.preview-dialog { border: 0; border-radius: 16px; height: min(92vh, 980px); max-width: none; padding: 0; width: min(96vw, 1320px); }
         dialog.preview-dialog::backdrop { background: rgba(14, 27, 40, .72); }
         .preview-dialog__head { align-items: center; background: #10263b; color: white; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px 16px; }
@@ -139,6 +146,18 @@
         </section>
 
         <section id="dashboard" class="hidden">
+            <section class="card" aria-labelledby="analytics-exclusion-title">
+                <p class="eyebrow">ANALYTICS PRIVACY</p>
+                <h2 id="analytics-exclusion-title">GA4内部アクセス除外</h2>
+                <p id="analytics-exclusion-state" class="analytics-exclusion-state analytics-exclusion-state--off">現在：通常計測</p>
+                <p id="analytics-exclusion-description" class="analytics-exclusion-description" aria-live="polite">このブラウザからの公開サイト閲覧はGA4へ送信されます。</p>
+                <label class="analytics-exclusion-control" for="analytics-exclusion-toggle">
+                    <input id="analytics-exclusion-toggle" type="checkbox">
+                    <span><strong>このブラウザを社内・確認用として登録</strong>ONにすると、このブラウザプロファイルからGoogle Analytics / GA4を初期化・送信しません。</span>
+                </label>
+                <p class="help">この設定はブラウザプロファイル単位で、この端末のlocalStorageに保存されます。Cookie・サイトデータの削除、新しいブラウザプロファイル、別ブラウザでは設定が引き継がれないため、それぞれ一度登録してください。Vercel Web Analyticsは通常どおり動作します。</p>
+            </section>
+
             <section class="card" aria-labelledby="pending-title">
                 <p class="eyebrow">PUBLICATION QUEUE</p>
                 <h2 id="pending-title">公開待ち <span id="pending-count" class="status status--pending">0件</span></h2>

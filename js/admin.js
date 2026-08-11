@@ -74,6 +74,9 @@ const publishCandidateButton = $('#publish-candidate');
 const rejectCandidateButton = $('#reject-candidate');
 const previewDialog = $('#preview-dialog');
 const previewFrame = $('#preview-frame');
+const analyticsExclusionToggle = $('#analytics-exclusion-toggle');
+const analyticsExclusionState = $('#analytics-exclusion-state');
+const analyticsExclusionDescription = $('#analytics-exclusion-description');
 const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
 
 let supabase;
@@ -86,6 +89,7 @@ const pendingDisplayedImages = new Map();
 const publishingCandidateIds = new Set();
 
 const PENDING_STATUS = 'publication_pending_approval';
+const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
@@ -128,6 +132,41 @@ const setMessage = (element, message, type = 'info') => {
     element.textContent = message;
     element.className = `alert alert--${type}`;
 };
+
+const isInternalAnalyticsBrowser = () => {
+    try {
+        return window.localStorage.getItem(INTERNAL_ANALYTICS_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+};
+
+const renderAnalyticsExclusion = (storageError = false) => {
+    const enabled = isInternalAnalyticsBrowser();
+    analyticsExclusionToggle.checked = enabled;
+    analyticsExclusionState.textContent = enabled ? '現在：GA4内部アクセス除外 ON' : '現在：通常計測';
+    analyticsExclusionState.className = `analytics-exclusion-state analytics-exclusion-state--${enabled ? 'on' : 'off'}`;
+    analyticsExclusionDescription.textContent = storageError
+        ? 'このブラウザに設定を保存できませんでした。ブラウザのサイトデータ設定を確認してください。'
+        : enabled
+            ? 'このブラウザからのARA-TECH公式サイト閲覧はGA4へ送信されません。'
+            : 'このブラウザからの公開サイト閲覧はGA4へ送信されます。';
+};
+
+const updateAnalyticsExclusion = (enabled) => {
+    try {
+        if (enabled) window.localStorage.setItem(INTERNAL_ANALYTICS_STORAGE_KEY, 'true');
+        else window.localStorage.removeItem(INTERNAL_ANALYTICS_STORAGE_KEY);
+        renderAnalyticsExclusion();
+    } catch {
+        renderAnalyticsExclusion(true);
+    }
+};
+
+analyticsExclusionToggle.addEventListener('change', () => {
+    updateAnalyticsExclusion(analyticsExclusionToggle.checked);
+});
+renderAnalyticsExclusion();
 
 const clearMessage = (element) => {
     element.textContent = '';

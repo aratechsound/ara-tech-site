@@ -4,6 +4,7 @@
     if (window.__araAnalyticsInitialized) return;
     window.__araAnalyticsInitialized = true;
 
+    const internalAnalyticsStorageKey = 'ara_tech_internal_analytics';
     const measurementId = 'G-K8VZM111TY';
     const loader = document.currentScript;
     const campaignParameterNames = [
@@ -16,6 +17,17 @@
     ];
     const campaignValuePattern = /^[\p{L}\p{N}][\p{L}\p{N} .,_~+\-]{0,99}$/u;
     const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+
+    const isInternalAnalyticsBrowser = () => {
+        try {
+            return window.localStorage.getItem(internalAnalyticsStorageKey) === 'true';
+        } catch {
+            return false;
+        }
+    };
+
+    const internalAnalyticsBrowser = isInternalAnalyticsBrowser();
+    window.__araGa4Internal = internalAnalyticsBrowser;
 
     const sanitizeCampaignValue = (name, value) => {
         const trimmed = value.trim();
@@ -50,9 +62,8 @@
         }
     };
 
-    const initialize = () => {
+    const initializeVercelAnalytics = () => {
         const pageLocation = sanitizeUrl(window.location.href, { preserveCampaignParameters: true });
-        const pageReferrer = sanitizeUrl(document.referrer);
 
         window.va = window.va || function () {
             (window.vaq = window.vaq || []).push(arguments);
@@ -72,6 +83,18 @@
         vercelScript.defer = true;
         vercelScript.src = '/_vercel/insights/script.js';
         document.head.appendChild(vercelScript);
+    };
+
+    const initializeGoogleAnalytics = () => {
+        if (internalAnalyticsBrowser) {
+            window.dispatchEvent(new CustomEvent('ara:ga4-blocked', {
+                detail: { reason: 'internal-browser' }
+            }));
+            return;
+        }
+
+        const pageLocation = sanitizeUrl(window.location.href, { preserveCampaignParameters: true });
+        const pageReferrer = sanitizeUrl(document.referrer);
 
         window.dataLayer = window.dataLayer || [];
         window.gtag = window.gtag || function () {
@@ -88,6 +111,11 @@
         if (pageReferrer) config.page_referrer = pageReferrer;
         window.gtag('config', measurementId, config);
         window.dispatchEvent(new CustomEvent('ara:analytics-ready'));
+    };
+
+    const initialize = () => {
+        initializeVercelAnalytics();
+        initializeGoogleAnalytics();
     };
 
     const scheduleIdle = () => {
