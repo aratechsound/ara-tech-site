@@ -57,6 +57,11 @@ assert.match(expiredHtml, /<title>Expired Sample｜2020年 Sample Hall｜ARA-TEC
 assert.match(expiredHtml, /Expired Sample」のARA-TECH実績です/u);
 assert.doesNotMatch(expiredHtml, /開催予定の公演/u);
 
+const staleCompletedHtml = workHandler.renderWorkPage({ ...expiredPost, lifecycle_status: 'completed' });
+assert.match(staleCompletedHtml, /<title>Expired Sample｜2020年 Sample Hall｜ARA-TECH実績<\/title>/u);
+assert.match(staleCompletedHtml, /Expired Sample」のARA-TECH実績です/u);
+assert.doesNotMatch(staleCompletedHtml, /開催予定の公演/u);
+
 const worksSource = read('js/works.js');
 const adminSource = read('js/admin.js');
 const worksHtml = read('works.html');
