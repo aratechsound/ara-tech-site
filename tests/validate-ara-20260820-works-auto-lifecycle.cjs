@@ -44,12 +44,18 @@ const expiredPost = {
     venue_address: '広島県広島市',
     organizer_name: 'Sample Organizer',
     official_announcement_url: 'https://example.com/event',
+    description: 'Sample Hallで開催予定の公演で、ARA-TECHが音響を担当予定です。',
+    seo_title: 'Expired Sample｜ARA-TECH 音響担当予定',
+    meta_description: '開催予定の公演です。',
     is_published: true
 };
 const expiredHtml = workHandler.renderWorkPage(expiredPost);
 assert.match(expiredHtml, /detail-status--completed">終了済み/u);
 assert.match(expiredHtml, /FIELD REPORT/u);
 assert.doesNotMatch(expiredHtml, /EventScheduled/u);
+assert.match(expiredHtml, /<title>Expired Sample｜2020年 Sample Hall｜ARA-TECH実績<\/title>/u);
+assert.match(expiredHtml, /Expired Sample」のARA-TECH実績です/u);
+assert.doesNotMatch(expiredHtml, /開催予定の公演/u);
 
 const worksSource = read('js/works.js');
 const adminSource = read('js/admin.js');

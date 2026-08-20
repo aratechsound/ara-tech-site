@@ -182,13 +182,17 @@ const renderWorkPage = (post, {
     const displayImageDimensionAttributes = displayImageDimensions
         ? ` width="${displayImageDimensions.width}" height="${displayImageDimensions.height}"`
         : '';
-    const summary = buildSummary(post);
-    const seoDescription = truncate(post.meta_description || summary, 155);
+    const automaticallyCompleted = post.lifecycle_status === 'upcoming' && !upcoming;
+    // Upcoming copy is approval-time information, not a confirmed field report.
+    // After the date boundary, use the neutral completed summary until an editor
+    // explicitly records the result instead of displaying stale "予定" claims.
+    const summary = buildSummary(automaticallyCompleted ? { ...post, description: null } : post);
+    const seoDescription = truncate(automaticallyCompleted ? summary : post.meta_description || summary, 155);
     const date = formatDate(post.event_date);
     const year = post.event_date?.slice(0, 4) || '';
     const titleContext = [year ? `${year}年` : '', post.venue || ''].filter(Boolean).join(' ');
     const seoSuffix = upcoming ? 'ARA-TECH 音響担当予定' : 'ARA-TECH実績';
-    const pageTitle = String(post.seo_title || '').trim()
+    const pageTitle = (automaticallyCompleted ? '' : String(post.seo_title || '').trim())
         || `${post.title}${titleContext ? `｜${titleContext}` : ''}｜${seoSuffix}`;
     const roleTypes = getRoleTypes(post);
     const service = serviceFor(post, roleTypes);
