@@ -8,6 +8,8 @@ import {
     normalizeServicePlan
 } from './work-taxonomy.mjs';
 
+const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
+
 const $ = (selector) => document.querySelector(selector);
 const configMessage = $('#config-message');
 const loginPanel = $('#login-panel');
@@ -269,9 +271,9 @@ const getPublicationState = (post) => {
     return { className: 'published', label: '公開中' };
 };
 
-const getLifecycleState = (post) => post.lifecycle_status === 'upcoming'
+const getLifecycleState = (post) => isUpcomingWork(post)
     ? { className: 'upcoming', label: '開催予定' }
-    : { className: 'published', label: '終了済み' };
+    : { className: 'published', label: post.lifecycle_status === 'upcoming' ? '終了済み（自動判定）' : '終了済み' };
 
 const updateSaveButton = () => {
     if (isPendingCandidate(editingPost)) { saveButton.textContent = '公開待ちを保存'; return; }
@@ -1045,8 +1047,7 @@ if (!isSupabaseConfigured) {
                 setMessage(postStatus, '開催予定を公開するには、アーティスト名またはイベント名・開催日・会場・地域・担当内容・HTTPSの公式告知URL・告知解禁確認日が必要です。', 'error');
                 return;
             }
-            const today = new Date();
-            const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const todayText = getJstDateString();
             if (announcementConfirmedOnInput.value > todayText) {
                 setMessage(postStatus, '告知解禁確認日に未来の日付は指定できません。', 'error');
                 return;

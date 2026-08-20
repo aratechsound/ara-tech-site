@@ -4,6 +4,7 @@ const SUPABASE_URL = 'https://kogbnremsouajxxsgxro.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_nGgPKpwiePrFS_vH8lPpVg_0I1HGGaS';
 const WORKS_BUCKET = 'work-flyers';
 const flyerDimensions = require('./flyer-dimensions.json');
+const { isUpcomingWork } = require('../js/work-lifecycle.js');
 
 const WORK_FIELDS = [
     'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'participant_groups', 'system_setup',
@@ -122,7 +123,6 @@ const getAssignmentItemLabels = (post) => getAssignmentItems(post)
     .map((value) => assignmentItemLabels[value]);
 
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
-const isUpcomingWork = (post) => post?.lifecycle_status === 'upcoming';
 const hasFlyer = (post) => post?.use_image_on_public_page !== false
     && Boolean(String(post?.flyer_path || '').trim());
 

@@ -15,7 +15,7 @@ const roleLabels = {
 };
 
 const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
-const isUpcomingWork = (post) => post.lifecycle_status === 'upcoming';
+const { isUpcomingWork } = window.AraTechWorkLifecycle;
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
     : '/works.html';

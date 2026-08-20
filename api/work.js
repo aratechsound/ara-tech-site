@@ -444,7 +444,9 @@ module.exports = async (request, response) => {
 
         response.setHeader('Content-Type', 'text/html; charset=utf-8');
         response.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
-        response.setHeader('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+        // The effective lifecycle changes at JST midnight. Do not let a stale
+        // pre-midnight detail page disagree with the client-classified index.
+        response.setHeader('CDN-Cache-Control', 'no-store');
         response.setHeader('X-Content-Type-Options', 'nosniff');
         const navigation = buildWorkNavigation(post, works);
         const relatedWorks = selectRelatedWorks(post, works);

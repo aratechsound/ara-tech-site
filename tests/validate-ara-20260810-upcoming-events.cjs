@@ -118,7 +118,7 @@ assert.match(worksHtml, /ARA-TECHは掲載イベントの主催者ではあり�
 assert.match(worksJs, /data\.filter\(isUpcomingWork\)/);
 assert.match(worksJs, /data\.filter\(\(post\) => !isUpcomingWork\(post\)\)/);
 assert.match(worksJs, /post\.flyer_path/);
-assert.match(sharedSource, /const isUpcomingWork =/);
+assert.match(sharedSource, /require\('\.\.\/js\/work-lifecycle\.js'\)/);
 assert.match(sharedSource, /担当予定です/);
 assert.match(worksJs, /日\(\$\{weekdays\[value\.getUTCDay\(\)\]\}\)/u);
 assert.match(adminJs, /日\(\$\{weekdays\[value\.getUTCDay\(\)\]\}\)/u);
