@@ -61,6 +61,12 @@
         .route-button:hover { background: #00498f; border-color: #00498f; color: white; }
         .route-button-secondary { background: white; color: #005eb8; }
         .route-button-secondary:hover { background: #eef6ff; color: #00498f; }
+        .business-summary { border-top: 1px solid #dce6ef; margin-top: 38px; padding-top: 34px; }
+        .business-summary h2 { border-left: 5px solid var(--primary-blue); padding-left: 15px; }
+        .business-summary dl { display: grid; gap: 0; grid-template-columns: minmax(8rem, 12rem) 1fr; margin: 0; }
+        .business-summary dt, .business-summary dd { border-bottom: 1px solid #e8edf2; margin: 0; padding: 14px 12px; }
+        .business-summary dt { font-weight: 900; }
+        .business-summary dd { color: #44515e; }
         .phrase-lock { display: inline-block; }
         .route-button:focus-visible, .btn-back:focus-visible { outline: 3px solid #ffbf47; outline-offset: 3px; }
         #general-inquiry { scroll-margin-top: 90px; }
@@ -74,6 +80,9 @@
         @media (max-width: 767px) {
             .route-grid { grid-template-columns: 1fr; }
             .route-card { padding: 22px 18px; }
+            .business-summary dl { grid-template-columns: 1fr; }
+            .business-summary dt { border-bottom: 0; padding-bottom: 2px; }
+            .business-summary dd { padding-top: 2px; }
         }
     </style>
     <script src="/js/analytics.js" defer></script>
@@ -143,6 +152,22 @@
                                 <a class="route-button route-button-secondary" href="general-inquiry.html">一般お問い合わせフォームへ</a>
                             </article>
                         </div>
+                    </section>
+                    <section class="business-summary" aria-labelledby="business-summary-title">
+                        <h2 id="business-summary-title" class="fw-bold mb-3">事業者情報</h2>
+                        <p class="text-muted mb-3">ARA-TECHは、店舗型ではなく、イベント会場や施設などの現場でサービスを提供する音響・イベント技術事業者です。</p>
+                        <dl>
+                            <dt>事業者名</dt>
+                            <dd>ARA-TECH（アラテック）</dd>
+                            <dt>事業形態</dt>
+                            <dd>個人事業（訪問・現場対応型）</dd>
+                            <dt>事業内容</dt>
+                            <dd>音響・PAオペレート、PA機材レンタル、イベント音響、ステージ制作、ツアーPA、音響・照明・映像設備の設計・施工・保守</dd>
+                            <dt>事業拠点</dt>
+                            <dd>広島県広島市</dd>
+                            <dt>お問い合わせ</dt>
+                            <dd>上記のイベント依頼・空き状況確認フォームまたは一般お問い合わせフォームから受け付けています。</dd>
+                        </dl>
                     </section>
                 </div>
             </div>
