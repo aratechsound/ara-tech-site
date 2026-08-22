@@ -260,7 +260,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
+        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, open_time, start_time, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
         const legacyFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error
@@ -269,7 +269,13 @@ if (grid && emptyState && isSupabaseConfigured) {
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         const { upcoming: upcomingPosts, completed: completedPosts } = partitionWorksByLifecycle(data);
-        upcomingPosts.sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));
+        upcomingPosts.sort((left, right) => {
+            const dateOrder = String(left.event_date || '').localeCompare(String(right.event_date || ''));
+            if (dateOrder) return dateOrder;
+            const timeOrder = String(left.open_time || left.start_time || '99:99').localeCompare(String(right.open_time || right.start_time || '99:99'));
+            if (timeOrder) return timeOrder;
+            return Number(left.id || 0) - Number(right.id || 0);
+        });
         renderUpcomingWorks(upcomingPosts);
         renderYearTabs(completedPosts);
     };
