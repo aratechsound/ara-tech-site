@@ -15,8 +15,8 @@ const upcoming = (eventDate) => ({ lifecycle_status: 'upcoming', event_date: eve
 
 assert.equal(lifecycle.getJstDateString(beforeJstMidnight), '2026-08-19');
 assert.equal(lifecycle.getJstDateString(atJstMidnight), '2026-08-20');
-assert.equal(lifecycle.isUpcomingWork(upcoming('2026-08-19'), beforeJstMidnight), true, 'event remains upcoming through 23:59:59 JST');
-assert.equal(lifecycle.isUpcomingWork(upcoming('2026-08-19'), atJstMidnight), false, 'event becomes completed at next-day 00:00 JST');
+assert.equal(lifecycle.getEffectiveLifecycleStatus(upcoming('2026-08-19'), beforeJstMidnight), 'upcoming', 'event remains upcoming through 23:59:59 JST');
+assert.equal(lifecycle.getEffectiveLifecycleStatus(upcoming('2026-08-19'), atJstMidnight), 'completed', 'event becomes completed at next-day 00:00 JST');
 
 assert.equal(lifecycle.getEffectiveLifecycleStatus(upcoming('2026-08-19'), now), 'completed', 'yesterday');
 assert.equal(lifecycle.getEffectiveLifecycleStatus(upcoming('2026-08-20'), now), 'upcoming', 'today');
@@ -28,6 +28,27 @@ assert.equal(lifecycle.getEffectiveLifecycleStatus(upcoming('2026-02-30'), now),
 assert.equal(lifecycle.getEffectiveLifecycleStatus({ lifecycle_status: 'completed', event_date: '2027-01-01' }, now), 'completed', 'explicit completed state remains completed');
 assert.equal(lifecycle.normalizeDateOnly('2024-02-29'), '2024-02-29');
 assert.equal(lifecycle.normalizeDateOnly('2026-02-29'), '');
+
+const callbackRegression = [upcoming('2000-01-01')].filter(lifecycle.isUpcomingWork);
+assert.deepEqual(callbackRegression, [], 'Array.filter index must not be interpreted as the current time');
+
+const classifiedPosts = [
+    { id: 'yesterday', ...upcoming('2026-08-19') },
+    { id: 'today', ...upcoming('2026-08-20') },
+    { id: 'tomorrow', ...upcoming('2026-08-21') },
+    { id: 'missing', ...upcoming(null) },
+    { id: 'invalid', ...upcoming('2026-02-30') },
+    { id: 'stored-completed', lifecycle_status: 'completed', event_date: '2026-08-21' }
+];
+const partition = lifecycle.partitionWorksByLifecycle(classifiedPosts, now);
+assert.deepEqual(partition.upcoming.map(({ id }) => id), ['today', 'tomorrow', 'missing', 'invalid']);
+assert.deepEqual(partition.completed.map(({ id }) => id), ['yesterday', 'stored-completed']);
+assert.equal(partition.upcoming.length + partition.completed.length, classifiedPosts.length, 'every record is classified exactly once');
+assert.deepEqual(
+    partition.upcoming.map(({ id }) => id).filter((id) => partition.completed.some((post) => post.id === id)),
+    [],
+    'no record can be both upcoming and completed'
+);
 
 assert.equal(shared.isUpcomingWork, lifecycle.isUpcomingWork, 'API and browser use the same lifecycle implementation');
 
@@ -68,10 +89,13 @@ const worksHtml = read('works.html');
 const adminHtml = read('admin.html');
 const workApiSource = read('api/work.js');
 assert.match(worksSource, /window\.AraTechWorkLifecycle/u);
+assert.match(worksSource, /partitionWorksByLifecycle\(data\)/u);
+assert.doesNotMatch(worksSource, /filter\(isUpcomingWork\)/u);
 assert.match(adminSource, /getJstDateString/u);
 assert.match(adminSource, /isUpcomingWork\(post\)/u);
-assert.match(worksHtml, /js\/work-lifecycle\.js\?v=ara-20260820-001/u);
-assert.match(adminHtml, /js\/work-lifecycle\.js\?v=ara-20260820-001/u);
+assert.match(worksHtml, /js\/work-lifecycle\.js\?v=ara-20260823-001/u);
+assert.match(worksHtml, /js\/works\.js\?v=ara-20260823-001/u);
+assert.match(adminHtml, /js\/work-lifecycle\.js\?v=ara-20260823-001/u);
 assert.match(workApiSource, /CDN-Cache-Control', 'no-store'/u);
 
 console.log(`ARA-20260820 WORKS automatic JST lifecycle validation passed (runtime TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone})`);

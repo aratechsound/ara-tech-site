@@ -115,8 +115,8 @@ assert.match(adminJs, /開催予定の開催日に過去の日付は指定でき
 assert.match(adminJs, /flyerAltInput\.value\.trim\(\) \|\| \(flyerPath \|\| reviewImageUrl \? `\$\{title\}のフライヤー` : null\)/);
 assert.match(worksHtml, /id="upcoming"/);
 assert.match(worksHtml, /ARA-TECHは掲載イベントの主催者ではありません/);
-assert.match(worksJs, /data\.filter\(isUpcomingWork\)/);
-assert.match(worksJs, /data\.filter\(\(post\) => !isUpcomingWork\(post\)\)/);
+assert.match(worksJs, /partitionWorksByLifecycle\(data\)/);
+assert.doesNotMatch(worksJs, /filter\(isUpcomingWork\)/);
 assert.match(worksJs, /post\.flyer_path/);
 assert.match(sharedSource, /require\('\.\.\/js\/work-lifecycle\.js'\)/);
 assert.match(sharedSource, /担当予定です/);

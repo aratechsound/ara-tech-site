@@ -40,13 +40,27 @@
         return eventDate < getJstDateString(now) ? 'completed' : 'upcoming';
     };
 
-    const isUpcomingWork = (post, now = new Date()) => getEffectiveLifecycleStatus(post, now) === 'upcoming';
+    // Keep this as a single-argument predicate. Array methods pass index and
+    // collection as extra callback arguments; accepting a `now` argument here
+    // would let the index accidentally replace the current time.
+    const isUpcomingWork = (post) => getEffectiveLifecycleStatus(post) === 'upcoming';
+
+    const partitionWorksByLifecycle = (posts, now = new Date()) => {
+        const upcoming = [];
+        const completed = [];
+        for (const post of Array.isArray(posts) ? posts : []) {
+            const target = getEffectiveLifecycleStatus(post, now) === 'upcoming' ? upcoming : completed;
+            target.push(post);
+        }
+        return { upcoming, completed };
+    };
 
     return Object.freeze({
         TOKYO_TIME_ZONE,
         getEffectiveLifecycleStatus,
         getJstDateString,
         isUpcomingWork,
-        normalizeDateOnly
+        normalizeDateOnly,
+        partitionWorksByLifecycle
     });
 }));

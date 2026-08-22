@@ -15,7 +15,7 @@ const roleLabels = {
 };
 
 const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
-const { isUpcomingWork } = window.AraTechWorkLifecycle;
+const { isUpcomingWork, partitionWorksByLifecycle } = window.AraTechWorkLifecycle;
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
     : '/works.html';
@@ -268,8 +268,8 @@ if (grid && emptyState && isSupabaseConfigured) {
             && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on|use_image_on_public_page/.test(error.message || '');
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
-        const upcomingPosts = data.filter(isUpcomingWork).sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));
-        const completedPosts = data.filter((post) => !isUpcomingWork(post));
+        const { upcoming: upcomingPosts, completed: completedPosts } = partitionWorksByLifecycle(data);
+        upcomingPosts.sort((left, right) => String(left.event_date || '').localeCompare(String(right.event_date || '')));
         renderUpcomingWorks(upcomingPosts);
         renderYearTabs(completedPosts);
     };
