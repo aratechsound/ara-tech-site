@@ -39,14 +39,12 @@ a:focus-visible { outline: 3px solid #ffd166; outline-offset: 3px; }
 .detail-body { align-self: center; padding: clamp(28px, 5vw, 58px); }
 .eyebrow { color: #146dc0; font-size: .76rem; font-weight: 900; letter-spacing: .18em; margin: 0 0 12px; }
 .detail-tag-row { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
-.detail-tag, .detail-plan, .detail-role { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
+.detail-tag, .detail-services { border-radius: 999px; display: inline-block; font-size: .72rem; font-weight: 900; letter-spacing: .03em; line-height: 1.45; padding: 5px 10px; }
 .detail-status { border-radius: 999px; display: inline-block; font-size: .76rem; font-weight: 900; letter-spacing: .05em; padding: 5px 10px; }
 .detail-status--upcoming { background: #fff2cc; border: 1px solid #d9ad3d; color: #704700; }
 .detail-status--completed { background: #e9f8ef; border: 1px solid #99d5af; color: #176b39; }
 .detail-tag { background: #e8f3ff; color: #0069d9; }
-.detail-plan { background: #e9f8ef; border: 1px solid #99d5af; color: #176b39; }
-.detail-role--operation { background: #0c75dc; color: white; }
-.detail-role--support { border: 1px solid #315ca8; color: #315ca8; }
+.detail-services { background: #f2f7fc; border: 1px solid #bfd2e5; color: #31536f; }
 .detail-title { font-size: clamp(2rem, 3vw, 3.15rem); font-weight: 900; letter-spacing: .02em; line-height: 1.3; margin: 20px 0; overflow-wrap: anywhere; }
 .detail-title--medium { font-size: clamp(1.72rem, 2.55vw, 2.65rem); line-height: 1.38; }
 .detail-title--long { font-size: clamp(1.42rem, 2vw, 2rem); letter-spacing: 0; line-height: 1.46; }

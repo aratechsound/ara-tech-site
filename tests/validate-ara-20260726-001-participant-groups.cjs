@@ -20,15 +20,16 @@ assert.match(adminJs, /participant_groups: participantGroupsInput\.value\.trim\(
 assert.match(adminJs, /participantGroupsInput\.value = post\.participant_groups \|\| ''/);
 assert.match(adminJs, /出演・参加団体：\$\{post\.participant_groups\}/);
 assert.match(worksJs, /createArtistLine\('出演・参加団体', post\.participant_groups\)/);
-assert.match(worksJs, /assignment_items, participant_groups, system_setup/);
+assert.match(worksJs, /service_types, participant_groups, system_setup/);
 assert.doesNotMatch(worksJs, /description\.textContent = post\.description/);
 assert.doesNotMatch(worksJs, /support_artists, description, flyer_path/);
 assert.match(sharedJs, /'participant_groups'/);
-assert.match(sharedJs, /service_plan\|assignment_items\|participant_groups\|system_setup/);
+assert.match(sharedJs, /event_type\|service_types\|service_plan\|assignment_items\|participant_groups\|system_setup/);
 
 const sample = {
     ...rows[0],
-    category: 'お祭り・地域イベント音響',
+    event_type: '祭り・地域イベント',
+    service_types: ['pa_sound'],
     participant_groups: 'LOOP DANCE SCHOOL <script>alert(1)</script>',
     role_type: null,
     role_types: [],

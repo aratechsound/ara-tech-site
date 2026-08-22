@@ -22,12 +22,14 @@ const { join, resolve, sep } = require('node:path');
     assert.equal(parsed.performer_or_event_name, 'BURK');
     assert.equal(parsed.venue, 'Club L2');
     assert.equal(parsed.ara_assignment_text, 'PA担当');
-    assert.equal(parsed.assignment_label, '音響（PA）');
-    assert.deepEqual(parsed.assignment_items, ['pa_operation']);
+    assert.equal(parsed.assignment_label, 'PA・音響');
+    assert.deepEqual(parsed.service_types, ['pa_sound']);
+    assert.equal(parsed.event_type, '');
 
     const request = createRequest('2026年8月14日、BURK、Club L2、PA担当。開催予定に追加', { now });
     assert.equal(request.status, 'RESEARCH_REQUIRED');
     assert.equal(request.production_mutation_permitted, false);
+    request.minimum_input.event_type = 'クラブ・DJイベント';
 
     const baseResearch = {
         workflow_id: request.workflow_id,
@@ -183,15 +185,12 @@ const { join, resolve, sep } = require('node:path');
         writeFileSync(join(temporaryRoot, 'research.json'), `${JSON.stringify(cliResearch, null, 2)}\n`, 'utf8');
         const prepare = run('prepare', '--request', join(temporaryRoot, 'request.json'), '--research', join(temporaryRoot, 'research.json'), '--now', '2027-01-01T00:05:00+09:00');
         assert.equal(prepare.status, 0, prepare.stderr);
-        assert.equal(JSON.parse(readFileSync(join(temporaryRoot, 'candidate.json'), 'utf8')).status, 'PUBLICATION_PENDING_APPROVAL');
+        const cliCandidate = JSON.parse(readFileSync(join(temporaryRoot, 'candidate.json'), 'utf8'));
+        assert.equal(cliCandidate.status, 'RESEARCH_REVIEW_REQUIRED');
+        assert.ok(cliCandidate.blockers.includes('event_type:required'));
         const prematureExport = run('export', '--candidate', join(temporaryRoot, 'candidate.json'), '--approval-file', join(temporaryRoot, 'approval.json'));
         assert.notEqual(prematureExport.status, 0);
         assert.equal(existsSync(join(temporaryRoot, 'publication-payload.json')), false);
-        const approve = run('approve', '--candidate', join(temporaryRoot, 'candidate.json'), '--approval', 'OK', '--now', '2027-01-01T00:10:00+09:00');
-        assert.equal(approve.status, 0, approve.stderr);
-        const exported = run('export', '--candidate', join(temporaryRoot, 'candidate.json'), '--approval-file', join(temporaryRoot, 'approval.json'), '--now', '2027-01-01T00:11:00+09:00');
-        assert.equal(exported.status, 0, exported.stderr);
-        assert.equal(JSON.parse(readFileSync(join(temporaryRoot, 'publication-payload.json'), 'utf8')).status, 'READY_FOR_EXISTING_ADMIN_PUBLICATION');
     } finally {
         const safePrefix = `${resolve(tmpdir())}${sep}`.toLowerCase();
         assert.ok(resolve(temporaryRoot).toLowerCase().startsWith(safePrefix));

@@ -7,7 +7,7 @@ const flyerDimensions = require('./flyer-dimensions.json');
 const { isUpcomingWork } = require('../js/work-lifecycle.js');
 
 const WORK_FIELDS = [
-    'id', 'slug', 'title', 'category', 'service_plan', 'assignment_items', 'participant_groups', 'system_setup',
+    'id', 'slug', 'title', 'event_type', 'service_types', 'service_plan', 'assignment_items', 'participant_groups', 'system_setup',
     'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'lifecycle_status', 'performer_name', 'area', 'venue_address', 'organizer_name',
@@ -17,7 +17,7 @@ const WORK_FIELDS = [
 ].join(',');
 
 const WORK_FIELDS_LEGACY = [
-    'id', 'slug', 'title', 'category', 'role_type', 'role_types', 'event_date', 'venue',
+    'id', 'slug', 'title', 'event_type', 'service_types', 'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');
@@ -44,6 +44,28 @@ const assignmentItemLabels = {
     sound_installation: '音響設備・施工',
     event_operation: '本番対応',
     other: 'その他'
+};
+
+const eventTypes = [
+    'ライブ・コンサート',
+    'クラブ・DJイベント',
+    '祭り・地域イベント',
+    '企業・式典',
+    '講演会・セミナー',
+    'ダンス・舞台公演',
+    '学校・文化イベント'
+];
+
+const serviceTypeLabels = {
+    pa_sound: 'PA・音響',
+    artist_pa_operation: 'アーティストPAオペレート',
+    simple_lighting: '簡易照明',
+    stage_lighting: 'ステージ照明',
+    led_video: 'LEDビジョン・映像',
+    temporary_stage_setup: '仮設ステージ設営',
+    truss_setup: 'トラス設営',
+    event_technical_production: 'イベント技術制作',
+    system_design_construction: 'システム設計・施工'
 };
 
 const roleDetails = {
@@ -122,6 +144,20 @@ const getAssignmentItems = (post) => [...new Set(
 const getAssignmentItemLabels = (post) => getAssignmentItems(post)
     .map((value) => assignmentItemLabels[value]);
 
+const getEventType = (post) => {
+    const value = String(post?.event_type || '').trim();
+    return eventTypes.includes(value) ? value : '';
+};
+
+const getServiceTypes = (post) => [...new Set(
+    (Array.isArray(post?.service_types) ? post.service_types : [])
+        .map((value) => String(value || '').trim())
+        .filter((value) => serviceTypeLabels[value])
+)];
+
+const getServiceTypeLabels = (post) => getServiceTypes(post)
+    .map((value) => serviceTypeLabels[value]);
+
 const getWorkYear = (post) => String(post?.event_date || '').match(/^(\d{4})-\d{2}-\d{2}$/)?.[1] || '';
 const hasFlyer = (post) => post?.use_image_on_public_page !== false
     && Boolean(String(post?.flyer_path || '').trim());
@@ -174,8 +210,8 @@ const buildSummary = (post) => {
     const lead = upcoming
         ? `${whenWhere ? `${whenWhere}` : ''}${displayedTitle}で、ARA-TECHが音響・現場対応を担当予定です。`
         : `${whenWhere ? `${whenWhere}` : ''}${displayedTitle}のARA-TECH実績です。`;
-    const roles = getRoleTypes(post).map((role) => roleDetails[role].description);
-    return roles.length ? `${lead}${upcoming ? '担当予定' : '担当'}：${roles.join('、')}。` : lead;
+    const serviceLabels = getServiceTypeLabels(post);
+    return serviceLabels.length ? `${lead}${upcoming ? '担当予定' : '担当'}：${serviceLabels.join('、')}。` : lead;
 };
 
 const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
@@ -198,7 +234,7 @@ const fetchWorks = async ({ id, slug, sitemap = false } = {}) => {
     if (!response.ok && !sitemap && response.status === 400) {
         const errorPayload = await response.json().catch(() => ({}));
         const missingClassificationColumn = errorPayload.code === '42703'
-            && /service_plan|assignment_items|participant_groups|system_setup|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on/.test(errorPayload.message || '');
+            && /event_type|service_types|service_plan|assignment_items|participant_groups|system_setup|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on/.test(errorPayload.message || '');
         if (!missingClassificationColumn) throw new Error(`Supabase returned ${response.status}`);
         endpoint.searchParams.set('select', WORK_FIELDS_LEGACY);
         response = await requestWorks();
@@ -216,8 +252,11 @@ module.exports = {
     formatDate,
     getAssignmentItemLabels,
     getAssignmentItems,
+    getEventType,
     getRoleTypes,
     getServicePlanLabel,
+    getServiceTypeLabels,
+    getServiceTypes,
     getFlyerDimensions,
     getWorkYear,
     hasFlyer,
@@ -227,7 +266,9 @@ module.exports = {
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
     assignmentItemLabels,
+    eventTypes,
     roleDetails,
     servicePlanLabels,
+    serviceTypeLabels,
     safeJson
 };

@@ -93,20 +93,35 @@ const hashValue = (value) => createHash('sha256')
 
 const assignmentFromText = (text) => {
     const source = clean(text);
-    if (/照明/.test(source)) return {
-        category: 'ステージ・照明', assignment_items: ['lighting_operation'], role_types: [], label: '照明'
+    if (/アーティスト.*(?:PA|ＰＡ)|(?:PA|ＰＡ).*アーティスト/u.test(source)) return {
+        service_types: ['artist_pa_operation'], label: 'アーティストPAオペレート'
     };
-    if (/機材.*レンタル|レンタル/.test(source)) return {
-        category: '機材レンタル', assignment_items: ['equipment_rental_only'], role_types: [], label: '機材レンタル'
+    if (/簡易照明/.test(source)) return {
+        service_types: ['simple_lighting'], label: '簡易照明'
+    };
+    if (/ステージ照明/.test(source)) return {
+        service_types: ['stage_lighting'], label: 'ステージ照明'
+    };
+    if (/LEDビジョン|映像/.test(source)) return {
+        service_types: ['led_video'], label: 'LEDビジョン・映像'
+    };
+    if (/仮設.*ステージ|ステージ.*設営/.test(source)) return {
+        service_types: ['temporary_stage_setup'], label: '仮設ステージ設営'
+    };
+    if (/トラス/.test(source)) return {
+        service_types: ['truss_setup'], label: 'トラス設営'
+    };
+    if (/技術制作/.test(source)) return {
+        service_types: ['event_technical_production'], label: 'イベント技術制作'
     };
     if (/施工|設備/.test(source)) return {
-        category: '音響設備・施工', assignment_items: ['sound_installation'], role_types: [], label: '音響設備・施工'
+        service_types: ['system_design_construction'], label: 'システム設計・施工'
     };
     if (/PA|ＰＡ|音響/i.test(source)) return {
-        category: 'ライブ・アーティストPA', assignment_items: ['pa_operation'], role_types: ['artist_pa_operation'], label: '音響（PA）'
+        service_types: ['pa_sound'], label: 'PA・音響'
     };
     return {
-        category: 'その他', assignment_items: source ? ['other'] : [], role_types: [], label: source
+        service_types: [], label: source
     };
 };
 
@@ -134,9 +149,8 @@ export const parseInstruction = (instruction) => {
         performer_or_event_name: performerOrEventName,
         venue,
         ara_assignment_text: assignmentText,
-        category: assignment.category,
-        assignment_items: assignment.assignment_items,
-        role_types: assignment.role_types,
+        event_type: '',
+        service_types: assignment.service_types,
         assignment_label: assignment.label
     };
 };
@@ -319,14 +333,16 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
     const description = buildDescription(event, assignmentLabel);
     const slugBase = slugify(`${event.event_date.slice(0, 4)} ${event.title} ${event.venue}`)
         || `${event.event_date.slice(0, 4)}-upcoming-event`;
+    const eventType = clean(input.event_type);
+    const serviceTypes = Array.isArray(input.service_types) ? input.service_types : [];
+    if (!eventType) blockers.push('event_type:required');
+    if (!serviceTypes.length) blockers.push('service_types:required');
     const status = blockers.length ? 'RESEARCH_REVIEW_REQUIRED' : 'PUBLICATION_PENDING_APPROVAL';
-    const roleTypes = Array.isArray(input.role_types) ? input.role_types : [];
-    const assignmentItems = Array.isArray(input.assignment_items) ? input.assignment_items : [];
     const databasePayload = {
         title: event.title,
         slug: slugBase,
         event_date: event.event_date,
-        category: input.category || 'その他',
+        event_type: eventType || null,
         lifecycle_status: 'upcoming',
         performer_name: event.performer_name,
         area: event.area,
@@ -335,14 +351,11 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         official_announcement_url: officialUrl,
         announcement_confirmed_on: null,
         service_plan: null,
-        assignment_items: assignmentItems.length ? assignmentItems : null,
         participant_groups: null,
         system_setup: null,
-        role_type: roleTypes.length === 1 ? roleTypes[0] : null,
-        role_types: roleTypes,
-        operation_artists: roleTypes.includes('artist_pa_operation') ? event.performer_name : null,
-        support_artists: roleTypes.includes('local_technical_support') ? event.performer_name : null,
-        artists: roleTypes.length ? event.performer_name : null,
+        service_types: serviceTypes.length ? serviceTypes : null,
+        operation_artists: serviceTypes.includes('artist_pa_operation') ? event.performer_name : null,
+        artists: serviceTypes.includes('artist_pa_operation') ? event.performer_name : null,
         venue: event.venue,
         description,
         flyer_path: null,
@@ -360,9 +373,8 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         ara_assignment: {
             original_text: input.ara_assignment_text,
             display_label: assignmentLabel,
-            category: input.category,
-            assignment_items: assignmentItems,
-            role_types: roleTypes
+            event_type: eventType || null,
+            service_types: serviceTypes
         },
         official_information: {
             announcement_url: officialUrl,
@@ -441,22 +453,25 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         || patch.official_information && ['announcement_url', 'checked_on', 'sources']
             .some((key) => Object.hasOwn(patch.official_information, key))
     );
-    const retainedBlockers = Array.isArray(candidate.blockers) ? [...candidate.blockers] : [];
+    const retainedBlockers = (Array.isArray(candidate.blockers) ? [...candidate.blockers] : [])
+        .filter((blocker) => !['event_type:required', 'service_types:required'].includes(blocker));
     next.revision = Number(candidate.revision || 0) + 1;
     next.generated_at = now.toISOString();
-    next.status = coreChanged
-        ? 'RESEARCH_RECHECK_REQUIRED'
-        : retainedBlockers.length ? candidate.status : 'PUBLICATION_PENDING_APPROVAL';
     next.production_mutation_permitted = false;
     if (patch.image) next.image = normalizeImage(next.image, next.event.title);
-    const roleTypes = Array.isArray(next.ara_assignment.role_types) ? next.ara_assignment.role_types : [];
-    const assignmentItems = Array.isArray(next.ara_assignment.assignment_items) ? next.ara_assignment.assignment_items : [];
+    const eventType = clean(next.ara_assignment.event_type);
+    const serviceTypes = Array.isArray(next.ara_assignment.service_types) ? next.ara_assignment.service_types : [];
+    if (!eventType) retainedBlockers.push('event_type:required');
+    if (!serviceTypes.length) retainedBlockers.push('service_types:required');
+    next.status = coreChanged
+        ? 'RESEARCH_RECHECK_REQUIRED'
+        : retainedBlockers.length ? 'RESEARCH_REVIEW_REQUIRED' : 'PUBLICATION_PENDING_APPROVAL';
     next.database_payload = {
         ...next.database_payload,
         title: next.event.title,
         slug: next.publication.proposed_slug,
         event_date: next.event.event_date,
-        category: next.ara_assignment.category,
+        event_type: eventType || null,
         venue: next.event.venue,
         performer_name: next.event.performer_name,
         area: next.event.area,
@@ -464,12 +479,9 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         organizer_name: next.event.organizer_name,
         official_announcement_url: next.official_information.announcement_url,
         description: next.publication.description,
-        assignment_items: assignmentItems.length ? assignmentItems : null,
-        role_type: roleTypes.length === 1 ? roleTypes[0] : null,
-        role_types: roleTypes,
-        operation_artists: roleTypes.includes('artist_pa_operation') ? next.event.performer_name : null,
-        support_artists: roleTypes.includes('local_technical_support') ? next.event.performer_name : null,
-        artists: roleTypes.length ? next.event.performer_name : null,
+        service_types: serviceTypes.length ? serviceTypes : null,
+        operation_artists: serviceTypes.includes('artist_pa_operation') ? next.event.performer_name : null,
+        artists: serviceTypes.includes('artist_pa_operation') ? next.event.performer_name : null,
         is_published: false,
         publish_at: null
     };

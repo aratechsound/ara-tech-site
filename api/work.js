@@ -4,10 +4,11 @@ const {
     escapeHtml,
     fetchWorks,
     formatDate,
-    getAssignmentItemLabels,
+    getEventType,
     getFlyerDimensions,
     getRoleTypes,
-    getServicePlanLabel,
+    getServiceTypeLabels,
+    getServiceTypes,
     getWorkYear,
     hasFlyer,
     isValidWorkSlug,
@@ -15,7 +16,6 @@ const {
     publicFlyerTransformedUrl,
     publicFlyerThumbnailUrl,
     publicFlyerUrl,
-    roleDetails,
     safeJson
 } = require('./_shared.cjs');
 
@@ -36,11 +36,16 @@ const eventTime = (post) => {
 };
 
 const businessAffinity = (current, candidate) => {
+    const currentServices = getServiceTypes(current);
+    const candidateServices = getServiceTypes(candidate);
     const currentRoles = getRoleTypes(current);
     const candidateRoles = getRoleTypes(candidate);
-    const hasSharedRole = currentRoles.some((role) => candidateRoles.includes(role));
-    const hasSharedCategory = Boolean(current.category && candidate.category && current.category === candidate.category);
-    return (hasSharedRole ? 2 : 0) + (hasSharedCategory ? 1 : 0);
+    const hasSharedService = currentServices.some((service) => candidateServices.includes(service))
+        || (!currentServices.length && !candidateServices.length && currentRoles.some((role) => candidateRoles.includes(role)));
+    const currentEventType = getEventType(current);
+    const candidateEventType = getEventType(candidate);
+    const hasSharedEventType = Boolean(currentEventType && currentEventType === candidateEventType);
+    return (hasSharedService ? 2 : 0) + (hasSharedEventType ? 1 : 0);
 };
 
 const buildWorkNavigation = (current, orderedWorks) => {
@@ -133,10 +138,11 @@ const renderErrorPage = (status, heading, message) => `<!doctype html>
 <link rel="stylesheet" href="/work-detail.css"><link rel="icon" href="/img/favicon.ico"></head>
 <body><main class="detail-shell"><section class="not-found"><p class="eyebrow">${status}</p><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p><a class="button" href="/works.html">実績一覧へ戻る</a></section></main></body></html>`;
 
-const serviceFor = (post, roleTypes) => {
-    if (['STAGE PRODUCTION', 'ステージ・照明'].includes(post.category)) return { href: '/stage-production.html', title: 'ステージ制作', text: 'ステージ制作サービスをご案内します。' };
-    if (['INSTALLATION', '音響設備・施工'].includes(post.category)) return { href: '/installation.html', title: '音響・照明・映像設備施工', text: '店舗・施設の音響・照明・映像設備施工サービスをご案内します。' };
-    if (roleTypes.includes('artist_pa_operation') || ['TOUR PA', 'ツアーPA', 'ライブ・アーティストPA'].includes(post.category)) return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAとライブオペレートに関連するサービスをご案内します。' };
+const serviceFor = (post) => {
+    const serviceTypes = getServiceTypes(post);
+    if (serviceTypes.includes('system_design_construction')) return { href: '/installation.html', title: '音響・照明・映像設備施工', text: 'システム設計・施工に関連するサービスをご案内します。' };
+    if (serviceTypes.some((service) => ['event_technical_production', 'temporary_stage_setup', 'truss_setup', 'stage_lighting', 'led_video'].includes(service))) return { href: '/stage-production.html', title: 'イベント技術制作・ステージ設営', text: 'イベント技術制作、ステージ設営、照明・映像に関連するサービスをご案内します。' };
+    if (serviceTypes.includes('artist_pa_operation')) return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAオペレートに関連するサービスをご案内します。' };
     return { href: '/pa-rental.html', title: 'PAレンタル・イベント音響', text: '現場技術サポートとPAサービスをご案内します。' };
 };
 
@@ -197,12 +203,11 @@ const renderWorkPage = (post, {
     const seoSuffix = upcoming ? 'ARA-TECH 音響担当予定' : 'ARA-TECH実績';
     const pageTitle = (neutralizeUpcomingCopy ? '' : String(post.seo_title || '').trim())
         || `${post.title}${titleContext ? `｜${titleContext}` : ''}｜${seoSuffix}`;
-    const roleTypes = getRoleTypes(post);
-    const service = serviceFor(post, roleTypes);
-    const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
-    const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
-    const servicePlanLabel = getServicePlanLabel(post.service_plan);
-    const assignmentLabels = getAssignmentItemLabels(post);
+    const eventType = getEventType(post);
+    const serviceTypes = getServiceTypes(post);
+    const serviceTypeLabels = getServiceTypeLabels(post);
+    const service = serviceFor(post);
+    const assignedArtists = post.operation_artists || post.artists || post.support_artists || null;
     const participantGroups = String(post.participant_groups || '').trim();
     const systemSetup = String(post.system_setup || '').trim();
     const systemSetupHtml = escapeHtml(systemSetup).replace(/\r?\n/g, '<br>');
@@ -223,29 +228,18 @@ const renderWorkPage = (post, {
         ? `<li aria-current="page">${escapeHtml(item.name)}</li>`
         : `<li><a href="${escapeHtml(item.item.replace(SITE_URL, '') || '/')}">${escapeHtml(item.name)}</a></li>`).join('');
 
-    const roleTags = roleTypes.map((role) => `<span class="detail-role detail-role--${role === 'artist_pa_operation' ? 'operation' : 'support'}">${escapeHtml(roleDetails[role].label)}</span>`).join('');
-    const roleAssignments = roleTypes.map((role) => {
-        const detail = roleDetails[role];
-        const artists = role === 'artist_pa_operation' ? operationArtists : supportArtists;
-        return `<section class="role-assignment role-assignment--${role === 'artist_pa_operation' ? 'operation' : 'support'}">
-            <h2>${escapeHtml(detail.label)}</h2><p>${escapeHtml(detail.description)}</p>
-            ${artists ? `<p class="assignment-artists">${escapeHtml(detail.artistLabel)}：${escapeHtml(artists)}</p>` : ''}
-        </section>`;
-    }).join('');
-
     const metaRows = [
         `<div><dt>状態</dt><dd><span class="detail-status detail-status--${upcoming ? 'upcoming' : 'completed'}">${upcoming ? '開催予定' : '終了済み'}</span></dd></div>`,
+        eventType ? `<div><dt>イベント種別</dt><dd>${escapeHtml(eventType)}</dd></div>` : '',
+        serviceTypeLabels.length ? `<div><dt>担当業務</dt><dd>${escapeHtml(serviceTypeLabels.join('、'))}</dd></div>` : '',
         post.performer_name ? `<div><dt>アーティスト・イベント</dt><dd>${escapeHtml(post.performer_name)}</dd></div>` : '',
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
         openTime ? `<div><dt>OPEN</dt><dd><time datetime="${escapeHtml(openTime)}">${escapeHtml(openTime)}</time></dd></div>` : '',
         startTime ? `<div><dt>START</dt><dd><time datetime="${escapeHtml(startTime)}">${escapeHtml(startTime)}</time></dd></div>` : '',
         post.venue ? `<div><dt>会場</dt><dd>${escapeHtml(post.venue)}</dd></div>` : '',
         post.area ? `<div><dt>地域</dt><dd>${escapeHtml(post.area)}</dd></div>` : '',
-        servicePlanLabel ? `<div><dt>提供プラン</dt><dd>${escapeHtml(servicePlanLabel)}</dd></div>` : '',
         participantGroups ? `<div><dt>出演・参加団体</dt><dd>${escapeHtml(participantGroups)}</dd></div>` : '',
-        assignmentLabels.length ? `<div><dt>担当内容</dt><dd>${escapeHtml(assignmentLabels.join('、'))}</dd></div>` : '',
         systemSetup ? `<div><dt>機材・システム構成</dt><dd>${systemSetupHtml}</dd></div>` : '',
-        roleTypes.length ? `<div><dt>${upcoming ? '担当予定' : '対応業務'}</dt><dd>${escapeHtml(roleTypes.map((role) => roleDetails[role].description).join('、'))}</dd></div>` : '',
         upcoming && announcementConfirmedDate ? `<div><dt>公式告知確認日</dt><dd><time datetime="${escapeHtml(post.announcement_confirmed_on)}">${escapeHtml(announcementConfirmedDate)}</time></dd></div>` : ''
     ].filter(Boolean).join('');
 
@@ -389,10 +383,10 @@ const renderWorkPage = (post, {
             <div class="detail-grid">
                 ${detailMedia}
                 <div class="detail-body">
-                    <p class="eyebrow">${upcoming ? 'UPCOMING EVENT' : 'FIELD REPORT'}</p><div class="detail-tag-row">${upcoming ? '<span class="detail-status detail-status--upcoming">開催予定</span>' : ''}<span class="detail-tag">${escapeHtml(post.category || 'WORKS')}</span>${servicePlanLabel ? `<span class="detail-plan">${escapeHtml(servicePlanLabel)}</span>` : ''}${roleTags}</div>
+                    <p class="eyebrow">${upcoming ? 'UPCOMING EVENT' : 'FIELD REPORT'}</p><div class="detail-tag-row">${upcoming ? '<span class="detail-status detail-status--upcoming">開催予定</span>' : ''}${eventType ? `<span class="detail-tag">${escapeHtml(eventType)}</span>` : ''}${serviceTypeLabels.length ? `<span class="detail-services">${escapeHtml(serviceTypeLabels.join(' / '))}</span>` : ''}</div>
                     <h1 class="detail-title${post.title.length > 60 ? ' detail-title--long' : post.title.length > 34 ? ' detail-title--medium' : ''}">${escapeHtml(post.title)}</h1>
                     <p class="work-summary">${escapeHtml(summary)}</p>
-                    ${roleAssignments ? `<div class="role-assignments">${roleAssignments}</div>` : post.artists ? `<p class="artist">担当アーティスト：${escapeHtml(post.artists)}</p>` : ''}
+                    ${assignedArtists ? `<p class="artist">担当アーティスト：${escapeHtml(assignedArtists)}</p>` : ''}
                     ${metaRows ? `<dl class="detail-meta">${metaRows}</dl>` : ''}
                 </div>
             </div>

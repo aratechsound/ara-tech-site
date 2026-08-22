@@ -1,6 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
-import { getServicePlanLabel } from './work-taxonomy.mjs';
+import { getServiceTypeLabels } from './work-taxonomy.mjs';
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
@@ -9,12 +9,7 @@ const latestTitle = document.querySelector('#latest-title');
 const upcomingGrid = document.querySelector('#upcoming-works');
 const upcomingEmptyState = document.querySelector('#upcoming-empty');
 
-const roleLabels = {
-    artist_pa_operation: 'ARTIST PA OPERATION',
-    local_technical_support: 'LOCAL TECHNICAL SUPPORT'
-};
-
-const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
+const eventTypeFor = (post) => post.event_type || '';
 const { isUpcomingWork, partitionWorksByLifecycle } = window.AraTechWorkLifecycle;
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
@@ -111,26 +106,12 @@ if (grid && emptyState && isSupabaseConfigured) {
             status.textContent = '開催予定';
             body.append(status);
         }
-        const tag = document.createElement('span');
-        tag.className = 'work-card__tag';
-        tag.textContent = post.category || 'WORKS';
-        body.append(tag);
-        const servicePlanLabel = getServicePlanLabel(post.service_plan);
-        if (servicePlanLabel) {
-            const plan = document.createElement('span');
-            plan.className = 'work-card__service-plan';
-            plan.textContent = servicePlanLabel;
-            body.append(plan);
-        }
-
-        const roleTypes = getRoleTypes(post);
-        roleTypes.forEach((roleType) => {
-            if (!roleLabels[roleType]) return;
-            const role = document.createElement('span');
-            role.className = `work-card__role work-card__role--${roleType === 'artist_pa_operation' ? 'operation' : 'support'}`;
-            role.textContent = roleLabels[roleType];
-            body.append(role);
-        });
+        const classification = document.createElement('p');
+        classification.className = 'work-card__classification';
+        const eventType = eventTypeFor(post);
+        const serviceLabels = getServiceTypeLabels(post.service_types);
+        classification.textContent = [eventType, serviceLabels.join(' / ')].filter(Boolean).join(' ｜ ');
+        if (classification.textContent) body.append(classification);
 
         const title = document.createElement('h3');
         title.textContent = post.title;
@@ -157,11 +138,8 @@ if (grid && emptyState && isSupabaseConfigured) {
 
         if (post.performer_name) body.append(createArtistLine('ARTIST / EVENT', post.performer_name));
 
-        const operationArtists = post.operation_artists || (roleTypes.includes('artist_pa_operation') ? post.artists : null);
-        const supportArtists = post.support_artists || (roleTypes.includes('local_technical_support') ? post.artists : null);
-        if (operationArtists) body.append(createArtistLine('OPERATION', operationArtists));
-        if (supportArtists) body.append(createArtistLine('SUPPORT', supportArtists));
-        if (!operationArtists && !supportArtists && post.artists) body.append(createArtistLine('担当アーティスト', post.artists));
+        const assignedArtists = post.operation_artists || post.artists || post.support_artists;
+        if (assignedArtists) body.append(createArtistLine('担当アーティスト', assignedArtists));
         if (post.participant_groups) body.append(createArtistLine('出演・参加団体', post.participant_groups));
 
         const link = document.createElement('span');
@@ -260,12 +238,12 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, open_time, start_time, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
-        const legacyFields = 'id, slug, title, category, service_plan, assignment_items, participant_groups, system_setup, role_type, role_types, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
+        const newFields = 'id, slug, title, event_type, service_types, participant_groups, system_setup, event_date, open_time, start_time, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
+        const legacyFields = 'id, slug, title, event_type, service_types, participant_groups, system_setup, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error
             && ['42703', 'PGRST204'].includes(error.code)
-            && /service_plan|assignment_items|participant_groups|system_setup|role_types|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on|use_image_on_public_page/.test(error.message || '');
+            && /event_type|service_types|participant_groups|system_setup|operation_artists|support_artists|lifecycle_status|performer_name|area|venue_address|organizer_name|official_announcement_url|announcement_confirmed_on|use_image_on_public_page/.test(error.message || '');
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         const { upcoming: upcomingPosts, completed: completedPosts } = partitionWorksByLifecycle(data);

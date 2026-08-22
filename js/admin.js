@@ -1,11 +1,9 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
 import {
-    getAssignmentItemLabels,
-    getServicePlanLabel,
-    isAllowedWorkCategory,
-    normalizeAssignmentItems,
-    normalizeServicePlan
+    getServiceTypeLabels,
+    isAllowedEventType,
+    normalizeServiceTypes
 } from './work-taxonomy.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
@@ -29,21 +27,15 @@ const saveButton = $('#save-post');
 const templateSelect = $('#post-template');
 const titleHistory = $('#title-history');
 const operationArtistsHistory = $('#operation-artists-history');
-const supportArtistsHistory = $('#support-artists-history');
 const venueHistory = $('#venue-history');
-const operationRoleInput = $('#post-role-operation');
-const supportRoleInput = $('#post-role-support');
 const operationArtistsField = $('#operation-artists-field');
-const supportArtistsField = $('#support-artists-field');
 const operationArtistsInput = $('#post-operation-artists');
-const supportArtistsInput = $('#post-support-artists');
 const publicationMode = $('#post-publication-mode');
 const publishAtField = $('#publish-at-field');
 const publishAtInput = $('#post-publish-at');
 const slugInput = $('#post-slug');
 const slugPreview = $('#slug-preview');
 const unlockSlugButton = $('#unlock-slug');
-const servicePlanInput = $('#post-service-plan');
 const participantGroupsInput = $('#post-participant-groups');
 const systemSetupInput = $('#post-system-setup');
 const lifecycleStatusInput = $('#post-lifecycle-status');
@@ -79,7 +71,8 @@ const previewFrame = $('#preview-frame');
 const analyticsExclusionToggle = $('#analytics-exclusion-toggle');
 const analyticsExclusionState = $('#analytics-exclusion-state');
 const analyticsExclusionDescription = $('#analytics-exclusion-description');
-const assignmentInputs = [...document.querySelectorAll('input[name="assignment-item"]')];
+const eventTypeInput = $('#post-event-type');
+const serviceTypeInputs = [...document.querySelectorAll('input[name="service-type"]')];
 
 let supabase;
 let posts = [];
@@ -96,38 +89,24 @@ const isPendingCandidate = (post) => post?.publication_review_status === PENDING
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
 
-const roleLabels = {
-    artist_pa_operation: 'ARTIST PA OPERATION ｜ アーティストPA・音響オペレート',
-    local_technical_support: 'LOCAL TECHNICAL SUPPORT ｜ 乗り込みPA対応・現場技術サポート'
-};
-
-const getRoleTypes = (post) => Array.isArray(post.role_types) && post.role_types.length ? post.role_types : (post.role_type ? [post.role_type] : []);
-const getSelectedAssignmentItems = () => normalizeAssignmentItems(
-    assignmentInputs.filter((input) => input.checked).map((input) => input.value)
+const getSelectedServiceTypes = () => normalizeServiceTypes(
+    serviceTypeInputs.filter((input) => input.checked).map((input) => input.value)
 );
 
 const loadClassification = (post = {}) => {
-    servicePlanInput.value = normalizeServicePlan(post.service_plan) || '';
-    const selected = new Set(normalizeAssignmentItems(post.assignment_items));
-    assignmentInputs.forEach((input) => { input.checked = selected.has(input.value); });
+    eventTypeInput.value = post.event_type || '';
+    const selected = new Set(normalizeServiceTypes(post.service_types));
+    serviceTypeInputs.forEach((input) => { input.checked = selected.has(input.value); });
+    operationArtistsInput.value = post.operation_artists || post.artists || post.support_artists || '';
     participantGroupsInput.value = post.participant_groups || '';
     systemSetupInput.value = post.system_setup || '';
+    updateArtistField();
 };
 
-const updateRoleFields = () => {
-    operationArtistsField.classList.toggle('hidden', !operationRoleInput.checked);
-    supportArtistsField.classList.toggle('hidden', !supportRoleInput.checked);
-    operationArtistsInput.disabled = !operationRoleInput.checked;
-    supportArtistsInput.disabled = !supportRoleInput.checked;
-};
-
-const loadRoleAssignment = (post) => {
-    const roleTypes = getRoleTypes(post);
-    operationRoleInput.checked = roleTypes.includes('artist_pa_operation');
-    supportRoleInput.checked = roleTypes.includes('local_technical_support');
-    operationArtistsInput.value = post.operation_artists || (operationRoleInput.checked ? post.artists || '' : '');
-    supportArtistsInput.value = post.support_artists || (supportRoleInput.checked ? post.artists || '' : '');
-    updateRoleFields();
+const updateArtistField = () => {
+    const selected = getSelectedServiceTypes().includes('artist_pa_operation');
+    operationArtistsField.classList.toggle('hidden', !selected);
+    operationArtistsInput.disabled = !selected;
 };
 
 const setMessage = (element, message, type = 'info') => {
@@ -206,8 +185,8 @@ const normalizeSlug = (value) => value
 const generatedSlug = () => {
     const year = $('#post-date').value.slice(0, 4) || String(new Date().getFullYear());
     const titlePart = normalizeSlug($('#post-title').value);
-    const categoryPart = normalizeSlug($('#post-category').value) || 'work';
-    return normalizeSlug(`${year}-${titlePart || categoryPart}`) || `${year}-work`;
+    const eventTypePart = normalizeSlug(eventTypeInput.value) || 'work';
+    return normalizeSlug(`${year}-${titlePart || eventTypePart}`) || `${year}-work`;
 };
 
 const workUrl = (slug) => `https://ara-tech.cc/works/${slug}.html`;
@@ -323,11 +302,8 @@ const resetPostForm = () => {
     editingPost = null;
     candidateFormDirty = false;
     postForm.reset();
-    $('#post-category').value = '';
+    eventTypeInput.value = '';
     loadClassification();
-    operationRoleInput.checked = false;
-    supportRoleInput.checked = false;
-    updateRoleFields();
     publicationMode.value = 'draft';
     publicationMode.disabled = false;
     lifecycleStatusInput.disabled = false;
@@ -413,8 +389,7 @@ const addHistoryOptions = (datalist, values) => {
 
 const populateHistories = () => {
     addHistoryOptions(titleHistory, posts.map((post) => post.title));
-    addHistoryOptions(operationArtistsHistory, posts.map((post) => post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null)));
-    addHistoryOptions(supportArtistsHistory, posts.map((post) => post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null)));
+    addHistoryOptions(operationArtistsHistory, posts.map((post) => post.operation_artists || post.artists || post.support_artists));
     addHistoryOptions(venueHistory, posts.map((post) => post.venue));
     templateSelect.replaceChildren();
     const initial = document.createElement('option');
@@ -440,9 +415,7 @@ const copyFromPost = (id) => {
     openTimeInput.value = toTimeInput(source.open_time);
     startTimeInput.value = toTimeInput(source.start_time);
     lifecycleStatusInput.value = source.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
-    $('#post-category').value = source.category || 'WORKS';
     loadClassification(source);
-    loadRoleAssignment(source);
     $('#post-venue').value = source.venue || '';
     performerNameInput.value = source.performer_name || '';
     areaInput.value = source.area || '';
@@ -556,10 +529,10 @@ const renderPendingPosts = () => {
         const performer = document.createElement('p');
         performer.className = 'pending-meta';
         performer.textContent = `アーティスト：${post.performer_name || '未設定'}`;
-        const assignmentLabels = getAssignmentItemLabels(post.assignment_items);
+        const serviceLabels = getServiceTypeLabels(post.service_types);
         const meta = document.createElement('p');
         meta.className = 'pending-meta';
-        meta.textContent = [formatDate(post.event_date), post.venue, assignmentLabels.length ? assignmentLabels.join('、') : '担当未設定'].filter(Boolean).join(' ｜ ');
+        meta.textContent = [post.event_type, formatDate(post.event_date), post.venue, serviceLabels.length ? serviceLabels.join('、') : '担当未設定'].filter(Boolean).join(' ｜ ');
         const imageState = document.createElement('p');
         imageState.className = 'pending-meta';
         imageState.textContent = hasImageCandidate ? '公開画像候補を安全に確認しています…' : '公開画像候補：なし';
@@ -622,30 +595,16 @@ const renderPosts = () => {
         title.append(lifecycleBadge);
         const meta = document.createElement('p');
         meta.className = 'post-meta';
-        const metaItems = [post.category, formatDate(post.event_date), post.venue].filter(Boolean);
+        const metaItems = [post.event_type, formatDate(post.event_date), post.venue].filter(Boolean);
         if (publication.className === 'scheduled') metaItems.push(`公開予定：${formatDateTime(post.publish_at)}`);
         meta.textContent = metaItems.join(' ｜ ');
         body.append(title);
-        getRoleTypes(post).forEach((roleType) => {
-            if (!roleLabels[roleType]) return;
-            const role = document.createElement('p');
-            role.className = 'post-role';
-            role.textContent = roleLabels[roleType];
-            body.append(role);
-        });
-        const servicePlanLabel = getServicePlanLabel(post.service_plan);
-        if (servicePlanLabel) {
-            const plan = document.createElement('p');
-            plan.className = 'post-service';
-            plan.textContent = `提供プラン：${servicePlanLabel}`;
-            body.append(plan);
-        }
-        const assignmentLabels = getAssignmentItemLabels(post.assignment_items);
-        if (assignmentLabels.length) {
-            const assignments = document.createElement('p');
-            assignments.className = 'post-service';
-            assignments.textContent = `担当内容：${assignmentLabels.join('、')}`;
-            body.append(assignments);
+        const serviceLabels = getServiceTypeLabels(post.service_types);
+        if (serviceLabels.length) {
+            const services = document.createElement('p');
+            services.className = 'post-service';
+            services.textContent = `担当業務：${serviceLabels.join('、')}`;
+            body.append(services);
         }
         if (post.participant_groups) {
             const participants = document.createElement('p');
@@ -653,24 +612,11 @@ const renderPosts = () => {
             participants.textContent = `出演・参加団体：${post.participant_groups}`;
             body.append(participants);
         }
-        const operationArtists = post.operation_artists || (getRoleTypes(post).includes('artist_pa_operation') ? post.artists : null);
-        const supportArtists = post.support_artists || (getRoleTypes(post).includes('local_technical_support') ? post.artists : null);
-        if (operationArtists) {
+        const assignedArtists = post.operation_artists || post.artists || post.support_artists;
+        if (assignedArtists) {
             const artists = document.createElement('p');
             artists.className = 'post-artists';
-            artists.textContent = `OPERATION：${operationArtists}`;
-            body.append(artists);
-        }
-        if (supportArtists) {
-            const artists = document.createElement('p');
-            artists.className = 'post-artists';
-            artists.textContent = `SUPPORT：${supportArtists}`;
-            body.append(artists);
-        }
-        if (!operationArtists && !supportArtists && post.artists) {
-            const artists = document.createElement('p');
-            artists.className = 'post-artists';
-            artists.textContent = `担当アーティスト：${post.artists}`;
+            artists.textContent = `担当アーティスト：${assignedArtists}`;
             body.append(artists);
         }
         body.append(meta);
@@ -718,9 +664,7 @@ const beginEdit = (id) => {
     openTimeInput.value = toTimeInput(editingPost.open_time);
     startTimeInput.value = toTimeInput(editingPost.start_time);
     lifecycleStatusInput.value = editingPost.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
-    $('#post-category').value = editingPost.category || 'WORKS';
     loadClassification(editingPost);
-    loadRoleAssignment(editingPost);
     $('#post-venue').value = editingPost.venue || '';
     performerNameInput.value = editingPost.performer_name || '';
     areaInput.value = editingPost.area || '';
@@ -936,7 +880,6 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    updateRoleFields();
     prepareNewSlug();
     restoreSession();
 
@@ -971,7 +914,7 @@ if (!isSupabaseConfigured) {
     templateSelect.addEventListener('change', () => copyFromPost(templateSelect.value));
     $('#post-title').addEventListener('input', refreshGeneratedSlug);
     $('#post-date').addEventListener('input', refreshGeneratedSlug);
-    $('#post-category').addEventListener('change', refreshGeneratedSlug);
+    eventTypeInput.addEventListener('change', refreshGeneratedSlug);
     slugInput.addEventListener('input', () => {
         slugWasEdited = true;
         updateSlugPreview();
@@ -991,8 +934,7 @@ if (!isSupabaseConfigured) {
         unlockSlugButton.classList.add('hidden');
         slugInput.focus();
     });
-    operationRoleInput.addEventListener('change', updateRoleFields);
-    supportRoleInput.addEventListener('change', updateRoleFields);
+    serviceTypeInputs.forEach((input) => input.addEventListener('change', updateArtistField));
     publicationMode.addEventListener('change', updatePublicationControls);
     publishAtInput.addEventListener('input', updateSaveButton);
     previewCandidateButton.addEventListener('click', () => editingPost && previewPendingCandidate(editingPost.id));
@@ -1014,11 +956,13 @@ if (!isSupabaseConfigured) {
         clearMessage(postStatus);
         const selectedFile = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
-        const category = $('#post-category').value;
+        const eventType = eventTypeInput.value;
         const pendingCandidate = isPendingCandidate(editingPost) || isCreatingPendingCandidate();
         const pendingImageOmitted = pendingCandidate && omitPublicImageInput.checked;
         if (!title) { setMessage(postStatus, 'イベント名を入力してください。', 'error'); return; }
-        if (!isAllowedWorkCategory(category)) { setMessage(postStatus, '実績カテゴリーを選択してください。', 'error'); return; }
+        if (!isAllowedEventType(eventType)) { setMessage(postStatus, 'イベント種別を選択してください。', 'error'); return; }
+        const serviceTypes = getSelectedServiceTypes();
+        if (!serviceTypes.length) { setMessage(postStatus, '担当業務を1件以上選択してください。', 'error'); return; }
         const lifecycleStatus = lifecycleStatusInput.value === 'upcoming' ? 'upcoming' : 'completed';
         const isPublishing = !pendingCandidate && publicationMode.value !== 'draft';
         const reviewImageUrl = reviewImageUrlInput.value.trim();
@@ -1042,8 +986,7 @@ if (!isSupabaseConfigured) {
             const officialUrl = officialAnnouncementUrlInput.value.trim();
             let officialUrlIsValid = false;
             try { officialUrlIsValid = new URL(officialUrl).protocol === 'https:'; } catch { officialUrlIsValid = false; }
-            const hasAssignment = getSelectedAssignmentItems().length || operationRoleInput.checked || supportRoleInput.checked;
-            if (!performerNameInput.value.trim() || !$('#post-date').value || !$('#post-venue').value.trim() || !areaInput.value.trim() || !hasAssignment || !announcementConfirmedOnInput.value || !officialUrlIsValid) {
+            if (!performerNameInput.value.trim() || !$('#post-date').value || !$('#post-venue').value.trim() || !areaInput.value.trim() || !serviceTypes.length || !announcementConfirmedOnInput.value || !officialUrlIsValid) {
                 setMessage(postStatus, '開催予定を公開するには、アーティスト名またはイベント名・開催日・会場・地域・担当内容・HTTPSの公式告知URL・告知解禁確認日が必要です。', 'error');
                 return;
             }
@@ -1093,12 +1036,10 @@ if (!isSupabaseConfigured) {
                 && Boolean(editingPost?.flyer_path && editingPost?.public_image_sha256);
             const pendingUsesStoredImage = pendingCandidate && !pendingImageOmitted && Boolean(file || canReuseStoredCandidate);
             const isPublished = !pendingCandidate && publicationMode.value !== 'draft';
-            const roleTypes = [operationRoleInput.checked ? 'artist_pa_operation' : null, supportRoleInput.checked ? 'local_technical_support' : null].filter(Boolean);
-            const operationArtists = operationRoleInput.checked ? operationArtistsInput.value.trim() || null : null;
-            const supportArtists = supportRoleInput.checked ? supportArtistsInput.value.trim() || null : null;
-            const assignmentItems = getSelectedAssignmentItems();
+            const artistPaSelected = serviceTypes.includes('artist_pa_operation');
+            const operationArtists = artistPaSelected ? operationArtistsInput.value.trim() || null : null;
             const payload = {
-                title, slug, event_date: $('#post-date').value || null, category,
+                title, slug, event_date: $('#post-date').value || null, event_type: eventType,
                 lifecycle_status: lifecycleStatus,
                 open_time: openTimeInput.value || null,
                 start_time: startTimeInput.value || null,
@@ -1108,12 +1049,11 @@ if (!isSupabaseConfigured) {
                 organizer_name: organizerNameInput.value.trim() || null,
                 official_announcement_url: officialAnnouncementUrlInput.value.trim() || null,
                 announcement_confirmed_on: announcementConfirmedOnInput.value || null,
-                service_plan: normalizeServicePlan(servicePlanInput.value),
-                assignment_items: assignmentItems.length ? assignmentItems : null,
+                service_types: serviceTypes,
                 participant_groups: participantGroupsInput.value.trim() || null,
                 system_setup: systemSetupInput.value.trim() || null,
-                role_type: roleTypes.length === 1 ? roleTypes[0] : null, role_types: roleTypes,
-                operation_artists: operationArtists, support_artists: supportArtists, artists: operationArtists || supportArtists,
+                ...(!editingPost ? { role_type: artistPaSelected ? 'artist_pa_operation' : null, role_types: artistPaSelected ? ['artist_pa_operation'] : [] } : {}),
+                operation_artists: operationArtists, artists: operationArtists || editingPost?.artists || null,
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
                 flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
