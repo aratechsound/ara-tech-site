@@ -232,7 +232,6 @@ const renderWorkPage = (post, {
         `<div><dt>状態</dt><dd><span class="detail-status detail-status--${upcoming ? 'upcoming' : 'completed'}">${upcoming ? '開催予定' : '終了済み'}</span></dd></div>`,
         eventType ? `<div><dt>イベント種別</dt><dd>${escapeHtml(eventType)}</dd></div>` : '',
         serviceTypeLabels.length ? `<div><dt>担当業務</dt><dd>${escapeHtml(serviceTypeLabels.join('、'))}</dd></div>` : '',
-        post.performer_name ? `<div><dt>アーティスト・イベント</dt><dd>${escapeHtml(post.performer_name)}</dd></div>` : '',
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
         openTime ? `<div><dt>OPEN</dt><dd><time datetime="${escapeHtml(openTime)}">${escapeHtml(openTime)}</time></dd></div>` : '',
         startTime ? `<div><dt>START</dt><dd><time datetime="${escapeHtml(startTime)}">${escapeHtml(startTime)}</time></dd></div>` : '',

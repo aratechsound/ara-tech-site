@@ -65,6 +65,8 @@ const { rows } = require('./fixtures.cjs');
     assert.match(worksJs, /work-card__classification/);
     assert.match(worksJs, /work-card__event-type/);
     assert.match(worksJs, /work-card__service-badge/);
+    assert.doesNotMatch(worksJs, /ARTIST \/ EVENT/);
+    assert.doesNotMatch(workHandler.renderWorkPage(sample), /アーティスト・イベント/);
     assert.match(worksHtml, /\.work-card__classification/);
     assert.match(worksHtml, /\.work-card__service-badge/);
     assert.match(detailCss, /\.detail-services/);

@@ -152,8 +152,6 @@ if (grid && emptyState && isSupabaseConfigured) {
             body.append(area);
         }
 
-        if (post.performer_name) body.append(createArtistLine('ARTIST / EVENT', post.performer_name));
-
         const assignedArtists = post.operation_artists || post.artists || post.support_artists;
         if (assignedArtists) body.append(createArtistLine('担当アーティスト', assignedArtists));
         if (post.participant_groups) body.append(createArtistLine('出演・参加団体', post.participant_groups));
