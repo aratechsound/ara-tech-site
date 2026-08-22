@@ -58,6 +58,7 @@ const eventTypes = [
 
 const serviceTypeLabels = {
     pa_sound: 'PA・音響',
+    local_touring_pa_support: '乗り込みPA・現地技術サポート',
     artist_pa_operation: 'アーティストPAオペレート',
     simple_lighting: '簡易照明',
     stage_lighting: 'ステージ照明',

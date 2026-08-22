@@ -143,6 +143,7 @@ const serviceFor = (post) => {
     if (serviceTypes.includes('system_design_construction')) return { href: '/installation.html', title: '音響・照明・映像設備施工', text: 'システム設計・施工に関連するサービスをご案内します。' };
     if (serviceTypes.some((service) => ['event_technical_production', 'temporary_stage_setup', 'truss_setup', 'stage_lighting', 'led_video'].includes(service))) return { href: '/stage-production.html', title: 'イベント技術制作・ステージ設営', text: 'イベント技術制作、ステージ設営、照明・映像に関連するサービスをご案内します。' };
     if (serviceTypes.includes('artist_pa_operation')) return { href: '/tour-pa.html', title: 'ツアーPA・サウンドエンジニア派遣', text: 'アーティストPAオペレートに関連するサービスをご案内します。' };
+    if (serviceTypes.includes('local_touring_pa_support')) return { href: '/pa-rental.html', title: '乗り込みPA・現地技術サポート', text: '広島での乗り込みPA受け入れ・現地技術サポートをご案内します。' };
     return { href: '/pa-rental.html', title: 'PAレンタル・イベント音響', text: '現場技術サポートとPAサービスをご案内します。' };
 };
 

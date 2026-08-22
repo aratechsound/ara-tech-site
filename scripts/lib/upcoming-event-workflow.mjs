@@ -93,6 +93,9 @@ const hashValue = (value) => createHash('sha256')
 
 const assignmentFromText = (text) => {
     const source = clean(text);
+    if (/乗り込み.*(?:PA|ＰＡ)|(?:PA|ＰＡ).*乗り込み|現地.*(?:PA|ＰＡ|技術サポート)|(?:PA|ＰＡ).*現地/u.test(source)) return {
+        service_types: ['local_touring_pa_support'], label: '乗り込みPA・現地技術サポート'
+    };
     if (/アーティスト.*(?:PA|ＰＡ)|(?:PA|ＰＡ).*アーティスト/u.test(source)) return {
         service_types: ['artist_pa_operation'], label: 'アーティストPAオペレート'
     };
@@ -354,8 +357,8 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         participant_groups: null,
         system_setup: null,
         service_types: serviceTypes.length ? serviceTypes : null,
-        operation_artists: serviceTypes.includes('artist_pa_operation') ? event.performer_name : null,
-        artists: serviceTypes.includes('artist_pa_operation') ? event.performer_name : null,
+        operation_artists: serviceTypes.some((type) => ['artist_pa_operation', 'local_touring_pa_support'].includes(type)) ? event.performer_name : null,
+        artists: serviceTypes.some((type) => ['artist_pa_operation', 'local_touring_pa_support'].includes(type)) ? event.performer_name : null,
         venue: event.venue,
         description,
         flyer_path: null,
@@ -480,8 +483,8 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         official_announcement_url: next.official_information.announcement_url,
         description: next.publication.description,
         service_types: serviceTypes.length ? serviceTypes : null,
-        operation_artists: serviceTypes.includes('artist_pa_operation') ? next.event.performer_name : null,
-        artists: serviceTypes.includes('artist_pa_operation') ? next.event.performer_name : null,
+        operation_artists: serviceTypes.some((type) => ['artist_pa_operation', 'local_touring_pa_support'].includes(type)) ? next.event.performer_name : null,
+        artists: serviceTypes.some((type) => ['artist_pa_operation', 'local_touring_pa_support'].includes(type)) ? next.event.performer_name : null,
         is_published: false,
         publish_at: null
     };

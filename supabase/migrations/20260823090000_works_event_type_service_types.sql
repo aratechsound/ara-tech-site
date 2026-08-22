@@ -63,9 +63,10 @@ alter table public.work_posts
     )),
   add constraint work_posts_service_types_allowed
     check (
-      cardinality(service_types) between 1 and 9
+      cardinality(service_types) between 1 and 10
       and service_types <@ array[
         'pa_sound',
+        'local_touring_pa_support',
         'artist_pa_operation',
         'simple_lighting',
         'stage_lighting',

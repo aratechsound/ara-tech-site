@@ -104,7 +104,8 @@ const loadClassification = (post = {}) => {
 };
 
 const updateArtistField = () => {
-    const selected = getSelectedServiceTypes().includes('artist_pa_operation');
+    const selectedServices = getSelectedServiceTypes();
+    const selected = selectedServices.includes('artist_pa_operation') || selectedServices.includes('local_touring_pa_support');
     operationArtistsField.classList.toggle('hidden', !selected);
     operationArtistsInput.disabled = !selected;
 };
@@ -1037,7 +1038,8 @@ if (!isSupabaseConfigured) {
             const pendingUsesStoredImage = pendingCandidate && !pendingImageOmitted && Boolean(file || canReuseStoredCandidate);
             const isPublished = !pendingCandidate && publicationMode.value !== 'draft';
             const artistPaSelected = serviceTypes.includes('artist_pa_operation');
-            const operationArtists = artistPaSelected ? operationArtistsInput.value.trim() || null : null;
+            const artistTargetSelected = artistPaSelected || serviceTypes.includes('local_touring_pa_support');
+            const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             const payload = {
                 title, slug, event_date: $('#post-date').value || null, event_type: eventType,
                 lifecycle_status: lifecycleStatus,
