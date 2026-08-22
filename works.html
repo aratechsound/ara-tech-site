@@ -45,8 +45,8 @@
         .year-tab:hover { border-color: var(--primary); color: var(--primary); }
         .year-tab[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: white; }
         .works-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
-        #upcoming-works { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
-        #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 327px; }
+        #upcoming-works, #latest-works { gap: 18px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        #latest-works { min-height: 327px; }
         .work-card { background: white; border: 0; border-radius: 18px; box-shadow: 0 12px 30px rgba(17, 54, 88, .1); height: 100%; overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
         .work-card--link { color: inherit; display: block; text-decoration: none; }
         .work-card:hover { box-shadow: 0 20px 36px rgba(17, 54, 88, .16); transform: translateY(-6px); }
@@ -67,22 +67,22 @@
         .work-card h3 { font-size: 1.38rem; font-weight: 900; margin: 14px 0 8px; }
         .work-card p { color: #53606c; font-size: .94rem; margin-bottom: 0; }
         .work-card__link { color: #0069d9; display: inline-block; font-size: .78rem; font-weight: 900; letter-spacing: .08em; margin-top: 20px; }
-        #latest-works .work-card__body { padding: 16px; }
-        #latest-works .work-card h3 { font-size: 1.05rem; margin: 12px 0 7px; }
-        #latest-works .work-card__tag, #latest-works .work-card__service-plan, #latest-works .work-card__role { font-size: .62rem; padding: 3px 7px; }
-        #latest-works .work-card__meta, #latest-works .work-card__venue, #latest-works .work-card__artist, #latest-works .work-card p { font-size: .78rem !important; }
-        #latest-works .work-card__link { font-size: .67rem; margin-top: 16px; }
+        #upcoming-works .work-card__body, #latest-works .work-card__body { padding: 16px; }
+        #upcoming-works .work-card h3, #latest-works .work-card h3 { font-size: 1.05rem; margin: 12px 0 7px; }
+        #upcoming-works .work-card__tag, #upcoming-works .work-card__service-plan, #upcoming-works .work-card__role, #latest-works .work-card__tag, #latest-works .work-card__service-plan, #latest-works .work-card__role { font-size: .62rem; padding: 3px 7px; }
+        #upcoming-works .work-card__meta, #upcoming-works .work-card__venue, #upcoming-works .work-card__artist, #upcoming-works .work-card p, #latest-works .work-card__meta, #latest-works .work-card__venue, #latest-works .work-card__artist, #latest-works .work-card p { font-size: .78rem !important; }
+        #upcoming-works .work-card__link, #latest-works .work-card__link { font-size: .67rem; margin-top: 16px; }
         .notice { background: white; border: 2px dashed #b7cce2; border-radius: 18px; color: #48647d; padding: 36px; text-align: center; }
         .notice strong { color: var(--ink); display: block; font-size: 1.1rem; margin-bottom: 8px; }
         .contact-panel { background: #10233b; border-radius: 20px; color: white; padding: clamp(28px, 6vw, 56px); }
         .contact-panel .btn { background: var(--primary); border: 2px solid white; border-radius: 999px; font-weight: 900; padding: 13px 28px; }
         footer { background: white; color: #65717c; }
         @media (max-width: 1399px) { #latest-works { min-height: 279px; } }
-        @media (max-width: 1199px) { #latest-works { grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 294px; } }
-        @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } #latest-works { grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 293px; } }
-        @media (max-width: 767px) { .works-section-header { align-items: start; flex-direction: column; gap: 16px; } .year-tabs { justify-content: start; } #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); min-height: 332px; } }
+        @media (max-width: 1199px) { #upcoming-works, #latest-works { grid-template-columns: repeat(4, minmax(0, 1fr)); } #latest-works { min-height: 294px; } }
+        @media (max-width: 991px) { .nav-link { margin-left: 0; padding: 12px 0; } #upcoming-works, #latest-works { grid-template-columns: repeat(3, minmax(0, 1fr)); } #latest-works { min-height: 293px; } }
+        @media (max-width: 767px) { .works-section-header { align-items: start; flex-direction: column; gap: 16px; } .year-tabs { justify-content: start; } #upcoming-works, #latest-works { grid-template-columns: repeat(2, minmax(0, 1fr)); } #latest-works { min-height: 332px; } }
         @media (max-width: 575px) { #latest-works { min-height: calc(66.667vw - 28px); } }
-        @media (max-width: 459px) { #latest-works { grid-template-columns: 1fr; min-height: calc(133.333vw - 32px); } }
+        @media (max-width: 459px) { #upcoming-works, #latest-works { grid-template-columns: 1fr; } #latest-works { min-height: calc(133.333vw - 32px); } }
     </style>
     <script src="/js/analytics.js" defer></script>
     <link rel="stylesheet" href="site-navigation.css?v=ara-20260724-007">
