@@ -63,7 +63,10 @@ const { rows } = require('./fixtures.cjs');
     assert.deepEqual(shared.getServiceTypeLabels(sample), ['PA・音響', '簡易照明']);
 
     assert.match(worksJs, /work-card__classification/);
+    assert.match(worksJs, /work-card__event-type/);
+    assert.match(worksJs, /work-card__service-badge/);
     assert.match(worksHtml, /\.work-card__classification/);
+    assert.match(worksHtml, /\.work-card__service-badge/);
     assert.match(detailCss, /\.detail-services/);
     assert.match(migration, /add column if not exists event_type text/);
     assert.match(migration, /add column if not exists service_types text\[\]/);

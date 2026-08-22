@@ -106,12 +106,28 @@ if (grid && emptyState && isSupabaseConfigured) {
             status.textContent = '開催予定';
             body.append(status);
         }
-        const classification = document.createElement('p');
+        const classification = document.createElement('div');
         classification.className = 'work-card__classification';
         const eventType = eventTypeFor(post);
         const serviceLabels = getServiceTypeLabels(post.service_types);
-        classification.textContent = [eventType, serviceLabels.join(' / ')].filter(Boolean).join(' ｜ ');
-        if (classification.textContent) body.append(classification);
+        if (eventType) {
+            const eventTypeLine = document.createElement('span');
+            eventTypeLine.className = 'work-card__event-type';
+            eventTypeLine.textContent = eventType;
+            classification.append(eventTypeLine);
+        }
+        if (serviceLabels.length) {
+            const services = document.createElement('span');
+            services.className = 'work-card__services';
+            serviceLabels.forEach((label) => {
+                const service = document.createElement('span');
+                service.className = 'work-card__service-badge';
+                service.textContent = label;
+                services.append(service);
+            });
+            classification.append(services);
+        }
+        if (classification.childElementCount) body.append(classification);
 
         const title = document.createElement('h3');
         title.textContent = post.title;
