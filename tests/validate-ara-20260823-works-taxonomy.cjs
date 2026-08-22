@@ -13,6 +13,7 @@ const worksHtml = read('works.html');
 const worksJs = read('js/works.js');
 const detailCss = read('work-detail.css');
 const migration = read('supabase/migrations/20260823090000_works_event_type_service_types.sql');
+const localSupportMigration = read('supabase/migrations/20260823100000_add_local_touring_pa_support.sql');
 const workHandler = require('../api/work.js');
 const shared = require('../api/_shared.cjs');
 const { rows } = require('./fixtures.cjs');
@@ -75,6 +76,8 @@ const { rows } = require('./fixtures.cjs');
     assert.match(migration, /venue in \('LAGOON HIROSHIMA', 'club G'\) or venue ilike '%CLUB L2%'/);
     assert.match(migration, /work_posts_service_types_allowed/);
     assert.doesNotMatch(migration, /stage_production/);
+    assert.match(localSupportMigration, /local_touring_pa_support/);
+    assert.match(localSupportMigration, /array_remove\(array_remove\(service_types, 'pa_sound'\), 'artist_pa_operation'\)/);
 
     new vm.Script(stripImports(adminJs), { filename: 'js/admin.js' });
     new vm.Script(stripImports(worksJs), { filename: 'js/works.js' });

@@ -25,7 +25,10 @@ alter table public.work_posts
 -- ARA-TECH as the Hiroshima local technical partner.  It is distinct from
 -- ARA-TECH's own PA・音響 assignment, so replace (rather than append) pa_sound.
 update public.work_posts
-set service_types = array_append(array_remove(service_types, 'pa_sound'), 'local_touring_pa_support')
+set service_types = array_append(
+  array_remove(array_remove(service_types, 'pa_sound'), 'artist_pa_operation'),
+  'local_touring_pa_support'
+)
 where (
   role_type = 'local_technical_support'
   or coalesce(role_types, array[]::text[]) @> array['local_technical_support']::text[]
