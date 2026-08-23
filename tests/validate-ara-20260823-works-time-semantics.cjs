@@ -17,6 +17,7 @@ assert.match(adminHtml, /イベント告知の時間帯/);
 assert.match(adminJs, /assertTimeEvidence\(\)/);
 assert.match(adminHtml, /post-close-time/);
 assert.match(adminJs, /close_time: closeTimeInput\.value \|\| null/);
+assert.match(adminJs, /closeTimeInput\.value = toCloseTimeInput\(editingPost\.close_time\)/);
 assert.match(workflow, /event time range maps only to/);
 assert.match(workflow, /open_time_label/);
 assert.match(workflow, /start_time_label/);
@@ -36,5 +37,23 @@ const closeHtml = workHandler.renderWorkPage({
 });
 assert.match(closeHtml, /<dt>CLOSE<\/dt><dd><time datetime="25:00">25:00<\/time>/);
 assert.doesNotMatch(closeHtml, /<dt>START<\/dt><dd><time datetime="25:00">/);
+
+const normalLiveHtml = workHandler.renderWorkPage({
+    id: 1000, slug: 'normal-live-test', title: 'NORMAL LIVE TEST', event_date: '2026-09-02',
+    lifecycle_status: 'upcoming', event_type: 'ライブ・コンサート', service_types: ['pa_sound'],
+    venue: 'TEST HALL', area: '広島県広島市', performer_name: 'TEST', open_time: '18:00', start_time: '19:00'
+});
+assert.match(normalLiveHtml, /<dt>OPEN<\/dt><dd><time datetime="18:00">18:00<\/time>/);
+assert.match(normalLiveHtml, /<dt>START<\/dt><dd><time datetime="19:00">19:00<\/time>/);
+assert.doesNotMatch(normalLiveHtml, /<dt>CLOSE<\/dt>/);
+
+const overnightHtml = workHandler.renderWorkPage({
+    id: 1001, slug: 'overnight-test', title: 'OVERNIGHT TEST', event_date: '2026-09-03',
+    lifecycle_status: 'upcoming', event_type: 'クラブ・DJイベント', service_types: ['pa_sound'],
+    venue: 'TEST CLUB', area: '広島県広島市', performer_name: 'TEST', open_time: '22:00', close_time: '04:00'
+});
+assert.match(overnightHtml, /<dt>OPEN<\/dt><dd><time datetime="22:00">22:00<\/time>/);
+assert.match(overnightHtml, /<dt>CLOSE<\/dt><dd><time datetime="04:00">04:00<\/time>/);
+assert.doesNotMatch(overnightHtml, /<dt>START<\/dt>/);
 
 console.log('ARA-20260823 WORKS time-semantics validation passed');
