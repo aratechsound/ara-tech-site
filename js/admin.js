@@ -48,6 +48,7 @@ const announcementConfirmedOnInput = $('#post-announcement-confirmed-on');
 const flyerAltInput = $('#post-flyer-alt');
 const openTimeInput = $('#post-open-time');
 const startTimeInput = $('#post-start-time');
+const closeTimeInput = $('#post-close-time');
 const timeEvidenceConfirmedInput = $('#post-time-evidence-confirmed');
 const seoTitleInput = $('#post-seo-title');
 const metaDescriptionInput = $('#post-meta-description');
@@ -89,12 +90,14 @@ const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
-const hasTimeValue = () => Boolean(openTimeInput.value || startTimeInput.value);
+const toCloseTimeInput = (value) => String(value || '').match(/^(?:[01]\d|2\d):[0-5]\d/u)?.[0] || '';
+const hasTimeValue = () => Boolean(openTimeInput.value || startTimeInput.value || closeTimeInput.value);
 
 const assertTimeEvidence = () => {
     if (hasTimeValue() && !timeEvidenceConfirmedInput.checked) {
-        throw new Error('OPEN / STARTを保存するには、公式告知・フライヤーの明示ラベルを確認してください。営業時間・時間帯、CLOSE／END、推測値は登録できません。');
+        throw new Error('OPEN / START / CLOSEを保存するには、公式告知・フライヤーの明示ラベルを確認してください。営業時間・時間帯や推測値は登録できません。');
     }
+    if (closeTimeInput.value && !/^(?:[01]\d|2\d):[0-5]\d$/u.test(closeTimeInput.value)) throw new Error('CLOSEは00:00〜29:59のHH:MM形式で入力してください。');
 };
 
 const getSelectedServiceTypes = () => normalizeServiceTypes(
@@ -423,6 +426,7 @@ const copyFromPost = (id) => {
     $('#post-date').value = source.event_date || '';
     openTimeInput.value = toTimeInput(source.open_time);
     startTimeInput.value = toTimeInput(source.start_time);
+    closeTimeInput.value = toCloseTimeInput(source.close_time);
     timeEvidenceConfirmedInput.checked = false;
     lifecycleStatusInput.value = source.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     loadClassification(source);
@@ -673,6 +677,7 @@ const beginEdit = (id) => {
     $('#post-date').value = editingPost.event_date || '';
     openTimeInput.value = toTimeInput(editingPost.open_time);
     startTimeInput.value = toTimeInput(editingPost.start_time);
+    closeTimeInput.value = toCloseTimeInput(editingPost.close_time);
     timeEvidenceConfirmedInput.checked = false;
     lifecycleStatusInput.value = editingPost.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     loadClassification(editingPost);
@@ -1056,6 +1061,7 @@ if (!isSupabaseConfigured) {
                 lifecycle_status: lifecycleStatus,
                 open_time: openTimeInput.value || null,
                 start_time: startTimeInput.value || null,
+                close_time: closeTimeInput.value || null,
                 performer_name: performerNameInput.value.trim() || null,
                 area: areaInput.value.trim() || null,
                 venue_address: venueAddressInput.value.trim() || null,

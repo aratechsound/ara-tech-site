@@ -252,7 +252,7 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const loadWorks = async () => {
-        const newFields = 'id, slug, title, event_type, service_types, participant_groups, system_setup, event_date, open_time, start_time, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
+        const newFields = 'id, slug, title, event_type, service_types, participant_groups, system_setup, event_date, open_time, start_time, close_time, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt, lifecycle_status, performer_name, area, venue_address, organizer_name, official_announcement_url, announcement_confirmed_on, use_image_on_public_page';
         const legacyFields = 'id, slug, title, event_type, service_types, participant_groups, system_setup, event_date, venue, artists, operation_artists, support_artists, flyer_path, flyer_alt';
         let { data, error } = await queryWorks(newFields);
         const missingOptionalColumn = error

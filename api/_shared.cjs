@@ -11,7 +11,7 @@ const WORK_FIELDS = [
     'role_type', 'role_types', 'event_date', 'venue',
     'artists', 'operation_artists', 'support_artists', 'description', 'flyer_path',
     'flyer_alt', 'lifecycle_status', 'performer_name', 'area', 'venue_address', 'organizer_name',
-    'official_announcement_url', 'announcement_confirmed_on', 'open_time', 'start_time',
+    'official_announcement_url', 'announcement_confirmed_on', 'open_time', 'start_time', 'close_time',
     'seo_title', 'meta_description', 'use_image_on_public_page',
     'is_published', 'publish_at', 'created_at', 'updated_at'
 ].join(',');

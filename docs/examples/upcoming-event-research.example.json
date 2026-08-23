@@ -8,6 +8,7 @@
     "event_date": "2027-01-15",
     "open_time": "18:00",
     "start_time": "19:00",
+    "close_time": "21:00",
     "venue": "EXAMPLE HALL",
     "area": "広島県広島市",
     "venue_address": "広島県広島市中区1-2-3",
@@ -23,7 +24,13 @@
       "confirms": {
         "event_date": "2027-01-15",
         "venue": "EXAMPLE HALL",
-        "performer_or_event_name": "SAMPLE ARTIST"
+        "performer_or_event_name": "SAMPLE ARTIST",
+        "open_time": "18:00",
+        "open_time_label": "OPEN",
+        "start_time": "19:00",
+        "start_time_label": "START",
+        "close_time": "21:00",
+        "close_time_label": "CLOSE"
       }
     }
   ],

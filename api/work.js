@@ -216,6 +216,7 @@ const renderWorkPage = (post, {
     const announcementConfirmedDate = formatDate(post.announcement_confirmed_on);
     const openTime = formatClockTime(post.open_time);
     const startTime = formatClockTime(post.start_time);
+    const closeTime = formatClockTime(post.close_time);
 
     const breadcrumbItems = [
         { name: 'トップ', item: `${SITE_URL}/` },
@@ -236,6 +237,7 @@ const renderWorkPage = (post, {
         date ? `<div><dt>開催日</dt><dd><time datetime="${escapeHtml(post.event_date)}">${escapeHtml(date)}</time></dd></div>` : '',
         openTime ? `<div><dt>OPEN</dt><dd><time datetime="${escapeHtml(openTime)}">${escapeHtml(openTime)}</time></dd></div>` : '',
         startTime ? `<div><dt>START</dt><dd><time datetime="${escapeHtml(startTime)}">${escapeHtml(startTime)}</time></dd></div>` : '',
+        closeTime ? `<div><dt>CLOSE</dt><dd><time datetime="${escapeHtml(closeTime)}">${escapeHtml(closeTime)}</time></dd></div>` : '',
         post.venue ? `<div><dt>会場</dt><dd>${escapeHtml(post.venue)}</dd></div>` : '',
         post.area ? `<div><dt>地域</dt><dd>${escapeHtml(post.area)}</dd></div>` : '',
         participantGroups ? `<div><dt>出演・参加団体</dt><dd>${escapeHtml(participantGroups)}</dd></div>` : '',

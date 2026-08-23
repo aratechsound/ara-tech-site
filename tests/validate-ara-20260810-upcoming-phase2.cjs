@@ -74,12 +74,13 @@ const { join, resolve, sep } = require('node:path');
             ...baseResearch.official_sources[0],
             confirms: {
                 event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
-                open_time: '22:00', start_time: '04:00', time_range: '22:00 - 04:00'
+                open_time: '22:00', start_time: '04:00', close_time: '04:00', close_time_label: 'CLOSE', time_range: '22:00 - 04:00'
             }
         }]
     }, { now });
     assert.equal(timeRangeOnly.event.open_time, null);
     assert.equal(timeRangeOnly.event.start_time, null);
+    assert.equal(timeRangeOnly.event.close_time, '04:00');
 
     const openOnly = buildCandidate(request, {
         ...baseResearch,
@@ -100,12 +101,13 @@ const { join, resolve, sep } = require('node:path');
             ...baseResearch.official_sources[0],
             confirms: {
                 event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
-                open_time: '22:00', open_time_label: 'OPEN', start_time: '25:00', start_time_label: 'START'
+                open_time: '22:00', open_time_label: 'OPEN', start_time: '25:00', start_time_label: 'START', close_time: '25:00', close_time_label: 'END'
             }
         }]
     }, { now });
     assert.equal(afterMidnight.event.open_time, '22:00');
     assert.equal(afterMidnight.event.start_time, null);
+    assert.equal(afterMidnight.event.close_time, '25:00');
 
     // Case B: image discovered by structure analysis.
     const complex = buildCandidate(request, {

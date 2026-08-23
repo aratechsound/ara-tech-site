@@ -59,19 +59,22 @@ const isHttpsUrl = (value) => {
 
 // A clock value is publishable only when its semantic label is explicit in an
 // official source. A range (including 22:00-04:00) is never evidence of OPEN
-// and START, and 24:00+ values are not silently converted into another field.
-const validClock = (value) => /^([01]\d|2[0-3]):[0-5]\d$/u.test(clean(value));
+// and START. A labelled CLOSE/END is kept as CLOSE, including 24:00+ notation.
+const validClock = (field, value) => (field === 'close_time'
+    ? /^(?:[01]\d|2\d):[0-5]\d$/u
+    : /^([01]\d|2[0-3]):[0-5]\d$/u).test(clean(value));
 const TIME_LABELS = Object.freeze({
     open_time: new Set(['open', '開場']),
-    start_time: new Set(['start', '開演'])
+    start_time: new Set(['start', '開演']),
+    close_time: new Set(['close', 'end', '終演', '終了', '閉場'])
 });
 const normalizedTimeLabel = (value) => clean(value).normalize('NFKC').toLocaleLowerCase('ja-JP');
 
-const verifiedTimes = (sources) => Object.fromEntries(['open_time', 'start_time'].map((field) => {
+const verifiedTimes = (sources) => Object.fromEntries(['open_time', 'start_time', 'close_time'].map((field) => {
     const source = sources.find((candidate) => {
         const time = clean(candidate.confirms?.[field]);
         const label = normalizedTimeLabel(candidate.confirms?.[`${field}_label`]);
-        return validClock(time) && TIME_LABELS[field].has(label);
+        return validClock(field, time) && TIME_LABELS[field].has(label);
     });
     return [field, source ? clean(source.confirms[field]) : null];
 }));
@@ -204,6 +207,7 @@ export const createResearchTemplate = (request) => ({
         event_date: request.minimum_input.event_date,
         open_time: null,
         start_time: null,
+        close_time: null,
         // Set a time only with the matching explicit label in official_sources.
         // Example: confirms.open_time="18:00", confirms.open_time_label="OPEN".
         venue: request.minimum_input.venue,
@@ -239,9 +243,9 @@ export const buildResearchChecklist = (request) => {
         + `4. 会場公式Instagram\n5. 主催者公式Instagram\n6. アーティスト公式SNS\n7. その他の明確な公式情報\n\n`
         + `日付、会場、アーティスト／イベント名を公式情報で照合する。第三者まとめサイトや検索結果だけを公開根拠にしない。\n\n`
         + `## 時刻の登録規則\n\n`
-        + `OPENは公式情報に「OPEN」または「開場」と明記された時刻、STARTは「START」または「開演」と明記された時刻だけを登録する。`
-        + `公式ソースの \`confirms\` には、時刻と対応する \`open_time_label: "OPEN"\` または \`start_time_label: "START"\` を同じソースで記録する。`
-        + `\`22:00 - 04:00\` 等の営業時間・時間帯、CLOSE／END、25:00等の24時超表記はOPEN／STARTに変換しない。明示ラベルがない時刻は両欄とも空欄にする。\n\n`
+        + `OPENは公式情報に「OPEN」または「開場」と明記された時刻、STARTは「START」または「開演」と明記された時刻、CLOSEは「CLOSE」「END」「終演」等と明記された終了時刻だけを登録する。`
+        + `公式ソースの \`confirms\` には、時刻と対応する \`open_time_label: "OPEN"\`、\`start_time_label: "START"\`、または \`close_time_label: "CLOSE"\` を同じソースで記録する。`
+        + `\`22:00 - 04:00\` 等の営業時間・時間帯は各欄に変換しない。明示ラベルがない時刻は空欄にする。CLOSE／ENDの25:00等の24時超表記はCLOSEとして原表記のまま保持し、STARTへ変換しない。\n\n`
         + `## 画像探索\n\n`
         + `img src → srcset → OGP → JSON/JSON-LD → 公開API → DOM → Browser Network → 公開CDN URLの順で確認する。`
         + `認証回避、CAPTCHA突破、アクセス制御回避は行わず、その場合は \`human_action_required\` とする。\n\n`
@@ -268,7 +272,7 @@ const sourcesConflict = (sources, field) => {
 };
 
 const buildDescription = (event, assignmentLabel) => {
-    const times = [event.open_time ? `OPEN ${event.open_time}` : '', event.start_time ? `START ${event.start_time}` : '']
+    const times = [event.open_time ? `OPEN ${event.open_time}` : '', event.start_time ? `START ${event.start_time}` : '', event.close_time ? `CLOSE ${event.close_time}` : '']
         .filter(Boolean).join(' / ');
     const timeSentence = times ? ` ${times}予定です。` : '';
     return `${formatJapaneseDate(event.event_date)}、${event.venue}にて開催予定の「${event.title}」にて、ARA-TECHが${assignmentLabel}を担当予定です。${timeSentence}`
@@ -319,6 +323,7 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         event_date: normalizeDate(resolved.event_date) || clean(input.event_date),
         open_time: times.open_time,
         start_time: times.start_time,
+        close_time: times.close_time,
         venue: clean(resolved.venue) || clean(input.venue),
         area: clean(resolved.area),
         venue_address: clean(resolved.venue_address) || null,
@@ -373,6 +378,7 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         event_date: event.event_date,
         open_time: event.open_time,
         start_time: event.start_time,
+        close_time: event.close_time,
         event_type: eventType || null,
         lifecycle_status: 'upcoming',
         performer_name: event.performer_name,
@@ -447,7 +453,7 @@ export const renderReview = (candidate) => {
         + `- 会場: ${event.venue || '未確定'}\n`
         + `- 地域: ${event.area || '未確定'}\n`
         + `- 住所: ${event.venue_address || '未取得'}\n`
-        + `- OPEN / START: ${event.open_time || '未取得'} / ${event.start_time || '未取得'}\n`
+        + `- OPEN / START / CLOSE: ${event.open_time || '未取得'} / ${event.start_time || '未取得'} / ${event.close_time || '未取得'}\n`
         + `- ARA-TECH担当: ${candidate.ara_assignment.display_label || '未確定'}\n`
         + `- 掲載文章: ${candidate.publication.description}\n`
         + `- 公式URL: ${candidate.official_information.announcement_url || '未確定'}\n`
@@ -479,7 +485,7 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         next.image.local_path = null;
     }
     const coreChanged = Boolean(
-        patch.event && ['title', 'performer_name', 'event_date', 'open_time', 'start_time', 'venue', 'area', 'venue_address', 'organizer_name', 'ticket_information']
+        patch.event && ['title', 'performer_name', 'event_date', 'open_time', 'start_time', 'close_time', 'venue', 'area', 'venue_address', 'organizer_name', 'ticket_information']
             .some((key) => Object.hasOwn(patch.event, key))
         || patch.official_information && ['announcement_url', 'checked_on', 'sources']
             .some((key) => Object.hasOwn(patch.official_information, key))
@@ -493,6 +499,7 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
     const times = verifiedTimes(next.official_information.sources || []);
     next.event.open_time = times.open_time;
     next.event.start_time = times.start_time;
+    next.event.close_time = times.close_time;
     const eventType = clean(next.ara_assignment.event_type);
     const serviceTypes = Array.isArray(next.ara_assignment.service_types) ? next.ara_assignment.service_types : [];
     if (!eventType) retainedBlockers.push('event_type:required');
@@ -507,6 +514,7 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         event_date: next.event.event_date,
         open_time: next.event.open_time,
         start_time: next.event.start_time,
+        close_time: next.event.close_time,
         event_type: eventType || null,
         venue: next.event.venue,
         performer_name: next.event.performer_name,
