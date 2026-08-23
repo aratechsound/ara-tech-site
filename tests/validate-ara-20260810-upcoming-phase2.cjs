@@ -66,7 +66,7 @@ const { join, resolve, sep } = require('node:path');
     assert.equal(direct.seo.title, 'BURK SPECIAL LIVE｜2026年 Club L2｜ARA-TECH 音響担当予定');
     assert.match(renderReview(direct), /この内容で公開してよいか/);
 
-    // A venue's operating-hours range is neither OPEN nor START.
+    // An official event's time range is OPEN/CLOSE, never START.
     const timeRangeOnly = buildCandidate(request, {
         ...baseResearch,
         resolved: { ...baseResearch.resolved, open_time: '22:00', start_time: '04:00' },
@@ -78,7 +78,7 @@ const { join, resolve, sep } = require('node:path');
             }
         }]
     }, { now });
-    assert.equal(timeRangeOnly.event.open_time, null);
+    assert.equal(timeRangeOnly.event.open_time, '22:00');
     assert.equal(timeRangeOnly.event.start_time, null);
     assert.equal(timeRangeOnly.event.close_time, '04:00');
 

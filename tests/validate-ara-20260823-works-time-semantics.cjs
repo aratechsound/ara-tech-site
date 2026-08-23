@@ -13,11 +13,11 @@ const migration = readFileSync(resolve(root, 'supabase/migrations/20260823110000
 const workHandler = require(resolve(root, 'api/work.js'));
 
 assert.match(adminHtml, /post-time-evidence-confirmed/);
-assert.match(adminHtml, /営業時間・時間帯/);
+assert.match(adminHtml, /イベント告知の時間帯/);
 assert.match(adminJs, /assertTimeEvidence\(\)/);
 assert.match(adminHtml, /post-close-time/);
 assert.match(adminJs, /close_time: closeTimeInput\.value \|\| null/);
-assert.match(workflow, /A labelled CLOSE\/END is kept as CLOSE/);
+assert.match(workflow, /event time range maps only to/);
 assert.match(workflow, /open_time_label/);
 assert.match(workflow, /start_time_label/);
 assert.match(workflow, /close_time_label/);

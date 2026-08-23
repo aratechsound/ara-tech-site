@@ -26,9 +26,9 @@ node scripts/add-upcoming-event.mjs init --instruction "2026年8月14日、BURK�
 
 ### OPEN / STARTの厳格な扱い
 
-`OPEN` は公式情報で「OPEN」または「開場」と明示された入場開始時刻だけ、`START` は「START」または「開演」と明示された公演開始時刻だけ、`CLOSE` は「CLOSE」「END」「終演」等と明示された終了時刻だけを登録する。`official_sources[].confirms` の同じ公式ソースに、`open_time` と `open_time_label: "OPEN"`、`start_time` と `start_time_label: "START"`、または `close_time` と `close_time_label: "CLOSE"` を記録できた場合だけ公開候補へ渡る。
+`OPEN` は公式情報で「OPEN」または「開場」と明示された入場開始時刻、`START` は「START」または「開演」と明示された公演開始時刻、`CLOSE` は「CLOSE」「END」「終演」等と明示された終了時刻を登録する。公式イベント告知に開始〜終了の時間帯だけが載る場合は、開始側をOPEN、終了側をCLOSEとしてそのまま登録する。`official_sources[].confirms` の同じ公式ソースに、ラベル付き時刻、または `event_time_range: "22:00 - 04:00"` を記録して公開候補へ渡る。
 
-`22:00 - 04:00` のような営業時間・開催時間帯は、それだけではOPEN / START / CLOSEを意味しない。明示ラベルがなければ時刻欄を空欄のままにする。`CLOSE` / `END` の明示時刻はCLOSE欄に保存し、終了時刻をSTART欄へ保存しない。CLOSEの24時超表記（`25:00`等）は翌日1:00へ変換せず、原表記のまま保持する。
+`22:00 - 04:00` のような公式イベント告知の時間帯は、OPEN 22:00 / CLOSE 04:00として保存する。終了時刻をSTART欄へ保存しない。CLOSEの24時超表記（`25:00`等）は翌日1:00へ変換せず、原表記のまま保持する。
 
 画像探索は次の順序で行う。
 

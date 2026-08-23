@@ -95,7 +95,7 @@ const hasTimeValue = () => Boolean(openTimeInput.value || startTimeInput.value |
 
 const assertTimeEvidence = () => {
     if (hasTimeValue() && !timeEvidenceConfirmedInput.checked) {
-        throw new Error('OPEN / START / CLOSEを保存するには、公式告知・フライヤーの明示ラベルを確認してください。営業時間・時間帯や推測値は登録できません。');
+        throw new Error('OPEN / START / CLOSEを保存するには、公式イベント告知・フライヤーの時刻根拠を確認してください。開始〜終了の時間帯はOPEN/CLOSEへ登録し、STARTへは登録しません。');
     }
     if (closeTimeInput.value && !/^(?:[01]\d|2\d):[0-5]\d$/u.test(closeTimeInput.value)) throw new Error('CLOSEは00:00〜29:59のHH:MM形式で入力してください。');
 };

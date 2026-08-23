@@ -57,9 +57,9 @@ const isHttpsUrl = (value) => {
     try { return new URL(clean(value)).protocol === 'https:'; } catch { return false; }
 };
 
-// A clock value is publishable only when its semantic label is explicit in an
-// official source. A range (including 22:00-04:00) is never evidence of OPEN
-// and START. A labelled CLOSE/END is kept as CLOSE, including 24:00+ notation.
+// A clock value is publishable only from the official event announcement.
+// A labelled CLOSE/END is kept as CLOSE, and an event time range maps only to
+// OPEN/CLOSE (never START), including 24:00+ notation.
 const validClock = (field, value) => (field === 'close_time'
     ? /^(?:[01]\d|2\d):[0-5]\d$/u
     : /^([01]\d|2[0-3]):[0-5]\d$/u).test(clean(value));
@@ -70,13 +70,23 @@ const TIME_LABELS = Object.freeze({
 });
 const normalizedTimeLabel = (value) => clean(value).normalize('NFKC').toLocaleLowerCase('ja-JP');
 
+const parseEventTimeRange = (value) => {
+    const match = clean(value).match(/^(\d{2}:\d{2})\s*(?:-|~|〜|～)\s*(\d{2}:\d{2})$/u);
+    if (!match || !validClock('open_time', match[1]) || !validClock('close_time', match[2])) return null;
+    return { open_time: match[1], close_time: match[2] };
+};
+
 const verifiedTimes = (sources) => Object.fromEntries(['open_time', 'start_time', 'close_time'].map((field) => {
     const source = sources.find((candidate) => {
         const time = clean(candidate.confirms?.[field]);
         const label = normalizedTimeLabel(candidate.confirms?.[`${field}_label`]);
         return validClock(field, time) && TIME_LABELS[field].has(label);
     });
-    return [field, source ? clean(source.confirms[field]) : null];
+    if (source) return [field, clean(source.confirms[field])];
+    if (field === 'start_time') return [field, null];
+    const rangeSource = sources.find((candidate) => parseEventTimeRange(candidate.confirms?.event_time_range || candidate.confirms?.time_range));
+    const range = rangeSource && parseEventTimeRange(rangeSource.confirms?.event_time_range || rangeSource.confirms?.time_range);
+    return [field, range ? range[field] : null];
 }));
 
 const todayInTokyo = (now = new Date()) => new Intl.DateTimeFormat('en-CA', {
@@ -243,9 +253,9 @@ export const buildResearchChecklist = (request) => {
         + `4. 会場公式Instagram\n5. 主催者公式Instagram\n6. アーティスト公式SNS\n7. その他の明確な公式情報\n\n`
         + `日付、会場、アーティスト／イベント名を公式情報で照合する。第三者まとめサイトや検索結果だけを公開根拠にしない。\n\n`
         + `## 時刻の登録規則\n\n`
-        + `OPENは公式情報に「OPEN」または「開場」と明記された時刻、STARTは「START」または「開演」と明記された時刻、CLOSEは「CLOSE」「END」「終演」等と明記された終了時刻だけを登録する。`
+        + `OPENは公式情報に「OPEN」または「開場」と明記された時刻、STARTは「START」または「開演」と明記された時刻、CLOSEは「CLOSE」「END」「終演」等と明記された終了時刻を登録する。公式イベント告知の開始〜終了時間帯も、開始側をOPEN・終了側をCLOSEとしてそのまま登録する。`
         + `公式ソースの \`confirms\` には、時刻と対応する \`open_time_label: "OPEN"\`、\`start_time_label: "START"\`、または \`close_time_label: "CLOSE"\` を同じソースで記録する。`
-        + `\`22:00 - 04:00\` 等の営業時間・時間帯は各欄に変換しない。明示ラベルがない時刻は空欄にする。CLOSE／ENDの25:00等の24時超表記はCLOSEとして原表記のまま保持し、STARTへ変換しない。\n\n`
+        + `\`22:00 - 04:00\` 等の公式イベント告知の時間帯はOPEN 22:00 / CLOSE 04:00として登録し、STARTへ変換しない。CLOSE／ENDの25:00等の24時超表記はCLOSEとして原表記のまま保持する。\n\n`
         + `## 画像探索\n\n`
         + `img src → srcset → OGP → JSON/JSON-LD → 公開API → DOM → Browser Network → 公開CDN URLの順で確認する。`
         + `認証回避、CAPTCHA突破、アクセス制御回避は行わず、その場合は \`human_action_required\` とする。\n\n`
