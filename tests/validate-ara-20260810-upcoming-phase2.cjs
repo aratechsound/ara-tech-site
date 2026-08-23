@@ -42,7 +42,10 @@ const { join, resolve, sep } = require('node:path');
         },
         official_sources: [{
             type: 'venue_official_web', label: 'Club L2公式', url: 'https://official.example/events/burk',
-            confirms: { event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK' }
+            confirms: {
+                event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
+                open_time: '18:00', open_time_label: 'OPEN', start_time: '19:00', start_time_label: 'START'
+            }
         }],
         conflicts: [],
         image: {
@@ -58,8 +61,51 @@ const { join, resolve, sep } = require('node:path');
     assert.equal(direct.image.publication_allowed, true);
     assert.equal(direct.database_payload.is_published, false);
     assert.equal(direct.database_payload.announcement_confirmed_on, null);
+    assert.equal(direct.database_payload.open_time, '18:00');
+    assert.equal(direct.database_payload.start_time, '19:00');
     assert.equal(direct.seo.title, 'BURK SPECIAL LIVE｜2026年 Club L2｜ARA-TECH 音響担当予定');
     assert.match(renderReview(direct), /この内容で公開してよいか/);
+
+    // A venue's operating-hours range is neither OPEN nor START.
+    const timeRangeOnly = buildCandidate(request, {
+        ...baseResearch,
+        resolved: { ...baseResearch.resolved, open_time: '22:00', start_time: '04:00' },
+        official_sources: [{
+            ...baseResearch.official_sources[0],
+            confirms: {
+                event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
+                open_time: '22:00', start_time: '04:00', time_range: '22:00 - 04:00'
+            }
+        }]
+    }, { now });
+    assert.equal(timeRangeOnly.event.open_time, null);
+    assert.equal(timeRangeOnly.event.start_time, null);
+
+    const openOnly = buildCandidate(request, {
+        ...baseResearch,
+        official_sources: [{
+            ...baseResearch.official_sources[0],
+            confirms: {
+                event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
+                open_time: '22:00', open_time_label: 'OPEN'
+            }
+        }]
+    }, { now });
+    assert.equal(openOnly.event.open_time, '22:00');
+    assert.equal(openOnly.event.start_time, null);
+
+    const afterMidnight = buildCandidate(request, {
+        ...baseResearch,
+        official_sources: [{
+            ...baseResearch.official_sources[0],
+            confirms: {
+                event_date: '2026-08-14', venue: 'Club L2', performer_or_event_name: 'BURK',
+                open_time: '22:00', open_time_label: 'OPEN', start_time: '25:00', start_time_label: 'START'
+            }
+        }]
+    }, { now });
+    assert.equal(afterMidnight.event.open_time, '22:00');
+    assert.equal(afterMidnight.event.start_time, null);
 
     // Case B: image discovered by structure analysis.
     const complex = buildCandidate(request, {

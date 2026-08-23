@@ -48,6 +48,7 @@ const announcementConfirmedOnInput = $('#post-announcement-confirmed-on');
 const flyerAltInput = $('#post-flyer-alt');
 const openTimeInput = $('#post-open-time');
 const startTimeInput = $('#post-start-time');
+const timeEvidenceConfirmedInput = $('#post-time-evidence-confirmed');
 const seoTitleInput = $('#post-seo-title');
 const metaDescriptionInput = $('#post-meta-description');
 const reviewImageUrlInput = $('#post-review-image-url');
@@ -88,6 +89,13 @@ const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
+const hasTimeValue = () => Boolean(openTimeInput.value || startTimeInput.value);
+
+const assertTimeEvidence = () => {
+    if (hasTimeValue() && !timeEvidenceConfirmedInput.checked) {
+        throw new Error('OPEN / STARTを保存するには、公式告知・フライヤーの明示ラベルを確認してください。営業時間・時間帯、CLOSE／END、推測値は登録できません。');
+    }
+};
 
 const getSelectedServiceTypes = () => normalizeServiceTypes(
     serviceTypeInputs.filter((input) => input.checked).map((input) => input.value)
@@ -415,6 +423,7 @@ const copyFromPost = (id) => {
     $('#post-date').value = source.event_date || '';
     openTimeInput.value = toTimeInput(source.open_time);
     startTimeInput.value = toTimeInput(source.start_time);
+    timeEvidenceConfirmedInput.checked = false;
     lifecycleStatusInput.value = source.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     loadClassification(source);
     $('#post-venue').value = source.venue || '';
@@ -664,6 +673,7 @@ const beginEdit = (id) => {
     $('#post-date').value = editingPost.event_date || '';
     openTimeInput.value = toTimeInput(editingPost.open_time);
     startTimeInput.value = toTimeInput(editingPost.start_time);
+    timeEvidenceConfirmedInput.checked = false;
     lifecycleStatusInput.value = editingPost.lifecycle_status === 'upcoming' ? 'upcoming' : 'completed';
     loadClassification(editingPost);
     $('#post-venue').value = editingPost.venue || '';
@@ -1040,6 +1050,7 @@ if (!isSupabaseConfigured) {
             const artistPaSelected = serviceTypes.includes('artist_pa_operation');
             const artistTargetSelected = artistPaSelected || serviceTypes.includes('local_touring_pa_support');
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
+            assertTimeEvidence();
             const payload = {
                 title, slug, event_date: $('#post-date').value || null, event_type: eventType,
                 lifecycle_status: lifecycleStatus,

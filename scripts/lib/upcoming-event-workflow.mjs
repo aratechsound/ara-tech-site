@@ -57,6 +57,25 @@ const isHttpsUrl = (value) => {
     try { return new URL(clean(value)).protocol === 'https:'; } catch { return false; }
 };
 
+// A clock value is publishable only when its semantic label is explicit in an
+// official source. A range (including 22:00-04:00) is never evidence of OPEN
+// and START, and 24:00+ values are not silently converted into another field.
+const validClock = (value) => /^([01]\d|2[0-3]):[0-5]\d$/u.test(clean(value));
+const TIME_LABELS = Object.freeze({
+    open_time: new Set(['open', '開場']),
+    start_time: new Set(['start', '開演'])
+});
+const normalizedTimeLabel = (value) => clean(value).normalize('NFKC').toLocaleLowerCase('ja-JP');
+
+const verifiedTimes = (sources) => Object.fromEntries(['open_time', 'start_time'].map((field) => {
+    const source = sources.find((candidate) => {
+        const time = clean(candidate.confirms?.[field]);
+        const label = normalizedTimeLabel(candidate.confirms?.[`${field}_label`]);
+        return validClock(time) && TIME_LABELS[field].has(label);
+    });
+    return [field, source ? clean(source.confirms[field]) : null];
+}));
+
 const todayInTokyo = (now = new Date()) => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit'
 }).format(now);
@@ -185,6 +204,8 @@ export const createResearchTemplate = (request) => ({
         event_date: request.minimum_input.event_date,
         open_time: null,
         start_time: null,
+        // Set a time only with the matching explicit label in official_sources.
+        // Example: confirms.open_time="18:00", confirms.open_time_label="OPEN".
         venue: request.minimum_input.venue,
         area: '',
         venue_address: '',
@@ -217,6 +238,10 @@ export const buildResearchChecklist = (request) => {
         + `1. 会場公式Webサイト\n2. 主催者公式Webサイト\n3. アーティスト公式Webサイト\n`
         + `4. 会場公式Instagram\n5. 主催者公式Instagram\n6. アーティスト公式SNS\n7. その他の明確な公式情報\n\n`
         + `日付、会場、アーティスト／イベント名を公式情報で照合する。第三者まとめサイトや検索結果だけを公開根拠にしない。\n\n`
+        + `## 時刻の登録規則\n\n`
+        + `OPENは公式情報に「OPEN」または「開場」と明記された時刻、STARTは「START」または「開演」と明記された時刻だけを登録する。`
+        + `公式ソースの \`confirms\` には、時刻と対応する \`open_time_label: "OPEN"\` または \`start_time_label: "START"\` を同じソースで記録する。`
+        + `\`22:00 - 04:00\` 等の営業時間・時間帯、CLOSE／END、25:00等の24時超表記はOPEN／STARTに変換しない。明示ラベルがない時刻は両欄とも空欄にする。\n\n`
         + `## 画像探索\n\n`
         + `img src → srcset → OGP → JSON/JSON-LD → 公開API → DOM → Browser Network → 公開CDN URLの順で確認する。`
         + `認証回避、CAPTCHA突破、アクセス制御回避は行わず、その場合は \`human_action_required\` とする。\n\n`
@@ -279,18 +304,6 @@ export const candidateHash = (candidate) => {
 export const buildCandidate = (request, research, { now = new Date() } = {}) => {
     const input = request.minimum_input || {};
     const resolved = research.resolved || {};
-    const event = {
-        title: clean(resolved.title) || clean(input.performer_or_event_name),
-        performer_name: clean(resolved.performer_name) || clean(input.performer_or_event_name),
-        event_date: normalizeDate(resolved.event_date) || clean(input.event_date),
-        open_time: clean(resolved.open_time) || null,
-        start_time: clean(resolved.start_time) || null,
-        venue: clean(resolved.venue) || clean(input.venue),
-        area: clean(resolved.area),
-        venue_address: clean(resolved.venue_address) || null,
-        organizer_name: clean(resolved.organizer_name) || null,
-        ticket_information: clean(resolved.ticket_information) || null
-    };
     const sources = (Array.isArray(research.official_sources) ? research.official_sources : [])
         .filter((source) => OFFICIAL_SOURCE_TYPES.includes(source.type) && isHttpsUrl(source.url))
         .map((source) => ({
@@ -299,6 +312,19 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
             url: clean(source.url),
             confirms: source.confirms || {}
         }));
+    const times = verifiedTimes(sources);
+    const event = {
+        title: clean(resolved.title) || clean(input.performer_or_event_name),
+        performer_name: clean(resolved.performer_name) || clean(input.performer_or_event_name),
+        event_date: normalizeDate(resolved.event_date) || clean(input.event_date),
+        open_time: times.open_time,
+        start_time: times.start_time,
+        venue: clean(resolved.venue) || clean(input.venue),
+        area: clean(resolved.area),
+        venue_address: clean(resolved.venue_address) || null,
+        organizer_name: clean(resolved.organizer_name) || null,
+        ticket_information: clean(resolved.ticket_information) || null
+    };
     const officialUrl = clean(resolved.official_announcement_url) || sources[0]?.url || '';
     const blockers = [];
     if (clean(research.workflow_id) !== clean(request.workflow_id)) blockers.push('workflow_id:mismatch');
@@ -345,6 +371,8 @@ export const buildCandidate = (request, research, { now = new Date() } = {}) => 
         title: event.title,
         slug: slugBase,
         event_date: event.event_date,
+        open_time: event.open_time,
+        start_time: event.start_time,
         event_type: eventType || null,
         lifecycle_status: 'upcoming',
         performer_name: event.performer_name,
@@ -462,6 +490,9 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
     next.generated_at = now.toISOString();
     next.production_mutation_permitted = false;
     if (patch.image) next.image = normalizeImage(next.image, next.event.title);
+    const times = verifiedTimes(next.official_information.sources || []);
+    next.event.open_time = times.open_time;
+    next.event.start_time = times.start_time;
     const eventType = clean(next.ara_assignment.event_type);
     const serviceTypes = Array.isArray(next.ara_assignment.service_types) ? next.ara_assignment.service_types : [];
     if (!eventType) retainedBlockers.push('event_type:required');
@@ -474,6 +505,8 @@ export const reviseCandidate = (candidate, patch, { now = new Date() } = {}) => 
         title: next.event.title,
         slug: next.publication.proposed_slug,
         event_date: next.event.event_date,
+        open_time: next.event.open_time,
+        start_time: next.event.start_time,
         event_type: eventType || null,
         venue: next.event.venue,
         performer_name: next.event.performer_name,

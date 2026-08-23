@@ -24,6 +24,12 @@ node scripts/add-upcoming-event.mjs init --instruction "2026年8月14日、BURK�
 
 最低でも日付、会場、アーティスト／イベント名を公式情報で照合し、`research.json` の `official_sources[].confirms` に記録する。情報が不一致なら `conflicts` に記録し、勝手に解決しない。
 
+### OPEN / STARTの厳格な扱い
+
+`OPEN` は公式情報で「OPEN」または「開場」と明示された入場開始時刻だけ、`START` は「START」または「開演」と明示された公演開始時刻だけを登録する。`official_sources[].confirms` の同じ公式ソースに、`open_time` と `open_time_label: "OPEN"`、または `start_time` と `start_time_label: "START"` を記録できた場合だけ公開候補へ渡る。
+
+`22:00 - 04:00` のような営業時間・開催時間帯、`CLOSE` / `END`、24時超表記（`25:00`等）は、それだけではOPEN / STARTを意味しない。OPEN / STARTに自動変換せず、明示ラベルがなければ時刻欄を空欄のままにする。現行スキーマにはEND / CLOSE欄がないため、終了時刻をSTART欄へ保存しない。
+
 画像探索は次の順序で行う。
 
 1. `img src`
