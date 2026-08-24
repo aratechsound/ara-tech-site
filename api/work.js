@@ -385,7 +385,7 @@ const renderWorkPage = (post, {
             <div class="detail-grid">
                 ${detailMedia}
                 <div class="detail-body">
-                    <p class="eyebrow">${upcoming ? 'UPCOMING EVENT' : 'FIELD REPORT'}</p><div class="detail-tag-row">${upcoming ? '<span class="detail-status detail-status--upcoming">開催予定</span>' : ''}${eventType ? `<span class="detail-tag">${escapeHtml(eventType)}</span>` : ''}${serviceTypeLabels.length ? `<span class="detail-services">${escapeHtml(serviceTypeLabels.join(' / '))}</span>` : ''}</div>
+                    <p class="eyebrow">${upcoming ? 'UPCOMING EVENT' : 'FIELD REPORT'}</p><div class="detail-tag-row">${upcoming ? '<span class="detail-status detail-status--upcoming">開催予定</span>' : ''}${eventType ? `<span class="detail-tag">${escapeHtml(eventType)}</span>` : ''}${serviceTypeLabels.length ? `<span class="detail-services">${serviceTypeLabels.map((label, index) => `<span class="detail-service-badge detail-service-badge--${escapeHtml(serviceTypes[index])}">${escapeHtml(label)}</span>`).join('')}</span>` : ''}</div>
                     <h1 class="detail-title${post.title.length > 60 ? ' detail-title--long' : post.title.length > 34 ? ' detail-title--medium' : ''}">${escapeHtml(post.title)}</h1>
                     <p class="work-summary">${escapeHtml(summary)}</p>
                     ${assignedArtists ? `<p class="artist">担当アーティスト：${escapeHtml(assignedArtists)}</p>` : ''}

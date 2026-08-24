@@ -1,6 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
-import { getServiceTypeLabels } from './work-taxonomy.mjs';
+import { getServiceTypeLabels, normalizeServiceTypes } from './work-taxonomy.mjs';
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
@@ -109,7 +109,8 @@ if (grid && emptyState && isSupabaseConfigured) {
         const classification = document.createElement('div');
         classification.className = 'work-card__classification';
         const eventType = eventTypeFor(post);
-        const serviceLabels = getServiceTypeLabels(post.service_types);
+        const serviceTypes = normalizeServiceTypes(post.service_types);
+        const serviceLabels = getServiceTypeLabels(serviceTypes);
         if (eventType) {
             const eventTypeLine = document.createElement('span');
             eventTypeLine.className = 'work-card__event-type';
@@ -119,9 +120,9 @@ if (grid && emptyState && isSupabaseConfigured) {
         if (serviceLabels.length) {
             const services = document.createElement('span');
             services.className = 'work-card__services';
-            serviceLabels.forEach((label) => {
+            serviceLabels.forEach((label, index) => {
                 const service = document.createElement('span');
-                service.className = 'work-card__service-badge';
+                service.className = `work-card__service-badge work-card__service-badge--${serviceTypes[index]}`;
                 service.textContent = label;
                 services.append(service);
             });

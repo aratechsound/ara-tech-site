@@ -21,8 +21,8 @@ const { rows } = require('./fixtures.cjs');
 (async () => {
     const taxonomy = await import(pathToFileURL(path.join(root, 'js', 'work-taxonomy.mjs')));
     const expectedEventTypes = [
-        'ライブ・コンサート', 'クラブ・DJイベント', '祭り・地域イベント', '企業・式典',
-        '講演会・セミナー', 'ダンス・舞台公演', '学校・文化イベント'
+        'ライブ・コンサート', 'クラブ・DJイベント', '祭り・地域イベント', 'ダンス発表会・ショーケース',
+        'ダンス・舞台公演', '企業・式典', '講演会・セミナー', '学校・文化イベント'
     ];
     const expectedServiceTypes = [
         'PA・音響', '乗り込みPA・現地技術サポート', 'アーティストPAオペレート', '簡易照明', 'ステージ照明', 'LEDビジョン・映像',
@@ -58,7 +58,8 @@ const { rows } = require('./fixtures.cjs');
     };
     const detailHtml = workHandler.renderWorkPage(sample);
     assert.match(detailHtml, /祭り・地域イベント/);
-    assert.match(detailHtml, /PA・音響 \/ 簡易照明/);
+    assert.match(detailHtml, /detail-service-badge--pa_sound[^>]*>PA・音響/);
+    assert.match(detailHtml, /detail-service-badge--simple_lighting[^>]*>簡易照明/);
     assert.match(detailHtml, /<dt>担当業務<\/dt><dd>PA・音響、簡易照明<\/dd>/);
     assert.ok(!detailHtml.includes('お祭り・地域イベント音響'));
     assert.deepEqual(shared.getServiceTypeLabels(sample), ['PA・音響', '簡易照明']);
@@ -66,11 +67,12 @@ const { rows } = require('./fixtures.cjs');
     assert.match(worksJs, /work-card__classification/);
     assert.match(worksJs, /work-card__event-type/);
     assert.match(worksJs, /work-card__service-badge/);
+    assert.match(worksJs, /work-card__service-badge--\$\{serviceTypes\[index\]\}/);
     assert.doesNotMatch(worksJs, /ARTIST \/ EVENT/);
     assert.doesNotMatch(workHandler.renderWorkPage(sample), /アーティスト・イベント/);
     assert.match(worksHtml, /\.work-card__classification/);
     assert.match(worksHtml, /\.work-card__service-badge/);
-    assert.match(detailCss, /\.detail-services/);
+    assert.match(detailCss, /\.detail-service-badge--local_touring_pa_support/);
     assert.match(migration, /add column if not exists event_type text/);
     assert.match(migration, /add column if not exists service_types text\[\]/);
     assert.match(migration, /venue in \('LAGOON HIROSHIMA', 'club G'\) or venue ilike '%CLUB L2%'/);
