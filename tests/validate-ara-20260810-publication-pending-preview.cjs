@@ -44,7 +44,8 @@ assert.match(adminJs, /reject_work_candidate/);
 assert.match(adminJs, /p_candidate_hash: publishablePost\.candidate_hash/);
 assert.match(adminJs, /公演情報・掲載文章・SEO・\$\{hasPublishedImage/);
 assert.match(adminJs, /imageUsageStatusInput\.value !== 'confirmed'/);
-assert.match(adminJs, /use_image_on_public_page: pendingCandidate \? pendingUsesStoredImage : usePublicImageInput\.checked/);
+assert.match(adminJs, /use_image_on_public_page: pendingUsesStoredImage/);
+assert.match(adminJs, /resolveImageConfirmation\(/);
 assert.match(adminJs, /const flyerPath = uploadedFlyerPath \|\| editingPost\?\.flyer_path \|\| '';/);
 assert.match(adminJs, /if \(!post\.is_published\) actions\.append\(remove\)/);
 

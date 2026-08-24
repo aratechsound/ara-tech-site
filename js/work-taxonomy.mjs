@@ -13,6 +13,7 @@ export const serviceTypeLabels = Object.freeze({
     pa_sound: 'PA・音響',
     local_touring_pa_support: '乗り込みPA・現地技術サポート',
     artist_pa_operation: 'アーティストPAオペレート',
+    dance_stage_audio_operation: 'ダンス・舞台音響オペレート',
     simple_lighting: '簡易照明',
     stage_lighting: 'ステージ照明',
     led_video: 'LEDビジョン・映像',

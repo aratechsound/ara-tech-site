@@ -5,6 +5,7 @@ import {
     isAllowedEventType,
     normalizeServiceTypes
 } from './work-taxonomy.mjs';
+import { resolveImageConfirmation } from './image-confirmation.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -695,7 +696,7 @@ const beginEdit = (id) => {
     reviewImageUrlInput.value = editingPost.review_image_url || '';
     reviewImageMethodInput.value = editingPost.review_image_acquisition_method || '';
     imageUsageStatusInput.value = editingPost.image_usage_status || 'unknown';
-    usePublicImageInput.checked = editingPost.use_image_on_public_page === true;
+    usePublicImageInput.checked = editingPost.use_image_on_public_page !== false;
     omitPublicImageInput.checked = isPendingCandidate(editingPost) && editingPost.image_usage_status === 'not_permitted';
     prepareExistingSlug(editingPost.slug);
     publicationMode.value = !editingPost.is_published ? 'draft' : (editingPost.publish_at && new Date(editingPost.publish_at).getTime() > Date.now() ? 'scheduled' : 'now');
@@ -1056,6 +1057,22 @@ if (!isSupabaseConfigured) {
             const artistTargetSelected = artistPaSelected || serviceTypes.includes('local_touring_pa_support');
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             assertTimeEvidence();
+            const publicImageSourceUrl = file ? null : reviewImageUrl || editingPost?.public_image_source_url || null;
+            const imageConfirmation = pendingCandidate
+                ? {
+                    image_usage_status: pendingImageOmitted ? 'not_permitted' : pendingUsesStoredImage ? 'confirmed' : 'unknown',
+                    use_image_on_public_page: pendingUsesStoredImage
+                }
+                : resolveImageConfirmation({
+                    previousPost: editingPost,
+                    nextImage: {
+                        flyer_path: flyerPath,
+                        public_image_source_url: publicImageSourceUrl,
+                        public_image_sha256: publicImageSha256
+                    },
+                    requestedStatus: imageUsageStatusInput.value,
+                    requestedPublicUse: usePublicImageInput.checked
+                });
             const payload = {
                 title, slug, event_date: $('#post-date').value || null, event_type: eventType,
                 lifecycle_status: lifecycleStatus,
@@ -1078,11 +1095,9 @@ if (!isSupabaseConfigured) {
                 flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
                 review_image_url: reviewImageUrl || null,
                 review_image_acquisition_method: reviewImageMethodInput.value.trim() || null,
-                image_usage_status: pendingCandidate
-                    ? pendingImageOmitted ? 'not_permitted' : pendingUsesStoredImage ? 'confirmed' : 'unknown'
-                    : imageUsageStatusInput.value || 'unknown',
-                use_image_on_public_page: pendingCandidate ? pendingUsesStoredImage : usePublicImageInput.checked,
-                public_image_source_url: file ? null : reviewImageUrl || editingPost?.public_image_source_url || null,
+                image_usage_status: imageConfirmation.image_usage_status,
+                use_image_on_public_page: imageConfirmation.use_image_on_public_page,
+                public_image_source_url: publicImageSourceUrl,
                 public_image_sha256: publicImageSha256,
                 seo_title: seoTitleInput.value.trim() || null,
                 meta_description: metaDescriptionInput.value.trim() || null,
