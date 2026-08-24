@@ -1,6 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
 import { getServiceTypeLabels, normalizeServiceTypes } from './work-taxonomy.mjs';
+import { filterForEventType, filterForServiceType, filterFromSearch, filterHref, workMatchesFilter } from './work-filters.mjs';
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
@@ -8,8 +9,10 @@ const yearTabs = document.querySelector('#works-year-tabs');
 const latestTitle = document.querySelector('#latest-title');
 const upcomingGrid = document.querySelector('#upcoming-works');
 const upcomingEmptyState = document.querySelector('#upcoming-empty');
+const filterStatus = document.querySelector('#works-filter-status');
 
 const eventTypeFor = (post) => post.event_type || '';
+const activeFilter = filterFromSearch(location.search);
 const { isUpcomingWork, partitionWorksByLifecycle } = window.AraTechWorkLifecycle;
 const publicWorkUrl = (post) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(post.slug || '')
     ? `/works/${post.slug}.html`
@@ -64,10 +67,8 @@ if (grid && emptyState && isSupabaseConfigured) {
     };
 
     const createCard = (post, index, eagerCount) => {
-        const card = document.createElement('a');
+        const card = document.createElement('article');
         card.className = 'work-card work-card--link';
-        card.href = publicWorkUrl(post);
-        card.setAttribute('aria-label', `${post.title}の詳細を見る`);
 
         let media;
         if (post.flyer_path && post.use_image_on_public_page !== false) {
@@ -112,18 +113,28 @@ if (grid && emptyState && isSupabaseConfigured) {
         const serviceTypes = normalizeServiceTypes(post.service_types);
         const serviceLabels = getServiceTypeLabels(serviceTypes);
         if (eventType) {
-            const eventTypeLine = document.createElement('span');
-            eventTypeLine.className = 'work-card__event-type';
+            const eventFilter = filterForEventType(eventType);
+            const eventTypeLine = document.createElement(eventFilter ? 'a' : 'span');
+            eventTypeLine.className = `work-card__event-type${eventFilter ? ' work-card__filter-link work-card__event-type--filter' : ''}`;
             eventTypeLine.textContent = eventType;
+            if (eventFilter) {
+                eventTypeLine.href = filterHref(eventFilter);
+                eventTypeLine.setAttribute('aria-label', `${eventType}の実績で絞り込む`);
+            }
             classification.append(eventTypeLine);
         }
         if (serviceLabels.length) {
             const services = document.createElement('span');
             services.className = 'work-card__services';
             serviceLabels.forEach((label, index) => {
-                const service = document.createElement('span');
-                service.className = `work-card__service-badge work-card__service-badge--${serviceTypes[index]}`;
+                const serviceFilter = filterForServiceType(serviceTypes[index]);
+                const service = document.createElement(serviceFilter ? 'a' : 'span');
+                service.className = `work-card__service-badge work-card__service-badge--${serviceTypes[index]}${serviceFilter ? ' work-card__filter-link' : ''}`;
                 service.textContent = label;
+                if (serviceFilter) {
+                    service.href = filterHref(serviceFilter);
+                    service.setAttribute('aria-label', `${label}の実績で絞り込む`);
+                }
                 services.append(service);
             });
             classification.append(services);
@@ -161,9 +172,31 @@ if (grid && emptyState && isSupabaseConfigured) {
         link.className = 'work-card__link';
         link.textContent = isUpcomingWork(post) ? 'VIEW EVENT →' : 'VIEW REPORT →';
         body.append(link);
-        card.append(media, body);
+        const detailLink = document.createElement('a');
+        detailLink.className = 'work-card__detail-link';
+        detailLink.href = publicWorkUrl(post);
+        detailLink.setAttribute('aria-label', `${post.title}の詳細を見る`);
+        card.append(media, body, detailLink);
         return card;
     };
+
+    const renderFilterStatus = () => {
+        if (!filterStatus) return;
+        filterStatus.replaceChildren();
+        filterStatus.hidden = !activeFilter;
+        if (!activeFilter) return;
+        const label = document.createElement('strong');
+        label.textContent = `「${activeFilter.label}」の実績`;
+        const clear = document.createElement('a');
+        clear.href = '/works.html';
+        clear.textContent = 'すべての実績を見る';
+        clear.setAttribute('aria-label', '絞り込みを解除して、すべての実績を見る');
+        filterStatus.append(label, clear);
+    };
+
+    const filteredEmptyMessage = () => activeFilter
+        ? '<strong>現在、この分類の実績はまだ掲載されていません。</strong>'
+        : '<strong>この年の実績は準備中です。</strong>新しい実績を順次掲載します。';
 
     const queryWorks = (fields) => supabase
         .from('work_posts')
@@ -181,7 +214,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         const visiblePosts = selectedYear === 'undated' ? posts.filter((post) => !getYear(post)) : posts.filter((post) => getYear(post) === selectedYear);
         if (!visiblePosts.length) {
             emptyState.hidden = false;
-            emptyState.innerHTML = '<strong>この年の実績は準備中です。</strong>新しい実績を順次掲載します。';
+            emptyState.innerHTML = filteredEmptyMessage();
             return;
         }
         emptyState.hidden = true;
@@ -194,6 +227,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         upcomingGrid.replaceChildren();
         if (!posts.length) {
             upcomingEmptyState.hidden = false;
+            if (activeFilter) upcomingEmptyState.innerHTML = '<strong>現在、この分類の実績はまだ掲載されていません。</strong>';
             return;
         }
         upcomingEmptyState.hidden = true;
@@ -206,7 +240,16 @@ if (grid && emptyState && isSupabaseConfigured) {
         const hasUndatedPosts = posts.some((post) => !getYear(post));
         const tabs = years.map((year) => ({ value: year, label: `${year}年` }));
         if (hasUndatedPosts) tabs.push({ value: 'undated', label: '日付未設定' });
-        if (!tabs.length) return;
+        if (!tabs.length) {
+            yearTabs.replaceChildren();
+            latestTitle.textContent = '終了済みの実績';
+            grid.replaceChildren();
+            emptyState.hidden = false;
+            emptyState.innerHTML = activeFilter
+                ? '<strong>現在、この分類の実績はまだ掲載されていません。</strong>'
+                : '<strong>新しい実績を順次掲載します。</strong>ARA-TECHが担当した最新の音響・照明・ステージ制作事例を順次ご紹介します。';
+            return;
+        }
 
         const yearFromHash = () => {
             try { return decodeURIComponent(location.hash).match(/^#year-(\d{4})$/)?.[1] || null; }
@@ -269,8 +312,9 @@ if (grid && emptyState && isSupabaseConfigured) {
             if (timeOrder) return timeOrder;
             return Number(left.id || 0) - Number(right.id || 0);
         });
-        renderUpcomingWorks(upcomingPosts);
-        renderYearTabs(completedPosts);
+        renderFilterStatus();
+        renderUpcomingWorks(upcomingPosts.filter((post) => workMatchesFilter(post, activeFilter)));
+        renderYearTabs(completedPosts.filter((post) => workMatchesFilter(post, activeFilter)));
     };
 
     loadWorks();

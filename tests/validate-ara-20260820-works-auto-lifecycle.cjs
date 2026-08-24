@@ -94,7 +94,7 @@ assert.doesNotMatch(worksSource, /filter\(isUpcomingWork\)/u);
 assert.match(adminSource, /getJstDateString/u);
 assert.match(adminSource, /isUpcomingWork\(post\)/u);
 assert.match(worksHtml, /js\/work-lifecycle\.js\?v=ara-20260823-001/u);
-assert.match(worksHtml, /js\/works\.js\?v=ara-20260823-001/u);
+assert.match(worksHtml, /js\/works\.js\?v=ara-20260824-002/u);
 assert.match(adminHtml, /js\/work-lifecycle\.js\?v=ara-20260823-001/u);
 assert.match(workApiSource, /CDN-Cache-Control', 'no-store'/u);
 
