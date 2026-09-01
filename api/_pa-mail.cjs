@@ -4,6 +4,9 @@ const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
 const SITE_URL = "https://ara-tech.cc";
 const OFFICIAL_EMAIL = "aratechsound@gmail.com";
+const CUSTOMER_HEADER_BLUE = "#007bff";
+const CUSTOMER_HEADER_LOGO_URL = `${SITE_URL}/img/ara-tech-logo-horizontal-white.png`;
+const CUSTOMER_FOOTER_LOGO_URL = `${SITE_URL}/img/ara-tech-logo-horizontal-black.png`;
 const LINE_ADD_URL = "https://lin.ee/TF64AB6";
 const LINE_QR_TARGET_URL = "https://lin.ee/XX7Psxw";
 const LINE_QR_IMAGE_URL = `${SITE_URL}/img/ara-tech-line-official-qr.png`;
@@ -173,16 +176,18 @@ const buildCustomerHtml = (body) => {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#f3f6f9;">
 <tr>
 <td align="center" style="padding:20px 12px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;border-collapse:collapse;background:#ffffff;border:1px solid #dce4ec;border-radius:12px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;border-collapse:collapse;background:#ffffff;border-radius:12px;overflow:hidden;">
 <tr>
-<td style="padding:24px 24px 18px;border-bottom:3px solid #007bff;font-size:20px;font-weight:700;letter-spacing:.04em;color:#111827;">ARA-TECH</td>
+<td style="padding:22px 24px;background:${CUSTOMER_HEADER_BLUE};">
+<img src="${CUSTOMER_HEADER_LOGO_URL}" width="180" alt="ARA-TECH" style="display:block;width:180px;max-width:100%;height:auto;margin:0;border:0;">
+</td>
 </tr>
 <tr>
 <td style="padding:28px 24px 10px;font-size:15px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;">${contentHtml}</td>
 </tr>
 <tr>
 <td style="padding:22px 24px 26px;border-top:1px solid #dce4ec;background:#f8fafc;font-size:14px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;">
-<p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#111827;">ARA-TECH</p>
+<p style="margin:0 0 12px;"><img src="${CUSTOMER_FOOTER_LOGO_URL}" width="145" alt="ARA-TECH" style="display:block;width:145px;max-width:100%;height:auto;margin:0;border:0;"></p>
 <p style="margin:0;">Email：<a href="mailto:${OFFICIAL_EMAIL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${OFFICIAL_EMAIL}</a></p>
 <p style="margin:0;">Web：<a href="${SITE_URL}" style="color:#006fd6;text-decoration:underline;overflow-wrap:anywhere;word-break:break-word;">${SITE_URL}</a></p>
 <div style="margin:20px 0 0;padding:18px;background:#ffffff;border:1px solid #dce4ec;border-radius:10px;">
@@ -1165,6 +1170,9 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 module.exports = {
     ADMIN_URL,
     AUTOMATIC_TYPES,
+    CUSTOMER_FOOTER_LOGO_URL,
+    CUSTOMER_HEADER_BLUE,
+    CUSTOMER_HEADER_LOGO_URL,
     CUSTOMER_FOOTER_TEXT,
     CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE,
     CUSTOMER_MESSAGE_TYPES,

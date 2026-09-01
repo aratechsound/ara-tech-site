@@ -137,6 +137,8 @@ const customerTemplates = [
     }
 ];
 
+assert.equal(mail.CUSTOMER_MESSAGE_TYPES.size, 8, "all eight customer-facing PA delivery types use the common renderer");
+
 customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.equal(mail.isCustomerMessageType(messageType), true, `${label}: customer type`);
     const expectedFooter = /\bPA-\d{8}-\d{5}\b/u.test(body)
@@ -186,6 +188,13 @@ customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.equal(count(html, mail.LINE_QR_IMAGE_URL), 1, `${label}: QR image once`);
     assert.equal(count(html, expectedGuide), 1, `${label}: HTML LINE guide once`);
     assert.match(html, /background:#06c755/u, `${label}: LINE green CTA`);
+    assert.match(html, new RegExp(`src="${mail.CUSTOMER_HEADER_LOGO_URL}"`), `${label}: white header logo URL`);
+    assert.match(html, new RegExp(`src="${mail.CUSTOMER_FOOTER_LOGO_URL}"`), `${label}: black footer logo URL`);
+    assert.match(html, new RegExp(`background:${mail.CUSTOMER_HEADER_BLUE}`), `${label}: official header blue`);
+    assert.match(html, /width="180" alt="ARA-TECH"/u, `${label}: header logo dimensions and alt`);
+    assert.match(html, /width="145" alt="ARA-TECH"/u, `${label}: footer logo dimensions and alt`);
+    assert.equal(count(html, 'height:auto'), 3, `${label}: logos and QR preserve image aspect ratios`);
+    assert.doesNotMatch(html, /border-bottom:3px solid/u, `${label}: no legacy header rule`);
     assert.match(html, /alt="ARA-TECH公式LINE QRコード"/u, `${label}: QR alt`);
     assert.match(html, /width="170" height="170"/u, `${label}: QR display size`);
     assert.match(html, /PCでご覧の場合は、スマートフォンでQRコードを読み取ってください/u, `${label}: PC QR guide`);
@@ -195,6 +204,13 @@ customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.doesNotMatch(html, new RegExp(previousPhoneTel, "u"), `${label}: no phone tel`);
     assert.match(html, /max-width:640px/u, `${label}: desktop max width`);
     assert.match(html, /width:100%/u, `${label}: fluid mobile width`);
+    const mobileViewport = 390;
+    const outerHorizontalPadding = 24;
+    const contentHorizontalPadding = 48;
+    const mobileCardWidth = mobileViewport - outerHorizontalPadding;
+    const mobileContentWidth = mobileCardWidth - contentHorizontalPadding;
+    assert.ok(mobileContentWidth >= 180, `${label}: 390px viewport fits the header logo without scaling`);
+    assert.ok(mobileContentWidth >= 170, `${label}: 390px viewport fits the QR code without scaling`);
     assert.match(html, /overflow-wrap:anywhere/u, `${label}: long content wrapping`);
     assert.doesNotMatch(html, /\b(?:undefined|null)\b/iu, `${label}: no missing placeholder`);
     assert.doesNotMatch(html, new RegExp(forbiddenAddress, "iu"), `${label}: HTML has no legacy address`);
@@ -226,6 +242,18 @@ assert.equal(
     "b01173a7347a926ece548f20c1e30083b38b45420c79e6c7c8c3aeac70a97bf5",
     "QR asset must remain byte-identical to the supplied image"
 );
+
+[
+    ["ara-tech-logo-horizontal-white.png", mail.CUSTOMER_HEADER_LOGO_URL, "2c6a5e72322d195b8f8a2d7c37d7515e3e64735129085e9374d054414ef0f8ad", 2919, 422],
+    ["ara-tech-logo-horizontal-black.png", mail.CUSTOMER_FOOTER_LOGO_URL, "c97f9c1e1df583d9948e91289e960353f19ee3add1fc972b1f60953dfb9de527", 2917, 421]
+].forEach(([fileName, imageUrl, expectedHash, width, height]) => {
+    const bytes = fs.readFileSync(path.join(root, "img", fileName));
+    assert.equal(imageUrl, `https://ara-tech.cc/img/${fileName}`, `${fileName}: production HTTPS URL`);
+    assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", `${fileName}: PNG signature`);
+    assert.equal(bytes.readUInt32BE(16), width, `${fileName}: source width`);
+    assert.equal(bytes.readUInt32BE(20), height, `${fileName}: source height`);
+    assert.equal(require("node:crypto").createHash("sha256").update(bytes).digest("hex"), expectedHash, `${fileName}: byte identity`);
+});
 
 const internalRaw = decodeRaw(mail.buildRawMessage({
     to: "internal@example.com",
