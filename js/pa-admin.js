@@ -298,6 +298,9 @@ const trashList = $("#trash-list");
 const emptyTrash = $("#empty-trash");
 const trashStatus = $("#trash-status");
 const caseTrashSection = $("#case-trash-section");
+const brandMailTestPreview = $("#brand-mail-test-preview");
+const brandMailTestFrame = $("#brand-mail-test-frame");
+const brandMailTestMessage = $("#brand-mail-test-message");
 
 let supabase;
 let cases = [];
@@ -319,6 +322,8 @@ let requestedCaseHandled = false;
 let selectedTrashCase = null;
 let trashActionInProgress = false;
 let purgeImpactLoaded = false;
+let brandMailTestConfirmationToken = "";
+let brandMailTestInProgress = false;
 
 const setMessage = (element, text, type = "info") => {
     element.textContent = text;
@@ -2434,6 +2439,106 @@ const callMailApi = async (payload) => {
     return result;
 };
 
+const callBrandMailTestApi = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-mail-brand-test", {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) throw new Error(result.code || "mail_delivery_failed");
+    return result;
+};
+
+const resetBrandMailTestConfirmation = () => {
+    const button = $("#send-brand-mail-test");
+    delete button.dataset.confirmationToken;
+    button.textContent = "テストメールを送信";
+};
+
+const brandMailTestRecipient = () => $("#brand-mail-test-recipient").textContent.trim();
+
+const brandMailTestErrorMessage = (code) => {
+    if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
+    if (code === "invalid_confirmation") return "プレビューの有効期限が切れました。内容を確認してから、もう一度プレビューしてください。";
+    if (code === "gmail_not_configured" || String(code).startsWith("gmail_oauth_") || String(code).startsWith("gmail_send_")) {
+        return "Gmailから送信できませんでした。PA案件・進捗・送信履歴は変更されていません。";
+    }
+    return "テストメールを送信できませんでした。PA案件・進捗・送信履歴は変更されていません。";
+};
+
+const previewBrandMailTest = async () => {
+    if (brandMailTestInProgress) return;
+    brandMailTestInProgress = true;
+    $("#preview-brand-mail-test").disabled = true;
+    $("#send-brand-mail-test").disabled = true;
+    brandMailTestConfirmationToken = "";
+    resetBrandMailTestConfirmation();
+    clearMessage(brandMailTestMessage);
+    try {
+        const result = await callBrandMailTestApi({ action: "preview" });
+        const preview = result.preview;
+        if (!preview?.confirmation_token || !preview?.html) throw new Error("mail_delivery_failed");
+        brandMailTestConfirmationToken = preview.confirmation_token;
+        brandMailTestFrame.srcdoc = preview.html;
+        brandMailTestPreview.classList.remove("hidden");
+        $("#send-brand-mail-test").disabled = false;
+        setMessage(brandMailTestMessage, "プレビューを生成しました。送信先と内容を確認し、送信ボタンをもう一度押してください。", "info");
+    } catch (error) {
+        setMessage(brandMailTestMessage, brandMailTestErrorMessage(error.message), "error");
+    } finally {
+        brandMailTestInProgress = false;
+        $("#preview-brand-mail-test").disabled = false;
+    }
+};
+
+const sendBrandMailTest = async () => {
+    if (brandMailTestInProgress || !brandMailTestConfirmationToken) {
+        setMessage(brandMailTestMessage, "先にプレビューを生成してください。", "error");
+        return;
+    }
+    const button = $("#send-brand-mail-test");
+    if (button.dataset.confirmationToken !== brandMailTestConfirmationToken) {
+        button.dataset.confirmationToken = brandMailTestConfirmationToken;
+        button.textContent = "この内容でテストメール送信を確定";
+        setMessage(brandMailTestMessage, `${brandMailTestRecipient()} へ1通だけ送信します。内容を再確認し、もう一度ボタンを押してください。`, "warning");
+        return;
+    }
+    if (!window.confirm(`${brandMailTestRecipient()} へブランドメール表示テストを1通送信します。PA案件・進捗・顧客送信履歴は変更しません。送信しますか？`)) return;
+
+    brandMailTestInProgress = true;
+    $("#preview-brand-mail-test").disabled = true;
+    button.disabled = true;
+    clearMessage(brandMailTestMessage);
+    try {
+        const result = await callBrandMailTestApi({
+            action: "send",
+            confirmation_token: brandMailTestConfirmationToken
+        });
+        brandMailTestConfirmationToken = "";
+        resetBrandMailTestConfirmation();
+        setMessage(
+            brandMailTestMessage,
+            `Gmailから送信しました。送信日時：${formatDateTime(result.delivery.sent_at)}／GmailメッセージID：${result.delivery.gmail_message_id}`,
+            "success"
+        );
+    } catch (error) {
+        resetBrandMailTestConfirmation();
+        setMessage(brandMailTestMessage, brandMailTestErrorMessage(error.message), "error");
+    } finally {
+        brandMailTestInProgress = false;
+        $("#preview-brand-mail-test").disabled = false;
+        button.disabled = !brandMailTestConfirmationToken;
+    }
+};
+
 const recordDeliveryResult = (delivery) => {
     currentDeliveries = [
         delivery,
@@ -2828,6 +2933,8 @@ if (!isSupabaseConfigured) {
         });
     });
     $("#send-email").addEventListener("click", sendEmail);
+    $("#preview-brand-mail-test").addEventListener("click", previewBrandMailTest);
+    $("#send-brand-mail-test").addEventListener("click", sendBrandMailTest);
     $("#preview-content-hearing").addEventListener("click", previewContentHearingEmail);
     $("#send-content-hearing").addEventListener("click", sendContentHearingEmail);
     $("#prepare-result-confirmed").addEventListener("click", () => prepareResultEmail("confirmed"));

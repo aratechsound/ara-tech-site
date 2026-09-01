@@ -7,6 +7,9 @@ const OFFICIAL_EMAIL = "aratechsound@gmail.com";
 const CUSTOMER_HEADER_BLUE = "#007bff";
 const CUSTOMER_HEADER_LOGO_URL = `${SITE_URL}/img/ara-tech-logo-horizontal-white.png`;
 const CUSTOMER_FOOTER_LOGO_URL = `${SITE_URL}/img/ara-tech-logo-horizontal-black.png`;
+const BRAND_EMAIL_TEST_TYPE = "brand_email_test";
+const BRAND_EMAIL_TEST_RECIPIENT = ["tonokun", "gmail.com"].join("@");
+const BRAND_EMAIL_TEST_SUBJECT = "【ARA-TECH】顧客向けメール共通テンプレート表示テスト";
 const LINE_ADD_URL = "https://lin.ee/TF64AB6";
 const LINE_QR_TARGET_URL = "https://lin.ee/XX7Psxw";
 const LINE_QR_IMAGE_URL = `${SITE_URL}/img/ara-tech-line-official-qr.png`;
@@ -52,6 +55,7 @@ const ALLOWED_TYPES = new Set([
     "schedule_request"
 ]);
 const CUSTOMER_MESSAGE_TYPES = new Set([
+    BRAND_EMAIL_TEST_TYPE,
     "customer_receipt",
     CONTENT_HEARING_TYPE,
     "schedule_request",
@@ -308,6 +312,21 @@ const contentHearingTemplate = (inquiry) => {
         ].join("\n")
     };
 };
+
+const brandEmailTestTemplate = () => ({
+    recipient: BRAND_EMAIL_TEST_RECIPIENT,
+    subject: BRAND_EMAIL_TEST_SUBJECT,
+    body: [
+        "ARA-TECH 顧客向けメール共通ブランドテンプレートの表示確認用テストメールです。",
+        "このメールは本番の共通rendererとGmail送信基盤を使用して送信しています。",
+        "",
+        "上部の青帯と白ロゴ、本文、下部の黒ロゴ、Email・Web・LINE導線・QRコードをご確認ください。",
+        "",
+        "ARA-TECH",
+        "荒殿"
+    ].join("\n"),
+    messageType: BRAND_EMAIL_TEST_TYPE
+});
 
 const mailConfig = () => {
     const config = {
@@ -1170,6 +1189,9 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 module.exports = {
     ADMIN_URL,
     AUTOMATIC_TYPES,
+    BRAND_EMAIL_TEST_RECIPIENT,
+    BRAND_EMAIL_TEST_SUBJECT,
+    BRAND_EMAIL_TEST_TYPE,
     CUSTOMER_FOOTER_LOGO_URL,
     CUSTOMER_HEADER_BLUE,
     CUSTOMER_HEADER_LOGO_URL,
@@ -1192,6 +1214,7 @@ module.exports = {
     assertCustomerMessageSafe,
     buildCustomerHtml,
     buildRawMessage,
+    brandEmailTestTemplate,
     cleanBody,
     cleanHeader,
     createAndDeliver,

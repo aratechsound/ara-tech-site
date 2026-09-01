@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css?v=ara-20260901-001">
+    <link rel="stylesheet" href="pa-admin.css?v=ara-20260901-002-brand-mail-test">
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
 <body>
@@ -60,6 +60,30 @@
                     <button id="sign-out" class="button button--secondary" type="button">ログアウト</button>
                 </div>
             </div>
+
+            <section id="brand-mail-test" class="card" aria-labelledby="brand-mail-test-title">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">ADMIN-ONLY E2E TEST</p>
+                        <h2 id="brand-mail-test-title">ブランドメール表示テスト</h2>
+                        <p class="small-note">PA案件・案件進捗・顧客送信履歴には記録しません。送信先はテスト専用の固定許可先だけです。</p>
+                    </div>
+                </div>
+                <dl class="detail-list">
+                    <dt>送信先</dt><dd id="brand-mail-test-recipient">tonokun&#64;gmail.com</dd>
+                    <dt>件名</dt><dd>【ARA-TECH】顧客向けメール共通テンプレート表示テスト</dd>
+                </dl>
+                <div class="actions actions--compact">
+                    <button id="preview-brand-mail-test" class="button button--secondary" type="button">プレビュー</button>
+                    <button id="send-brand-mail-test" class="button" type="button" disabled>テストメールを送信</button>
+                </div>
+                <div id="brand-mail-test-preview" class="mail-preview hidden" aria-live="polite">
+                    <h3>送信内容のプレビュー</h3>
+                    <p class="small-note">共通rendererが生成したHTMLです。内容と送信先を確認後、送信ボタンをもう一度押し、最終確認で送信してください。</p>
+                    <iframe id="brand-mail-test-frame" class="brand-mail-test-frame" title="ブランドメール表示テストのプレビュー" sandbox="" referrerpolicy="no-referrer"></iframe>
+                </div>
+                <p id="brand-mail-test-message" class="alert hidden" aria-live="polite"></p>
+            </section>
 
             <section class="card">
                 <div class="section-head">
@@ -734,6 +758,6 @@
         </div>
     </dialog>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260901-001"></script>
+    <script type="module" src="js/pa-admin.js?v=ara-20260901-002-brand-mail-test"></script>
 </body>
 </html>

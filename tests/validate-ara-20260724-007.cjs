@@ -137,7 +137,11 @@ const customerTemplates = [
     }
 ];
 
-assert.equal(mail.CUSTOMER_MESSAGE_TYPES.size, 8, "all eight customer-facing PA delivery types use the common renderer");
+assert.equal(
+    [...mail.CUSTOMER_MESSAGE_TYPES].filter((messageType) => messageType !== mail.BRAND_EMAIL_TEST_TYPE).length,
+    8,
+    "all eight customer-facing PA delivery types use the common renderer"
+);
 
 customerTemplates.forEach(({ label, messageType, subject, body }) => {
     assert.equal(mail.isCustomerMessageType(messageType), true, `${label}: customer type`);
