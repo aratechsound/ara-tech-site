@@ -4,7 +4,14 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabas
 const $ = (selector) => document.querySelector(selector);
 
 const statusLabels = {
-    new: "新規受付",
+    new: "新規問い合わせ（既存）",
+    new_inquiry: "新規問い合わせ",
+    follow_up_pending: "担当者フォロー待ち",
+    waiting_customer_reply: "内容確認・ヒアリングメール送信済み／お客様回答待ち",
+    hearing: "ヒアリング中",
+    rough_estimate: "概算見積中",
+    customer_intent_confirmed: "お客様の依頼意思確認済み",
+    schedule_coordination: "日程・人員調整中",
     reviewing: "内容確認中",
     second_form_not_issued: "日程確保フォーム未発行",
     second_form_issued: "日程確保フォーム発行済み",
@@ -22,6 +29,13 @@ const statusLabels = {
 
 const statusBadgeClasses = {
     new: "new",
+    new_inquiry: "new",
+    follow_up_pending: "reviewing",
+    waiting_customer_reply: "answered",
+    hearing: "reviewing",
+    rough_estimate: "reviewing",
+    customer_intent_confirmed: "reviewing",
+    schedule_coordination: "reviewing",
     reviewing: "reviewing",
     second_form_not_issued: "unconfirmed",
     second_form_issued: "issued",
@@ -61,6 +75,38 @@ const workflowSteps = [
     "ケースクローズ"
 ];
 
+const salesWorkflowStages = [
+    { code: "NEW_INQUIRY", label: "新規問い合わせ" },
+    { code: "RECEIPT_AUTO_SENT", label: "受付確認メール（自動）" },
+    { code: "FOLLOW_UP_PENDING", label: "担当者フォロー待ち" },
+    { code: "WAITING_CUSTOMER_REPLY", label: "内容確認・ヒアリングメール送信済み／お客様回答待ち" },
+    { code: "HEARING", label: "ヒアリング" },
+    { code: "ROUGH_ESTIMATE", label: "概算見積" },
+    { code: "CUSTOMER_INTENT_CONFIRMED", label: "依頼意思確認" },
+    { code: "SCHEDULE_COORDINATION", label: "日程・人員調整" }
+];
+
+const contentHearingPendingStatuses = new Set(["new", "new_inquiry", "follow_up_pending"]);
+const salesStageIndexByStatus = Object.freeze({
+    new: 2,
+    new_inquiry: 2,
+    follow_up_pending: 2,
+    waiting_customer_reply: 3,
+    hearing: 4,
+    rough_estimate: 5,
+    customer_intent_confirmed: 6,
+    schedule_coordination: 7
+});
+const scheduleEligibleStatuses = new Set([
+    "schedule_coordination",
+    "second_form_not_issued",
+    "second_form_issued",
+    "schedule_unconfirmed",
+    "customer_responded",
+    "schedule_adjusting",
+    "needs_confirmation"
+]);
+
 const progressGroups = [
     { id: "schedule", label: "日程確認・調整中", steps: [1, 2, 3, 4, 5] },
     { id: "estimate", label: "見積対応中", steps: [6, 7, 8] },
@@ -86,6 +132,13 @@ const paymentMethodLabels = {
 
 const initialWorkflowStep = (status) => ({
     new: 1,
+    new_inquiry: 1,
+    follow_up_pending: 1,
+    waiting_customer_reply: 2,
+    hearing: 2,
+    rough_estimate: 2,
+    customer_intent_confirmed: 2,
+    schedule_coordination: 3,
     reviewing: 2,
     second_form_not_issued: 3,
     schedule_unconfirmed: 3,
@@ -183,6 +236,7 @@ const auditLabels = {
     case_updated: "案件を更新",
     second_form_token_issued: "日程確保フォームURLを発行",
     second_form_token_revoked: "日程確保フォームURLを無効化",
+    content_hearing_follow_up_sent: "内容確認・ヒアリングメール送信後にお客様回答待ちへ更新",
     second_form_answered: "日程確保フォームの回答を受領",
     schedule_confirmed_after_customer_notice: "確定連絡後に日程確保完了",
     schedule_result_confirmed_after_mail: "結果メール送信後に日程確保済み",
@@ -222,6 +276,7 @@ const caseForm = $("#case-form");
 const caseStatusMessage = $("#case-status-message");
 const tokenSection = $("#token-section");
 const emailSection = $("#email-section");
+const contentHearingSection = $("#content-hearing-section");
 const responseDetails = $("#response-details");
 const auditList = $("#audit-list");
 const firstFormSection = $("#first-form-section");
@@ -368,6 +423,7 @@ const workflowStepLabel = (item) => {
 const mailTypeLabels = {
     internal_new_inquiry: "ARA-TECH向け新規受付通知",
     customer_receipt: "お客様向け受付確認",
+    content_hearing_follow_up: "内容確認・ヒアリングメール",
     schedule_request: "日程確保フォーム案内",
     schedule_response_agree_customer: "お客様向け日程調整依頼受付",
     schedule_response_agree_internal: "ARA-TECH向け日程調整依頼通知",
@@ -390,6 +446,17 @@ const newestDelivery = (type) =>
 
 const nextActionText = () => {
     if (!currentCase) return "案件情報を入力";
+    if (contentHearingPendingStatuses.has(currentCase.status)) {
+        const delivery = newestDelivery("content_hearing_follow_up");
+        return delivery?.status === "failed"
+            ? "内容確認・ヒアリングメールを必要な場合のみ再送"
+            : "お客様へ内容確認メールを送る";
+    }
+    if (currentCase.status === "waiting_customer_reply") return "お客様の回答を待つ";
+    if (currentCase.status === "hearing") return "資料・開催時間・ご予算をヒアリング";
+    if (currentCase.status === "rough_estimate") return "概算見積を作成・案内";
+    if (currentCase.status === "customer_intent_confirmed") return "日程・人員調整へ進める";
+    if (currentCase.status === "schedule_coordination") return "日程確保が必要な場合のみフォームを発行";
     const caseWithProgress = { ...currentCase, progress: currentProgress };
     if (isClosedCase(caseWithProgress)) return workflowStepLabel(caseWithProgress);
     if (workflowStepForCase(caseWithProgress) >= 6) return workflowStepLabel(caseWithProgress);
@@ -404,6 +471,28 @@ const nextActionText = () => {
     return "内容を確認し、日程調整の要否を判断";
 };
 
+const salesStageIndexForCase = (item) => {
+    if (Object.hasOwn(salesStageIndexByStatus, item?.status)) return salesStageIndexByStatus[item.status];
+    return salesWorkflowStages.length;
+};
+
+const renderSalesWorkflow = () => {
+    const list = $("#sales-workflow-steps");
+    if (!list) return;
+    list.replaceChildren();
+    if (!currentCase) return;
+
+    const currentIndex = salesStageIndexForCase(currentCase);
+    salesWorkflowStages.forEach((stage, index) => {
+        const item = document.createElement("li");
+        const state = index < currentIndex ? "completed" : index === currentIndex ? "current" : "future";
+        item.className = `sales-workflow-step sales-workflow-step--${state}`;
+        item.dataset.stageCode = stage.code;
+        item.textContent = `${index + 1}. ${stage.label}${state === "current" ? "（現在）" : state === "completed" ? "（完了）" : ""}`;
+        list.append(item);
+    });
+};
+
 const renderOverview = () => {
     const caseWithProgress = currentCase ? { ...currentCase, progress: currentProgress } : null;
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
@@ -416,6 +505,7 @@ const renderOverview = () => {
     $("#overview-next-action").textContent = nextActionText();
     if (currentCase) {
         renderProgressSteps();
+        renderSalesWorkflow();
         renderNextActions();
     }
 };
@@ -492,6 +582,7 @@ const renderNextActions = () => {
     workflowStatePanel.classList.remove("hidden");
     resultActionPanel.classList.add("hidden");
     resultEmailSection.classList.add("hidden");
+    contentHearingSection.classList.add("hidden");
     tokenSection.classList.add("hidden");
     emailSection.classList.toggle("hidden", !issuedRawToken);
     $("#issue-token").hidden = false;
@@ -512,6 +603,74 @@ const renderNextActions = () => {
             workflowStepLabel({ ...currentCase, progress: currentProgress }),
             "日程確保済みです。同じ案件で見積り以降の進捗を更新してください。"
         );
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (contentHearingPendingStatuses.has(currentCase.status)) {
+        const contentHearingDelivery = newestDelivery("content_hearing_follow_up");
+        if (contentHearingDelivery?.status === "failed") {
+            setWorkflowState(
+                "担当者フォロー待ち",
+                "内容確認・ヒアリングメールの送信に失敗しています。送信履歴の「このメールを再送」を必要な場合だけ実行してください。"
+            );
+            emailSection.classList.add("hidden");
+            return;
+        }
+        setWorkflowState(
+            "内容確認・ヒアリングメールを作成",
+            "受付確認メールとは別に、担当者が案件内容を確認してから送るメールです。自動送信は行いません。文面を確認・編集し、プレビュー後に送信してください。"
+        );
+        contentHearingSection.classList.remove("hidden");
+        prepareContentHearingEmail();
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (currentCase.status === "waiting_customer_reply") {
+        setWorkflowState(
+            "お客様回答待ち",
+            "内容確認・ヒアリングメールは送信済みです。お客様からの資料・開催時間・ご予算等の回答をお待ちください。"
+        );
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (currentCase.status === "hearing") {
+        setWorkflowState(
+            "ヒアリング中",
+            "開催時間、資料、会場レイアウト、出演内容、ご予算を確認し、概算見積の準備へ進めてください。"
+        );
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (currentCase.status === "rough_estimate") {
+        setWorkflowState(
+            "概算見積中",
+            "ヒアリング結果を基に概算見積を案内し、お客様の依頼意思を確認してください。"
+        );
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (currentCase.status === "customer_intent_confirmed") {
+        setWorkflowState(
+            "依頼意思確認済み",
+            "日程・人員調整の準備段階です。日程確保フォームは、調整が必要と判断した後にのみ発行してください。"
+        );
+        emailSection.classList.add("hidden");
+        return;
+    }
+
+    if (currentCase.status === "schedule_coordination") {
+        setWorkflowState(
+            "日程・人員調整中",
+            "日程確保が必要な場合のみ、公開情報と条件を確認して専用URLを発行してください。"
+        );
+        tokenSection.classList.remove("hidden");
+        $("#issue-token").textContent = "日程確保フォームURLを発行";
+        $("#revoke-token").hidden = true;
         emailSection.classList.add("hidden");
         return;
     }
@@ -546,7 +705,7 @@ const renderNextActions = () => {
         return;
     }
 
-    const activeToken = currentToken
+    const activeToken = scheduleEligibleStatuses.has(currentCase.status) && currentToken
         && !currentToken.answered_at
         && !currentToken.revoked_at
         && new Date(currentToken.expires_at).getTime() > Date.now();
@@ -562,6 +721,15 @@ const renderNextActions = () => {
         );
         tokenSection.classList.remove("hidden");
         $("#issue-token").textContent = "日程確保フォームURLを再発行";
+        return;
+    }
+
+    if (!scheduleEligibleStatuses.has(currentCase.status)) {
+        setWorkflowState(
+            "営業工程を確認",
+            "お客様の依頼意思確認後、日程・人員調整の工程に進めてから日程確保フォームを発行してください。"
+        );
+        emailSection.classList.add("hidden");
         return;
     }
 
@@ -1104,7 +1272,7 @@ const resetForm = () => {
     caseForm.reset();
     $("#case-id").value = "";
     $("#case-received-at").value = toLocalDateTimeInput(new Date().toISOString());
-    $("#case-status").value = "new";
+    $("#case-status").value = "new_inquiry";
     $("#public-conditions").value = defaultConditions;
     $("#detail-title").textContent = "問い合わせを手入力";
     $("#detail-number").textContent = "保存時に問い合わせ番号を発行します。";
@@ -1121,6 +1289,7 @@ const resetForm = () => {
     $("#result-email-kind").value = "";
     tokenSection.classList.add("hidden");
     emailSection.classList.add("hidden");
+    contentHearingSection.classList.add("hidden");
     resultActionPanel.classList.add("hidden");
     resultEmailSection.classList.add("hidden");
     nextActionSection.classList.add("hidden");
@@ -1142,6 +1311,7 @@ const resetForm = () => {
     auditList.replaceChildren();
     clearMessage(caseStatusMessage);
     clearMessage($("#email-message"));
+    clearMessage($("#content-hearing-message"));
     clearMessage($("#result-email-message"));
     clearMessage($("#progress-message"));
     clearMessage($("#payment-message"));
@@ -1605,7 +1775,8 @@ const renderAutomaticMailStatus = () => {
     automaticMailStatus.replaceChildren();
     const types = [
         ["customer_receipt", "お客様向け受付確認"],
-        ["internal_new_inquiry", "ARA-TECH向け新規受付通知"]
+        ["internal_new_inquiry", "ARA-TECH向け新規受付通知"],
+        ["content_hearing_follow_up", "内容確認・ヒアリングメール"]
     ];
     if (currentResponse?.decision) {
         types.push(
@@ -1939,6 +2110,173 @@ const randomToken = () => {
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
 
+const shortEventDate = (value) => {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+    return match ? `${Number(match[2])}月${Number(match[3])}日` : "開催予定日";
+};
+
+const firstFormText = (key) => {
+    const firstForm = currentCase?.first_form_data;
+    const value = firstForm && typeof firstForm === "object" && !Array.isArray(firstForm)
+        ? firstForm[key]
+        : "";
+    return typeof value === "string" ? value.trim() : "";
+};
+
+const contentHearingServices = () => {
+    const source = Array.isArray(currentCase?.requested_services)
+        ? currentCase.requested_services
+        : Array.isArray(currentCase?.first_form_data?.requested_services)
+            ? currentCase.first_form_data.requested_services
+            : [];
+    const services = source.map((value) => String(value || "").trim()).filter(Boolean);
+    return services.length ? services.join("・") : "PA・音響";
+};
+
+const contentHearingTemplate = () => {
+    const addressee = currentCase?.contact_name || currentCase?.customer_name || "ご担当者";
+    const eventDate = shortEventDate(currentCase?.event_date);
+    const venue = currentCase?.venue || "会場";
+    const services = contentHearingServices();
+    const overview = firstFormText("event_overview");
+    const overviewLine = overview
+        ? `開催概要：${overview}`
+        : "出演内容や会場規模に合わせて必要な機材構成を検討いたします。";
+    return {
+        subject: `${eventDate} ${venue}での${services}について【ARA-TECH】`,
+        body: [
+            `${addressee} 様`,
+            "",
+            "お世話になります。",
+            "ARA-TECHの荒殿です。",
+            "",
+            "この度は弊社ホームページよりお問い合わせいただき、ありがとうございます。",
+            "",
+            `${eventDate}、${venue}で開催予定のイベントについて、${services}のご相談内容を確認いたしました。`,
+            "",
+            overviewLine,
+            "",
+            `${services}について、出演内容や会場規模に合わせて必要な機材構成を検討し、お見積りをご案内できればと思っております。`,
+            "",
+            "お見積りにあたり、差し支えない範囲で下記についてお知らせいただけますでしょうか。",
+            "",
+            "・イベントの開催予定時間、およびPAが必要となる時間",
+            "・当日のタイムテーブル、出演内容が分かる資料",
+            "・会場レイアウトやステージ配置等が分かる資料",
+            "・音響、電源関係について想定されているご予算の目安",
+            "",
+            "過去開催時の資料等でも構いませんので、参考になるものがございましたら併せてお送りいただけますと、より具体的なご提案が可能です。",
+            "",
+            "また、開催時間帯によって照明が必要となる場合には、音響とあわせて対応することも可能ですので、必要であればお知らせください。",
+            "",
+            "まだ確定していない部分については、現時点で分かる範囲で構いません。",
+            "",
+            "いただいた内容を確認のうえ、イベント内容とご予算に合わせた構成を検討し、まずは概算のお見積りをご案内いたします。",
+            "",
+            "よろしくお願いいたします。",
+            "",
+            "ARA-TECH",
+            "荒殿"
+        ].join("\n")
+    };
+};
+
+const resetContentHearingConfirmation = () => {
+    const button = $("#send-content-hearing");
+    delete button.dataset.confirmationKey;
+    button.textContent = "この内容で送信";
+};
+
+const prepareContentHearingEmail = () => {
+    if (!currentCase || !contentHearingPendingStatuses.has(currentCase.status)) return;
+    const template = contentHearingTemplate();
+    $("#content-hearing-recipient").value = currentCase.email || "";
+    $("#content-hearing-subject").value = template.subject;
+    $("#content-hearing-body").value = template.body;
+    $("#content-hearing-preview").classList.add("hidden");
+    clearMessage($("#content-hearing-message"));
+    resetContentHearingConfirmation();
+};
+
+const previewContentHearingEmail = () => {
+    if (!currentCase) return;
+    const subject = $("#content-hearing-subject").value.trim();
+    const body = $("#content-hearing-body").value.trim();
+    if (!subject || !body) {
+        setMessage($("#content-hearing-message"), "件名と本文を入力してからプレビューしてください。", "error");
+        return;
+    }
+    $("#content-hearing-preview-recipient").textContent = $("#content-hearing-recipient").value || "未設定";
+    $("#content-hearing-preview-subject").textContent = subject;
+    $("#content-hearing-preview-body").textContent = body;
+    $("#content-hearing-preview").classList.remove("hidden");
+    clearMessage($("#content-hearing-message"));
+};
+
+const applyContentHearingCaseState = (caseState) => {
+    if (!caseState || !currentCase) return;
+    currentCase.status = caseState.result_status;
+    if (currentProgress) {
+        currentProgress.current_step = initialWorkflowStep(currentCase.status);
+    }
+    $("#case-status").value = currentCase.status;
+    renderOverview();
+};
+
+const sendContentHearingEmail = async () => {
+    if (!currentCase || mailActionInProgress) return;
+    const subject = $("#content-hearing-subject").value.trim();
+    const body = $("#content-hearing-body").value.trim();
+    if (!subject || !body) {
+        setMessage($("#content-hearing-message"), "宛先、件名、本文を確認してください。", "error");
+        return;
+    }
+    const confirmationKey = JSON.stringify([currentCase.id, currentCase.email, subject, body]);
+    const sendButton = $("#send-content-hearing");
+    if (sendButton.dataset.confirmationKey !== confirmationKey) {
+        sendButton.dataset.confirmationKey = confirmationKey;
+        sendButton.textContent = "この宛先へ送信を確定";
+        setMessage(
+            $("#content-hearing-message"),
+            `${currentCase.email} へ内容確認・ヒアリングメールを送信します。宛先と内容を再確認し、もう一度ボタンを押してください。`,
+            "warning"
+        );
+        return;
+    }
+    resetContentHearingConfirmation();
+
+    mailActionInProgress = true;
+    setMailButtonsDisabled(true);
+    clearMessage($("#content-hearing-message"));
+    try {
+        const result = await callMailApi({
+            action: "send_content_hearing",
+            inquiry_id: currentCase.id,
+            subject,
+            body
+        });
+        recordDeliveryResult(result.delivery);
+        if (result.delivery.status === "sent" && result.case_state) {
+            applyContentHearingCaseState(result.case_state);
+            setMessage(
+                $("#content-hearing-message"),
+                "Gmailから送信しました。送信日時とGmailメッセージIDを案件へ記録し、状態を「お客様回答待ち」へ更新しました。",
+                "success"
+            );
+            await loadCases();
+            await openCase(currentCase.id);
+        } else {
+            setMessage($("#content-hearing-message"), mailErrorMessage(result.delivery.error_summary), "error");
+        }
+    } catch (error) {
+        setMessage($("#content-hearing-message"), mailErrorMessage(error.message), "error");
+    } finally {
+        mailActionInProgress = false;
+        resetContentHearingConfirmation();
+        setMailButtonsDisabled(false);
+    }
+};
+
 const buildEmail = (url) => {
     const addressee = currentCase.public_addressee || currentCase.customer_name;
     const eventName = currentCase.public_event_name || currentCase.event_name || "ご相談の案件";
@@ -2068,6 +2406,7 @@ const mailErrorMessage = (code) => {
 };
 
 const setMailButtonsDisabled = (disabled) => {
+    $("#send-content-hearing").disabled = disabled;
     $("#send-email").disabled = disabled;
     $("#send-result-email").disabled = disabled;
     $("#prepare-result-confirmed").disabled = disabled;
@@ -2182,14 +2521,23 @@ const retryEmail = async (deliveryId) => {
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent") {
             if (result.case_state) {
-                applyCaseState(result.case_state);
-                setMessage(
-                    $("#schedule-message"),
-                    result.case_state.result_status === "schedule_confirmed"
-                        ? "結果メールの再送に成功し、案件状態を「日程確保済み」へ更新しました。"
-                        : "結果メールの再送に成功し、案件状態を「日程確保不可」へ更新しました。",
-                    "success"
-                );
+                if (result.case_state.result_status === "waiting_customer_reply") {
+                    applyContentHearingCaseState(result.case_state);
+                    setMessage(
+                        $("#email-message"),
+                        "内容確認・ヒアリングメールの再送に成功し、状態を「お客様回答待ち」へ更新しました。",
+                        "success"
+                    );
+                } else {
+                    applyCaseState(result.case_state);
+                    setMessage(
+                        $("#schedule-message"),
+                        result.case_state.result_status === "schedule_confirmed"
+                            ? "結果メールの再送に成功し、案件状態を「日程確保済み」へ更新しました。"
+                            : "結果メールの再送に成功し、案件状態を「日程確保不可」へ更新しました。",
+                        "success"
+                    );
+                }
             }
             setMessage($("#email-message"), "Gmailから再送しました。再送履歴を案件へ記録しました。", "success");
         } else {
@@ -2480,6 +2828,8 @@ if (!isSupabaseConfigured) {
         });
     });
     $("#send-email").addEventListener("click", sendEmail);
+    $("#preview-content-hearing").addEventListener("click", previewContentHearingEmail);
+    $("#send-content-hearing").addEventListener("click", sendContentHearingEmail);
     $("#prepare-result-confirmed").addEventListener("click", () => prepareResultEmail("confirmed"));
     $("#prepare-result-unavailable").addEventListener("click", () => prepareResultEmail("unavailable"));
     $("#send-result-email").addEventListener("click", sendResultEmail);

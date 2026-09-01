@@ -17,6 +17,12 @@ const RATE_LIMIT_POLICIES = Object.freeze({
         maxRequests: 30,
         identity: "scope"
     }),
+    PA_MAIL_SEND_CONTENT_HEARING: Object.freeze({
+        bucket: "pa-mail-send-content-hearing",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 20,
+        identity: "scope"
+    }),
     PA_MAIL_SEND_RESULT: Object.freeze({
         bucket: "pa-mail-send-result",
         windowMs: 10 * 60 * 1000,

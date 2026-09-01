@@ -1,11 +1,14 @@
 const {
+    CONTENT_HEARING_TYPE,
     createScheduleDelivery,
+    finalizeContentHearingDelivery,
     finalizeScheduleResult,
     getInquiry,
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
     sendScheduleResultAndFinalize,
+    sendContentHearingAndFinalize,
     verifyAdmin
 } = require("./_pa-mail.cjs");
 const {
@@ -17,6 +20,7 @@ const {
 
 const MAX_BODY_BYTES = 32_000;
 const RATE_LIMIT_POLICY_BY_ACTION = Object.freeze({
+    send_content_hearing: "PA_MAIL_SEND_CONTENT_HEARING",
     send_schedule: "PA_MAIL_SEND_SCHEDULE",
     send_result: "PA_MAIL_SEND_RESULT",
     retry: "PA_MAIL_RETRY"
@@ -81,7 +85,16 @@ module.exports = async (request, response) => {
         const inquiry = await getInquiry(input.inquiry_id);
         let delivery;
         let caseState = null;
-        if (input.action === "send_schedule") {
+        if (input.action === "send_content_hearing") {
+            const outcome = await sendContentHearingAndFinalize({
+                inquiry,
+                subject: input.subject,
+                body: input.body,
+                actorUserId: user.id
+            });
+            delivery = outcome.delivery;
+            caseState = outcome.caseState;
+        } else if (input.action === "send_schedule") {
             delivery = await createScheduleDelivery({
                 inquiry,
                 subject: input.subject,
@@ -112,6 +125,11 @@ module.exports = async (request, response) => {
                     inquiryId: inquiry.id,
                     delivery,
                     result
+                });
+            } else if (delivery.message_type === CONTENT_HEARING_TYPE && delivery.status === "sent") {
+                caseState = await finalizeContentHearingDelivery({
+                    inquiryId: inquiry.id,
+                    delivery
                 });
             }
         } else {
@@ -145,6 +163,10 @@ module.exports = async (request, response) => {
             "invalid_inquiry",
             "invalid_delivery",
             "invalid_operation",
+            "content_hearing_not_allowed",
+            "content_hearing_delivery_not_sent",
+            "content_hearing_transition_failed",
+            "invalid_content_hearing_message",
             "invalid_schedule_url",
             "invalid_schedule_message",
             "invalid_schedule_result",
@@ -154,6 +176,7 @@ module.exports = async (request, response) => {
             "result_delivery_not_sent",
             "result_transition_failed",
             "schedule_response_not_found",
+            "schedule_not_allowed",
             "retry_not_allowed",
             "inquiry_not_found",
             "delivery_not_found"

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css?v=ara-20260724-003">
+    <link rel="stylesheet" href="pa-admin.css?v=ara-20260901-001">
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
 <body>
@@ -193,12 +193,49 @@
                     </div>
                     <ol id="case-progress-steps" class="workflow-list workflow-list--case" aria-label="案件全体の進捗"></ol>
 
+                    <div class="sales-workflow" aria-label="初回営業工程">
+                        <h4>初回営業工程</h4>
+                        <ol id="sales-workflow-steps" class="sales-workflow__steps"></ol>
+                    </div>
+
                     <div id="automatic-mail-status" class="mail-status-grid" aria-label="受付メールの状態"></div>
 
                     <div id="workflow-state-panel" class="action-panel action-panel--state">
                         <h4 id="workflow-state-title">PA予約・お問い合わせ内容を確認</h4>
                         <p id="workflow-state-description" class="small-note"></p>
                         <div id="workflow-question" class="workflow-question hidden"></div>
+                    </div>
+
+                    <div id="content-hearing-section" class="action-panel hidden">
+                        <h4>内容確認・ヒアリングメール</h4>
+                        <p class="small-note">受付確認メールとは別に、案件内容を確認した担当者が送るフォローメールです。ARA-TECHのGmailから直接送信し、宛先は案件に登録されたお客様メールアドレスで固定されます。自動送信は行いません。</p>
+                        <div class="field">
+                            <label for="content-hearing-recipient">To</label>
+                            <input id="content-hearing-recipient" type="email" readonly>
+                        </div>
+                        <div class="field">
+                            <label for="content-hearing-subject">件名</label>
+                            <input id="content-hearing-subject" type="text" maxlength="240">
+                        </div>
+                        <div class="field">
+                            <label for="content-hearing-body">本文</label>
+                            <textarea id="content-hearing-body" class="email-body" maxlength="20000"></textarea>
+                            <p class="small-note">担当者名、開催日、会場、希望業務、開催概要を元に下書きを生成します。送信時に既存の正式署名・公式LINE導線がサーバー側で付与されます。</p>
+                        </div>
+                        <div class="actions actions--compact">
+                            <button id="preview-content-hearing" class="button button--secondary" type="button">プレビュー</button>
+                            <button id="send-content-hearing" class="button" type="button">この内容で送信</button>
+                        </div>
+                        <div id="content-hearing-preview" class="mail-preview hidden" aria-live="polite">
+                            <h5>送信内容のプレビュー</h5>
+                            <dl class="detail-list">
+                                <dt>To</dt><dd id="content-hearing-preview-recipient"></dd>
+                                <dt>件名</dt><dd id="content-hearing-preview-subject"></dd>
+                                <dt>本文</dt><dd id="content-hearing-preview-body" class="mail-preview__body"></dd>
+                            </dl>
+                            <p class="small-note">正式署名と公式LINE導線は、既存仕様により送信時に付与されます。</p>
+                        </div>
+                        <p id="content-hearing-message" class="alert hidden" aria-live="polite"></p>
                     </div>
 
                     <div id="token-section" class="action-panel hidden">
@@ -470,7 +507,14 @@
                             <div class="field">
                                 <label for="case-status">現在の状態</label>
                                 <select id="case-status" required>
-                                    <option value="new">新規受付</option>
+                                    <option value="new_inquiry">新規問い合わせ</option>
+                                    <option value="follow_up_pending">担当者フォロー待ち</option>
+                                    <option value="waiting_customer_reply">内容確認・ヒアリングメール送信済み／お客様回答待ち</option>
+                                    <option value="hearing">ヒアリング中</option>
+                                    <option value="rough_estimate">概算見積中</option>
+                                    <option value="customer_intent_confirmed">お客様の依頼意思確認済み</option>
+                                    <option value="schedule_coordination">日程・人員調整中</option>
+                                    <option value="new">新規受付（既存状態）</option>
                                     <option value="reviewing">内容確認中</option>
                                     <option value="second_form_not_issued">日程確保フォーム未発行</option>
                                     <option value="second_form_issued">日程確保フォーム発行済み</option>
@@ -690,6 +734,6 @@
         </div>
     </dialog>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260726-003"></script>
+    <script type="module" src="js/pa-admin.js?v=ara-20260901-001"></script>
 </body>
 </html>

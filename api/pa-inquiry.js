@@ -268,7 +268,9 @@ const normalizeInquiry = (input) => {
     return {
         submission_key: submissionKey,
         submission_source: "public_form",
-        status: "new",
+        // 受付確認メールは既存の自動送信を維持する。担当者の内容確認・ヒアリングメールは、
+        // 管理画面で人が確認・編集・送信するまで一切送信しない。
+        status: "follow_up_pending",
         schedule_state: "unconfirmed",
         customer_name: customerName,
         organization_name: organizationName || null,

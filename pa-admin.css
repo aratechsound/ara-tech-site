@@ -134,6 +134,15 @@ td { font-size: .84rem; }
 .workflow-step--future .workflow-step__number { background: #edf0f3; }
 .workflow-step--skipped { background: #f8f8f8; color: #8b949c; }
 .workflow-step--skipped .workflow-step__number { border-style: dashed; }
+.sales-workflow { background: #f8fbff; border: 1px solid #c7def4; border-radius: 12px; margin-top: 18px; padding: 16px; }
+.sales-workflow h4 { margin: 0; }
+.sales-workflow__steps { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); list-style: none; margin: 12px 0 0; padding: 0; }
+.sales-workflow-step { background: #fff; border: 1px solid var(--line); border-radius: 9px; color: #677583; font-size: .78rem; font-weight: 800; min-width: 0; overflow-wrap: anywhere; padding: 10px; }
+.sales-workflow-step--completed { background: #f0faf4; border-color: #b9dfc8; color: #17633c; }
+.sales-workflow-step--current { background: #e8f4ff; border: 2px solid #388bd5; color: #064f91; }
+.mail-preview { background: #f8fbff; border: 1px solid #bdd7ef; border-radius: 10px; margin-top: 16px; padding: 14px; }
+.mail-preview h5 { margin: 0; }
+.mail-preview__body { line-height: 1.7; max-height: 360px; overflow: auto; }
 
 .action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }
 .action-panel h4 { margin: 0 0 6px; }
@@ -211,6 +220,7 @@ body:has(.case-dialog[open]) { overflow: hidden; }
     .case-tab { flex: 0 0 auto; }
     .progress-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .workflow-list, .progress-edit-grid { grid-template-columns: 1fr; }
+    .sales-workflow__steps { grid-template-columns: 1fr; }
     .copy-row { grid-template-columns: 1fr; }
     .detail-list { grid-template-columns: 1fr; }
     .detail-list dd { padding-top: 0; }

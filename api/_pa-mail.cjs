@@ -40,14 +40,17 @@ const SCHEDULE_RESULT_TYPES = new Set([
     "schedule_result_confirmed",
     "schedule_result_unavailable"
 ]);
+const CONTENT_HEARING_TYPE = "content_hearing_follow_up";
 const ALLOWED_TYPES = new Set([
     ...AUTOMATIC_TYPES,
     ...SCHEDULE_RESPONSE_TYPES,
     ...SCHEDULE_RESULT_TYPES,
+    CONTENT_HEARING_TYPE,
     "schedule_request"
 ]);
 const CUSTOMER_MESSAGE_TYPES = new Set([
     "customer_receipt",
+    CONTENT_HEARING_TYPE,
     "schedule_request",
     "schedule_response_agree_customer",
     "schedule_response_question_customer",
@@ -225,6 +228,80 @@ const formatDateTime = (value) => {
         minute: "2-digit",
         timeZone: "Asia/Tokyo"
     }).format(date);
+};
+
+const formatShortEventDate = (value) => {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+    if (!match) return "開催予定日";
+    return `${Number(match[2])}月${Number(match[3])}日`;
+};
+
+const firstFormValue = (inquiry, key) => {
+    const firstForm = inquiry?.first_form_data;
+    if (!firstForm || typeof firstForm !== "object" || Array.isArray(firstForm)) return "";
+    const value = firstForm[key];
+    return typeof value === "string" ? value.trim() : "";
+};
+
+const requestedServicesText = (inquiry) => {
+    const source = Array.isArray(inquiry?.requested_services)
+        ? inquiry.requested_services
+        : Array.isArray(inquiry?.first_form_data?.requested_services)
+            ? inquiry.first_form_data.requested_services
+            : [];
+    const services = source
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+    return services.length ? services.join("・") : "PA・音響";
+};
+
+const contentHearingTemplate = (inquiry) => {
+    const addressee = inquiry?.contact_name || inquiry?.customer_name || "ご担当者";
+    const eventDate = formatShortEventDate(inquiry?.event_date);
+    const venue = inquiry?.venue || "会場";
+    const services = requestedServicesText(inquiry);
+    const overview = firstFormValue(inquiry, "event_overview");
+    const overviewLine = overview
+        ? `開催概要：${overview}`
+        : "出演内容や会場規模に合わせて必要な機材構成を検討いたします。";
+
+    return {
+        subject: `${eventDate} ${venue}での${services}について【ARA-TECH】`,
+        body: [
+            `${addressee} 様`,
+            "",
+            "お世話になります。",
+            "ARA-TECHの荒殿です。",
+            "",
+            "この度は弊社ホームページよりお問い合わせいただき、ありがとうございます。",
+            "",
+            `${eventDate}、${venue}で開催予定のイベントについて、${services}のご相談内容を確認いたしました。`,
+            "",
+            overviewLine,
+            "",
+            `${services}について、出演内容や会場規模に合わせて必要な機材構成を検討し、お見積りをご案内できればと思っております。`,
+            "",
+            "お見積りにあたり、差し支えない範囲で下記についてお知らせいただけますでしょうか。",
+            "",
+            "・イベントの開催予定時間、およびPAが必要となる時間",
+            "・当日のタイムテーブル、出演内容が分かる資料",
+            "・会場レイアウトやステージ配置等が分かる資料",
+            "・音響、電源関係について想定されているご予算の目安",
+            "",
+            "過去開催時の資料等でも構いませんので、参考になるものがございましたら併せてお送りいただけますと、より具体的なご提案が可能です。",
+            "",
+            "また、開催時間帯によって照明が必要となる場合には、音響とあわせて対応することも可能ですので、必要であればお知らせください。",
+            "",
+            "まだ確定していない部分については、現時点で分かる範囲で構いません。",
+            "",
+            "いただいた内容を確認のうえ、イベント内容とご予算に合わせた構成を検討し、まずは概算のお見積りをご案内いたします。",
+            "",
+            "よろしくお願いいたします。",
+            "",
+            "ARA-TECH",
+            "荒殿"
+        ].join("\n")
+    };
 };
 
 const mailConfig = () => {
@@ -833,6 +910,17 @@ const createScheduleDelivery = async ({
     actorUserId
 }, fetchImpl = fetch) => {
     if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+    if (![
+        "schedule_coordination",
+        "second_form_not_issued",
+        "second_form_issued",
+        "schedule_unconfirmed",
+        "customer_responded",
+        "schedule_adjusting",
+        "needs_confirmation"
+    ].includes(inquiry?.status)) {
+        throw new Error("schedule_not_allowed");
+    }
     const safeUrl = String(scheduleUrl || "").trim();
     if (!/^https:\/\/ara-tech\.cc\/pa-schedule-confirm\.html\?token=[A-Za-z0-9_-]{43,128}$/u.test(safeUrl)) {
         throw new Error("invalid_schedule_url");
@@ -864,6 +952,75 @@ const assertCustomerMessageSafe = (subject, body) => {
     ) {
         throw new Error("unsafe_customer_message");
     }
+};
+
+const assertContentHearingMessage = (subject, body) => {
+    assertCustomerMessageSafe(subject, body);
+    const text = `${subject}\n${body}`;
+    if (/pa-schedule-confirm(?:\.html)?|日程確保フォーム(?:専用URL)?/iu.test(text)) {
+        throw new Error("invalid_content_hearing_message");
+    }
+};
+
+const createContentHearingDelivery = async ({
+    inquiry,
+    subject,
+    body,
+    actorUserId
+}, fetchImpl = fetch) => {
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    if (!["new", "new_inquiry", "follow_up_pending", "waiting_customer_reply"].includes(inquiry?.status)) {
+        throw new Error("content_hearing_not_allowed");
+    }
+
+    const safeSubject = cleanHeader(subject, 240);
+    const safeBodyInput = cleanBody(body);
+    assertContentHearingMessage(safeSubject, safeBodyInput);
+    const safeBody = normalizeCustomerBody(safeBodyInput);
+    return createAndDeliver({
+        inquiry_id: inquiry.id,
+        message_type: CONTENT_HEARING_TYPE,
+        dedupe_key: `content-hearing:${inquiry.id}`,
+        attempt_number: 1,
+        is_retry: false,
+        recipient: inquiry.email,
+        subject: safeSubject,
+        body: safeBody,
+        created_by: actorUserId
+    }, fetchImpl);
+};
+
+const finalizeContentHearingDelivery = async ({ inquiryId, delivery }, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId) || !isUuid(delivery?.id) || delivery.status !== "sent") {
+        throw new Error("content_hearing_delivery_not_sent");
+    }
+    const rows = await supabaseRequest("/rest/v1/rpc/finalize_pa_content_hearing_delivery", {
+        method: "POST",
+        body: JSON.stringify({
+            p_inquiry_id: inquiryId,
+            p_delivery_id: delivery.id
+        })
+    }, fetchImpl);
+    if (!Array.isArray(rows) || !rows[0]) throw new Error("content_hearing_transition_failed");
+    return rows[0];
+};
+
+const sendContentHearingAndFinalize = async ({
+    inquiry,
+    subject,
+    body,
+    actorUserId
+}, fetchImpl = fetch) => {
+    const delivery = await createContentHearingDelivery({
+        inquiry,
+        subject,
+        body,
+        actorUserId
+    }, fetchImpl);
+    const caseState = delivery.status === "sent"
+        ? await finalizeContentHearingDelivery({ inquiryId: inquiry.id, delivery }, fetchImpl)
+        : null;
+    return { delivery, caseState };
 };
 
 const createScheduleResultDelivery = async ({
@@ -1011,6 +1168,7 @@ module.exports = {
     CUSTOMER_FOOTER_TEXT,
     CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE,
     CUSTOMER_MESSAGE_TYPES,
+    CONTENT_HEARING_TYPE,
     LINE_ADD_URL,
     LINE_CTA_LABEL,
     LINE_GUIDE_WITH_REFERENCE,
@@ -1022,19 +1180,24 @@ module.exports = {
     SCHEDULE_RESPONSE_TYPES,
     SCHEDULE_RESULT_TYPES,
     adminCaseUrl,
+    assertContentHearingMessage,
     assertCustomerMessageSafe,
     buildCustomerHtml,
     buildRawMessage,
     cleanBody,
     cleanHeader,
     createAndDeliver,
+    createContentHearingDelivery,
     createScheduleDelivery,
     createScheduleResultDelivery,
     customerReceiptTemplate,
+    contentHearingTemplate,
     deliver,
     finalizeScheduleResult,
     formatDate,
     formatDateTime,
+    formatShortEventDate,
+    finalizeContentHearingDelivery,
     getDelivery,
     getGmailAccessToken,
     getInquiry,
@@ -1046,9 +1209,11 @@ module.exports = {
     isCustomerMessageType,
     mailConfig,
     normalizeCustomerBody,
+    requestedServicesText,
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
+    sendContentHearingAndFinalize,
     sendAutomaticInquiryEmails,
     sendGmail,
     sendScheduleResponseEmails,
