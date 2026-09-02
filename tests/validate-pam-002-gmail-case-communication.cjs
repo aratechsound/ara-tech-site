@@ -72,6 +72,7 @@ assert.match(gmailService, /const fallbackCandidates/u);
 assert.ok(gmailService.indexOf("resolveExactDelivery(hearing, fetchImpl)") < gmailService.indexOf("fallbackCandidates(inquiry, hearing, fetchImpl)"));
 assert.match(gmailService, /new Map\(indexed\.flatMap\(\(result\) => result\.messages\)\.map\(\(message\) => \[message\.id, message\]\)\)/u);
 assert.match(gmailService, /getPrimaryLink\(inquiryId, fetchImpl\)/u);
+assert.match(gmailService, /pa_inquiry_audit[\s\S]{0,600}prefer: "return=representation"/u);
 assert.doesNotMatch(gmailService, /recipient-only/iu);
 assert.match(gmailService, /latest\?\.direction === "inbound"/u);
 assert.match(gmailService, /latest\?\.to_addresses/u);

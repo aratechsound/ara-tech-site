@@ -143,7 +143,10 @@ const writeRow = (table, values, conflict, fetchImpl) => {
 };
 const audit = (inquiryId, actorId, action, details, fetchImpl) => supabaseRequest("/rest/v1/pa_inquiry_audit", {
     method: "POST",
-    prefer: "return=minimal",
+    // A minimal PostgREST insert can return 201 with no body. The shared
+    // request helper parses successful responses as JSON, so retain a body
+    // for this audit-only write instead of converting success to SyntaxError.
+    prefer: "return=representation",
     body: JSON.stringify({ inquiry_id: inquiryId, actor_user_id: actorId, action, details })
 }, fetchImpl);
 
