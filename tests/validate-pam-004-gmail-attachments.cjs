@@ -70,7 +70,7 @@ assert.deepEqual(opaqueAttachmentMessage.attachments, [{
 }], "opaque Gmail attachment IDs must survive normalization and reach the frontend metadata field");
 
 assert.match(service, /attachment_metadata/u, "the exact indexed attachment identity must be required before retrieval");
-assert.match(service, /part\.body\.attachmentId\s*\?/u, "attachmentId data must use the Gmail attachment endpoint");
+assert.match(service, /attachmentResourceId/u, "the resolved Gmail attachment resource ID must use the Gmail attachment endpoint");
 assert.match(service, /:\s*part\.body;/u, "inline body.data attachments must not require a second Gmail fetch");
 assert.match(service, /safeAttachmentFilename/u);
 assert.match(service, /streamAttachmentResponse/u);
@@ -160,6 +160,20 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         throw new Error(`unexpected URL: ${url}`);
     });
     assert.equal(indexedFilenameAttachment.filename, "index-filename.pdf", "a verified indexed filename must support a Gmail re-read that omits filename");
+
+    const indexedFallbackAttachment = await gmail.getAttachment({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "attachment_indexed_only"
+    }, async (url) => {
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "attachment_indexed_only", filename: "indexed-only.pdf", mime_type: "application/pdf" }] }]);
+        if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
+        if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [] } });
+        if (url.includes("/messages/mail_123/attachments/attachment_indexed_only")) return jsonResponse({ data: base64Url("indexed fallback attachment") });
+        throw new Error(`unexpected URL: ${url}`);
+    });
+    assert.equal(indexedFallbackAttachment.filename, "indexed-only.pdf", "an index-bound Gmail attachment ID must remain retrievable when a later message read omits its MIME part");
+    assert.equal(Buffer.from(indexedFallbackAttachment.data, "base64url").toString("utf8"), "indexed fallback attachment");
 
     const attachmentCalls = [];
     const fetchedAttachment = await gmail.getAttachment({

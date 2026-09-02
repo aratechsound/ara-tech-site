@@ -364,17 +364,23 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, f
     if (!indexedAttachment) throw new Error("gmail_attachment_not_indexed");
     const message = await gmailMessage(gmailMessageId, fetchImpl);
     const part = attachmentPart(message.payload, gmailAttachmentId);
-    if (!part?.body) throw new Error("gmail_attachment_not_found");
-    const payload = part.body.attachmentId
-        ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`, {}, fetchImpl)
+    // The persisted reference is scoped to this exact case/message before it is
+    // used.  Gmail can omit an attachment part from a later full-message read,
+    // while its attachment resource remains addressable by the indexed ID.
+    // Prefer the freshly-read part (necessary for inline body.data), then fall
+    // back only to that already-authorized indexed Gmail attachment ID.
+    const attachmentResourceId = String(part?.body?.attachmentId || (!part ? gmailAttachmentId : ""));
+    if (!part?.body && !attachmentResourceId) throw new Error("gmail_attachment_not_found");
+    const payload = attachmentResourceId
+        ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(attachmentResourceId)}`, {}, fetchImpl)
         : part.body;
     const data = String(payload?.data || "");
     const bytes = decodeAttachmentData(data);
     const byteLength = bytes?.length || 0;
     if (!bytes || byteLength > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
     return {
-        filename: safeAttachmentFilename(part.filename || indexedAttachment.filename),
-        mime_type: safeAttachmentMimeType(part.mimeType || indexedAttachment.mime_type),
+        filename: safeAttachmentFilename(part?.filename || indexedAttachment.filename),
+        mime_type: safeAttachmentMimeType(part?.mimeType || indexedAttachment.mime_type),
         size: byteLength,
         data
     };
