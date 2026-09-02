@@ -13,7 +13,12 @@ const {
 } = require("./_pa-mail.cjs");
 
 const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
-const GMAIL_ATTACHMENT_REFERENCE = /^[A-Za-z0-9._-]{1,200}$/u;
+// Gmail attachment IDs are opaque values.  Their URL-safe-looking examples are
+// not an API guarantee, so do not discard otherwise valid MIME metadata merely
+// because an ID contains encoding characters such as + or =.  Path separators,
+// controls and whitespace remain forbidden; every outbound Gmail path segment is
+// still encoded and the ID is rechecked against indexed metadata server-side.
+const GMAIL_ATTACHMENT_REFERENCE = /^[^\s\u0000-\u001f\\/]{1,1000}$/u;
 const EMAIL = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u;
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 

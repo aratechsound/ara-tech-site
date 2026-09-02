@@ -46,8 +46,28 @@ assert.equal(nestedMessage.attachments[0].filename, "日本語資料.pdf");
 assert.equal(nestedMessage.attachments[1].filename, ".._.._evil.svg", "untrusted path separators must never survive the filename");
 assert.match(nestedMessage.body_text, /本文/u, "multipart/alternative text must still be parsed");
 assert.equal(gmail.validGmailAttachmentReference("0.1"), true);
+assert.equal(gmail.validGmailAttachmentReference("ANGjdJ9+opaque="), true, "opaque Gmail attachment IDs must not be filtered during MIME metadata collection");
 assert.equal(gmail.validGmailAttachmentReference("../../evil"), false);
 assert.equal(gmail.safeAttachmentFilename("..\\..\\evil.exe"), ".._.._evil.exe");
+
+const opaqueAttachmentMessage = gmail.normalizeMessage({
+    id: "mail_opaque",
+    payload: {
+        headers: [],
+        parts: [{
+            partId: "0.3",
+            filename: "legacy-gmail-id.pdf",
+            mimeType: "application/pdf",
+            body: { attachmentId: "ANGjdJ9+opaque=", size: 173259 }
+        }]
+    }
+});
+assert.deepEqual(opaqueAttachmentMessage.attachments, [{
+    id: "ANGjdJ9+opaque=",
+    filename: "legacy-gmail-id.pdf",
+    mime_type: "application/pdf",
+    size: 173259
+}], "opaque Gmail attachment IDs must survive normalization and reach the frontend metadata field");
 
 assert.match(service, /attachment_metadata/u, "the exact indexed attachment identity must be required before retrieval");
 assert.match(service, /part\.body\.attachmentId\s*\?/u, "attachmentId data must use the Gmail attachment endpoint");
