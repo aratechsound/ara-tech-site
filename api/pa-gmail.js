@@ -81,7 +81,11 @@ module.exports = async (request, response) => {
         const diagnostic = /^(?:gmail_(?:read|send|oauth)|supabase_)\d{3}$|^(?:gmail_send_invalid|gmail_not_configured|primary_conversation_exists|ambiguous_thread_link)$/u.test(code)
             ? code
             : "unclassified";
-        console.error("pa-gmail operation failed", diagnostic);
+        console.error("pa-gmail operation failed", {
+            diagnostic,
+            error_type: String(error?.name || "Error").replace(/[^A-Za-z0-9_]/gu, "").slice(0, 80),
+            upstream_status: Number.isInteger(error?.status) ? error.status : null
+        });
         return sendJson(response, 503, { ok: false, code: safe });
     }
 };
