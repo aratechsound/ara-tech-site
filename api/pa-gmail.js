@@ -1,4 +1,4 @@
-const { getAttachment, manualLink, replyPreview, sendReply, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 
@@ -6,7 +6,7 @@ const MAX_BODY_BYTES = 64_000;
 const ACTION_POLICY = Object.freeze({
     sync: "PA_GMAIL_SYNC",
     manual_link: "PA_GMAIL_MANUAL_LINK",
-    attachment_get: "PA_GMAIL_ATTACHMENT_GET",
+    attachment_download: "PA_GMAIL_ATTACHMENT_GET",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
     send_reply: "PA_GMAIL_SEND_REPLY"
 });
@@ -58,13 +58,13 @@ module.exports = async (request, response) => {
             });
             return sendJson(response, 200, { ok: true, result });
         }
-        if (input.action === "attachment_get") {
-            const attachment = await getAttachment({
+        if (input.action === "attachment_download") {
+            const attachment = await getAttachmentBinary({
                 inquiryId: input.inquiry_id,
                 gmailMessageId: input.gmail_message_id,
                 gmailAttachmentId: input.gmail_attachment_id
             });
-            return sendJson(response, 200, { ok: true, attachment });
+            return streamAttachmentResponse(response, attachment);
         }
         if (input.action === "reply_preview") {
             const preview = await replyPreview({ inquiryId: input.inquiry_id, actorId: user.id, body: input.body });

@@ -13,10 +13,12 @@ const {
 } = require("./_pa-mail.cjs");
 
 const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
+const GMAIL_ATTACHMENT_REFERENCE = /^[A-Za-z0-9._-]{1,200}$/u;
 const EMAIL = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u;
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 const validGmailId = (value) => GMAIL_ID.test(String(value || ""));
+const validGmailAttachmentReference = (value) => GMAIL_ATTACHMENT_REFERENCE.test(String(value || ""));
 const caseReference = (value) => /^PA-\d{8}-\d{5}$/u.test(String(value || ""));
 const safeAddress = (value) => String(value || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
 const addressList = (value) => String(value || "").split(",")
@@ -64,13 +66,36 @@ const htmlToText = (value) => String(value || "")
     .replace(/&gt;/giu, ">")
     .replace(/\n{3,}/gu, "\n\n")
     .trim();
+const safeAttachmentFilename = (value) => {
+    const filename = String(value || "attachment").replace(/[\u0000-\u001f\\\\/]/gu, "_").trim().slice(0, 255);
+    return filename || "attachment";
+};
+const safeAttachmentMimeType = (value) => {
+    const mime = String(value || "").trim().toLowerCase();
+    return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(mime) ? mime : "application/octet-stream";
+};
+const attachmentContentDisposition = (value) => {
+    const filename = safeAttachmentFilename(value);
+    const fallback = filename.normalize("NFKD").replace(/[^\x20-\x7e]/gu, "_").replace(/["\\]/gu, "_").trim() || "attachment";
+    const encoded = encodeURIComponent(filename).replace(/[!'()]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+};
+const decodeAttachmentData = (value) => {
+    const data = String(value || "");
+    if (!/^[A-Za-z0-9_-]+={0,2}$/u.test(data)) return null;
+    const bytes = Buffer.from(data.replace(/-/gu, "+").replace(/_/gu, "/"), "base64");
+    return bytes.length ? bytes : null;
+};
+const attachmentReference = (part) => String(part?.body?.attachmentId || part?.partId || "");
 const collectParts = (part, result = { plain: "", html: "", attachments: [] }) => {
     if (!part || typeof part !== "object") return result;
     const mime = String(part.mimeType || "").toLowerCase();
-    if (part.filename && part.body?.attachmentId) {
+    const reference = attachmentReference(part);
+    if (part.filename && part.body && validGmailAttachmentReference(reference)
+        && (part.body.attachmentId || part.body.data) && !result.attachments.some((attachment) => attachment.id === reference)) {
         result.attachments.push({
-            id: String(part.body.attachmentId),
-            filename: String(part.filename).replace(/[\u0000-\u001f\\/]/gu, "_").slice(0, 255),
+            id: reference,
+            filename: safeAttachmentFilename(part.filename),
             mime_type: mime || "application/octet-stream",
             size: Number(part.body.size || 0)
         });
@@ -85,7 +110,7 @@ const collectParts = (part, result = { plain: "", html: "", attachments: [] }) =
 
 const attachmentPart = (part, attachmentId) => {
     if (!part || typeof part !== "object") return null;
-    if (String(part.body?.attachmentId || "") === attachmentId) return part;
+    if (attachmentReference(part) === attachmentId) return part;
     for (const child of part.parts || []) {
         const found = attachmentPart(child, attachmentId);
         if (found) return found;
@@ -321,22 +346,52 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
 };
 
 const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, fetchImpl = fetch) => {
-    if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailId(gmailAttachmentId)) throw new Error("invalid_gmail_attachment");
-    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id", limit: "1" });
+    if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailAttachmentReference(gmailAttachmentId)) throw new Error("invalid_gmail_attachment");
+    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id,attachment_metadata", limit: "1" });
     const indexed = await selectRows("pa_gmail_message_index", query, fetchImpl);
     if (!Array.isArray(indexed) || !indexed[0]) throw new Error("gmail_attachment_not_indexed");
+    const indexedAttachments = Array.isArray(indexed[0].attachment_metadata) ? indexed[0].attachment_metadata : [];
+    if (!indexedAttachments.some((attachment) => String(attachment?.id || "") === gmailAttachmentId)) throw new Error("gmail_attachment_not_indexed");
     const message = await gmailMessage(gmailMessageId, fetchImpl);
     const part = attachmentPart(message.payload, gmailAttachmentId);
-    if (!part?.body?.attachmentId) throw new Error("gmail_attachment_not_found");
-    const payload = await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(gmailAttachmentId)}`, {}, fetchImpl);
+    if (!part?.filename || !part.body || attachmentReference(part) !== gmailAttachmentId) throw new Error("gmail_attachment_not_found");
+    const payload = part.body.attachmentId
+        ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`, {}, fetchImpl)
+        : part.body;
     const data = String(payload?.data || "");
-    const byteLength = Buffer.from(data.replace(/-/gu, "+").replace(/_/gu, "/"), "base64").length;
-    if (!data || byteLength > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
+    const bytes = decodeAttachmentData(data);
+    const byteLength = bytes?.length || 0;
+    if (!bytes || byteLength > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
     return {
-        filename: String(part.filename || "attachment").replace(/[\u0000-\u001f\\/]/gu, "_").slice(0, 255),
-        mime_type: String(part.mimeType || "application/octet-stream").slice(0, 200),
+        filename: safeAttachmentFilename(part.filename),
+        mime_type: safeAttachmentMimeType(part.mimeType),
+        size: byteLength,
         data
     };
+};
+const getAttachmentBinary = async (input, fetchImpl = fetch) => {
+    const attachment = await getAttachment(input, fetchImpl);
+    return {
+        filename: attachment.filename,
+        mime_type: attachment.mime_type,
+        size: attachment.size,
+        bytes: decodeAttachmentData(attachment.data)
+    };
+};
+const streamAttachmentResponse = async (response, attachment) => {
+    const bytes = Buffer.isBuffer(attachment?.bytes) ? attachment.bytes : Buffer.from(attachment?.bytes || "");
+    if (!bytes.length) throw new Error("gmail_attachment_unavailable");
+    response.statusCode = 200;
+    response.setHeader("Content-Type", safeAttachmentMimeType(attachment.mime_type));
+    response.setHeader("Content-Disposition", attachmentContentDisposition(attachment.filename));
+    response.setHeader("Cache-Control", "private, no-store, max-age=0");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+        if (!response.write(bytes.subarray(offset, Math.min(offset + 64 * 1024, bytes.length)))) {
+            await new Promise((resolve) => response.once("drain", resolve));
+        }
+    }
+    response.end();
 };
 
 const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "secondary_conversation", actorId }, fetchImpl = fetch) => {
@@ -425,4 +480,4 @@ const sendReply = async ({ inquiryId, actorId, body, confirmationToken }, fetchI
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { caseReference, getAttachment, manualLink, normalizeMessage, replyPreview, sendReply, syncCase, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, replyPreview, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

@@ -53,14 +53,14 @@ assert.match(api, /verifyAdmin\(bearer\(request\)\)/u);
 assert.match(api, /applyOriginPolicy/u);
 assert.match(api, /checkRateLimit/u);
 assert.match(api, /confirmation_token/u);
-assert.match(api, /attachment_get/u);
+assert.match(api, /attachment_download/u);
 
 const client = read("js/pa-admin.js");
 assert.match(client, /action: "sync"/u);
 assert.match(client, /action: "manual_link"/u);
 assert.match(client, /action: "reply_preview"/u);
 assert.match(client, /action: "send_reply"/u);
-assert.match(client, /action: "attachment_get"/u);
+assert.match(client, /action: "attachment_download"/u);
 assert.match(client, /案件工程は変更していません/u);
 assert.doesNotMatch(client, /\.update\(\{\s*status:\s*["']customer_responded/u);
 

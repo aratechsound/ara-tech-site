@@ -305,6 +305,7 @@ let currentDeliveries = [];
 let currentGmailTimeline = [];
 let currentMailAttention = "none";
 let currentGmailLink = null;
+const gmailAttachmentFetches = new Map();
 let gmailReplyPreview = null;
 let currentSessionUser = null;
 let activeCaseTab = "active";
@@ -329,6 +330,18 @@ const setMessage = (element, text, type = "info") => {
 const clearMessage = (element) => {
     element.textContent = "";
     element.className = "alert hidden";
+};
+
+const attachmentCacheKey = (messageId, attachmentId, inquiryId = currentCase?.id) => `${inquiryId || ""}:${String(messageId || "")}:${String(attachmentId || "")}`;
+const formatAttachmentSize = (value) => {
+    const bytes = Number(value || 0);
+    if (!Number.isFinite(bytes) || bytes < 1) return "サイズ不明";
+    if (bytes < 1024) return `${bytes.toLocaleString("ja-JP")} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+const clearGmailAttachmentCache = () => {
+    gmailAttachmentFetches.clear();
 };
 
 // This is deliberately an allowlist renderer, not a string filter.  It tokenizes
@@ -2001,22 +2014,41 @@ const renderEmailHistory = () => {
                     details.append(summary, body);
                     item.append(details);
                 }
-                if (Array.isArray(message.attachments) && message.attachments.length) {
+                const messageAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+                if (messageAttachments.length) {
+                    const attachmentHeading = document.createElement("p");
+                    attachmentHeading.className = "gmail-attachment-heading";
+                    attachmentHeading.textContent = `添付ファイル（${messageAttachments.length}件）`;
                     const attachments = document.createElement("ul");
                     attachments.className = "gmail-attachments";
-                    message.attachments.forEach((attachment) => {
+                    messageAttachments.forEach((attachment) => {
                         const entry = document.createElement("li");
-                        const label = document.createElement("span");
-                        label.textContent = `${attachment.filename || "添付ファイル"} ／ ${attachment.mime_type || "application/octet-stream"} ／ ${Number(attachment.size || 0).toLocaleString("ja-JP")} bytes`;
+                        entry.className = "gmail-attachment";
+                        const metadata = document.createElement("div");
+                        metadata.className = "gmail-attachment__metadata";
+                        const filename = document.createElement("strong");
+                        filename.className = "gmail-attachment__filename";
+                        filename.textContent = attachment.filename || "添付ファイル";
+                        const detail = document.createElement("span");
+                        detail.textContent = `${attachment.mime_type || "application/octet-stream"} ／ ${formatAttachmentSize(attachment.size)}`;
+                        metadata.append(filename, detail);
+                        const actions = document.createElement("div");
+                        actions.className = "gmail-attachment__actions";
                         const button = document.createElement("button");
                         button.type = "button";
                         button.className = "button button--secondary button--small";
-                        button.textContent = "取得";
+                        button.textContent = "添付ファイルを取得";
                         button.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, button));
-                        entry.append(label, button);
+                        actions.append(button);
+                        entry.append(metadata, actions);
                         attachments.append(entry);
                     });
-                    item.append(attachments);
+                    item.append(attachmentHeading, attachments);
+                } else {
+                    const noAttachments = document.createElement("p");
+                    noAttachments.className = "gmail-attachment-heading";
+                    noAttachments.textContent = "このメールには添付ファイルがありません";
+                    item.append(noAttachments);
                 }
                 emailHistory.append(item);
             });
@@ -2217,6 +2249,7 @@ const openCase = async (id) => {
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
+    clearGmailAttachmentCache();
     currentGmailTimeline = [];
     currentMailAttention = "none";
     currentGmailLink = null;
@@ -2682,30 +2715,84 @@ const callGmailApi = async (payload) => {
     return result;
 };
 
-const base64UrlToBytes = (value) => {
-    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-    const binary = atob(normalized);
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+const filenameFromContentDisposition = (value) => {
+    const encoded = String(value || "").match(/filename\*=UTF-8''([^;]+)/iu)?.[1];
+    if (encoded) {
+        try { return decodeURIComponent(encoded); } catch { /* fall through */ }
+    }
+    return String(value || "").match(/filename="?([^";]+)"?/iu)?.[1] || "attachment";
+};
+
+const downloadGmailAttachmentStream = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-gmail", {
+        method: "POST",
+        headers: {
+            Accept: "application/octet-stream",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.code || "gmail_attachment_download_failed");
+    }
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("gmail_attachment_unavailable");
+    return { blob, filename: filenameFromContentDisposition(response.headers.get("Content-Disposition")) };
 };
 
 const downloadGmailAttachment = async (messageId, attachmentId, button) => {
     if (!currentCase) return;
+    const inquiryId = currentCase.id;
+    const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
+    if (gmailAttachmentFetches.has(cacheKey)) return gmailAttachmentFetches.get(cacheKey);
     button.disabled = true;
-    try {
-        const response = await callGmailApi({ action: "attachment_get", inquiry_id: currentCase.id, gmail_message_id: messageId, gmail_attachment_id: attachmentId });
-        const attachment = response.attachment;
-        const blob = new Blob([base64UrlToBytes(attachment.data)], { type: attachment.mime_type || "application/octet-stream" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = attachment.filename || "attachment";
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1_000);
-    } catch (error) {
-        setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
-    } finally {
-        button.disabled = false;
-    }
+    button.textContent = "取得中…";
+    setMessage(gmailSyncState, "添付ファイルを取得中です。", "info");
+    const request = (async () => {
+        try {
+            const attachment = await downloadGmailAttachmentStream({ action: "attachment_download", inquiry_id: inquiryId, gmail_message_id: messageId, gmail_attachment_id: attachmentId });
+            const url = URL.createObjectURL(attachment.blob);
+            if (currentCase?.id !== inquiryId) {
+                URL.revokeObjectURL(url);
+                return;
+            }
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = attachment.filename;
+            link.hidden = true;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            setMessage(gmailSyncState, `添付ファイル「${attachment.filename}」のダウンロードを開始しました。`, "success");
+        } catch (error) {
+            if (currentCase?.id === inquiryId) {
+                setMessage(gmailSyncState, gmailAttachmentErrorMessage(error.message), "error");
+            }
+        } finally {
+            gmailAttachmentFetches.delete(cacheKey);
+            if (currentCase?.id === inquiryId) {
+                button.disabled = false;
+                button.textContent = "添付ファイルを取得";
+            }
+        }
+    })();
+    gmailAttachmentFetches.set(cacheKey, request);
+    return request;
+};
+
+const gmailAttachmentErrorMessage = (code) => {
+    if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
+    if (code === "gmail_attachment_not_indexed") return "添付情報を確認できません。Gmail同期を行ってから、もう一度お試しください。";
+    if (code === "gmail_attachment_not_found") return "メール上で添付ファイルが見つかりません。Gmail同期を行って最新情報を確認してください。";
+    if (code === "gmail_attachment_unavailable") return "添付ファイルを取得できませんでした。サイズまたはデータを確認してください。";
+    if (String(code).startsWith("gmail_read_") || String(code).startsWith("gmail_oauth_")) return "Gmailの読取権限または接続状態を確認してください。";
+    return "添付ファイルの取得に失敗しました。時間をおいて再試行してください。";
 };
 
 const gmailErrorMessage = (code) => {
