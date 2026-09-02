@@ -58,6 +58,9 @@ assert.match(client, /案件工程は変更していません/u);
 assert.doesNotMatch(client, /\.update\(\{\s*status:\s*["']customer_responded/u);
 
 const gmailService = read("api/_pa-gmail.cjs");
+assert.match(gmailService, /message_type,sent_at/u);
+assert.match(gmailService, /delivery\.message_type === "content_hearing_follow_up"/u);
+assert.match(gmailService, /resolvedDeliveryThreads\(hearingDeliveries/u);
 assert.match(gmailService, /latest\?\.direction === "inbound"/u);
 assert.match(gmailService, /latest\?\.to_addresses/u);
 assert.doesNotMatch(gmailService, /latest\?\.direction !== "inbound"/u);

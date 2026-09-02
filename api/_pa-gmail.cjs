@@ -159,28 +159,40 @@ const deliveryThreadCandidates = async (inquiryId, fetchImpl) => {
     const query = new URLSearchParams({
         inquiry_id: `eq.${inquiryId}`,
         status: "eq.sent",
-        select: "gmail_thread_id,gmail_message_id",
+        select: "gmail_thread_id,gmail_message_id,message_type,sent_at",
         limit: "100"
     });
     const rows = await selectRows("pa_email_deliveries", query, fetchImpl);
     return Array.isArray(rows) ? rows : [];
 };
-const resolveThread = async (inquiry, fetchImpl) => {
-    const existing = await getLink(inquiry.id, fetchImpl);
-    if (existing) return { link: existing, candidates: [] };
-
-    const deliveries = await deliveryThreadCandidates(inquiry.id, fetchImpl);
-    const directThreads = new Set(deliveries.map((row) => row.gmail_thread_id).filter(validGmailId));
-    if (directThreads.size === 1) {
-        const link = await linkThread({ inquiryId: inquiry.id, threadId: [...directThreads][0], source: "delivery_history" }, fetchImpl);
-        return { link, candidates: [] };
-    }
+const resolvedDeliveryThreads = async (deliveries, fetchImpl) => {
     const resolved = new Set();
     for (const delivery of deliveries) {
         if (!validGmailId(delivery.gmail_message_id)) continue;
         const message = await gmailMessage(delivery.gmail_message_id, fetchImpl);
         if (validGmailId(message.threadId)) resolved.add(message.threadId);
     }
+    return resolved;
+};
+const resolveThread = async (inquiry, fetchImpl) => {
+    const existing = await getLink(inquiry.id, fetchImpl);
+    if (existing) return { link: existing, candidates: [] };
+
+    const deliveries = await deliveryThreadCandidates(inquiry.id, fetchImpl);
+    const hearingDeliveries = deliveries.filter((delivery) => delivery.message_type === "content_hearing_follow_up");
+    if (hearingDeliveries.length === 1) {
+        const resolvedHearingThreads = await resolvedDeliveryThreads(hearingDeliveries, fetchImpl);
+        if (resolvedHearingThreads.size === 1) {
+            const link = await linkThread({ inquiryId: inquiry.id, threadId: [...resolvedHearingThreads][0], source: "gmail_message_id" }, fetchImpl);
+            return { link, candidates: [] };
+        }
+    }
+    const directThreads = new Set(deliveries.map((row) => row.gmail_thread_id).filter(validGmailId));
+    if (directThreads.size === 1) {
+        const link = await linkThread({ inquiryId: inquiry.id, threadId: [...directThreads][0], source: "delivery_history" }, fetchImpl);
+        return { link, candidates: [] };
+    }
+    const resolved = await resolvedDeliveryThreads(deliveries, fetchImpl);
     if (resolved.size === 1) {
         const link = await linkThread({ inquiryId: inquiry.id, threadId: [...resolved][0], source: "gmail_message_id" }, fetchImpl);
         return { link, candidates: [] };
