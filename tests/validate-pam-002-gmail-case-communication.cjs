@@ -41,6 +41,13 @@ assert.match(migration, /create table public\.pa_gmail_message_index/u);
 assert.match(migration, /create table public\.pa_case_mail_attention/u);
 assert.doesNotMatch(migration, /^\s*(update|insert|delete|drop)\b|alter table public\.pa_inquiries/imu);
 
+const authorityMigration = read("supabase/migrations/20260902143000_pam002_gmail_conversation_authority.sql");
+assert.match(authorityMigration, /add column conversation_role text not null default 'secondary_conversation'/u);
+assert.match(authorityMigration, /primary_conversation/u);
+assert.match(authorityMigration, /system_acknowledgement/u);
+assert.match(authorityMigration, /where conversation_role = 'primary_conversation'/u);
+assert.doesNotMatch(authorityMigration, /^\s*(update|insert|delete|drop)\b/imu);
+
 const api = read("api/pa-gmail.js");
 assert.match(api, /verifyAdmin\(bearer\(request\)\)/u);
 assert.match(api, /applyOriginPolicy/u);
@@ -58,6 +65,14 @@ assert.match(client, /案件工程は変更していません/u);
 assert.doesNotMatch(client, /\.update\(\{\s*status:\s*["']customer_responded/u);
 
 const gmailService = read("api/_pa-gmail.cjs");
+assert.match(gmailService, /resolveExactDelivery\(hearing, fetchImpl\)/u);
+assert.match(gmailService, /role: "primary_conversation"/u);
+assert.match(gmailService, /role: "system_acknowledgement"/u);
+assert.match(gmailService, /const fallbackCandidates/u);
+assert.ok(gmailService.indexOf("resolveExactDelivery(hearing, fetchImpl)") < gmailService.indexOf("fallbackCandidates(inquiry, hearing, fetchImpl)"));
+assert.match(gmailService, /new Map\(indexed\.flatMap\(\(result\) => result\.messages\)\.map\(\(message\) => \[message\.id, message\]\)\)/u);
+assert.match(gmailService, /getPrimaryLink\(inquiryId, fetchImpl\)/u);
+assert.doesNotMatch(gmailService, /recipient-only/iu);
 assert.match(gmailService, /latest\?\.direction === "inbound"/u);
 assert.match(gmailService, /latest\?\.to_addresses/u);
 assert.doesNotMatch(gmailService, /latest\?\.direction !== "inbound"/u);

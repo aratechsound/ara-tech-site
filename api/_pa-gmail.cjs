@@ -117,11 +117,16 @@ const normalizeMessage = (message) => {
     };
 };
 
+const CONVERSATION_ROLES = new Set(["primary_conversation", "secondary_conversation", "system_acknowledgement"]);
 const selectRows = (table, query, fetchImpl) => supabaseRequest(`/rest/v1/${table}?${query}`, {}, fetchImpl);
-const getLink = async (inquiryId, fetchImpl) => {
-    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, select: "*", limit: "1" });
+const getLinks = async (inquiryId, fetchImpl) => {
+    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, select: "*", order: "linked_at.asc", limit: "100" });
     const rows = await selectRows("pa_gmail_thread_links", query, fetchImpl);
-    return Array.isArray(rows) ? rows[0] || null : null;
+    return Array.isArray(rows) ? rows : [];
+};
+const getPrimaryLink = async (inquiryId, fetchImpl) => {
+    const links = await getLinks(inquiryId, fetchImpl);
+    return links.find((link) => link.conversation_role === "primary_conversation") || null;
 };
 const getGlobalThreadLink = async (threadId, fetchImpl) => {
     const query = new URLSearchParams({ gmail_thread_id: `eq.${threadId}`, select: "*", limit: "1" });
@@ -142,16 +147,21 @@ const audit = (inquiryId, actorId, action, details, fetchImpl) => supabaseReques
     body: JSON.stringify({ inquiry_id: inquiryId, actor_user_id: actorId, action, details })
 }, fetchImpl);
 
-const linkThread = async ({ inquiryId, threadId, source, actorId }, fetchImpl) => {
-    if (!isUuid(inquiryId) || !validGmailId(threadId)) throw new Error("invalid_gmail_thread");
+const linkThread = async ({ inquiryId, threadId, source, role = "secondary_conversation", actorId }, fetchImpl) => {
+    if (!isUuid(inquiryId) || !validGmailId(threadId) || !CONVERSATION_ROLES.has(role)) throw new Error("invalid_gmail_thread");
     const existing = await getGlobalThreadLink(threadId, fetchImpl);
     if (existing && existing.inquiry_id !== inquiryId) throw new Error("ambiguous_thread_link");
+    if (role === "primary_conversation") {
+        const primary = await getPrimaryLink(inquiryId, fetchImpl);
+        if (primary && primary.gmail_thread_id !== threadId) throw new Error("primary_conversation_exists");
+    }
     const rows = await writeRow("pa_gmail_thread_links", {
         inquiry_id: inquiryId,
         gmail_thread_id: threadId,
         link_source: source,
+        conversation_role: role,
         linked_by: actorId
-    }, "gmail_thread_id", fetchImpl);
+    }, "inquiry_id,gmail_thread_id", fetchImpl);
     return Array.isArray(rows) ? rows[0] : null;
 };
 
@@ -159,44 +169,92 @@ const deliveryThreadCandidates = async (inquiryId, fetchImpl) => {
     const query = new URLSearchParams({
         inquiry_id: `eq.${inquiryId}`,
         status: "eq.sent",
-        select: "gmail_thread_id,gmail_message_id",
+        select: "gmail_thread_id,gmail_message_id,message_type,sent_at,recipient,subject",
         limit: "100"
     });
     const rows = await selectRows("pa_email_deliveries", query, fetchImpl);
     return Array.isArray(rows) ? rows : [];
 };
-const resolveThread = async (inquiry, fetchImpl) => {
-    const existing = await getLink(inquiry.id, fetchImpl);
-    if (existing) return { link: existing, candidates: [] };
-
-    const deliveries = await deliveryThreadCandidates(inquiry.id, fetchImpl);
-    const directThreads = new Set(deliveries.map((row) => row.gmail_thread_id).filter(validGmailId));
-    if (directThreads.size === 1) {
-        const link = await linkThread({ inquiryId: inquiry.id, threadId: [...directThreads][0], source: "delivery_history" }, fetchImpl);
-        return { link, candidates: [] };
-    }
-    const resolved = new Set();
-    for (const delivery of deliveries) {
-        if (!validGmailId(delivery.gmail_message_id)) continue;
-        const message = await gmailMessage(delivery.gmail_message_id, fetchImpl);
-        if (validGmailId(message.threadId)) resolved.add(message.threadId);
-    }
-    if (resolved.size === 1) {
-        const link = await linkThread({ inquiryId: inquiry.id, threadId: [...resolved][0], source: "gmail_message_id" }, fetchImpl);
-        return { link, candidates: [] };
-    }
-    if (!caseReference(inquiry.inquiry_number)) return { link: null, candidates: [] };
+const equalText = (left, right) => String(left || "").replace(/\s+/gu, " ").trim() === String(right || "").replace(/\s+/gu, " ").trim();
+const sameAddress = (left, right) => safeAddress(left).toLowerCase() === safeAddress(right).toLowerCase();
+const deliveryMatchesMessage = (delivery, message) => {
+    const normalized = normalizeMessage(message);
+    const deliveryTime = Date.parse(String(delivery.sent_at || ""));
+    const messageTime = Date.parse(String(normalized.occurred_at || ""));
+    const closeInTime = !Number.isFinite(deliveryTime) || !Number.isFinite(messageTime)
+        || Math.abs(deliveryTime - messageTime) <= 10 * 60 * 1000;
+    return normalized.id === String(delivery.gmail_message_id || "")
+        && validGmailId(normalized.thread_id)
+        && normalized.direction === "outbound"
+        && sameAddress(normalized.from_address, OFFICIAL_EMAIL)
+        && normalized.to_addresses.some((address) => sameAddress(address, delivery.recipient))
+        && equalText(normalized.subject, delivery.subject)
+        && closeInTime;
+};
+const resolveExactDelivery = async (delivery, fetchImpl) => {
+    if (!validGmailId(delivery?.gmail_message_id)) return null;
+    const message = await gmailMessage(delivery.gmail_message_id, fetchImpl);
+    return deliveryMatchesMessage(delivery, message) ? { message, threadId: String(message.threadId) } : null;
+};
+const exactDelivery = (deliveries, messageType) => {
+    const matches = deliveries.filter((delivery) => delivery.message_type === messageType);
+    return matches.length === 1 ? matches[0] : null;
+};
+const fallbackCandidates = async (inquiry, delivery, fetchImpl) => {
+    if (!delivery || !caseReference(inquiry.inquiry_number)) return [];
     const search = new URLSearchParams({ q: `"${inquiry.inquiry_number}"`, maxResults: "20" });
     const result = await gmailJson(`/messages?${search}`, {}, fetchImpl);
-    const candidates = [...new Set((result.messages || []).map((row) => String(row.threadId || "")).filter(validGmailId))];
-    if (candidates.length === 1) {
-        const link = await linkThread({ inquiryId: inquiry.id, threadId: candidates[0], source: "case_reference" }, fetchImpl);
-        return { link, candidates: [] };
+    const candidates = [];
+    for (const row of result.messages || []) {
+        if (!validGmailId(row.id)) continue;
+        const message = await gmailMessage(row.id, fetchImpl);
+        if (deliveryMatchesMessage({ ...delivery, gmail_message_id: row.id }, message)) candidates.push(String(message.threadId));
     }
-    return { link: null, candidates };
+    return [...new Set(candidates)].filter(validGmailId);
+};
+const resolveThread = async (inquiry, fetchImpl) => {
+    const deliveries = await deliveryThreadCandidates(inquiry.id, fetchImpl);
+    let links = await getLinks(inquiry.id, fetchImpl);
+    let primary = links.find((link) => link.conversation_role === "primary_conversation") || null;
+    const hearing = exactDelivery(deliveries, "content_hearing_follow_up");
+    if (!primary && hearing) {
+        const exact = await resolveExactDelivery(hearing, fetchImpl);
+        if (exact) {
+            primary = await linkThread({
+                inquiryId: inquiry.id,
+                threadId: exact.threadId,
+                source: "gmail_message_id",
+                role: "primary_conversation"
+            }, fetchImpl);
+        }
+    }
+    const receipt = exactDelivery(deliveries, "customer_receipt");
+    if (receipt) {
+        const exact = await resolveExactDelivery(receipt, fetchImpl);
+        if (exact) await linkThread({
+            inquiryId: inquiry.id,
+            threadId: exact.threadId,
+            source: "gmail_message_id",
+            role: "system_acknowledgement"
+        }, fetchImpl);
+    }
+    links = await getLinks(inquiry.id, fetchImpl);
+    primary = links.find((link) => link.conversation_role === "primary_conversation") || primary;
+    if (primary) return { links, primary, candidates: [] };
+    const candidates = await fallbackCandidates(inquiry, hearing, fetchImpl);
+    if (candidates.length === 1) {
+        primary = await linkThread({
+            inquiryId: inquiry.id,
+            threadId: candidates[0],
+            source: "case_reference",
+            role: "primary_conversation"
+        }, fetchImpl);
+        return { links: await getLinks(inquiry.id, fetchImpl), primary, candidates: [] };
+    }
+    return { links, primary: null, candidates };
 };
 
-const indexThread = async ({ inquiryId, threadId, actorId }, fetchImpl) => {
+const indexThread = async ({ inquiryId, threadId }, fetchImpl) => {
     const thread = await gmailThread(threadId, fetchImpl);
     const messages = (thread.messages || []).map(normalizeMessage).filter((message) => validGmailId(message.id));
     for (const message of messages) {
@@ -215,6 +273,9 @@ const indexThread = async ({ inquiryId, threadId, actorId }, fetchImpl) => {
             indexed_at: new Date().toISOString()
         }, "gmail_message_id", fetchImpl);
     }
+    return { messages };
+};
+const recordSync = async ({ inquiryId, actorId, links, messages }, fetchImpl) => {
     const latest = [...messages].sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
     const latestInbound = [...messages].filter((message) => message.direction === "inbound")
         .sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
@@ -227,16 +288,30 @@ const indexThread = async ({ inquiryId, threadId, actorId }, fetchImpl) => {
         last_sync_error: null,
         updated_at: new Date().toISOString()
     }, "inquiry_id", fetchImpl);
-    await audit(inquiryId, actorId, "gmail_thread_synced", { gmail_thread_id: threadId, message_count: messages.length, attention_state: attention }, fetchImpl);
-    return { messages, attention, synced_at: new Date().toISOString() };
+    await audit(inquiryId, actorId, "gmail_threads_synced", {
+        gmail_thread_ids: links.map((link) => link.gmail_thread_id),
+        message_count: messages.length,
+        attention_state: attention
+    }, fetchImpl);
+    return { attention, synced_at: new Date().toISOString() };
 };
 
 const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     const resolved = await resolveThread(inquiry, fetchImpl);
-    if (!resolved.link) return { linked: false, ambiguous: resolved.candidates.length > 1, candidates: resolved.candidates, messages: [] };
-    const indexed = await indexThread({ inquiryId, threadId: resolved.link.gmail_thread_id, actorId }, fetchImpl);
-    return { linked: true, link: resolved.link, ...indexed };
+    if (!resolved.links.length) return { linked: false, ambiguous: resolved.candidates.length > 1, candidates: resolved.candidates, messages: [] };
+    const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiryId, threadId: link.gmail_thread_id }, fetchImpl)));
+    const messages = [...new Map(indexed.flatMap((result) => result.messages).map((message) => [message.id, message])).values()];
+    const summary = await recordSync({ inquiryId, actorId, links: resolved.links, messages }, fetchImpl);
+    return {
+        linked: Boolean(resolved.primary),
+        primary_link: resolved.primary || null,
+        links: resolved.links,
+        ambiguous: false,
+        candidates: [],
+        messages,
+        ...summary
+    };
 };
 
 const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, fetchImpl = fetch) => {
@@ -258,11 +333,11 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, f
     };
 };
 
-const manualLink = async ({ inquiryId, gmailThreadId, actorId }, fetchImpl = fetch) => {
+const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "secondary_conversation", actorId }, fetchImpl = fetch) => {
     if (!validGmailId(gmailThreadId)) throw new Error("invalid_gmail_thread");
     await gmailThread(gmailThreadId, fetchImpl);
-    const link = await linkThread({ inquiryId, threadId: gmailThreadId, source: "manual", actorId }, fetchImpl);
-    await audit(inquiryId, actorId, "gmail_thread_linked_manual", { gmail_thread_id: gmailThreadId, link_source: "manual" }, fetchImpl);
+    const link = await linkThread({ inquiryId, threadId: gmailThreadId, source: "manual", role: conversationRole, actorId }, fetchImpl);
+    await audit(inquiryId, actorId, "gmail_thread_linked_manual", { gmail_thread_id: gmailThreadId, link_source: "manual", conversation_role: conversationRole }, fetchImpl);
     return syncCase({ inquiryId, actorId }, fetchImpl);
 };
 
@@ -287,7 +362,7 @@ const verifyPreviewToken = (token, fields) => {
 };
 
 const replyPreview = async ({ inquiryId, actorId, body }, fetchImpl = fetch) => {
-    const link = await getLink(inquiryId, fetchImpl);
+    const link = await getPrimaryLink(inquiryId, fetchImpl);
     if (!link) throw new Error("gmail_thread_not_linked");
     const thread = await gmailThread(link.gmail_thread_id, fetchImpl);
     const messages = (thread.messages || []).map(normalizeMessage);

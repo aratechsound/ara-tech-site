@@ -2640,12 +2640,20 @@ const renderGmailCandidates = (candidates = []) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "button button--secondary";
-        button.textContent = "この案件に紐付ける";
+        const primaryTarget = !currentGmailLink;
+        button.textContent = primaryTarget ? "主たる会話として紐付ける" : "追加の会話として紐付ける";
         button.addEventListener("click", async () => {
-            if (!currentCase || !window.confirm("このGmail threadをこの案件へ明示的に紐付けますか？")) return;
+            if (!currentCase || !window.confirm(primaryTarget
+                ? "このGmail threadを、この案件のお客様返信用の主たる会話として明示的に紐付けますか？"
+                : "このGmail threadを、この案件の追加会話として明示的に紐付けますか？")) return;
             button.disabled = true;
             try {
-                const response = await callGmailApi({ action: "manual_link", inquiry_id: currentCase.id, gmail_thread_id: threadId });
+                const response = await callGmailApi({
+                    action: "manual_link",
+                    inquiry_id: currentCase.id,
+                    gmail_thread_id: threadId,
+                    conversation_role: primaryTarget ? "primary_conversation" : "secondary_conversation"
+                });
                 applyGmailSyncResult(response.result);
                 setMessage(gmailSyncState, "Gmail threadを手動で紐付け、同期しました。", "success");
             } catch (error) {
@@ -2662,9 +2670,9 @@ const renderGmailCandidates = (candidates = []) => {
 const applyGmailSyncResult = (result) => {
     currentGmailTimeline = Array.isArray(result?.messages) ? result.messages : [];
     currentMailAttention = result?.attention || "none";
-    currentGmailLink = result?.link || null;
+    currentGmailLink = result?.primary_link || null;
     gmailSyncState.textContent = result?.linked
-        ? `Gmail同期：${formatDateTime(result.synced_at)}${currentMailAttention === "new_customer_reply" ? " ／ 新着返信あり" : ""}`
+        ? `Gmail同期：${formatDateTime(result.synced_at)}${currentMailAttention === "new_customer_reply" ? " ／ 新着返信あり" : ""} ／ 返信先は主たる会話です`
         : result?.ambiguous ? "Gmail thread候補が複数あります。自動紐付けは行っていません。" : "Gmail threadは未紐付けです。";
     renderGmailCandidates(result?.candidates || []);
     renderEmailHistory();

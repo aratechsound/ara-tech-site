@@ -50,7 +50,12 @@ module.exports = async (request, response) => {
         }
         if (input.action === "manual_link") {
             if (!validGmailId(input.gmail_thread_id)) throw new Error("invalid_gmail_thread");
-            const result = await manualLink({ inquiryId: input.inquiry_id, gmailThreadId: input.gmail_thread_id, actorId: user.id });
+            const result = await manualLink({
+                inquiryId: input.inquiry_id,
+                gmailThreadId: input.gmail_thread_id,
+                conversationRole: input.conversation_role,
+                actorId: user.id
+            });
             return sendJson(response, 200, { ok: true, result });
         }
         if (input.action === "attachment_get") {
@@ -70,7 +75,7 @@ module.exports = async (request, response) => {
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "ambiguous_thread_link", "inquiry_not_found"].includes(code)) return sendJson(response, 400, { ok: false, code });
+        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";
         console.error("pa-gmail operation failed", safe);
