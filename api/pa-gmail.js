@@ -76,7 +76,10 @@ module.exports = async (request, response) => {
             return sendJson(response, 200, { ok: true, preview });
         }
         if (input.action === "reconcile_estimate_submission") {
-            const result = await reconcileEstimateSubmission({ inquiryId: input.inquiry_id, gmailMessageId: input.gmail_message_id, actorId: user.id });
+            const result = await reconcileEstimateSubmission({
+                inquiryId: input.inquiry_id, gmailMessageId: input.gmail_message_id,
+                gmailThreadId: input.gmail_thread_id, expected: input.expected, accessToken: bearer(request)
+            });
             return sendJson(response, 200, { ok: true, result });
         }
         const result = await sendReply({

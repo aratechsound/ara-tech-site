@@ -421,17 +421,26 @@ const streamAttachmentResponse = async (response, attachment) => {
     response.end();
 };
 
-const reconcileEstimateSubmission = async ({ inquiryId, gmailMessageId, actorId }, fetchImpl = fetch) => {
-    if (!isUuid(inquiryId) || !validGmailId(gmailMessageId)) throw new Error("invalid_estimate_reconciliation");
-    const messageQuery = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, direction: "eq.outbound", message_source: "eq.gmail_direct", select: "gmail_message_id", limit: "1" });
-    const messages = await selectRows("pa_gmail_message_index", messageQuery, fetchImpl);
-    if (!Array.isArray(messages) || !messages[0]) throw new Error("direct_gmail_message_not_indexed");
-    const existingQuery = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "id", limit: "1" });
-    const existing = await selectRows("pa_estimate_submission_reconciliations", existingQuery, fetchImpl);
-    if (Array.isArray(existing) && existing[0]) return { gmail_message_id: gmailMessageId, already_reconciled: true };
-    await writeRow("pa_estimate_submission_reconciliations", { inquiry_id: inquiryId, gmail_message_id: gmailMessageId, reconciled_by: actorId }, "inquiry_id,gmail_message_id", fetchImpl);
-    await audit(inquiryId, actorId, "gmail_direct_estimate_submission_reconciled", { gmail_message_id: gmailMessageId, source: "gmail_direct" }, fetchImpl);
-    return { gmail_message_id: gmailMessageId, already_reconciled: false };
+const reconcileEstimateSubmission = async ({ inquiryId, gmailMessageId, gmailThreadId, expected, accessToken }, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailId(gmailThreadId)
+        || !expected || Array.isArray(expected) || typeof expected !== "object"
+        || !["status", "case_updated_at", "progress_updated_at", "estimate_created_on", "sent_at"].every((key) => typeof expected[key] === "string" && expected[key])) {
+        throw new Error("invalid_estimate_reconciliation");
+    }
+    if (!accessToken) throw new Error("not_authorized");
+    // Carry the verified caller's JWT into the admin-only transaction. Actor
+    // identity, message binding, deduplication, progress and audit are DB-owned.
+    try {
+        return await supabaseRequest("/rest/v1/rpc/reconcile_pa_estimate_submission", {
+            method: "POST",
+            headers: { authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ p_inquiry_id: inquiryId, p_gmail_message_id: gmailMessageId, p_gmail_thread_id: gmailThreadId, p_expected: expected })
+        }, fetchImpl);
+    } catch (error) {
+        if (error.status === 400 || error.status === 409) throw new Error("invalid_estimate_reconciliation");
+        if (error.status === 401 || error.status === 403) throw new Error("not_authorized");
+        throw error;
+    }
 };
 
 const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "secondary_conversation", actorId }, fetchImpl = fetch) => {

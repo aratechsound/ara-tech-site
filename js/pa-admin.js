@@ -64,9 +64,9 @@ const workflowSteps = [
     "概算提示",
     "依頼意思確認",
     "日程・人員調整",
-    "見積作成",
-    "見積提出・先方回答待ち",
-    "受注・正式確定",
+    "正式見積",
+    "発注確認",
+    "予約確定",
     "事前準備・打合せ",
     "最終確認",
     "本番実施",
@@ -3069,15 +3069,18 @@ const applyGmailSyncResult = (result) => {
     $("#open-estimate-submission").disabled = !currentGmailLink;
 };
 
-const syncGmail = async ({ automatic = false } = {}) => {
-    if (!currentCase) return;
+const syncGmail = async ({ automatic = false, inquiryId = currentCase?.id } = {}) => {
+    if (!currentCase || currentCase.id !== inquiryId) return;
+    const selectedCase = currentCase;
     const button = $("#sync-gmail");
     button.disabled = true;
     gmailSyncState.textContent = automatic ? "Gmailを同期中です…" : "Gmailを同期中です…";
     try {
-        const response = await callGmailApi({ action: "sync", inquiry_id: currentCase.id });
+        const response = await callGmailApi({ action: "sync", inquiry_id: inquiryId });
+        if (currentCase !== selectedCase || currentCase.id !== inquiryId) return;
         applyGmailSyncResult(response.result);
     } catch (error) {
+        if (currentCase !== selectedCase || currentCase.id !== inquiryId) return;
         currentGmailTimeline = [];
         currentMailAttention = "none";
         gmailReplyPanel.classList.add("hidden");
@@ -3085,7 +3088,7 @@ const syncGmail = async ({ automatic = false } = {}) => {
         renderEmailHistory();
         renderOverview();
     } finally {
-        button.disabled = false;
+        if (currentCase === selectedCase && currentCase.id === inquiryId) button.disabled = false;
     }
 };
 
@@ -3129,15 +3132,45 @@ const recordEstimateSubmissionProgress = async () => {
 };
 
 const reconcileDirectEstimateSubmission = async (message, button) => {
-    if (!currentCase || !currentProgress?.estimate_created_on || !message?.id) return;
+    if (!currentCase || !currentProgress?.estimate_created_on || !message?.id || !message?.thread_id) return;
+    const selectedCase = currentCase;
+    const selectedProgress = currentProgress;
+    const snapshot = Object.freeze({
+        inquiryId: currentCase.id,
+        messageId: message.id,
+        threadId: message.thread_id,
+        expected: Object.freeze({
+            status: currentCase.status,
+            case_updated_at: currentCase.updated_at,
+            progress_updated_at: currentProgress.updated_at,
+            estimate_created_on: currentProgress.estimate_created_on,
+            sent_at: message.occurred_at
+        })
+    });
     if (!window.confirm("このGmail直接送信を見積提出として記録します。Gmail同期だけでは工程は変更されません。続行しますか？")) return;
     button.disabled = true;
     try {
-        await callGmailApi({ action: "reconcile_estimate_submission", inquiry_id: currentCase.id, gmail_message_id: message.id });
-        await recordEstimateSubmissionProgress();
+        const response = await callGmailApi({
+            action: "reconcile_estimate_submission", inquiry_id: snapshot.inquiryId,
+            gmail_message_id: snapshot.messageId, gmail_thread_id: snapshot.threadId, expected: snapshot.expected
+        });
+        const result = response.result;
+        if (result?.inquiry_id !== snapshot.inquiryId || result?.gmail_message_id !== snapshot.messageId
+            || result?.gmail_thread_id !== snapshot.threadId || result?.progress?.inquiry_id !== snapshot.inquiryId) {
+            throw new Error("invalid_estimate_reconciliation");
+        }
+        // The API has committed the complete transaction for the captured case.
+        // A changed selection can never authorize a follow-up write or refresh.
+        if (currentCase !== selectedCase || currentProgress !== selectedProgress
+            || currentCase.id !== snapshot.inquiryId || currentCase.updated_at !== snapshot.expected.case_updated_at
+            || currentProgress.updated_at !== snapshot.expected.progress_updated_at) return;
+        currentProgress = result.progress;
         button.textContent = "見積提出として記録済み";
-        await syncGmail();
+        renderOverview();
+        populateProgressManagement();
+        await syncGmail({ inquiryId: snapshot.inquiryId });
     } catch (error) {
+        if (currentCase !== selectedCase || currentCase.id !== snapshot.inquiryId) return;
         setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
         button.disabled = false;
     }
