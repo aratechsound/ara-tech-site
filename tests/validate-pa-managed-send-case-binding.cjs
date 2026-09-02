@@ -47,6 +47,11 @@ function createUi({ mode = "estimate_submission", attachments = [attachment("A.p
     const ui = {
         $, currentCase: caseA, currentProgress: progressA,
         gmailReplyPreview: preview("case-A", "thread-A", mode, "A body"), gmailReplyAttachments: attachments, gmailReplyMode: mode,
+        gmailReplyPreviewBinding: Object.freeze({
+            inquiryId: "case-A", threadId: "thread-A", confirmationToken: `case-A-thread-A-${mode}-confirmation`,
+            recipient: "case-A@example.invalid", subject: "case-A subject", canonicalBody: "A body", mode,
+            rawDraftBody: "A body", attachments: Object.freeze([...attachments])
+        }),
         window: { confirm: () => true },
         gmailReplyAttachmentPayload: attachmentPayload,
         callGmailApi: async (args) => sendReply(args, backend),
@@ -78,6 +83,11 @@ function switchToB(subject) {
     subject.ui.currentProgress = progressB;
     subject.ui.gmailReplyPreview = preview("case-B", "thread-B", "estimate_submission", "B body");
     subject.ui.gmailReplyAttachments = [attachment("B.pdf")];
+    subject.ui.gmailReplyPreviewBinding = Object.freeze({
+        inquiryId: "case-B", threadId: "thread-B", confirmationToken: "case-B-thread-B-estimate_submission-confirmation",
+        recipient: "case-B@example.invalid", subject: "case-B subject", canonicalBody: "B body", mode: "estimate_submission",
+        rawDraftBody: "B body", attachments: Object.freeze([...subject.ui.gmailReplyAttachments])
+    });
     subject.ui.gmailReplyMode = "estimate_submission";
     subject.$("#gmail-reply-body").value = "B body";
     subject.$("#send-gmail-reply").disabled = false;

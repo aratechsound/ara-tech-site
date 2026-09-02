@@ -309,6 +309,7 @@ const gmailAttachmentFetches = new Map();
 const gmailAttachmentBlobs = new Map();
 const gmailAttachmentPreviewUrls = new Map();
 let gmailReplyPreview = null;
+let gmailReplyPreviewBinding = null;
 let gmailReplyAttachments = [];
 let gmailReplyMode = "normal";
 const MAX_GMAIL_REPLY_ATTACHMENTS = 10;
@@ -348,6 +349,7 @@ const formatAttachmentSize = (value) => {
 };
 const invalidateGmailReplyPreview = () => {
     gmailReplyPreview = null;
+    gmailReplyPreviewBinding = null;
     $("#send-gmail-reply").disabled = true;
     $("#gmail-reply-preview").classList.add("hidden");
 };
@@ -2402,6 +2404,7 @@ const openCase = async (id) => {
     currentMailAttention = "none";
     currentGmailLink = null;
     gmailReplyPreview = null;
+    gmailReplyPreviewBinding = null;
     gmailReplyAttachments = [];
     $("#gmail-reply-attachments-input").value = "";
     renderGmailReplyAttachments();
@@ -3094,12 +3097,23 @@ const syncGmail = async ({ automatic = false, inquiryId = currentCase?.id } = {}
 
 const previewGmailReply = async () => {
     if (!currentCase) return;
-    const body = $("#gmail-reply-body").value.trim();
-    if (!body) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
+    const rawDraftBody = $("#gmail-reply-body").value.trim();
+    if (!rawDraftBody) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
         const attachments = await gmailReplyAttachmentPayload();
-        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body, attachments, mode: gmailReplyMode });
+        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body: rawDraftBody, attachments, mode: gmailReplyMode });
         gmailReplyPreview = response.preview;
+        gmailReplyPreviewBinding = Object.freeze({
+            inquiryId: response.preview.inquiry_id,
+            threadId: response.preview.gmail_thread_id,
+            confirmationToken: response.preview.confirmation_token,
+            recipient: response.preview.recipient,
+            subject: response.preview.subject,
+            canonicalBody: response.preview.body,
+            mode: response.preview.mode,
+            rawDraftBody,
+            attachments: Object.freeze([...gmailReplyAttachments])
+        });
         $("#gmail-reply-recipient").value = response.preview.recipient;
         $("#gmail-reply-subject").value = response.preview.subject;
         $("#gmail-reply-preview-recipient").textContent = response.preview.recipient;
@@ -3111,6 +3125,7 @@ const previewGmailReply = async () => {
         setMessage($("#gmail-reply-message"), "内容を確認し、最終確認ボタンを押すまで送信されません。", "warning");
     } catch (error) {
         gmailReplyPreview = null;
+        gmailReplyPreviewBinding = null;
         $("#send-gmail-reply").disabled = true;
         setMessage($("#gmail-reply-message"), gmailErrorMessage(error.message), "error");
     }
@@ -3123,9 +3138,13 @@ const isGmailReplySnapshotSelected = (snapshot) => currentCase === snapshot.sele
     && currentCase.updated_at === snapshot.caseUpdatedAt
     && currentProgress?.updated_at === snapshot.progressUpdatedAt;
 
+const sameGmailReplyAttachments = (left, right) => Array.isArray(left) && Array.isArray(right)
+    && left.length === right.length && left.every((attachment, index) => attachment === right[index]);
+
 const createGmailReplySendSnapshot = () => {
-    if (!currentCase || !gmailReplyPreview) return null;
+    if (!currentCase || !gmailReplyPreview || !gmailReplyPreviewBinding) return null;
     const preview = gmailReplyPreview;
+    const previewBinding = gmailReplyPreviewBinding;
     const snapshot = {
         selectedCase: currentCase,
         selectedProgress: currentProgress,
@@ -3134,7 +3153,8 @@ const createGmailReplySendSnapshot = () => {
         confirmationToken: preview.confirmation_token,
         recipient: preview.recipient,
         subject: preview.subject,
-        body: $("#gmail-reply-body").value.trim(),
+        rawDraftBody: $("#gmail-reply-body").value.trim(),
+        canonicalBody: preview.body,
         mode: gmailReplyMode,
         estimateSubmission: gmailReplyMode === "estimate_submission",
         estimateCreatedOn: currentProgress?.estimate_created_on || null,
@@ -3144,7 +3164,12 @@ const createGmailReplySendSnapshot = () => {
         attachments: Object.freeze([...gmailReplyAttachments])
     };
     if (preview.inquiry_id !== snapshot.inquiryId || preview.gmail_thread_id !== snapshot.threadId
-        || preview.mode !== snapshot.mode || preview.body !== snapshot.body
+        || preview.mode !== snapshot.mode || previewBinding.inquiryId !== snapshot.inquiryId
+        || previewBinding.threadId !== snapshot.threadId || previewBinding.confirmationToken !== snapshot.confirmationToken
+        || previewBinding.recipient !== snapshot.recipient || previewBinding.subject !== snapshot.subject
+        || previewBinding.canonicalBody !== snapshot.canonicalBody || previewBinding.mode !== snapshot.mode
+        || previewBinding.rawDraftBody !== snapshot.rawDraftBody
+        || !sameGmailReplyAttachments(previewBinding.attachments, snapshot.attachments)
         || !snapshot.threadId || !snapshot.confirmationToken) throw new Error("invalid_gmail_reply_binding");
     return Object.freeze(snapshot);
 };
@@ -3221,13 +3246,14 @@ const sendGmailReply = async () => {
         if (!snapshot) return;
         const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
         const response = await callGmailApi({
-            action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.body, attachments,
+            action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.rawDraftBody, attachments,
             mode: snapshot.mode, confirmation_token: snapshot.confirmationToken
         });
         if (response?.result?.primary_link?.gmail_thread_id !== snapshot.threadId) throw new Error("invalid_gmail_reply_sync");
         const selected = isGmailReplySnapshotSelected(snapshot);
         if (selected) {
             gmailReplyPreview = null;
+            gmailReplyPreviewBinding = null;
             $("#send-gmail-reply").disabled = true;
             $("#gmail-reply-body").value = "";
             gmailReplyAttachments = [];
