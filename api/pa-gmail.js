@@ -78,7 +78,10 @@ module.exports = async (request, response) => {
         if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";
-        console.error("pa-gmail operation failed", safe);
+        const diagnostic = /^(?:gmail_(?:read|send|oauth)|supabase_)\d{3}$|^(?:gmail_send_invalid|gmail_not_configured|primary_conversation_exists|ambiguous_thread_link)$/u.test(code)
+            ? code
+            : "unclassified";
+        console.error("pa-gmail operation failed", diagnostic);
         return sendJson(response, 503, { ok: false, code: safe });
     }
 };
