@@ -420,7 +420,7 @@ const base64UrlForFile = async (file) => {
     }
     return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/gu, "");
 };
-const gmailReplyAttachmentPayload = async () => Promise.all(gmailReplyAttachments.map(async ({ file }) => ({
+const gmailReplyAttachmentPayload = async (attachments = gmailReplyAttachments) => Promise.all(attachments.map(async ({ file }) => ({
     filename: file.name,
     mime_type: file.type || "application/octet-stream",
     data: await base64UrlForFile(file)
@@ -3116,10 +3116,43 @@ const previewGmailReply = async () => {
     }
 };
 
-const recordEstimateSubmissionProgress = async () => {
-    if (!currentCase || !currentProgress?.estimate_created_on) throw new Error("estimate_creation_required");
+const isGmailReplySnapshotSelected = (snapshot) => currentCase === snapshot.selectedCase
+    && currentProgress === snapshot.selectedProgress
+    && currentCase?.id === snapshot.inquiryId
+    && currentCase.status === snapshot.caseStatus
+    && currentCase.updated_at === snapshot.caseUpdatedAt
+    && currentProgress?.updated_at === snapshot.progressUpdatedAt;
+
+const createGmailReplySendSnapshot = () => {
+    if (!currentCase || !gmailReplyPreview) return null;
+    const preview = gmailReplyPreview;
+    const snapshot = {
+        selectedCase: currentCase,
+        selectedProgress: currentProgress,
+        inquiryId: currentCase.id,
+        threadId: preview.gmail_thread_id,
+        confirmationToken: preview.confirmation_token,
+        recipient: preview.recipient,
+        subject: preview.subject,
+        body: $("#gmail-reply-body").value.trim(),
+        mode: gmailReplyMode,
+        estimateSubmission: gmailReplyMode === "estimate_submission",
+        estimateCreatedOn: currentProgress?.estimate_created_on || null,
+        caseStatus: currentCase.status,
+        caseUpdatedAt: currentCase.updated_at,
+        progressUpdatedAt: currentProgress?.updated_at || null,
+        attachments: Object.freeze([...gmailReplyAttachments])
+    };
+    if (preview.inquiry_id !== snapshot.inquiryId || preview.gmail_thread_id !== snapshot.threadId
+        || preview.mode !== snapshot.mode || preview.body !== snapshot.body
+        || !snapshot.threadId || !snapshot.confirmationToken) throw new Error("invalid_gmail_reply_binding");
+    return Object.freeze(snapshot);
+};
+
+const recordEstimateSubmissionProgress = async (snapshot) => {
+    if (!snapshot?.inquiryId || !snapshot.estimateCreatedOn) throw new Error("estimate_creation_required");
     const { data, error } = await supabase.rpc("update_pa_case_progress", {
-        p_inquiry_id: currentCase.id,
+        p_inquiry_id: snapshot.inquiryId,
         p_progress: {
             estimate_sent_on: new Date().toISOString().slice(0, 10),
             estimate_adjusting: true
@@ -3127,7 +3160,9 @@ const recordEstimateSubmissionProgress = async () => {
         p_note: "Gmail見積提出を記録"
     });
     if (error) throw new Error("estimate_progress_update_failed");
-    if (data) currentProgress = data;
+    if (!data || data.inquiry_id !== snapshot.inquiryId) throw new Error("invalid_estimate_progress_target");
+    if (!isGmailReplySnapshotSelected(snapshot)) return;
+    currentProgress = data;
     renderOverview();
 };
 
@@ -3179,25 +3214,37 @@ const reconcileDirectEstimateSubmission = async (message, button) => {
 const sendGmailReply = async () => {
     if (!currentCase || !gmailReplyPreview) return;
     if (!window.confirm(`${gmailReplyPreview.recipient} へGmailで返信します。送信しますか？`)) return;
+    let snapshot;
     $("#send-gmail-reply").disabled = true;
     try {
-        const attachments = await gmailReplyAttachmentPayload();
-        const estimateSubmission = isEstimateSubmissionMode();
-        const response = await callGmailApi({ action: "send_reply", inquiry_id: currentCase.id, body: $("#gmail-reply-body").value.trim(), attachments, mode: gmailReplyMode, confirmation_token: gmailReplyPreview.confirmation_token });
-        gmailReplyPreview = null;
-        $("#send-gmail-reply").disabled = true;
-        $("#gmail-reply-body").value = "";
-        gmailReplyAttachments = [];
-        $("#gmail-reply-attachments-input").value = "";
-        renderGmailReplyAttachments();
-        $("#gmail-reply-preview").classList.add("hidden");
-        applyGmailSyncResult(response.result);
-        if (estimateSubmission) await recordEstimateSubmissionProgress();
-        setGmailReplyMode("normal");
-        setMessage($("#gmail-reply-message"), estimateSubmission
-            ? "Gmail送信成功を確認し、見積提出・先方回答待ちの工程へ更新しました。送付履歴は追加保存されています。"
-            : "Gmail送信成功を確認し、threadを同期しました。案件工程は変更していません。", "success");
+        snapshot = createGmailReplySendSnapshot();
+        if (!snapshot) return;
+        const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
+        const response = await callGmailApi({
+            action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.body, attachments,
+            mode: snapshot.mode, confirmation_token: snapshot.confirmationToken
+        });
+        if (response?.result?.primary_link?.gmail_thread_id !== snapshot.threadId) throw new Error("invalid_gmail_reply_sync");
+        const selected = isGmailReplySnapshotSelected(snapshot);
+        if (selected) {
+            gmailReplyPreview = null;
+            $("#send-gmail-reply").disabled = true;
+            $("#gmail-reply-body").value = "";
+            gmailReplyAttachments = [];
+            $("#gmail-reply-attachments-input").value = "";
+            renderGmailReplyAttachments();
+            $("#gmail-reply-preview").classList.add("hidden");
+            applyGmailSyncResult(response.result);
+        }
+        if (snapshot.estimateSubmission) await recordEstimateSubmissionProgress(snapshot);
+        if (currentCase === snapshot.selectedCase && currentCase?.id === snapshot.inquiryId) {
+            setGmailReplyMode("normal");
+            setMessage($("#gmail-reply-message"), snapshot.estimateSubmission
+                ? "Gmail送信成功を確認し、見積提出・先方回答待ちの工程へ更新しました。送付履歴は追加保存されています。"
+                : "Gmail送信成功を確認し、threadを同期しました。案件工程は変更していません。", "success");
+        }
     } catch (error) {
+        if (snapshot && !isGmailReplySnapshotSelected(snapshot)) return;
         const message = error.message === "estimate_creation_required"
             ? "Gmail送信は完了しましたが、見積作成日が未保存のため工程を更新していません。"
             : error.message === "estimate_progress_update_failed"
@@ -3205,7 +3252,7 @@ const sendGmailReply = async () => {
                 : gmailErrorMessage(error.message);
         setMessage($("#gmail-reply-message"), message, "error");
     } finally {
-        $("#send-gmail-reply").disabled = !gmailReplyPreview;
+        if (!snapshot || isGmailReplySnapshotSelected(snapshot)) $("#send-gmail-reply").disabled = !gmailReplyPreview;
     }
 };
 

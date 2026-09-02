@@ -118,11 +118,12 @@ const fixtureFetch = async (url, options = {}) => {
     assert.match(page, /id="open-estimate-submission"/u, "the communication panel must expose a dedicated estimate action");
     assert.match(client, /const openEstimateSubmission/u);
     assert.match(client, /currentProgress\?\.estimate_created_on/u, "estimate sending must require a saved creation date");
-    assert.match(client, /action: "send_reply"[\s\S]{0,240}mode: gmailReplyMode/u, "the dedicated UX must reuse the reply API with its mode bound");
+    assert.match(client, /const createGmailReplySendSnapshot[\s\S]{0,1800}mode: gmailReplyMode,[\s\S]{0,400}attachments: Object\.freeze/u, "the dedicated UX must freeze its mode and attachment authority before any await");
+    assert.match(client, /action: "send_reply"[\s\S]{0,240}mode: snapshot\.mode/u, "the dedicated UX must send only the captured reply mode");
     assert.match(client, /estimate_sent_on: new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/u, "the stage must change only after send_reply resolves");
     assert.match(client, /!\["rough_estimate", "schedule_confirmed"\]\.includes\(status\)/u, "the client projection must match the canonical estimate-status projection");
     const sendSection = client.slice(client.indexOf("const sendGmailReply = async"));
-    assert.ok(sendSection.indexOf('const response = await callGmailApi({ action: "send_reply"') < sendSection.indexOf("await recordEstimateSubmissionProgress()"), "a failed Gmail send cannot advance the estimate stage");
+    assert.ok(sendSection.indexOf('const response = await callGmailApi({') < sendSection.indexOf("await recordEstimateSubmissionProgress(snapshot)"), "a failed Gmail send cannot advance the estimate stage");
     assert.match(projection, /when p_status not in \('rough_estimate', 'schedule_confirmed'\)/u, "existing statuses must remain canonical");
     assert.match(projection, /when p_estimate_sent_on is null or coalesce\(p_estimate_adjusting, false\) then 7/u, "estimate submission/customer-response must remain distinct from creation");
     console.log("PAM-006 estimate submission validation: PASS");
