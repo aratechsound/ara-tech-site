@@ -458,7 +458,7 @@ const encodeBase64Lines = (value) => {
     return encoded.match(/.{1,76}/gu)?.join("\r\n") || "";
 };
 
-const buildRawMessage = ({ to, subject, body, messageType, config = mailConfig() }) => {
+const buildRawMessage = ({ to, subject, body, messageType, replyHeaders = {}, config = mailConfig() }) => {
     const recipient = cleanHeader(to);
     const safeSubject = cleanHeader(subject, 240);
     const customerMessage = isCustomerMessageType(messageType);
@@ -474,6 +474,10 @@ const buildRawMessage = ({ to, subject, body, messageType, config = mailConfig()
         `Subject: ${encodeWord(safeSubject)}`,
         "MIME-Version: 1.0"
     ];
+    const inReplyTo = String(replyHeaders.inReplyTo || "").trim();
+    const references = String(replyHeaders.references || "").trim();
+    if (inReplyTo && /^<[^<>\r\n]{1,998}>$/u.test(inReplyTo)) lines.push(`In-Reply-To: ${inReplyTo}`);
+    if (references && !/[\r\n]/u.test(references) && references.length <= 998) lines.push(`References: ${references}`);
     if (customerMessage) {
         const boundary = `ara-tech-${crypto.randomBytes(18).toString("hex")}`;
         lines.push(

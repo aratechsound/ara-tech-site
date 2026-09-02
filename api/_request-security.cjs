@@ -35,6 +35,36 @@ const RATE_LIMIT_POLICIES = Object.freeze({
         maxRequests: 20,
         identity: "scope"
     }),
+    PA_GMAIL_SYNC: Object.freeze({
+        bucket: "pa-gmail-sync",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 30,
+        identity: "scope"
+    }),
+    PA_GMAIL_MANUAL_LINK: Object.freeze({
+        bucket: "pa-gmail-manual-link",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 20,
+        identity: "scope"
+    }),
+    PA_GMAIL_ATTACHMENT_GET: Object.freeze({
+        bucket: "pa-gmail-attachment-get",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 30,
+        identity: "scope"
+    }),
+    PA_GMAIL_REPLY_PREVIEW: Object.freeze({
+        bucket: "pa-gmail-reply-preview",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 30,
+        identity: "scope"
+    }),
+    PA_GMAIL_SEND_REPLY: Object.freeze({
+        bucket: "pa-gmail-send-reply",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 10,
+        identity: "scope"
+    }),
     SCHEDULE_RESPONSE: Object.freeze({
         bucket: "pa-schedule-response",
         windowMs: 10 * 60 * 1000,

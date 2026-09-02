@@ -216,12 +216,30 @@
                     <div class="section-head">
                         <div>
                             <h3 id="communication-title">顧客コミュニケーション</h3>
-                            <p class="small-note">お客様との実際のやり取りを時系列で表示します。内部通知は監査履歴に表示します。</p>
+                            <p class="small-note">Gmailを正本として、お客様との実際のやり取りを時系列で表示します。内部通知は監査履歴に表示します。</p>
+                        </div>
+                        <div class="actions actions--compact">
+                            <button id="sync-gmail" class="button button--secondary" type="button">Gmailを同期</button>
                         </div>
                     </div>
+                    <p id="gmail-sync-state" class="small-note" aria-live="polite">Gmailは未同期です。</p>
                     <div class="action-panel">
                         <h4>最近のやり取り</h4>
-                        <div id="email-history" class="mail-history"></div>
+                        <div id="email-history"><div id="gmail-timeline" class="mail-history" aria-live="polite"></div></div>
+                        <div id="gmail-candidates" class="gmail-candidates hidden"></div>
+                    </div>
+                    <div id="gmail-reply-panel" class="action-panel hidden">
+                        <h4>Gmailで返信</h4>
+                        <p class="small-note">Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。</p>
+                        <div class="field"><label for="gmail-reply-recipient">To</label><input id="gmail-reply-recipient" type="email" readonly></div>
+                        <div class="field"><label for="gmail-reply-subject">件名</label><input id="gmail-reply-subject" type="text" readonly></div>
+                        <div class="field"><label for="gmail-reply-body">本文</label><textarea id="gmail-reply-body" class="email-body" maxlength="20000"></textarea></div>
+                        <div class="actions actions--compact">
+                            <button id="preview-gmail-reply" class="button button--secondary" type="button">プレビュー</button>
+                            <button id="send-gmail-reply" class="button" type="button" disabled>最終確認後にGmail送信</button>
+                        </div>
+                        <div id="gmail-reply-preview" class="mail-preview hidden"><h5>送信前プレビュー</h5><dl class="detail-list"><dt>To</dt><dd id="gmail-reply-preview-recipient"></dd><dt>件名</dt><dd id="gmail-reply-preview-subject"></dd><dt>本文</dt><dd id="gmail-reply-preview-body" class="mail-preview__body"></dd></dl></div>
+                        <p id="gmail-reply-message" class="alert hidden" aria-live="polite"></p>
                     </div>
                 </section>
 

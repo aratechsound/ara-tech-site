@@ -269,7 +269,10 @@ const auditList = $("#audit-list");
 const firstFormSection = $("#first-form-section");
 const firstFormDetails = $("#first-form-details");
 const automaticMailStatus = $("#automatic-mail-status");
-const emailHistory = $("#email-history");
+const emailHistory = $("#gmail-timeline");
+const gmailCandidates = $("#gmail-candidates");
+const gmailSyncState = $("#gmail-sync-state");
+const gmailReplyPanel = $("#gmail-reply-panel");
 const technicalDetails = $("#technical-details");
 const currentSituationSection = $("#current-situation-section");
 const nextActionSection = $("#next-action-section");
@@ -299,6 +302,10 @@ let currentPayments = [];
 let currentToken = null;
 let currentResponse = null;
 let currentDeliveries = [];
+let currentGmailTimeline = [];
+let currentMailAttention = "none";
+let currentGmailLink = null;
+let gmailReplyPreview = null;
 let currentSessionUser = null;
 let activeCaseTab = "active";
 let activeProgressFilter = "";
@@ -501,6 +508,16 @@ const situationForCase = () => {
     const step = workflowStepForCase(item);
     const phase = phaseForStep(step);
     const waitingOn = waitingOnForCase();
+    if (currentMailAttention === "new_customer_reply") {
+        return {
+            phase: phase.label,
+            stage: workflowSteps[step - 1],
+            waitingOn: "ARA_TECH",
+            title: "新着返信あり",
+            description: "お客様からの返信をGmailで受信しています。メール受信だけでは案件工程は進行しません。",
+            nextAction: "お客様の返信内容・添付資料を確認してください。"
+        };
+    }
     if (currentCase.status === "waiting_customer_reply") {
         return {
             phase: phase.label,
@@ -1863,6 +1880,51 @@ const renderAutomaticMailStatus = () => {
 
 const renderEmailHistory = () => {
     emailHistory.replaceChildren();
+    if (currentGmailTimeline.length) {
+        [...currentGmailTimeline]
+            .sort((a, b) => new Date(a.occurred_at || 0).getTime() - new Date(b.occurred_at || 0).getTime())
+            .forEach((message) => {
+                const item = document.createElement("article");
+                item.className = `mail-history__item mail-history__item--${message.direction === "inbound" ? "inbound" : "sent"}`;
+                const title = document.createElement("strong");
+                title.textContent = message.direction === "inbound" ? "お客様 → ARA-TECH" : "ARA-TECH → お客様";
+                const subject = document.createElement("span");
+                subject.className = "gmail-message-subject";
+                subject.textContent = message.subject || "（件名なし）";
+                const meta = document.createElement("span");
+                meta.textContent = `${formatDateTime(message.occurred_at)}${message.direction === "inbound" && currentMailAttention === "new_customer_reply" ? " ／ 新着" : ""}`;
+                item.append(title, subject, meta);
+                if (message.body_text) {
+                    const details = document.createElement("details");
+                    const summary = document.createElement("summary");
+                    summary.textContent = "本文を表示";
+                    const body = document.createElement("p");
+                    body.className = "mail-preview__body";
+                    body.textContent = message.body_text;
+                    details.append(summary, body);
+                    item.append(details);
+                }
+                if (Array.isArray(message.attachments) && message.attachments.length) {
+                    const attachments = document.createElement("ul");
+                    attachments.className = "gmail-attachments";
+                    message.attachments.forEach((attachment) => {
+                        const entry = document.createElement("li");
+                        const label = document.createElement("span");
+                        label.textContent = `${attachment.filename || "添付ファイル"} ／ ${attachment.mime_type || "application/octet-stream"} ／ ${Number(attachment.size || 0).toLocaleString("ja-JP")} bytes`;
+                        const button = document.createElement("button");
+                        button.type = "button";
+                        button.className = "button button--secondary button--small";
+                        button.textContent = "取得";
+                        button.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, button));
+                        entry.append(label, button);
+                        attachments.append(entry);
+                    });
+                    item.append(attachments);
+                }
+                emailHistory.append(item);
+            });
+        return;
+    }
     const customerDeliveries = currentDeliveries.filter((delivery) => !isInternalDelivery(delivery));
     if (!customerDeliveries.length) {
         const note = document.createElement("p");
@@ -1882,7 +1944,7 @@ const renderEmailHistory = () => {
         subject.textContent = delivery.subject;
         const meta = document.createElement("span");
         const when = delivery.sent_at || delivery.failed_at || delivery.requested_at;
-        meta.textContent = `${formatDateTime(when)} ／ 試行${delivery.attempt_number}回目${delivery.is_retry ? "（再送）" : ""}${delivery.gmail_message_id ? ` ／ Gmail ID: ${delivery.gmail_message_id}` : ""}`;
+        meta.textContent = `${formatDateTime(when)} ／ Gmail送信履歴${delivery.gmail_message_id ? "（Gmail同期でthreadを取得できます）" : ""}`;
         item.append(title, subject, meta);
         if (delivery.status === "failed") item.append(retryButton(delivery));
         emailHistory.append(item);
@@ -2058,6 +2120,14 @@ const openCase = async (id) => {
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
+    currentGmailTimeline = [];
+    currentMailAttention = "none";
+    currentGmailLink = null;
+    gmailReplyPreview = null;
+    gmailReplyPanel.classList.add("hidden");
+    gmailCandidates.classList.add("hidden");
+    gmailCandidates.replaceChildren();
+    gmailSyncState.textContent = "Gmailは未同期です。";
     caseTrashSection.classList.remove("hidden");
     issuedRawToken = "";
     emailOperationKey = "";
@@ -2084,6 +2154,7 @@ const openCase = async (id) => {
     history.replaceState(null, "", pageUrl);
     detailCard.classList.remove("hidden");
     detailCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    await syncGmail({ automatic: true });
 };
 
 const casePayload = () => ({
@@ -2494,6 +2565,171 @@ const callMailApi = async (payload) => {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.delivery) throw new Error(result.code || "mail_delivery_failed");
     return result;
+};
+
+const callGmailApi = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-gmail", {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) throw new Error(result.code || "gmail_sync_failed");
+    return result;
+};
+
+const base64UrlToBytes = (value) => {
+    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(normalized);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+};
+
+const downloadGmailAttachment = async (messageId, attachmentId, button) => {
+    if (!currentCase) return;
+    button.disabled = true;
+    try {
+        const response = await callGmailApi({ action: "attachment_get", inquiry_id: currentCase.id, gmail_message_id: messageId, gmail_attachment_id: attachmentId });
+        const attachment = response.attachment;
+        const blob = new Blob([base64UrlToBytes(attachment.data)], { type: attachment.mime_type || "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = attachment.filename || "attachment";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+        setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
+    } finally {
+        button.disabled = false;
+    }
+};
+
+const gmailErrorMessage = (code) => {
+    if (code === "ambiguous_thread_link") return "候補のGmail threadが複数あります。確認してからこの案件に紐付けてください。";
+    if (code === "gmail_thread_not_linked") return "返信にはGmail threadの紐付けが必要です。まず同期または手動紐付けを行ってください。";
+    if (code === "reply_target_unavailable") return "お客様からの返信を確認してから、このthreadへ返信してください。";
+    if (code === "invalid_confirmation") return "送信前プレビューの有効期限が切れたか、内容が変更されました。もう一度プレビューしてください。";
+    if (String(code).startsWith("gmail_read_") || String(code).startsWith("gmail_oauth_")) return "Gmailの読取権限または接続状態を確認してください。古い表示を最新とは扱っていません。";
+    if (String(code).startsWith("gmail_send_")) return "Gmailから送信できませんでした。案件工程は変更されていません。";
+    return "Gmail同期を完了できませんでした。古い表示を最新とは扱っていません。";
+};
+
+const renderGmailCandidates = (candidates = []) => {
+    gmailCandidates.replaceChildren();
+    if (!candidates.length) {
+        gmailCandidates.classList.add("hidden");
+        return;
+    }
+    gmailCandidates.classList.remove("hidden");
+    const heading = document.createElement("p");
+    heading.className = "small-note";
+    heading.textContent = "候補メール（自動紐付けしていません）";
+    gmailCandidates.append(heading);
+    candidates.forEach((threadId) => {
+        const row = document.createElement("div");
+        row.className = "gmail-candidate";
+        const label = document.createElement("code");
+        label.textContent = threadId;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button--secondary";
+        button.textContent = "この案件に紐付ける";
+        button.addEventListener("click", async () => {
+            if (!currentCase || !window.confirm("このGmail threadをこの案件へ明示的に紐付けますか？")) return;
+            button.disabled = true;
+            try {
+                const response = await callGmailApi({ action: "manual_link", inquiry_id: currentCase.id, gmail_thread_id: threadId });
+                applyGmailSyncResult(response.result);
+                setMessage(gmailSyncState, "Gmail threadを手動で紐付け、同期しました。", "success");
+            } catch (error) {
+                setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
+            } finally {
+                button.disabled = false;
+            }
+        });
+        row.append(label, button);
+        gmailCandidates.append(row);
+    });
+};
+
+const applyGmailSyncResult = (result) => {
+    currentGmailTimeline = Array.isArray(result?.messages) ? result.messages : [];
+    currentMailAttention = result?.attention || "none";
+    currentGmailLink = result?.link || null;
+    gmailSyncState.textContent = result?.linked
+        ? `Gmail同期：${formatDateTime(result.synced_at)}${currentMailAttention === "new_customer_reply" ? " ／ 新着返信あり" : ""}`
+        : result?.ambiguous ? "Gmail thread候補が複数あります。自動紐付けは行っていません。" : "Gmail threadは未紐付けです。";
+    renderGmailCandidates(result?.candidates || []);
+    renderEmailHistory();
+    renderOverview();
+    gmailReplyPanel.classList.toggle("hidden", !currentGmailLink);
+};
+
+const syncGmail = async ({ automatic = false } = {}) => {
+    if (!currentCase) return;
+    const button = $("#sync-gmail");
+    button.disabled = true;
+    gmailSyncState.textContent = automatic ? "Gmailを同期中です…" : "Gmailを同期中です…";
+    try {
+        const response = await callGmailApi({ action: "sync", inquiry_id: currentCase.id });
+        applyGmailSyncResult(response.result);
+    } catch (error) {
+        currentGmailTimeline = [];
+        currentMailAttention = "none";
+        gmailReplyPanel.classList.add("hidden");
+        setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
+        renderEmailHistory();
+        renderOverview();
+    } finally {
+        button.disabled = false;
+    }
+};
+
+const previewGmailReply = async () => {
+    if (!currentCase) return;
+    const body = $("#gmail-reply-body").value.trim();
+    if (!body) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
+    try {
+        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body });
+        gmailReplyPreview = response.preview;
+        $("#gmail-reply-recipient").value = response.preview.recipient;
+        $("#gmail-reply-subject").value = response.preview.subject;
+        $("#gmail-reply-preview-recipient").textContent = response.preview.recipient;
+        $("#gmail-reply-preview-subject").textContent = response.preview.subject;
+        $("#gmail-reply-preview-body").textContent = response.preview.body;
+        $("#gmail-reply-preview").classList.remove("hidden");
+        $("#send-gmail-reply").disabled = false;
+        setMessage($("#gmail-reply-message"), "内容を確認し、最終確認ボタンを押すまで送信されません。", "warning");
+    } catch (error) {
+        gmailReplyPreview = null;
+        $("#send-gmail-reply").disabled = true;
+        setMessage($("#gmail-reply-message"), gmailErrorMessage(error.message), "error");
+    }
+};
+
+const sendGmailReply = async () => {
+    if (!currentCase || !gmailReplyPreview) return;
+    if (!window.confirm(`${gmailReplyPreview.recipient} へGmailで返信します。送信しますか？`)) return;
+    $("#send-gmail-reply").disabled = true;
+    try {
+        const response = await callGmailApi({ action: "send_reply", inquiry_id: currentCase.id, body: $("#gmail-reply-body").value.trim(), confirmation_token: gmailReplyPreview.confirmation_token });
+        gmailReplyPreview = null;
+        $("#gmail-reply-body").value = "";
+        $("#gmail-reply-preview").classList.add("hidden");
+        applyGmailSyncResult(response.result);
+        setMessage($("#gmail-reply-message"), "Gmail送信成功を確認し、threadを同期しました。案件工程は変更していません。", "success");
+    } catch (error) {
+        setMessage($("#gmail-reply-message"), gmailErrorMessage(error.message), "error");
+    } finally {
+        $("#send-gmail-reply").disabled = !gmailReplyPreview;
+    }
 };
 
 const callBrandMailTestApi = async (payload) => {
@@ -2990,6 +3226,14 @@ if (!isSupabaseConfigured) {
         });
     });
     $("#send-email").addEventListener("click", sendEmail);
+    $("#sync-gmail").addEventListener("click", () => syncGmail());
+    $("#preview-gmail-reply").addEventListener("click", previewGmailReply);
+    $("#send-gmail-reply").addEventListener("click", sendGmailReply);
+    $("#gmail-reply-body").addEventListener("input", () => {
+        gmailReplyPreview = null;
+        $("#send-gmail-reply").disabled = true;
+        $("#gmail-reply-preview").classList.add("hidden");
+    });
     $("#preview-brand-mail-test").addEventListener("click", previewBrandMailTest);
     $("#send-brand-mail-test").addEventListener("click", sendBrandMailTest);
     $("#preview-content-hearing").addEventListener("click", previewContentHearingEmail);

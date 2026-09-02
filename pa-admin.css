@@ -166,6 +166,14 @@ td { font-size: .84rem; }
 .mail-history__item--failed { border-color: var(--danger); }
 .mail-history__item strong, .mail-history__item span { display: block; overflow-wrap: anywhere; }
 .mail-history__item span { color: var(--muted); font-size: .77rem; margin-top: 3px; }
+.mail-history__item--inbound { background: #fffaf0; border-color: #d97706; }
+.mail-history__item details { margin-top: 10px; max-width: 100%; }
+.mail-history__item summary { color: #005cbb; cursor: pointer; font-weight: 800; }
+.gmail-message-subject, .gmail-attachments, .gmail-candidate code { overflow-wrap: anywhere; word-break: break-word; }
+.gmail-attachments { color: #405060; margin: 10px 0 0; padding-left: 20px; }
+.gmail-candidates { background: #fffaf0; border: 1px solid #e4b76c; border-radius: 10px; margin-top: 14px; padding: 14px; }
+.gmail-candidate { align-items: center; display: flex; gap: 10px; margin-top: 8px; min-width: 0; }
+.gmail-candidate code { flex: 1 1 auto; min-width: 0; font-size: 12px; }
 
 .progress-edit-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .progress-edit-card { border: 1px solid var(--line); border-radius: 12px; margin: 0; min-width: 0; padding: 16px; }
@@ -235,4 +243,6 @@ body:has(.case-dialog[open]) { overflow: hidden; }
     .progress-edit-card { padding: 13px; }
     .detail-section__body { padding: 16px; }
     .detail-section__note { margin-inline: 16px; }
+    .gmail-candidate { align-items: stretch; flex-direction: column; }
+    .gmail-candidate .button { width: 100%; }
 }
