@@ -48,6 +48,11 @@ label { font-size: .88rem; font-weight: 900; }
 input, select, textarea { background: white; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 11px 12px; width: 100%; }
 textarea { min-height: 130px; resize: vertical; }
 .email-body { min-height: 330px; white-space: pre-wrap; }
+.gmail-reply-attachments, .gmail-reply-preview-attachments { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.gmail-reply-attachment { align-items: center; background: #f8fbff; border: 1px solid var(--line); border-radius: 9px; display: flex; gap: 12px; justify-content: space-between; min-width: 0; padding: 10px 12px; }
+.gmail-reply-attachment__details { display: grid; gap: 2px; min-width: 0; }
+.gmail-reply-attachment__details strong, .gmail-reply-attachment__details span, .gmail-reply-attachments__empty { overflow-wrap: anywhere; }
+.gmail-reply-attachment__details span, .gmail-reply-attachments__empty { color: var(--muted); font-size: .82rem; }
 
 .button { align-items: center; background: var(--blue); border: 2px solid var(--blue); border-radius: 9px; color: white; display: inline-flex; font-weight: 900; justify-content: center; padding: 11px 16px; text-decoration: none; }
 .button:hover { background: #0067d5; border-color: #0067d5; }

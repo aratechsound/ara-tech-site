@@ -65,6 +65,12 @@ const RATE_LIMIT_POLICIES = Object.freeze({
         maxRequests: 10,
         identity: "scope"
     }),
+    PA_GMAIL_RECONCILE_ESTIMATE: Object.freeze({
+        bucket: "pa-gmail-reconcile-estimate",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 20,
+        identity: "scope"
+    }),
     SCHEDULE_RESPONSE: Object.freeze({
         bucket: "pa-schedule-response",
         windowMs: 10 * 60 * 1000,

@@ -1,14 +1,19 @@
-const { getAttachmentBinary, manualLink, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 
-const MAX_BODY_BYTES = 64_000;
+// Reply attachments are transferred only through this authenticated JSON route.
+// Keep the decoded attachment allowance lower than the function request ceiling
+// so ordinary PDF, image and Office files can be sent without accepting an
+// unbounded base64 body.
+const MAX_BODY_BYTES = 4_500_000;
 const ACTION_POLICY = Object.freeze({
     sync: "PA_GMAIL_SYNC",
     manual_link: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
-    send_reply: "PA_GMAIL_SEND_REPLY"
+    send_reply: "PA_GMAIL_SEND_REPLY",
+    reconcile_estimate_submission: "PA_GMAIL_RECONCILE_ESTIMATE"
 });
 
 const parseBody = (request) => {
@@ -67,15 +72,29 @@ module.exports = async (request, response) => {
             return streamAttachmentResponse(response, attachment);
         }
         if (input.action === "reply_preview") {
-            const preview = await replyPreview({ inquiryId: input.inquiry_id, actorId: user.id, body: input.body });
+            const preview = await replyPreview({ inquiryId: input.inquiry_id, actorId: user.id, body: input.body, attachments: input.attachments, mode: input.mode });
             return sendJson(response, 200, { ok: true, preview });
         }
-        const result = await sendReply({ inquiryId: input.inquiry_id, actorId: user.id, body: input.body, confirmationToken: input.confirmation_token });
+        if (input.action === "reconcile_estimate_submission") {
+            const result = await reconcileEstimateSubmission({
+                inquiryId: input.inquiry_id, gmailMessageId: input.gmail_message_id,
+                gmailThreadId: input.gmail_thread_id, expected: input.expected, accessToken: bearer(request)
+            });
+            return sendJson(response, 200, { ok: true, result });
+        }
+        const result = await sendReply({
+            inquiryId: input.inquiry_id,
+            actorId: user.id,
+            body: input.body,
+            attachments: input.attachments,
+            mode: input.mode,
+            confirmationToken: input.confirmation_token
+        });
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found"].includes(code)) return sendJson(response, 400, { ok: false, code });
+        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";
         const diagnostic = /^(?:gmail_(?:read|send|oauth)|supabase_)\d{3}$|^(?:gmail_send_invalid|gmail_not_configured|primary_conversation_exists|ambiguous_thread_link)$/u.test(code)
