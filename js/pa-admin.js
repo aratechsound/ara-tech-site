@@ -306,6 +306,8 @@ let currentGmailTimeline = [];
 let currentMailAttention = "none";
 let currentGmailLink = null;
 const gmailAttachmentFetches = new Map();
+const gmailAttachmentBlobs = new Map();
+const gmailAttachmentPreviewUrls = new Map();
 let gmailReplyPreview = null;
 let currentSessionUser = null;
 let activeCaseTab = "active";
@@ -342,7 +344,12 @@ const formatAttachmentSize = (value) => {
 };
 const clearGmailAttachmentCache = () => {
     gmailAttachmentFetches.clear();
+    gmailAttachmentBlobs.clear();
+    gmailAttachmentPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    gmailAttachmentPreviewUrls.clear();
 };
+
+const isSafeAttachmentPreviewType = (value) => /^(?:application\/pdf|image\/(?:avif|gif|jpe?g|png|webp)|text\/plain)$/iu.test(String(value || "").split(";", 1)[0].trim());
 
 // This is deliberately an allowlist renderer, not a string filter.  It tokenizes
 // mail HTML and creates only allowed DOM nodes, so scripts, event handlers, CSS,
@@ -2034,12 +2041,21 @@ const renderEmailHistory = () => {
                         metadata.append(filename, detail);
                         const actions = document.createElement("div");
                         actions.className = "gmail-attachment__actions";
-                        const button = document.createElement("button");
-                        button.type = "button";
-                        button.className = "button button--secondary button--small";
-                        button.textContent = "添付ファイルを取得";
-                        button.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, button));
-                        actions.append(button);
+                        const mimeType = attachment.mime_type || "application/octet-stream";
+                        const downloadButton = document.createElement("button");
+                        downloadButton.type = "button";
+                        downloadButton.className = "button button--secondary button--small";
+                        downloadButton.textContent = "ダウンロード";
+                        downloadButton.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, downloadButton, actions));
+                        if (isSafeAttachmentPreviewType(mimeType)) {
+                            const previewButton = document.createElement("button");
+                            previewButton.type = "button";
+                            previewButton.className = "button button--secondary button--small";
+                            previewButton.textContent = "表示";
+                            previewButton.addEventListener("click", () => previewGmailAttachment(message.id, attachment.id, previewButton, actions));
+                            actions.append(previewButton);
+                        }
+                        actions.append(downloadButton);
                         entry.append(metadata, actions);
                         attachments.append(entry);
                     });
@@ -2742,20 +2758,39 @@ const downloadGmailAttachmentStream = async (payload) => {
     }
     const blob = await response.blob();
     if (!blob.size) throw new Error("gmail_attachment_unavailable");
-    return { blob, filename: filenameFromContentDisposition(response.headers.get("Content-Disposition")) };
+    return {
+        blob,
+        filename: filenameFromContentDisposition(response.headers.get("Content-Disposition")),
+        mimeType: response.headers.get("Content-Type") || blob.type || "application/octet-stream"
+    };
 };
 
-const downloadGmailAttachment = async (messageId, attachmentId, button) => {
+const setAttachmentActionLoading = (actions, loading) => {
+    actions?.querySelectorAll("button").forEach((button) => { button.disabled = loading; });
+};
+
+const acquireGmailAttachment = (messageId, attachmentId, inquiryId) => {
+    const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
+    const cached = gmailAttachmentBlobs.get(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    const pending = gmailAttachmentFetches.get(cacheKey);
+    if (pending) return pending;
+    const request = downloadGmailAttachmentStream({ action: "attachment_download", inquiry_id: inquiryId, gmail_message_id: messageId, gmail_attachment_id: attachmentId })
+        .then((attachment) => { gmailAttachmentBlobs.set(cacheKey, attachment); return attachment; })
+        .finally(() => gmailAttachmentFetches.delete(cacheKey));
+    gmailAttachmentFetches.set(cacheKey, request);
+    return request;
+};
+
+const downloadGmailAttachment = async (messageId, attachmentId, button, actions) => {
     if (!currentCase) return;
     const inquiryId = currentCase.id;
-    const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
-    if (gmailAttachmentFetches.has(cacheKey)) return gmailAttachmentFetches.get(cacheKey);
-    button.disabled = true;
+    if (gmailAttachmentFetches.has(attachmentCacheKey(messageId, attachmentId, inquiryId))) return;
+    setAttachmentActionLoading(actions, true);
     button.textContent = "取得中…";
     setMessage(gmailSyncState, "添付ファイルを取得中です。", "info");
-    const request = (async () => {
-        try {
-            const attachment = await downloadGmailAttachmentStream({ action: "attachment_download", inquiry_id: inquiryId, gmail_message_id: messageId, gmail_attachment_id: attachmentId });
+    try {
+            const attachment = await acquireGmailAttachment(messageId, attachmentId, inquiryId);
             const url = URL.createObjectURL(attachment.blob);
             if (currentCase?.id !== inquiryId) {
                 URL.revokeObjectURL(url);
@@ -2770,20 +2805,54 @@ const downloadGmailAttachment = async (messageId, attachmentId, button) => {
             link.remove();
             setTimeout(() => URL.revokeObjectURL(url), 60_000);
             setMessage(gmailSyncState, `添付ファイル「${attachment.filename}」のダウンロードを開始しました。`, "success");
-        } catch (error) {
+    } catch (error) {
             if (currentCase?.id === inquiryId) {
                 setMessage(gmailSyncState, gmailAttachmentErrorMessage(error.message), "error");
             }
-        } finally {
-            gmailAttachmentFetches.delete(cacheKey);
-            if (currentCase?.id === inquiryId) {
-                button.disabled = false;
-                button.textContent = "添付ファイルを取得";
-            }
+    } finally {
+        if (currentCase?.id === inquiryId) {
+            setAttachmentActionLoading(actions, false);
+            button.textContent = "ダウンロード";
         }
-    })();
-    gmailAttachmentFetches.set(cacheKey, request);
-    return request;
+    }
+};
+
+const previewGmailAttachment = async (messageId, attachmentId, button, actions) => {
+    if (!currentCase) return;
+    const inquiryId = currentCase.id;
+    if (gmailAttachmentFetches.has(attachmentCacheKey(messageId, attachmentId, inquiryId))) return;
+    setAttachmentActionLoading(actions, true);
+    button.textContent = "取得中…";
+    setMessage(gmailSyncState, "添付ファイルを取得中です。", "info");
+    const preview = window.open("", "_blank");
+    if (!preview) {
+        setAttachmentActionLoading(actions, false);
+        button.textContent = "表示";
+        setMessage(gmailSyncState, "表示用のタブを開けませんでした。ブラウザのポップアップ設定を確認してください。", "error");
+        return;
+    }
+    preview.opener = null;
+    try {
+        const attachment = await acquireGmailAttachment(messageId, attachmentId, inquiryId);
+        if (!isSafeAttachmentPreviewType(attachment.mimeType) || currentCase?.id !== inquiryId) throw new Error("gmail_attachment_preview_not_allowed");
+        const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
+        const priorUrl = gmailAttachmentPreviewUrls.get(cacheKey);
+        if (priorUrl) URL.revokeObjectURL(priorUrl);
+        const url = URL.createObjectURL(attachment.blob);
+        gmailAttachmentPreviewUrls.set(cacheKey, url);
+        preview.location.replace(url);
+        setMessage(gmailSyncState, `添付ファイル「${attachment.filename}」を別タブで表示しました。`, "success");
+    } catch (error) {
+        preview.close();
+        if (currentCase?.id === inquiryId) {
+            setMessage(gmailSyncState, error.message === "gmail_attachment_preview_not_allowed" ? "この形式は表示できません。ダウンロードして確認してください。" : gmailAttachmentErrorMessage(error.message), "error");
+        }
+    } finally {
+        if (currentCase?.id === inquiryId) {
+            setAttachmentActionLoading(actions, false);
+            button.textContent = "表示";
+        }
+    }
 };
 
 const gmailAttachmentErrorMessage = (code) => {

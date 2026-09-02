@@ -65,6 +65,10 @@ assert.match(client, /attachment_download/u);
 assert.match(client, /downloadGmailAttachmentStream/u);
 assert.match(client, /URL\.createObjectURL/u);
 assert.match(client, /URL\.revokeObjectURL\(url\), 60_000/u);
+assert.match(client, /isSafeAttachmentPreviewType/u, "only explicitly allowlisted MIME types may be previewed");
+assert.doesNotMatch(client.match(/const isSafeAttachmentPreviewType[^;]+;/u)[0], /svg/u, "SVG must not be previewable");
+assert.match(client, /gmailAttachmentPreviewUrls\.forEach\(\(url\) => URL\.revokeObjectURL\(url\)\)/u, "case changes must revoke preview Blob URLs");
+assert.match(client, /preview\.opener = null/u, "safe previews must not retain an opener");
 assert.match(css, /\.gmail-attachment__filename \{[^}]*overflow-wrap: anywhere;/u);
 assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction: column;/u);
 
