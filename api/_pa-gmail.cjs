@@ -360,10 +360,11 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, f
     const indexed = await selectRows("pa_gmail_message_index", query, fetchImpl);
     if (!Array.isArray(indexed) || !indexed[0]) throw new Error("gmail_attachment_not_indexed");
     const indexedAttachments = Array.isArray(indexed[0].attachment_metadata) ? indexed[0].attachment_metadata : [];
-    if (!indexedAttachments.some((attachment) => String(attachment?.id || "") === gmailAttachmentId)) throw new Error("gmail_attachment_not_indexed");
+    const indexedAttachment = indexedAttachments.find((attachment) => String(attachment?.id || "") === gmailAttachmentId);
+    if (!indexedAttachment) throw new Error("gmail_attachment_not_indexed");
     const message = await gmailMessage(gmailMessageId, fetchImpl);
     const part = attachmentPart(message.payload, gmailAttachmentId);
-    if (!part?.filename || !part.body) throw new Error("gmail_attachment_not_found");
+    if (!part?.body) throw new Error("gmail_attachment_not_found");
     const payload = part.body.attachmentId
         ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`, {}, fetchImpl)
         : part.body;
@@ -372,8 +373,8 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, f
     const byteLength = bytes?.length || 0;
     if (!bytes || byteLength > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
     return {
-        filename: safeAttachmentFilename(part.filename),
-        mime_type: safeAttachmentMimeType(part.mimeType),
+        filename: safeAttachmentFilename(part.filename || indexedAttachment.filename),
+        mime_type: safeAttachmentMimeType(part.mimeType || indexedAttachment.mime_type),
         size: byteLength,
         data
     };

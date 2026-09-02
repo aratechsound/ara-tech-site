@@ -146,6 +146,21 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
     assert.equal(Buffer.from(partIdAttachment.data, "base64url").toString("utf8"), "part id attachment");
     assert.equal(partIdAttachmentCalls.some((url) => url.includes("/attachments/opaque_attachment_9")), true, "the current Gmail attachmentId must be used for the binary fetch");
 
+    const indexedFilenameAttachment = await gmail.getAttachment({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "0.10"
+    }, async (url) => {
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "0.10", filename: "index-filename.pdf", mime_type: "application/pdf" }] }]);
+        if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
+        if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{
+            partId: "0.10", mimeType: "application/pdf", body: { attachmentId: "opaque_attachment_10" }
+        }] } });
+        if (url.includes("/messages/mail_123/attachments/opaque_attachment_10")) return jsonResponse({ data: base64Url("indexed filename attachment") });
+        throw new Error(`unexpected URL: ${url}`);
+    });
+    assert.equal(indexedFilenameAttachment.filename, "index-filename.pdf", "a verified indexed filename must support a Gmail re-read that omits filename");
+
     const attachmentCalls = [];
     const fetchedAttachment = await gmail.getAttachment({
         inquiryId: "123e4567-e89b-42d3-a456-426614174000",
