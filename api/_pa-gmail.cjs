@@ -115,7 +115,11 @@ const collectParts = (part, result = { plain: "", html: "", attachments: [] }) =
 
 const attachmentPart = (part, attachmentId) => {
     if (!part || typeof part !== "object") return null;
-    if (attachmentReference(part) === attachmentId) return part;
+    // A MIME part can be indexed with its partId when it has inline data, then
+    // be returned later by messages.get with an attachmentId as well.  Match
+    // either stable identifier after the caller has already verified the ID
+    // against that case/message's indexed metadata.
+    if (String(part.body?.attachmentId || "") === attachmentId || String(part.partId || "") === attachmentId) return part;
     for (const child of part.parts || []) {
         const found = attachmentPart(child, attachmentId);
         if (found) return found;
@@ -359,7 +363,7 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, f
     if (!indexedAttachments.some((attachment) => String(attachment?.id || "") === gmailAttachmentId)) throw new Error("gmail_attachment_not_indexed");
     const message = await gmailMessage(gmailMessageId, fetchImpl);
     const part = attachmentPart(message.payload, gmailAttachmentId);
-    if (!part?.filename || !part.body || attachmentReference(part) !== gmailAttachmentId) throw new Error("gmail_attachment_not_found");
+    if (!part?.filename || !part.body) throw new Error("gmail_attachment_not_found");
     const payload = part.body.attachmentId
         ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`, {}, fetchImpl)
         : part.body;

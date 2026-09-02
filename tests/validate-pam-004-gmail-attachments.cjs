@@ -127,6 +127,25 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
     assert.match(calls[0], /inquiry_id=eq\.123e4567-e89b-42d3-a456-426614174000/u, "the index lookup must stay scoped to the current inquiry");
     assert.equal(calls.some((url) => url.includes("/attachments/")), false, "inline data must not cause an unnecessary Gmail attachment fetch");
 
+    const partIdAttachmentCalls = [];
+    const partIdAttachment = await gmail.getAttachment({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "0.9"
+    }, async (url) => {
+        partIdAttachmentCalls.push(url);
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "0.9" }] }]);
+        if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
+        if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{
+            partId: "0.9", filename: "part-id.pdf", mimeType: "application/pdf", body: { attachmentId: "opaque_attachment_9" }
+        }] } });
+        if (url.includes("/messages/mail_123/attachments/opaque_attachment_9")) return jsonResponse({ data: base64Url("part id attachment") });
+        throw new Error(`unexpected URL: ${url}`);
+    });
+    assert.equal(partIdAttachment.filename, "part-id.pdf", "an indexed partId must resolve after Gmail later supplies an attachmentId");
+    assert.equal(Buffer.from(partIdAttachment.data, "base64url").toString("utf8"), "part id attachment");
+    assert.equal(partIdAttachmentCalls.some((url) => url.includes("/attachments/opaque_attachment_9")), true, "the current Gmail attachmentId must be used for the binary fetch");
+
     const attachmentCalls = [];
     const fetchedAttachment = await gmail.getAttachment({
         inquiryId: "123e4567-e89b-42d3-a456-426614174000",
