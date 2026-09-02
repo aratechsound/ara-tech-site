@@ -458,7 +458,52 @@ const encodeBase64Lines = (value) => {
     return encoded.match(/.{1,76}/gu)?.join("\r\n") || "";
 };
 
-const buildRawMessage = ({ to, subject, body, messageType, replyHeaders = {}, config = mailConfig() }) => {
+const MAX_REPLY_ATTACHMENTS = 10;
+const MAX_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const safeMailAttachmentFilename = (value) => {
+    const filename = String(value || "attachment").replace(/[\u0000-\u001f\\\\/]/gu, "_").trim().slice(0, 255);
+    return filename || "attachment";
+};
+const safeMailAttachmentMimeType = (value) => {
+    const mime = String(value || "").trim().toLowerCase();
+    return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(mime) ? mime : "application/octet-stream";
+};
+const attachmentContentDisposition = (value) => {
+    const filename = safeMailAttachmentFilename(value);
+    const fallback = filename.normalize("NFKD").replace(/[^\x20-\x7e]/gu, "_").replace(/["\\\\]/gu, "_").trim() || "attachment";
+    const encoded = encodeURIComponent(filename).replace(/[!'()]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+};
+const decodeReplyAttachmentData = (value) => {
+    const encoded = String(value || "");
+    if (!/^[A-Za-z0-9_-]+$/u.test(encoded) || encoded.length % 4 === 1) throw new Error("invalid_reply_attachment");
+    const bytes = Buffer.from(encoded, "base64url");
+    if (!bytes.length || bytes.toString("base64url") !== encoded) throw new Error("invalid_reply_attachment");
+    return bytes;
+};
+const normalizeReplyAttachments = (value) => {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value) || value.length > MAX_REPLY_ATTACHMENTS) throw new Error("invalid_reply_attachment");
+    let totalBytes = 0;
+    return value.map((attachment) => {
+        if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) throw new Error("invalid_reply_attachment");
+        const bytes = decodeReplyAttachmentData(attachment.data);
+        totalBytes += bytes.length;
+        if (totalBytes > MAX_REPLY_ATTACHMENT_BYTES) throw new Error("reply_attachments_too_large");
+        return {
+            filename: safeMailAttachmentFilename(attachment.filename),
+            mime_type: safeMailAttachmentMimeType(attachment.mime_type),
+            data: bytes.toString("base64url"),
+            size: bytes.length
+        };
+    });
+};
+const replyAttachmentsHash = (attachments) => crypto.createHash("sha256").update(JSON.stringify(
+    attachments.map(({ filename, mime_type, data }) => ({ filename, mime_type, data }))
+)).digest("hex");
+const encodeAttachmentDataLines = (data) => Buffer.from(String(data || ""), "base64url").toString("base64").match(/.{1,76}/gu)?.join("\r\n") || "";
+
+const buildRawMessage = ({ to, subject, body, messageType, replyHeaders = {}, attachments = [], config = mailConfig() }) => {
     const recipient = cleanHeader(to);
     const safeSubject = cleanHeader(subject, 240);
     const customerMessage = isCustomerMessageType(messageType);
@@ -479,23 +524,47 @@ const buildRawMessage = ({ to, subject, body, messageType, replyHeaders = {}, co
     if (inReplyTo && /^<[^<>\r\n]{1,998}>$/u.test(inReplyTo)) lines.push(`In-Reply-To: ${inReplyTo}`);
     if (references && !/[\r\n]/u.test(references) && references.length <= 998) lines.push(`References: ${references}`);
     if (customerMessage) {
-        const boundary = `ara-tech-${crypto.randomBytes(18).toString("hex")}`;
+        const safeAttachments = normalizeReplyAttachments(attachments);
+        const alternativeBoundary = `ara-tech-alt-${crypto.randomBytes(18).toString("hex")}`;
+        const mixedBoundary = safeAttachments.length ? `ara-tech-mixed-${crypto.randomBytes(18).toString("hex")}` : "";
         lines.push(
-            `Content-Type: multipart/alternative; boundary="${boundary}"`,
-            "",
-            `--${boundary}`,
+            safeAttachments.length
+                ? `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`
+                : `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
+            ""
+        );
+        if (safeAttachments.length) {
+            lines.push(
+                `--${mixedBoundary}`,
+                `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
+                ""
+            );
+        }
+        lines.push(
+            `--${alternativeBoundary}`,
             "Content-Type: text/plain; charset=UTF-8",
             "Content-Transfer-Encoding: 8bit",
             "",
             safeBody,
-            `--${boundary}`,
+            `--${alternativeBoundary}`,
             "Content-Type: text/html; charset=UTF-8",
             "Content-Transfer-Encoding: base64",
             "",
             encodeBase64Lines(buildCustomerHtml(safeBody)),
-            `--${boundary}--`,
-            ""
+            `--${alternativeBoundary}--`
         );
+        safeAttachments.forEach((attachment) => {
+            lines.push(
+                `--${mixedBoundary}`,
+                `Content-Type: ${attachment.mime_type}; name="${safeMailAttachmentFilename(attachment.filename).replace(/["\\\\]/gu, "_")}"`,
+                "Content-Transfer-Encoding: base64",
+                `Content-Disposition: ${attachmentContentDisposition(attachment.filename)}`,
+                "",
+                encodeAttachmentDataLines(attachment.data)
+            );
+        });
+        if (safeAttachments.length) lines.push(`--${mixedBoundary}--`);
+        lines.push("");
     } else {
         lines.push(
             "Content-Type: text/plain; charset=UTF-8",
@@ -1244,6 +1313,8 @@ module.exports = {
     isCustomerMessageType,
     mailConfig,
     normalizeCustomerBody,
+    normalizeReplyAttachments,
+    replyAttachmentsHash,
     requestedServicesText,
     resultForMessageType,
     retryDelivery,

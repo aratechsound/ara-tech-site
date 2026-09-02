@@ -48,6 +48,11 @@ label { font-size: .88rem; font-weight: 900; }
 input, select, textarea { background: white; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 11px 12px; width: 100%; }
 textarea { min-height: 130px; resize: vertical; }
 .email-body { min-height: 330px; white-space: pre-wrap; }
+.gmail-reply-attachments, .gmail-reply-preview-attachments { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.gmail-reply-attachment { align-items: center; background: #f8fbff; border: 1px solid var(--line); border-radius: 9px; display: flex; gap: 12px; justify-content: space-between; min-width: 0; padding: 10px 12px; }
+.gmail-reply-attachment__details { display: grid; gap: 2px; min-width: 0; }
+.gmail-reply-attachment__details strong, .gmail-reply-attachment__details span, .gmail-reply-attachments__empty { overflow-wrap: anywhere; }
+.gmail-reply-attachment__details span, .gmail-reply-attachments__empty { color: var(--muted); font-size: .82rem; }
 
 .button { align-items: center; background: var(--blue); border: 2px solid var(--blue); border-radius: 9px; color: white; display: inline-flex; font-weight: 900; justify-content: center; padding: 11px 16px; text-decoration: none; }
 .button:hover { background: #0067d5; border-color: #0067d5; }
@@ -144,7 +149,15 @@ td { font-size: .84rem; }
 .workflow-step--skipped .workflow-step__number { border-style: dashed; }
 .mail-preview { background: #f8fbff; border: 1px solid #bdd7ef; border-radius: 10px; margin-top: 16px; padding: 14px; }
 .mail-preview h5 { margin: 0; }
-.mail-preview__body { line-height: 1.7; max-height: 360px; overflow: auto; }
+.mail-preview__body { line-height: 1.7; max-height: 360px; max-width: 100%; min-width: 0; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; word-break: normal; }
+.mail-preview__body--html { white-space: normal; }
+.mail-preview__body--html :is(p, ul, ol, blockquote, pre, table) { margin-block: .8em; }
+.mail-preview__body--html :is(ul, ol) { padding-left: 1.5em; }
+.mail-preview__body--html blockquote { border-left: 3px solid #bdd7ef; color: #405060; margin-left: 0; padding-left: 12px; }
+.mail-preview__body--html a { overflow-wrap: anywhere; word-break: normal; }
+.mail-preview__body--html pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mail-preview__body--html table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
+.mail-preview__body--html :is(th, td) { border: 1px solid #d7e0e8; padding: .35em .55em; text-align: start; vertical-align: top; }
 .brand-mail-test-frame { background: #f3f6f9; border: 1px solid var(--line); display: block; height: 720px; margin-top: 12px; width: 100%; }
 
 .action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }
@@ -170,7 +183,13 @@ td { font-size: .84rem; }
 .mail-history__item details { margin-top: 10px; max-width: 100%; }
 .mail-history__item summary { color: #005cbb; cursor: pointer; font-weight: 800; }
 .gmail-message-subject, .gmail-attachments, .gmail-candidate code { overflow-wrap: anywhere; word-break: break-word; }
-.gmail-attachments { color: #405060; margin: 10px 0 0; padding-left: 20px; }
+.gmail-attachment-heading { color: #405060; font-size: .82rem; font-weight: 800; margin: 12px 0 0; }
+.gmail-attachments { color: #405060; display: grid; gap: 8px; list-style: none; margin: 8px 0 0; padding: 0; }
+.gmail-attachment { align-items: center; border: 1px solid var(--line); border-radius: 9px; display: flex; gap: 10px; justify-content: space-between; min-width: 0; padding: 9px 10px; }
+.gmail-attachment__metadata { min-width: 0; }
+.gmail-attachment__filename { display: block; overflow-wrap: anywhere; word-break: break-word; }
+.gmail-attachment__metadata span, .gmail-attachment__status { color: var(--muted); font-size: .76rem; }
+.gmail-attachment__actions { align-items: center; display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .gmail-candidates { background: #fffaf0; border: 1px solid #e4b76c; border-radius: 10px; margin-top: 14px; padding: 14px; }
 .gmail-candidate { align-items: center; display: flex; gap: 10px; margin-top: 8px; min-width: 0; }
 .gmail-candidate code { flex: 1 1 auto; min-width: 0; font-size: 12px; }
@@ -224,6 +243,8 @@ body:has(.case-dialog[open]) { overflow: hidden; }
     .admin-header { align-items: flex-start; flex-direction: column; padding: 15px 20px; }
     .brand span { display: none; }
     main { padding: 30px 14px 56px; }
+    .gmail-attachment { align-items: flex-start; flex-direction: column; }
+    .gmail-attachment__actions { justify-content: flex-start; }
     .dashboard-head, .section-head { align-items: flex-start; flex-direction: column; }
     .form-grid { grid-template-columns: 1fr; }
     .field--full { grid-column: auto; }

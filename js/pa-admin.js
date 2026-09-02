@@ -64,9 +64,9 @@ const workflowSteps = [
     "概算提示",
     "依頼意思確認",
     "日程・人員調整",
-    "正式見積",
-    "発注確認",
-    "予約確定",
+    "見積作成",
+    "見積提出・先方回答待ち",
+    "受注・正式確定",
     "事前準備・打合せ",
     "最終確認",
     "本番実施",
@@ -305,7 +305,14 @@ let currentDeliveries = [];
 let currentGmailTimeline = [];
 let currentMailAttention = "none";
 let currentGmailLink = null;
+const gmailAttachmentFetches = new Map();
+const gmailAttachmentBlobs = new Map();
+const gmailAttachmentPreviewUrls = new Map();
 let gmailReplyPreview = null;
+let gmailReplyAttachments = [];
+let gmailReplyMode = "normal";
+const MAX_GMAIL_REPLY_ATTACHMENTS = 10;
+const MAX_GMAIL_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 let currentSessionUser = null;
 let activeCaseTab = "active";
 let activeProgressFilter = "";
@@ -329,6 +336,233 @@ const setMessage = (element, text, type = "info") => {
 const clearMessage = (element) => {
     element.textContent = "";
     element.className = "alert hidden";
+};
+
+const attachmentCacheKey = (messageId, attachmentId, inquiryId = currentCase?.id) => `${inquiryId || ""}:${String(messageId || "")}:${String(attachmentId || "")}`;
+const formatAttachmentSize = (value) => {
+    const bytes = Number(value || 0);
+    if (!Number.isFinite(bytes) || bytes < 1) return "サイズ不明";
+    if (bytes < 1024) return `${bytes.toLocaleString("ja-JP")} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+const invalidateGmailReplyPreview = () => {
+    gmailReplyPreview = null;
+    $("#send-gmail-reply").disabled = true;
+    $("#gmail-reply-preview").classList.add("hidden");
+};
+const isEstimateSubmissionMode = () => gmailReplyMode === "estimate_submission";
+const setGmailReplyMode = (mode = "normal") => {
+    gmailReplyMode = mode === "estimate_submission" ? "estimate_submission" : "normal";
+    const estimateMode = isEstimateSubmissionMode();
+    $("#gmail-reply-title").textContent = estimateMode ? "見積書を送付" : "Gmailで返信";
+    $("#gmail-reply-mode-note").textContent = estimateMode
+        ? "見積提出モードです。既存のGmail threadを維持し、PCから選んだ見積書・関連資料を添付できます。送信前に本文・添付・宛先を確認してください。"
+        : "Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。";
+};
+const openEstimateSubmission = () => {
+    if (!currentCase || !currentGmailLink) {
+        setMessage(gmailSyncState, "既存のGmail threadが確認できないため、見積書を送付できません。新規メールを作成せず、対象threadを同期・紐付けしてください。", "error");
+        return;
+    }
+    if (!currentProgress?.estimate_created_on) {
+        setMessage(gmailSyncState, "先に案件進捗で「見積作成日」を保存してから、見積書を送付してください。", "error");
+        return;
+    }
+    setGmailReplyMode("estimate_submission");
+    if (!$("#gmail-reply-body").value.trim()) {
+        $("#gmail-reply-body").value = "見積書および関連資料を添付いたします。ご確認をお願いいたします。";
+    }
+    invalidateGmailReplyPreview();
+    gmailReplyPanel.classList.remove("hidden");
+    $("#gmail-reply-body").focus();
+    setMessage($("#gmail-reply-message"), "見積提出モードを開きました。内容を編集し、添付を確認してからプレビューへ進んでください。", "info");
+};
+const renderGmailReplyAttachments = () => {
+    const list = $("#gmail-reply-attachments");
+    list.replaceChildren();
+    if (!gmailReplyAttachments.length) {
+        const empty = document.createElement("li");
+        empty.className = "gmail-reply-attachments__empty";
+        empty.textContent = "添付ファイルは選択されていません。";
+        list.append(empty);
+        return;
+    }
+    gmailReplyAttachments.forEach((attachment, index) => {
+        const item = document.createElement("li");
+        item.className = "gmail-reply-attachment";
+        const details = document.createElement("span");
+        details.className = "gmail-reply-attachment__details";
+        const name = document.createElement("strong");
+        name.textContent = attachment.file.name;
+        const size = document.createElement("span");
+        size.textContent = `${attachment.file.type || "application/octet-stream"} ・ ${formatAttachmentSize(attachment.file.size)}`;
+        details.append(name, size);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "button button--danger button--small";
+        remove.textContent = "削除";
+        remove.setAttribute("aria-label", `${attachment.file.name} を添付から削除`);
+        remove.addEventListener("click", () => {
+            gmailReplyAttachments = gmailReplyAttachments.filter((_, currentIndex) => currentIndex !== index);
+            invalidateGmailReplyPreview();
+            renderGmailReplyAttachments();
+        });
+        item.append(details, remove);
+        list.append(item);
+    });
+};
+const base64UrlForFile = async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/gu, "");
+};
+const gmailReplyAttachmentPayload = async () => Promise.all(gmailReplyAttachments.map(async ({ file }) => ({
+    filename: file.name,
+    mime_type: file.type || "application/octet-stream",
+    data: await base64UrlForFile(file)
+})));
+const addGmailReplyAttachments = (files) => {
+    const incoming = Array.from(files || []).filter((file) => file && typeof file.name === "string");
+    const nextCount = gmailReplyAttachments.length + incoming.length;
+    const nextBytes = [...gmailReplyAttachments.map(({ file }) => Number(file.size || 0)), ...incoming.map((file) => Number(file.size || 0))]
+        .reduce((total, size) => total + size, 0);
+    if (nextCount > MAX_GMAIL_REPLY_ATTACHMENTS) {
+        setMessage($("#gmail-reply-message"), `添付は最大${MAX_GMAIL_REPLY_ATTACHMENTS}件です。`, "error");
+        return;
+    }
+    if (incoming.some((file) => !Number.isFinite(file.size) || file.size < 1) || nextBytes > MAX_GMAIL_REPLY_ATTACHMENT_BYTES) {
+        setMessage($("#gmail-reply-message"), `添付の合計は${formatAttachmentSize(MAX_GMAIL_REPLY_ATTACHMENT_BYTES)}までです。`, "error");
+        return;
+    }
+    gmailReplyAttachments = [...gmailReplyAttachments, ...incoming.map((file) => ({ file }))];
+    invalidateGmailReplyPreview();
+    renderGmailReplyAttachments();
+    clearMessage($("#gmail-reply-message"));
+};
+const renderGmailReplyPreviewAttachments = (attachments) => {
+    const target = $("#gmail-reply-preview-attachments");
+    target.replaceChildren();
+    const items = Array.isArray(attachments) ? attachments : [];
+    if (!items.length) {
+        target.textContent = "添付なし";
+        return;
+    }
+    const list = document.createElement("ul");
+    list.className = "gmail-reply-preview-attachments";
+    items.forEach((attachment) => {
+        const item = document.createElement("li");
+        item.textContent = `${attachment.filename || "attachment"} ・ ${formatAttachmentSize(attachment.size)}`;
+        list.append(item);
+    });
+    target.append(list);
+};
+const clearGmailAttachmentCache = () => {
+    gmailAttachmentFetches.clear();
+    gmailAttachmentBlobs.clear();
+    gmailAttachmentPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    gmailAttachmentPreviewUrls.clear();
+};
+
+const isSafeAttachmentPreviewType = (value) => /^(?:application\/pdf|image\/(?:avif|gif|jpe?g|png|webp)|text\/plain)$/iu.test(String(value || "").split(";", 1)[0].trim());
+
+// This is deliberately an allowlist renderer, not a string filter.  It tokenizes
+// mail HTML and creates only allowed DOM nodes, so scripts, event handlers, CSS,
+// images and every unsupported element are left behind.
+const EMAIL_HTML_ALLOWED_TAGS = new Set([
+    "a", "b", "blockquote", "br", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "i", "li", "ol", "p", "pre", "s", "span", "strong", "strike", "table", "tbody", "td", "tfoot",
+    "th", "thead", "tr", "u", "ul"
+]);
+const EMAIL_HTML_DROPPED_TAGS = new Set([
+    "applet", "audio", "base", "button", "canvas", "embed", "form", "frame", "frameset", "iframe", "img", "input",
+    "link", "meta", "object", "script", "source", "style", "svg", "textarea", "track", "video"
+]);
+const EMAIL_HTML_CONTENT_DROPPED_TAGS = new Set(["applet", "audio", "canvas", "embed", "form", "frame", "frameset", "iframe", "object", "script", "style", "svg", "video"]);
+const EMAIL_HTML_VOID_TAGS = new Set(["br", "hr"]);
+const EMAIL_HTML_TOKEN = /<!--[\s\S]*?-->|<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*?)?\/?>/gu;
+const EMAIL_HTML_SAFE_STYLE_PROPERTIES = new Set(["background-color", "color", "font-style", "font-weight", "text-align", "text-decoration"]);
+
+const safeEmailHref = (value) => {
+    try {
+        const url = new URL(String(value || ""), window.location.origin);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch {
+        return "";
+    }
+};
+
+const decodeEmailHtmlText = (value) => String(value || "").replace(/&(nbsp|amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/giu, (entity, code) => {
+    const named = { nbsp: "\u00a0", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+    if (named[String(code).toLowerCase()]) return named[String(code).toLowerCase()];
+    const point = String(code).toLowerCase().startsWith("#x") ? Number.parseInt(String(code).slice(2), 16) : Number.parseInt(String(code).slice(1), 10);
+    try { return Number.isInteger(point) && point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity; } catch { return entity; }
+});
+const emailHtmlAttribute = (token, name) => {
+    const match = String(token || "").match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`, "iu"));
+    return match ? (match[1] || match[2] || match[3] || "") : "";
+};
+const safeEmailStyle = (value) => String(value || "").split(";").flatMap((declaration) => {
+    const [property, ...valueParts] = declaration.split(":");
+    const safeProperty = String(property || "").trim().toLowerCase();
+    const safeValue = valueParts.join(":").trim();
+    if (!EMAIL_HTML_SAFE_STYLE_PROPERTIES.has(safeProperty) || !safeValue || /(?:url|expression|behavior|@import)/iu.test(safeValue)) return [];
+    const valid = (safeProperty === "font-weight" && /^(?:normal|bold|bolder|lighter|[1-9]00)$/iu.test(safeValue))
+        || (safeProperty === "font-style" && /^(?:normal|italic|oblique)$/iu.test(safeValue))
+        || (safeProperty === "text-align" && /^(?:start|end|left|right|center|justify)$/iu.test(safeValue))
+        || (safeProperty === "text-decoration" && /^(?:none|underline|line-through|overline)(?:\s+(?:underline|line-through|overline))?$/iu.test(safeValue))
+        || ((safeProperty === "color" || safeProperty === "background-color") && /^(?:#[\da-f]{3,8}|[a-z]{1,20}|(?:rgb|hsl)a?\([\d.%\s,/-]+\))$/iu.test(safeValue));
+    return valid ? [[safeProperty, safeValue]] : [];
+});
+
+const appendSanitizedEmailHtml = (container, value) => {
+    const stack = [{ tag: "#root", element: container }];
+    const sourceHtml = String(value || "");
+    let blockedTag = "";
+    let lastIndex = 0;
+    const appendText = (text) => {
+        if (!blockedTag && text) stack.at(-1).element.append(document.createTextNode(decodeEmailHtmlText(text)));
+    };
+    for (const tokenMatch of sourceHtml.matchAll(EMAIL_HTML_TOKEN)) {
+        appendText(sourceHtml.slice(lastIndex, tokenMatch.index));
+        lastIndex = tokenMatch.index + tokenMatch[0].length;
+        const token = tokenMatch[0];
+        if (token.startsWith("<!--")) continue;
+        const closing = /^<\//u.test(token);
+        const tag = (token.match(/^<\/?\s*([A-Za-z0-9:-]+)/u)?.[1] || "").toLowerCase();
+        if (!tag) continue;
+        if (blockedTag) {
+            if (closing && tag === blockedTag) blockedTag = "";
+            continue;
+        }
+        if (closing) {
+            const index = stack.map((entry) => entry.tag).lastIndexOf(tag);
+            if (index > 0) stack.splice(index);
+            continue;
+        }
+        if (EMAIL_HTML_DROPPED_TAGS.has(tag)) {
+            if (EMAIL_HTML_CONTENT_DROPPED_TAGS.has(tag)) blockedTag = tag;
+            continue;
+        }
+        if (!EMAIL_HTML_ALLOWED_TAGS.has(tag)) continue;
+        const target = document.createElement(tag);
+        safeEmailStyle(emailHtmlAttribute(token, "style")).forEach(([property, styleValue]) => target.style.setProperty(property, styleValue));
+        if (tag === "a") {
+            const href = safeEmailHref(emailHtmlAttribute(token, "href"));
+            if (href) {
+                target.href = href;
+                target.target = "_blank";
+                target.rel = "noopener noreferrer";
+            }
+        }
+        stack.at(-1).element.append(target);
+        if (!EMAIL_HTML_VOID_TAGS.has(tag)) stack.push({ tag, element: target });
+    }
+    appendText(sourceHtml.slice(lastIndex));
+    return container.childNodes.length > 0;
 };
 
 const valueOrNull = (selector) => {
@@ -393,8 +627,8 @@ const workflowStepForCase = (item) => {
     const progress = progressForCase(item);
     const status = item?.status;
     if (isCompletedStatus(status, progress)) return 14;
-    if (status !== "schedule_confirmed") return initialWorkflowStep(status);
-    if (!progress.estimate_created_on) return 6;
+    if (!["rough_estimate", "schedule_confirmed"].includes(status)) return initialWorkflowStep(status);
+    if (!progress.estimate_created_on) return status === "rough_estimate" ? 3 : 6;
     if (!progress.estimate_sent_on || progress.estimate_adjusting) return 7;
     if (!progress.estimate_approved_on) return 8;
     if (!progress.booking_confirmed_on) return 9;
@@ -1894,32 +2128,75 @@ const renderEmailHistory = () => {
                 const meta = document.createElement("span");
                 meta.textContent = `${formatDateTime(message.occurred_at)}${message.direction === "inbound" && currentMailAttention === "new_customer_reply" ? " ／ 新着" : ""}`;
                 item.append(title, subject, meta);
-                if (message.body_text) {
+                const source = document.createElement("span");
+                source.className = "gmail-message-source";
+                source.textContent = message.direction === "inbound"
+                    ? "Gmailから受信"
+                    : message.source === "gmail_direct" ? "Gmailから送信" : "PA案件管理から送信";
+                item.append(source);
+                if (message.direction === "outbound" && message.source === "gmail_direct") {
+                    const reconcile = document.createElement("button");
+                    reconcile.type = "button";
+                    reconcile.className = "button button--secondary button--small";
+                    reconcile.textContent = "この送信を見積提出として記録";
+                    reconcile.addEventListener("click", () => reconcileDirectEstimateSubmission(message, reconcile));
+                    item.append(reconcile);
+                }
+                if (message.body_html || message.body_text) {
                     const details = document.createElement("details");
                     const summary = document.createElement("summary");
                     summary.textContent = "本文を表示";
-                    const body = document.createElement("p");
-                    body.className = "mail-preview__body";
-                    body.textContent = message.body_text;
+                    const body = document.createElement(message.body_html ? "div" : "p");
+                    body.className = `mail-preview__body${message.body_html ? " mail-preview__body--html" : ""}`;
+                    const renderedHtml = message.body_html && appendSanitizedEmailHtml(body, message.body_html);
+                    if (!renderedHtml) body.textContent = message.body_text || "（本文を表示できません）";
                     details.append(summary, body);
                     item.append(details);
                 }
-                if (Array.isArray(message.attachments) && message.attachments.length) {
+                const messageAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+                if (messageAttachments.length) {
+                    const attachmentHeading = document.createElement("p");
+                    attachmentHeading.className = "gmail-attachment-heading";
+                    attachmentHeading.textContent = `添付ファイル（${messageAttachments.length}件）`;
                     const attachments = document.createElement("ul");
                     attachments.className = "gmail-attachments";
-                    message.attachments.forEach((attachment) => {
+                    messageAttachments.forEach((attachment) => {
                         const entry = document.createElement("li");
-                        const label = document.createElement("span");
-                        label.textContent = `${attachment.filename || "添付ファイル"} ／ ${attachment.mime_type || "application/octet-stream"} ／ ${Number(attachment.size || 0).toLocaleString("ja-JP")} bytes`;
-                        const button = document.createElement("button");
-                        button.type = "button";
-                        button.className = "button button--secondary button--small";
-                        button.textContent = "取得";
-                        button.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, button));
-                        entry.append(label, button);
+                        entry.className = "gmail-attachment";
+                        const metadata = document.createElement("div");
+                        metadata.className = "gmail-attachment__metadata";
+                        const filename = document.createElement("strong");
+                        filename.className = "gmail-attachment__filename";
+                        filename.textContent = attachment.filename || "添付ファイル";
+                        const detail = document.createElement("span");
+                        detail.textContent = `${attachment.mime_type || "application/octet-stream"} ／ ${formatAttachmentSize(attachment.size)}`;
+                        metadata.append(filename, detail);
+                        const actions = document.createElement("div");
+                        actions.className = "gmail-attachment__actions";
+                        const mimeType = attachment.mime_type || "application/octet-stream";
+                        const downloadButton = document.createElement("button");
+                        downloadButton.type = "button";
+                        downloadButton.className = "button button--secondary button--small";
+                        downloadButton.textContent = "ダウンロード";
+                        downloadButton.addEventListener("click", () => downloadGmailAttachment(message.id, attachment.id, downloadButton, actions));
+                        if (isSafeAttachmentPreviewType(mimeType)) {
+                            const previewButton = document.createElement("button");
+                            previewButton.type = "button";
+                            previewButton.className = "button button--secondary button--small";
+                            previewButton.textContent = "表示";
+                            previewButton.addEventListener("click", () => previewGmailAttachment(message.id, attachment.id, previewButton, actions));
+                            actions.append(previewButton);
+                        }
+                        actions.append(downloadButton);
+                        entry.append(metadata, actions);
                         attachments.append(entry);
                     });
-                    item.append(attachments);
+                    item.append(attachmentHeading, attachments);
+                } else {
+                    const noAttachments = document.createElement("p");
+                    noAttachments.className = "gmail-attachment-heading";
+                    noAttachments.textContent = "このメールには添付ファイルがありません";
+                    item.append(noAttachments);
                 }
                 emailHistory.append(item);
             });
@@ -2120,10 +2397,14 @@ const openCase = async (id) => {
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
+    clearGmailAttachmentCache();
     currentGmailTimeline = [];
     currentMailAttention = "none";
     currentGmailLink = null;
     gmailReplyPreview = null;
+    gmailReplyAttachments = [];
+    $("#gmail-reply-attachments-input").value = "";
+    renderGmailReplyAttachments();
     gmailReplyPanel.classList.add("hidden");
     gmailCandidates.classList.add("hidden");
     gmailCandidates.replaceChildren();
@@ -2585,30 +2866,137 @@ const callGmailApi = async (payload) => {
     return result;
 };
 
-const base64UrlToBytes = (value) => {
-    const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-    const binary = atob(normalized);
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+const filenameFromContentDisposition = (value) => {
+    const encoded = String(value || "").match(/filename\*=UTF-8''([^;]+)/iu)?.[1];
+    if (encoded) {
+        try { return decodeURIComponent(encoded); } catch { /* fall through */ }
+    }
+    return String(value || "").match(/filename="?([^";]+)"?/iu)?.[1] || "attachment";
 };
 
-const downloadGmailAttachment = async (messageId, attachmentId, button) => {
-    if (!currentCase) return;
-    button.disabled = true;
-    try {
-        const response = await callGmailApi({ action: "attachment_get", inquiry_id: currentCase.id, gmail_message_id: messageId, gmail_attachment_id: attachmentId });
-        const attachment = response.attachment;
-        const blob = new Blob([base64UrlToBytes(attachment.data)], { type: attachment.mime_type || "application/octet-stream" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = attachment.filename || "attachment";
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1_000);
-    } catch (error) {
-        setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
-    } finally {
-        button.disabled = false;
+const downloadGmailAttachmentStream = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-gmail", {
+        method: "POST",
+        headers: {
+            Accept: "application/octet-stream",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.code || "gmail_attachment_download_failed");
     }
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("gmail_attachment_unavailable");
+    return {
+        blob,
+        filename: filenameFromContentDisposition(response.headers.get("Content-Disposition")),
+        mimeType: response.headers.get("Content-Type") || blob.type || "application/octet-stream"
+    };
+};
+
+const setAttachmentActionLoading = (actions, loading) => {
+    actions?.querySelectorAll("button").forEach((button) => { button.disabled = loading; });
+};
+
+const acquireGmailAttachment = (messageId, attachmentId, inquiryId) => {
+    const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
+    const cached = gmailAttachmentBlobs.get(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    const pending = gmailAttachmentFetches.get(cacheKey);
+    if (pending) return pending;
+    const request = downloadGmailAttachmentStream({ action: "attachment_download", inquiry_id: inquiryId, gmail_message_id: messageId, gmail_attachment_id: attachmentId })
+        .then((attachment) => { gmailAttachmentBlobs.set(cacheKey, attachment); return attachment; })
+        .finally(() => gmailAttachmentFetches.delete(cacheKey));
+    gmailAttachmentFetches.set(cacheKey, request);
+    return request;
+};
+
+const downloadGmailAttachment = async (messageId, attachmentId, button, actions) => {
+    if (!currentCase) return;
+    const inquiryId = currentCase.id;
+    if (gmailAttachmentFetches.has(attachmentCacheKey(messageId, attachmentId, inquiryId))) return;
+    setAttachmentActionLoading(actions, true);
+    button.textContent = "取得中…";
+    setMessage(gmailSyncState, "添付ファイルを取得中です。", "info");
+    try {
+            const attachment = await acquireGmailAttachment(messageId, attachmentId, inquiryId);
+            const url = URL.createObjectURL(attachment.blob);
+            if (currentCase?.id !== inquiryId) {
+                URL.revokeObjectURL(url);
+                return;
+            }
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = attachment.filename;
+            link.hidden = true;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            setMessage(gmailSyncState, `添付ファイル「${attachment.filename}」のダウンロードを開始しました。`, "success");
+    } catch (error) {
+            if (currentCase?.id === inquiryId) {
+                setMessage(gmailSyncState, gmailAttachmentErrorMessage(error.message), "error");
+            }
+    } finally {
+        if (currentCase?.id === inquiryId) {
+            setAttachmentActionLoading(actions, false);
+            button.textContent = "ダウンロード";
+        }
+    }
+};
+
+const previewGmailAttachment = async (messageId, attachmentId, button, actions) => {
+    if (!currentCase) return;
+    const inquiryId = currentCase.id;
+    if (gmailAttachmentFetches.has(attachmentCacheKey(messageId, attachmentId, inquiryId))) return;
+    setAttachmentActionLoading(actions, true);
+    button.textContent = "取得中…";
+    setMessage(gmailSyncState, "添付ファイルを取得中です。", "info");
+    const preview = window.open("", "_blank");
+    if (!preview) {
+        setAttachmentActionLoading(actions, false);
+        button.textContent = "表示";
+        setMessage(gmailSyncState, "表示用のタブを開けませんでした。ブラウザのポップアップ設定を確認してください。", "error");
+        return;
+    }
+    preview.opener = null;
+    try {
+        const attachment = await acquireGmailAttachment(messageId, attachmentId, inquiryId);
+        if (!isSafeAttachmentPreviewType(attachment.mimeType) || currentCase?.id !== inquiryId) throw new Error("gmail_attachment_preview_not_allowed");
+        const cacheKey = attachmentCacheKey(messageId, attachmentId, inquiryId);
+        const priorUrl = gmailAttachmentPreviewUrls.get(cacheKey);
+        if (priorUrl) URL.revokeObjectURL(priorUrl);
+        const url = URL.createObjectURL(attachment.blob);
+        gmailAttachmentPreviewUrls.set(cacheKey, url);
+        preview.location.replace(url);
+        setMessage(gmailSyncState, `添付ファイル「${attachment.filename}」を別タブで表示しました。`, "success");
+    } catch (error) {
+        preview.close();
+        if (currentCase?.id === inquiryId) {
+            setMessage(gmailSyncState, error.message === "gmail_attachment_preview_not_allowed" ? "この形式は表示できません。ダウンロードして確認してください。" : gmailAttachmentErrorMessage(error.message), "error");
+        }
+    } finally {
+        if (currentCase?.id === inquiryId) {
+            setAttachmentActionLoading(actions, false);
+            button.textContent = "表示";
+        }
+    }
+};
+
+const gmailAttachmentErrorMessage = (code) => {
+    if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
+    if (code === "gmail_attachment_not_indexed") return "添付情報を確認できません。Gmail同期を行ってから、もう一度お試しください。";
+    if (code === "gmail_attachment_not_found") return "メール上で添付ファイルが見つかりません。Gmail同期を行って最新情報を確認してください。";
+    if (code === "gmail_attachment_unavailable") return "添付ファイルを取得できませんでした。サイズまたはデータを確認してください。";
+    if (String(code).startsWith("gmail_read_") || String(code).startsWith("gmail_oauth_")) return "Gmailの読取権限または接続状態を確認してください。";
+    return "添付ファイルの取得に失敗しました。時間をおいて再試行してください。";
 };
 
 const gmailErrorMessage = (code) => {
@@ -2678,6 +3066,7 @@ const applyGmailSyncResult = (result) => {
     renderEmailHistory();
     renderOverview();
     gmailReplyPanel.classList.toggle("hidden", !currentGmailLink);
+    $("#open-estimate-submission").disabled = !currentGmailLink;
 };
 
 const syncGmail = async ({ automatic = false } = {}) => {
@@ -2705,13 +3094,15 @@ const previewGmailReply = async () => {
     const body = $("#gmail-reply-body").value.trim();
     if (!body) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
-        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body });
+        const attachments = await gmailReplyAttachmentPayload();
+        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body, attachments, mode: gmailReplyMode });
         gmailReplyPreview = response.preview;
         $("#gmail-reply-recipient").value = response.preview.recipient;
         $("#gmail-reply-subject").value = response.preview.subject;
         $("#gmail-reply-preview-recipient").textContent = response.preview.recipient;
         $("#gmail-reply-preview-subject").textContent = response.preview.subject;
         $("#gmail-reply-preview-body").textContent = response.preview.body;
+        renderGmailReplyPreviewAttachments(response.preview.attachments);
         $("#gmail-reply-preview").classList.remove("hidden");
         $("#send-gmail-reply").disabled = false;
         setMessage($("#gmail-reply-message"), "内容を確認し、最終確認ボタンを押すまで送信されません。", "warning");
@@ -2722,19 +3113,64 @@ const previewGmailReply = async () => {
     }
 };
 
+const recordEstimateSubmissionProgress = async () => {
+    if (!currentCase || !currentProgress?.estimate_created_on) throw new Error("estimate_creation_required");
+    const { data, error } = await supabase.rpc("update_pa_case_progress", {
+        p_inquiry_id: currentCase.id,
+        p_progress: {
+            estimate_sent_on: new Date().toISOString().slice(0, 10),
+            estimate_adjusting: true
+        },
+        p_note: "Gmail見積提出を記録"
+    });
+    if (error) throw new Error("estimate_progress_update_failed");
+    if (data) currentProgress = data;
+    renderOverview();
+};
+
+const reconcileDirectEstimateSubmission = async (message, button) => {
+    if (!currentCase || !currentProgress?.estimate_created_on || !message?.id) return;
+    if (!window.confirm("このGmail直接送信を見積提出として記録します。Gmail同期だけでは工程は変更されません。続行しますか？")) return;
+    button.disabled = true;
+    try {
+        await callGmailApi({ action: "reconcile_estimate_submission", inquiry_id: currentCase.id, gmail_message_id: message.id });
+        await recordEstimateSubmissionProgress();
+        button.textContent = "見積提出として記録済み";
+        await syncGmail();
+    } catch (error) {
+        setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
+        button.disabled = false;
+    }
+};
+
 const sendGmailReply = async () => {
     if (!currentCase || !gmailReplyPreview) return;
     if (!window.confirm(`${gmailReplyPreview.recipient} へGmailで返信します。送信しますか？`)) return;
     $("#send-gmail-reply").disabled = true;
     try {
-        const response = await callGmailApi({ action: "send_reply", inquiry_id: currentCase.id, body: $("#gmail-reply-body").value.trim(), confirmation_token: gmailReplyPreview.confirmation_token });
+        const attachments = await gmailReplyAttachmentPayload();
+        const estimateSubmission = isEstimateSubmissionMode();
+        const response = await callGmailApi({ action: "send_reply", inquiry_id: currentCase.id, body: $("#gmail-reply-body").value.trim(), attachments, mode: gmailReplyMode, confirmation_token: gmailReplyPreview.confirmation_token });
         gmailReplyPreview = null;
+        $("#send-gmail-reply").disabled = true;
         $("#gmail-reply-body").value = "";
+        gmailReplyAttachments = [];
+        $("#gmail-reply-attachments-input").value = "";
+        renderGmailReplyAttachments();
         $("#gmail-reply-preview").classList.add("hidden");
         applyGmailSyncResult(response.result);
-        setMessage($("#gmail-reply-message"), "Gmail送信成功を確認し、threadを同期しました。案件工程は変更していません。", "success");
+        if (estimateSubmission) await recordEstimateSubmissionProgress();
+        setGmailReplyMode("normal");
+        setMessage($("#gmail-reply-message"), estimateSubmission
+            ? "Gmail送信成功を確認し、見積提出・先方回答待ちの工程へ更新しました。送付履歴は追加保存されています。"
+            : "Gmail送信成功を確認し、threadを同期しました。案件工程は変更していません。", "success");
     } catch (error) {
-        setMessage($("#gmail-reply-message"), gmailErrorMessage(error.message), "error");
+        const message = error.message === "estimate_creation_required"
+            ? "Gmail送信は完了しましたが、見積作成日が未保存のため工程を更新していません。"
+            : error.message === "estimate_progress_update_failed"
+                ? "Gmail送信は完了しましたが、案件工程を更新できませんでした。送付履歴を確認し、進捗を手動で更新してください。"
+                : gmailErrorMessage(error.message);
+        setMessage($("#gmail-reply-message"), message, "error");
     } finally {
         $("#send-gmail-reply").disabled = !gmailReplyPreview;
     }
@@ -3235,13 +3671,17 @@ if (!isSupabaseConfigured) {
     });
     $("#send-email").addEventListener("click", sendEmail);
     $("#sync-gmail").addEventListener("click", () => syncGmail());
+    $("#open-estimate-submission").addEventListener("click", openEstimateSubmission);
     $("#preview-gmail-reply").addEventListener("click", previewGmailReply);
     $("#send-gmail-reply").addEventListener("click", sendGmailReply);
-    $("#gmail-reply-body").addEventListener("input", () => {
-        gmailReplyPreview = null;
-        $("#send-gmail-reply").disabled = true;
-        $("#gmail-reply-preview").classList.add("hidden");
+    $("#gmail-reply-attachments-input").addEventListener("change", (event) => {
+        addGmailReplyAttachments(event.target.files);
+        event.target.value = "";
     });
+    $("#gmail-reply-body").addEventListener("input", () => {
+        invalidateGmailReplyPreview();
+    });
+    renderGmailReplyAttachments();
     $("#preview-brand-mail-test").addEventListener("click", previewBrandMailTest);
     $("#send-brand-mail-test").addEventListener("click", sendBrandMailTest);
     $("#preview-content-hearing").addEventListener("click", previewContentHearingEmail);
