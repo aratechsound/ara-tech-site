@@ -144,7 +144,15 @@ td { font-size: .84rem; }
 .workflow-step--skipped .workflow-step__number { border-style: dashed; }
 .mail-preview { background: #f8fbff; border: 1px solid #bdd7ef; border-radius: 10px; margin-top: 16px; padding: 14px; }
 .mail-preview h5 { margin: 0; }
-.mail-preview__body { line-height: 1.7; max-height: 360px; overflow: auto; }
+.mail-preview__body { line-height: 1.7; max-height: 360px; max-width: 100%; min-width: 0; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; word-break: normal; }
+.mail-preview__body--html { white-space: normal; }
+.mail-preview__body--html :is(p, ul, ol, blockquote, pre, table) { margin-block: .8em; }
+.mail-preview__body--html :is(ul, ol) { padding-left: 1.5em; }
+.mail-preview__body--html blockquote { border-left: 3px solid #bdd7ef; color: #405060; margin-left: 0; padding-left: 12px; }
+.mail-preview__body--html a { overflow-wrap: anywhere; word-break: normal; }
+.mail-preview__body--html pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mail-preview__body--html table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
+.mail-preview__body--html :is(th, td) { border: 1px solid #d7e0e8; padding: .35em .55em; text-align: start; vertical-align: top; }
 .brand-mail-test-frame { background: #f3f6f9; border: 1px solid var(--line); display: block; height: 720px; margin-top: 12px; width: 100%; }
 
 .action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }

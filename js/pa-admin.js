@@ -331,6 +331,102 @@ const clearMessage = (element) => {
     element.className = "alert hidden";
 };
 
+// This is deliberately an allowlist renderer, not a string filter.  It tokenizes
+// mail HTML and creates only allowed DOM nodes, so scripts, event handlers, CSS,
+// images and every unsupported element are left behind.
+const EMAIL_HTML_ALLOWED_TAGS = new Set([
+    "a", "b", "blockquote", "br", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "i", "li", "ol", "p", "pre", "s", "span", "strong", "strike", "table", "tbody", "td", "tfoot",
+    "th", "thead", "tr", "u", "ul"
+]);
+const EMAIL_HTML_DROPPED_TAGS = new Set([
+    "applet", "audio", "base", "button", "canvas", "embed", "form", "frame", "frameset", "iframe", "img", "input",
+    "link", "meta", "object", "script", "source", "style", "svg", "textarea", "track", "video"
+]);
+const EMAIL_HTML_CONTENT_DROPPED_TAGS = new Set(["applet", "audio", "canvas", "embed", "form", "frame", "frameset", "iframe", "object", "script", "style", "svg", "video"]);
+const EMAIL_HTML_VOID_TAGS = new Set(["br", "hr"]);
+const EMAIL_HTML_TOKEN = /<!--[\s\S]*?-->|<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*?)?\/?>/gu;
+const EMAIL_HTML_SAFE_STYLE_PROPERTIES = new Set(["background-color", "color", "font-style", "font-weight", "text-align", "text-decoration"]);
+
+const safeEmailHref = (value) => {
+    try {
+        const url = new URL(String(value || ""), window.location.origin);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch {
+        return "";
+    }
+};
+
+const decodeEmailHtmlText = (value) => String(value || "").replace(/&(nbsp|amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/giu, (entity, code) => {
+    const named = { nbsp: "\u00a0", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+    if (named[String(code).toLowerCase()]) return named[String(code).toLowerCase()];
+    const point = String(code).toLowerCase().startsWith("#x") ? Number.parseInt(String(code).slice(2), 16) : Number.parseInt(String(code).slice(1), 10);
+    try { return Number.isInteger(point) && point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity; } catch { return entity; }
+});
+const emailHtmlAttribute = (token, name) => {
+    const match = String(token || "").match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`, "iu"));
+    return match ? (match[1] || match[2] || match[3] || "") : "";
+};
+const safeEmailStyle = (value) => String(value || "").split(";").flatMap((declaration) => {
+    const [property, ...valueParts] = declaration.split(":");
+    const safeProperty = String(property || "").trim().toLowerCase();
+    const safeValue = valueParts.join(":").trim();
+    if (!EMAIL_HTML_SAFE_STYLE_PROPERTIES.has(safeProperty) || !safeValue || /(?:url|expression|behavior|@import)/iu.test(safeValue)) return [];
+    const valid = (safeProperty === "font-weight" && /^(?:normal|bold|bolder|lighter|[1-9]00)$/iu.test(safeValue))
+        || (safeProperty === "font-style" && /^(?:normal|italic|oblique)$/iu.test(safeValue))
+        || (safeProperty === "text-align" && /^(?:start|end|left|right|center|justify)$/iu.test(safeValue))
+        || (safeProperty === "text-decoration" && /^(?:none|underline|line-through|overline)(?:\s+(?:underline|line-through|overline))?$/iu.test(safeValue))
+        || ((safeProperty === "color" || safeProperty === "background-color") && /^(?:#[\da-f]{3,8}|[a-z]{1,20}|(?:rgb|hsl)a?\([\d.%\s,/-]+\))$/iu.test(safeValue));
+    return valid ? [[safeProperty, safeValue]] : [];
+});
+
+const appendSanitizedEmailHtml = (container, value) => {
+    const stack = [{ tag: "#root", element: container }];
+    const sourceHtml = String(value || "");
+    let blockedTag = "";
+    let lastIndex = 0;
+    const appendText = (text) => {
+        if (!blockedTag && text) stack.at(-1).element.append(document.createTextNode(decodeEmailHtmlText(text)));
+    };
+    for (const tokenMatch of sourceHtml.matchAll(EMAIL_HTML_TOKEN)) {
+        appendText(sourceHtml.slice(lastIndex, tokenMatch.index));
+        lastIndex = tokenMatch.index + tokenMatch[0].length;
+        const token = tokenMatch[0];
+        if (token.startsWith("<!--")) continue;
+        const closing = /^<\//u.test(token);
+        const tag = (token.match(/^<\/?\s*([A-Za-z0-9:-]+)/u)?.[1] || "").toLowerCase();
+        if (!tag) continue;
+        if (blockedTag) {
+            if (closing && tag === blockedTag) blockedTag = "";
+            continue;
+        }
+        if (closing) {
+            const index = stack.map((entry) => entry.tag).lastIndexOf(tag);
+            if (index > 0) stack.splice(index);
+            continue;
+        }
+        if (EMAIL_HTML_DROPPED_TAGS.has(tag)) {
+            if (EMAIL_HTML_CONTENT_DROPPED_TAGS.has(tag)) blockedTag = tag;
+            continue;
+        }
+        if (!EMAIL_HTML_ALLOWED_TAGS.has(tag)) continue;
+        const target = document.createElement(tag);
+        safeEmailStyle(emailHtmlAttribute(token, "style")).forEach(([property, styleValue]) => target.style.setProperty(property, styleValue));
+        if (tag === "a") {
+            const href = safeEmailHref(emailHtmlAttribute(token, "href"));
+            if (href) {
+                target.href = href;
+                target.target = "_blank";
+                target.rel = "noopener noreferrer";
+            }
+        }
+        stack.at(-1).element.append(target);
+        if (!EMAIL_HTML_VOID_TAGS.has(tag)) stack.push({ tag, element: target });
+    }
+    appendText(sourceHtml.slice(lastIndex));
+    return container.childNodes.length > 0;
+};
+
 const valueOrNull = (selector) => {
     const value = $(selector).value.trim();
     return value || null;
@@ -1894,13 +1990,14 @@ const renderEmailHistory = () => {
                 const meta = document.createElement("span");
                 meta.textContent = `${formatDateTime(message.occurred_at)}${message.direction === "inbound" && currentMailAttention === "new_customer_reply" ? " ／ 新着" : ""}`;
                 item.append(title, subject, meta);
-                if (message.body_text) {
+                if (message.body_html || message.body_text) {
                     const details = document.createElement("details");
                     const summary = document.createElement("summary");
                     summary.textContent = "本文を表示";
-                    const body = document.createElement("p");
-                    body.className = "mail-preview__body";
-                    body.textContent = message.body_text;
+                    const body = document.createElement(message.body_html ? "div" : "p");
+                    body.className = `mail-preview__body${message.body_html ? " mail-preview__body--html" : ""}`;
+                    const renderedHtml = message.body_html && appendSanitizedEmailHtml(body, message.body_html);
+                    if (!renderedHtml) body.textContent = message.body_text || "（本文を表示できません）";
                     details.append(summary, body);
                     item.append(details);
                 }

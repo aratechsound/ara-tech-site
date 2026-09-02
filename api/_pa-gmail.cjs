@@ -112,6 +112,9 @@ const normalizeMessage = (message) => {
         subject: String(headers.subject || "").replace(/[\r\n]/gu, " ").slice(0, 500),
         occurred_at: occurredAt,
         body_text: String(parts.plain || htmlToText(parts.html)).slice(0, 50_000),
+        // Gmail remains the message authority.  The client receives the HTML only
+        // for its allowlist-based renderer; it must never insert this value directly.
+        body_html: String(parts.html || "").slice(0, 50_000),
         attachments: parts.attachments.slice(0, 100),
         rfc_message_id: String(headers["message-id"] || "").trim()
     };
@@ -422,4 +425,4 @@ const sendReply = async ({ inquiryId, actorId, body, confirmationToken }, fetchI
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { caseReference, getAttachment, manualLink, replyPreview, sendReply, syncCase, validGmailId };
+module.exports = { caseReference, getAttachment, manualLink, normalizeMessage, replyPreview, sendReply, syncCase, validGmailId };
