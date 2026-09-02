@@ -57,4 +57,9 @@ assert.match(client, /action: "attachment_get"/u);
 assert.match(client, /案件工程は変更していません/u);
 assert.doesNotMatch(client, /\.update\(\{\s*status:\s*["']customer_responded/u);
 
+const gmailService = read("api/_pa-gmail.cjs");
+assert.match(gmailService, /latest\?\.direction === "inbound"/u);
+assert.match(gmailService, /latest\?\.to_addresses/u);
+assert.doesNotMatch(gmailService, /latest\?\.direction !== "inbound"/u);
+
 console.log("PAM-002 Gmail case communication validation: PASS");

@@ -292,8 +292,13 @@ const replyPreview = async ({ inquiryId, actorId, body }, fetchImpl = fetch) => 
     const thread = await gmailThread(link.gmail_thread_id, fetchImpl);
     const messages = (thread.messages || []).map(normalizeMessage);
     const latest = [...messages].sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
-    const recipient = safeAddress(latest?.reply_to || latest?.from_address);
-    if (!EMAIL.test(recipient) || latest?.direction !== "inbound") throw new Error("reply_target_unavailable");
+    // A thread may initially contain only our delivery.  In that case reply to
+    // its original recipient, still in the same Gmail thread; a customer reply
+    // takes precedence once one exists.
+    const recipient = latest?.direction === "inbound"
+        ? safeAddress(latest.reply_to || latest.from_address)
+        : safeAddress(Array.isArray(latest?.to_addresses) ? latest.to_addresses.find((address) => EMAIL.test(safeAddress(address))) : "");
+    if (!EMAIL.test(recipient)) throw new Error("reply_target_unavailable");
     const subject = cleanHeader(latest.subject, 240);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const expiresAt = Date.now() + PREVIEW_TTL_MS;
