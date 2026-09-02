@@ -59,44 +59,31 @@ const completedStatuses = new Set([
 ]);
 
 const workflowSteps = [
-    "PA予約・お問い合わせ内容確認",
-    "日程調整が必要か判断",
-    "日程確保フォーム専用URL発行",
-    "お客様回答確認",
-    "日程確保結果の確定・連絡",
-    "見積作成",
-    "見積送付・内容調整",
-    "見積承認",
-    "正式予約",
-    "イベント準備",
-    "イベント実施",
+    "問い合わせ受付",
+    "ヒアリング",
+    "概算提示",
+    "依頼意思確認",
+    "日程・人員調整",
+    "正式見積",
+    "発注確認",
+    "予約確定",
+    "事前準備・打合せ",
+    "最終確認",
+    "本番実施",
     "請求",
     "入金確認",
-    "ケースクローズ"
+    "完了"
 ];
 
-const salesWorkflowStages = [
-    { code: "NEW_INQUIRY", label: "新規問い合わせ" },
-    { code: "RECEIPT_AUTO_SENT", label: "受付確認メール（自動）" },
-    { code: "FOLLOW_UP_PENDING", label: "担当者フォロー待ち" },
-    { code: "WAITING_CUSTOMER_REPLY", label: "内容確認・ヒアリングメール送信済み／お客様回答待ち" },
-    { code: "HEARING", label: "ヒアリング" },
-    { code: "ROUGH_ESTIMATE", label: "概算見積" },
-    { code: "CUSTOMER_INTENT_CONFIRMED", label: "依頼意思確認" },
-    { code: "SCHEDULE_COORDINATION", label: "日程・人員調整" }
+const workflowPhases = [
+    { id: "sales", label: "商談", steps: [1, 2, 3, 4] },
+    { id: "order", label: "受注", steps: [5, 6, 7, 8] },
+    { id: "preparation", label: "準備", steps: [9, 10] },
+    { id: "delivery", label: "実施", steps: [11] },
+    { id: "settlement", label: "精算", steps: [12, 13, 14] }
 ];
 
 const contentHearingPendingStatuses = new Set(["new", "new_inquiry", "follow_up_pending"]);
-const salesStageIndexByStatus = Object.freeze({
-    new: 2,
-    new_inquiry: 2,
-    follow_up_pending: 2,
-    waiting_customer_reply: 3,
-    hearing: 4,
-    rough_estimate: 5,
-    customer_intent_confirmed: 6,
-    schedule_coordination: 7
-});
 const scheduleEligibleStatuses = new Set([
     "schedule_coordination",
     "second_form_not_issued",
@@ -108,10 +95,10 @@ const scheduleEligibleStatuses = new Set([
 ]);
 
 const progressGroups = [
-    { id: "schedule", label: "日程確認・調整中", steps: [1, 2, 3, 4, 5] },
-    { id: "estimate", label: "見積対応中", steps: [6, 7, 8] },
-    { id: "booking", label: "正式予約・準備中", steps: [9, 10] },
-    { id: "event", label: "イベント実施待ち", steps: [11] },
+    { id: "sales", label: "商談中", steps: [1, 2, 3, 4] },
+    { id: "order", label: "受注対応中", steps: [5, 6, 7, 8] },
+    { id: "preparation", label: "準備中", steps: [9, 10] },
+    { id: "delivery", label: "本番実施待ち", steps: [11] },
     { id: "payment", label: "請求・入金待ち", steps: [12, 13] },
     { id: "hold", label: "保留中", steps: [] }
 ];
@@ -136,17 +123,17 @@ const initialWorkflowStep = (status) => ({
     follow_up_pending: 1,
     waiting_customer_reply: 2,
     hearing: 2,
-    rough_estimate: 2,
-    customer_intent_confirmed: 2,
-    schedule_coordination: 3,
+    rough_estimate: 3,
+    customer_intent_confirmed: 4,
+    schedule_coordination: 5,
     reviewing: 2,
-    second_form_not_issued: 3,
-    schedule_unconfirmed: 3,
-    second_form_issued: 4,
+    second_form_not_issued: 5,
+    schedule_unconfirmed: 5,
+    second_form_issued: 5,
     customer_responded: 5,
     schedule_adjusting: 5,
     needs_confirmation: 5,
-    schedule_confirmed: 6,
+    schedule_confirmed: 5,
     schedule_unavailable: 14,
     declined: 14,
     cancelled: 14,
@@ -284,6 +271,7 @@ const firstFormDetails = $("#first-form-details");
 const automaticMailStatus = $("#automatic-mail-status");
 const emailHistory = $("#email-history");
 const technicalDetails = $("#technical-details");
+const currentSituationSection = $("#current-situation-section");
 const nextActionSection = $("#next-action-section");
 const workflowStatePanel = $("#workflow-state-panel");
 const resultActionPanel = $("#result-action-panel");
@@ -392,11 +380,20 @@ const amountOrNull = (selector) => {
     return Number.isFinite(amount) ? amount : null;
 };
 
+// The persisted `current_step` used the former 14-step vocabulary.  This read-only
+// projection keeps that history intact while rendering only the PAM-001 authority.
 const workflowStepForCase = (item) => {
-    const step = Number(progressForCase(item).current_step);
-    return Number.isInteger(step) && step >= 1 && step <= 14
-        ? step
-        : initialWorkflowStep(item?.status);
+    const progress = progressForCase(item);
+    const status = item?.status;
+    if (isCompletedStatus(status, progress)) return 14;
+    if (status !== "schedule_confirmed") return initialWorkflowStep(status);
+    if (!progress.estimate_created_on) return 6;
+    if (!progress.estimate_sent_on || progress.estimate_adjusting) return 7;
+    if (!progress.estimate_approved_on) return 8;
+    if (!progress.booking_confirmed_on) return 9;
+    if (!progress.event_preparation_completed_on) return 10;
+    if (!progress.event_completed_on) return 11;
+    return progress.invoice_sent ? 13 : 12;
 };
 
 const eventYearForCase = (item) => {
@@ -415,13 +412,12 @@ const progressGroupForCase = (item) => {
 const workflowStepLabel = (item) => {
     if (isClosedCase(item)) {
         const reason = closeReasonLabels[progressForCase(item).close_reason] || "対応終了";
-        return `ケースクローズ（${reason}）`;
+        return `完了（${reason}）`;
     }
     const step = workflowStepForCase(item);
     if (item?.status === "on_hold" || progressForCase(item).is_on_hold) {
         return `${workflowSteps[step - 1]}（保留中）`;
     }
-    if (step === 4) return `${workflowSteps[3]}（回答待ち）`;
     return workflowSteps[step - 1] || "案件内容を確認";
 };
 
@@ -448,6 +444,10 @@ const mailStatusLabels = {
 
 const newestDelivery = (type) =>
     currentDeliveries.find((delivery) => delivery.message_type === type) || null;
+
+const isInternalDelivery = (delivery) =>
+    delivery?.message_type === "internal_new_inquiry"
+    || String(delivery?.message_type || "").endsWith("_internal");
 
 const nextActionText = () => {
     if (!currentCase) return "案件情報を入力";
@@ -476,43 +476,95 @@ const nextActionText = () => {
     return "内容を確認し、日程調整の要否を判断";
 };
 
-const salesStageIndexForCase = (item) => {
-    if (Object.hasOwn(salesStageIndexByStatus, item?.status)) return salesStageIndexByStatus[item.status];
-    return salesWorkflowStages.length;
+const phaseForStep = (step) => workflowPhases.find((phase) => phase.steps.includes(step)) || workflowPhases[0];
+
+const waitingOnForCase = () => {
+    if (!currentCase) return "NONE";
+    if (currentCase.status === "waiting_customer_reply") return "CUSTOMER";
+    if (currentCase.status === "on_hold") return "THIRD_PARTY";
+    if (currentCase.status === "schedule_adjusting") return "THIRD_PARTY";
+    if (currentCase.status === "schedule_confirmed" && currentProgress?.confirmed_event_date) return "SCHEDULED_TIME";
+    return "ARA_TECH";
 };
 
-const renderSalesWorkflow = () => {
-    const list = $("#sales-workflow-steps");
-    if (!list) return;
-    list.replaceChildren();
-    if (!currentCase) return;
+const waitingOnLabel = (waitingOn) => ({
+    ARA_TECH: "ARA-TECH対応待ち",
+    CUSTOMER: "お客様回答待ち",
+    THIRD_PARTY: "第三者確認待ち",
+    SCHEDULED_TIME: "予定日時待ち",
+    NONE: "待機なし"
+}[waitingOn] || "未設定");
 
-    const currentIndex = salesStageIndexForCase(currentCase);
-    salesWorkflowStages.forEach((stage, index) => {
-        const item = document.createElement("li");
-        const state = index < currentIndex ? "completed" : index === currentIndex ? "current" : "future";
-        item.className = `sales-workflow-step sales-workflow-step--${state}`;
-        item.dataset.stageCode = stage.code;
-        item.textContent = `${index + 1}. ${stage.label}${state === "current" ? "（現在）" : state === "completed" ? "（完了）" : ""}`;
-        list.append(item);
-    });
+const situationForCase = () => {
+    if (!currentCase) return null;
+    const item = { ...currentCase, progress: currentProgress };
+    const step = workflowStepForCase(item);
+    const phase = phaseForStep(step);
+    const waitingOn = waitingOnForCase();
+    if (currentCase.status === "waiting_customer_reply") {
+        return {
+            phase: phase.label,
+            stage: workflowSteps[step - 1],
+            waitingOn,
+            title: "お客様回答待ち",
+            description: "内容確認・ヒアリングメール送信済み。開催時間、タイムテーブル、会場資料、ご予算等の回答待ち。",
+            nextAction: "現在はありません。お客様からの返信を待ってください。"
+        };
+    }
+    if (currentCase.status === "customer_responded") {
+        return {
+            phase: phase.label,
+            stage: workflowSteps[step - 1],
+            waitingOn: "ARA_TECH",
+            title: "新着返信あり",
+            description: "お客様からの回答を受領しています。案件工程はメール受信だけでは進行しません。",
+            nextAction: "お客様の返信内容・添付資料を確認してください。"
+        };
+    }
+    return {
+        phase: phase.label,
+        stage: workflowSteps[step - 1],
+        waitingOn,
+        title: waitingOnLabel(waitingOn),
+        description: `${phase.label} ＞ ${workflowSteps[step - 1]} の工程です。`,
+        nextAction: waitingOn === "CUSTOMER" ? "現在はありません。お客様からの返信を待ってください。" : nextActionText()
+    };
+};
+
+const renderCurrentSituation = () => {
+    const situation = situationForCase();
+    if (!situation) return;
+    $("#current-situation-stage").textContent = `${situation.phase} ＞ ${situation.stage}`;
+    $("#current-situation-waiting").textContent = waitingOnLabel(situation.waitingOn);
+    $("#workflow-state-title").textContent = situation.title;
+    $("#workflow-state-description").textContent = situation.description;
+    $("#current-situation-next-action").textContent = `次の対応：${situation.nextAction}`;
 };
 
 const renderOverview = () => {
-    const caseWithProgress = currentCase ? { ...currentCase, progress: currentProgress } : null;
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
     $("#overview-date").textContent = formatDate(currentProgress?.confirmed_event_date || currentCase?.event_date);
     $("#overview-contact").textContent = currentCase?.contact_name || currentCase?.customer_name || "未設定";
     $("#overview-venue").textContent = currentCase?.venue || "未設定";
-    $("#overview-status").textContent = currentCase
-        ? `${statusLabels[currentCase.status] || currentCase.status} ／ 工程${workflowStepForCase(caseWithProgress)}`
-        : "未保存";
-    $("#overview-next-action").textContent = nextActionText();
     if (currentCase) {
+        renderCurrentSituation();
+        renderWorkflowPhaseNav();
         renderProgressSteps();
-        renderSalesWorkflow();
         renderNextActions();
     }
+};
+
+const renderWorkflowPhaseNav = () => {
+    const container = $("#workflow-phase-nav");
+    container.replaceChildren();
+    if (!currentCase) return;
+    const currentPhase = phaseForStep(workflowStepForCase({ ...currentCase, progress: currentProgress }));
+    workflowPhases.forEach((phase) => {
+        const item = document.createElement("span");
+        item.className = `workflow-phase${phase.id === currentPhase.id ? " workflow-phase--current" : ""}`;
+        item.textContent = phase.label;
+        container.append(item);
+    });
 };
 
 const renderProgressSteps = () => {
@@ -526,8 +578,9 @@ const renderProgressSteps = () => {
     const closed = isClosedCase(item);
     const closedFromStep = Number(progress.closed_from_step) || Math.min(currentStep, 13);
 
-    workflowSteps.forEach((label, index) => {
-        const step = index + 1;
+    const currentPhase = phaseForStep(currentStep);
+    currentPhase.steps.forEach((step) => {
+        const label = workflowSteps[step - 1];
         let state = "future";
         let stateLabel = "今後の工程";
 
@@ -573,9 +626,10 @@ const renderProgressSteps = () => {
     });
 };
 
-const setWorkflowState = (title, description, question = "") => {
-    $("#workflow-state-title").textContent = title;
-    $("#workflow-state-description").textContent = description;
+const setWorkflowState = (_title, _description, question = "") => {
+    // State and next action have one authority: `situationForCase()`.
+    // Operational panels below never replace the top-level case situation.
+    renderCurrentSituation();
     const questionElement = $("#workflow-question");
     questionElement.textContent = question;
     questionElement.classList.toggle("hidden", !question);
@@ -583,6 +637,7 @@ const setWorkflowState = (title, description, question = "") => {
 
 const renderNextActions = () => {
     if (!currentCase) return;
+    currentSituationSection.classList.remove("hidden");
     nextActionSection.classList.remove("hidden");
     workflowStatePanel.classList.remove("hidden");
     resultActionPanel.classList.add("hidden");
@@ -1297,6 +1352,7 @@ const resetForm = () => {
     contentHearingSection.classList.add("hidden");
     resultActionPanel.classList.add("hidden");
     resultEmailSection.classList.add("hidden");
+    currentSituationSection.classList.add("hidden");
     nextActionSection.classList.add("hidden");
     progressManagementSection.classList.add("hidden");
     paymentSection.classList.add("hidden");
@@ -1807,16 +1863,17 @@ const renderAutomaticMailStatus = () => {
 
 const renderEmailHistory = () => {
     emailHistory.replaceChildren();
-    if (!currentDeliveries.length) {
+    const customerDeliveries = currentDeliveries.filter((delivery) => !isInternalDelivery(delivery));
+    if (!customerDeliveries.length) {
         const note = document.createElement("p");
         note.className = "small-note";
-        note.textContent = "メール送信履歴はありません。";
+        note.textContent = "お客様とのやり取りはまだありません。";
         emailHistory.append(note);
         $("#email-send-state").textContent = "未送信";
         return;
     }
 
-    currentDeliveries.forEach((delivery) => {
+    customerDeliveries.forEach((delivery) => {
         const item = document.createElement("div");
         item.className = `mail-history__item mail-history__item--${delivery.status}`;
         const title = document.createElement("strong");
@@ -1870,7 +1927,7 @@ const renderTechnicalDetails = () => {
 
 const renderAudit = (entries) => {
     auditList.replaceChildren();
-    const mailEntries = currentDeliveries.map((delivery) => ({
+    const mailEntries = currentDeliveries.filter(isInternalDelivery).map((delivery) => ({
         occurred_at: delivery.sent_at || delivery.failed_at || delivery.requested_at,
         label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${mailStatusLabels[delivery.status] || delivery.status}${delivery.is_retry ? "（再送）" : ""}`
     }));

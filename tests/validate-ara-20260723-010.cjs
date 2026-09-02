@@ -25,7 +25,7 @@ assert.match(inquiryHtml, /予約や日程確保は成立しません/);
 assert.match(scheduleHtml, /日程確保フォーム/);
 assert.match(scheduleHtml, /条件確認・同意/);
 assert.match(scheduleHtml, /専用URLをご案内したお客様だけが使用します/);
-assert.match(adminHtml, /PA予約・お問い合わせ内容を確認/);
+assert.match(adminHtml, /正式14工程を正本として/);
 assert.match(adminHtml, /日程確保フォームURLを発行/);
 assert.match(adminHtml, /この内容でGmail送信/);
 assert.match(adminHtml, /正式署名は送信時にサーバー側で自動付与/);

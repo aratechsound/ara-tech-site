@@ -13,7 +13,7 @@ const migration = read("supabase/migrations/2026-07-24-pa-case-progress.sql");
 
 assert.match(adminHtml, /<title>PA案件管理 \| ARA-TECH<\/title>/);
 assert.match(adminHtml, /<h1>PA案件管理<\/h1>/);
-assert.match(adminHtml, /問い合わせ受付から日程確保、見積り、正式予約、イベント実施、請求、手動入金確認、ケースクローズまで/);
+assert.match(adminHtml, /正式14工程を正本として/);
 assert.match(adminHtml, /id="case-tabs"[^>]*role="tablist"/);
 assert.match(adminHtml, /id="progress-summary"/);
 assert.match(adminHtml, /id="progress-management-section"/);
@@ -22,34 +22,34 @@ assert.match(adminHtml, /id="payment-mismatch-confirmed"/);
 assert.match(adminHtml, /id="payment-confirmation-panel"/);
 assert.match(adminHtml, /id="confirm-payment-close"/);
 assert.match(adminHtml, /入金確認とケースクローズを同一トランザクションで確定/);
-assert.match(adminHtml, /pa-admin\.css\?v=ara-20260901-002-brand-mail-test/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260901-002-brand-mail-test/);
+assert.match(adminHtml, /pa-admin\.css\?v=pam-001-workflow/);
+assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
 
 const workflowSource = adminJs.match(/const workflowSteps = \[([\s\S]*?)\];/);
 assert.ok(workflowSource, "14-step workflow declaration must exist");
 const workflowSteps = [...workflowSource[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 assert.equal(workflowSteps.length, 14);
 assert.deepEqual(workflowSteps, [
-    "PA予約・お問い合わせ内容確認",
-    "日程調整が必要か判断",
-    "日程確保フォーム専用URL発行",
-    "お客様回答確認",
-    "日程確保結果の確定・連絡",
-    "見積作成",
-    "見積送付・内容調整",
-    "見積承認",
-    "正式予約",
-    "イベント準備",
-    "イベント実施",
+    "問い合わせ受付",
+    "ヒアリング",
+    "概算提示",
+    "依頼意思確認",
+    "日程・人員調整",
+    "正式見積",
+    "発注確認",
+    "予約確定",
+    "事前準備・打合せ",
+    "最終確認",
+    "本番実施",
     "請求",
     "入金確認",
-    "ケースクローズ"
+    "完了"
 ]);
 
 assert.match(adminJs, /const renderProgressSteps = \(\) =>/);
 assert.match(adminJs, /workflow-step--\$\{state\}/);
 assert.match(adminJs, /state === "completed" \? "✓" : String\(step\)/);
-assert.match(adminJs, /\? "保留中"[\s\S]*?: step === 4 \? "回答待ち" : "次に対応"/);
+assert.match(adminJs, /progress\.is_on_hold \|\| currentCase\.status === "on_hold"/);
 assert.match(adminJs, /stateLabel = "今後の工程"/);
 assert.match(adminJs, /activeCaseTab = "active"/);
 assert.match(adminJs, /filter\(isClosedCase\)[\s\S]*?map\(eventYearForCase\)/);
@@ -143,9 +143,9 @@ const stage = ({
     if (status !== "schedule_confirmed") return {
         new: 1,
         reviewing: 2,
-        second_form_not_issued: 3,
-        schedule_unconfirmed: 3,
-        second_form_issued: 4,
+        second_form_not_issued: 5,
+        schedule_unconfirmed: 5,
+        second_form_issued: 5,
         customer_responded: 5,
         schedule_adjusting: 5,
         needs_confirmation: 5,

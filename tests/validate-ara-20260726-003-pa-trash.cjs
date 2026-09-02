@@ -33,7 +33,7 @@ assert.match(adminHtml, /案件の進捗状態は保持されますが、通常�
 assert.match(adminHtml, /顧客用URLは利用できなくなります。メールは送信されません。/);
 assert.match(adminHtml, /この操作は元に戻せません。/);
 assert.match(adminHtml, /進捗・入金・専用URL／トークン・回答・メール送信履歴・監査履歴/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260901-002-brand-mail-test/);
+assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
 
 assert.match(adminCss, /\.case-dialog\s*\{/);
 assert.match(adminCss, /\.case-dialog::backdrop/);

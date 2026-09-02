@@ -80,8 +80,8 @@ assert.doesNotMatch(adminCss, /\.case-row--completed[^{]*\{[^}]*opacity:/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*max-width:\s*100%/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*overflow-x:\s*auto/s);
 
-assert.match(adminHtml, /pa-admin\.css\?v=ara-20260901-002-brand-mail-test/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=ara-20260901-002-brand-mail-test/);
+assert.match(adminHtml, /pa-admin\.css\?v=pam-001-workflow/);
+assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
 
 new vm.Script(adminJs.replace(/^import .*$/gm, ""), {
     filename: "js/pa-admin.js"

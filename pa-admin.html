@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css?v=ara-20260901-002-brand-mail-test">
+    <link rel="stylesheet" href="pa-admin.css?v=pam-001-workflow">
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
 <body>
@@ -26,7 +26,7 @@
     <main>
         <p class="eyebrow">PA CASE ADMINISTRATION</p>
         <h1>PA案件管理</h1>
-        <p class="intro">問い合わせ受付から日程確保、見積り、正式予約、イベント実施、請求、手動入金確認、ケースクローズまでを一つの案件で管理します。</p>
+        <p class="intro">正式14工程を正本として、顧客コミュニケーション、日程確保、見積、予約、実施、請求、入金の業務記録を一つの案件に集約します。</p>
 
         <section id="config-message" class="card hidden" aria-live="polite"></section>
 
@@ -60,30 +60,6 @@
                     <button id="sign-out" class="button button--secondary" type="button">ログアウト</button>
                 </div>
             </div>
-
-            <section id="brand-mail-test" class="card" aria-labelledby="brand-mail-test-title">
-                <div class="section-head">
-                    <div>
-                        <p class="eyebrow">ADMIN-ONLY E2E TEST</p>
-                        <h2 id="brand-mail-test-title">ブランドメール表示テスト</h2>
-                        <p class="small-note">PA案件・案件進捗・顧客送信履歴には記録しません。送信先はテスト専用の固定許可先だけです。</p>
-                    </div>
-                </div>
-                <dl class="detail-list">
-                    <dt>送信先</dt><dd id="brand-mail-test-recipient">tonokun&#64;gmail.com</dd>
-                    <dt>件名</dt><dd>【ARA-TECH】顧客向けメール共通テンプレート表示テスト</dd>
-                </dl>
-                <div class="actions actions--compact">
-                    <button id="preview-brand-mail-test" class="button button--secondary" type="button">プレビュー</button>
-                    <button id="send-brand-mail-test" class="button" type="button" disabled>テストメールを送信</button>
-                </div>
-                <div id="brand-mail-test-preview" class="mail-preview hidden" aria-live="polite">
-                    <h3>送信内容のプレビュー</h3>
-                    <p class="small-note">共通rendererが生成したHTMLです。内容と送信先を確認後、送信ボタンをもう一度押し、最終確認で送信してください。</p>
-                    <iframe id="brand-mail-test-frame" class="brand-mail-test-frame" title="ブランドメール表示テストのプレビュー" sandbox="" referrerpolicy="no-referrer"></iframe>
-                </div>
-                <p id="brand-mail-test-message" class="alert hidden" aria-live="polite"></p>
-            </section>
 
             <section class="card">
                 <div class="section-head">
@@ -204,30 +180,57 @@
                     <div><span>開催希望日</span><strong id="overview-date">未設定</strong></div>
                     <div><span>担当者</span><strong id="overview-contact">未設定</strong></div>
                     <div><span>会場</span><strong id="overview-venue">未設定</strong></div>
-                    <div><span>現在の対応状態</span><strong id="overview-status">未設定</strong></div>
-                    <div class="case-overview__next"><span>次に行う操作</span><strong id="overview-next-action">内容を確認</strong></div>
                 </section>
 
-                <section id="next-action-section" class="subsection subsection--next hidden">
+                <section id="current-situation-section" class="subsection subsection--next hidden" aria-labelledby="current-situation-title">
                     <div class="section-head">
                         <div>
-                            <h3>案件進捗と次の対応</h3>
-                            <p class="small-note">完了・現在・今後の14工程を表示します。現在対応する工程は原則1つだけ強調されます。</p>
+                            <h3 id="current-situation-title">現在の状況</h3>
+                            <p class="small-note">この案件で今起きていることと、人が対応する必要がある場合だけを表示します。</p>
                         </div>
                     </div>
-                    <ol id="case-progress-steps" class="workflow-list workflow-list--case" aria-label="案件全体の進捗"></ol>
-
-                    <div class="sales-workflow" aria-label="初回営業工程">
-                        <h4>初回営業工程</h4>
-                        <ol id="sales-workflow-steps" class="sales-workflow__steps"></ol>
-                    </div>
-
-                    <div id="automatic-mail-status" class="mail-status-grid" aria-label="受付メールの状態"></div>
-
                     <div id="workflow-state-panel" class="action-panel action-panel--state">
-                        <h4 id="workflow-state-title">PA予約・お問い合わせ内容を確認</h4>
+                        <dl class="current-situation__meta">
+                            <div><dt>Phase / Stage</dt><dd id="current-situation-stage">未設定</dd></div>
+                            <div><dt>状態</dt><dd id="current-situation-waiting">未設定</dd></div>
+                        </dl>
+                        <h4 id="workflow-state-title">案件内容を確認</h4>
                         <p id="workflow-state-description" class="small-note"></p>
+                        <p id="current-situation-next-action" class="current-situation__next-action"></p>
                         <div id="workflow-question" class="workflow-question hidden"></div>
+                    </div>
+                </section>
+
+                <section id="workflow-section" class="subsection" aria-labelledby="workflow-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="workflow-title">全体工程</h3>
+                            <p class="small-note">商談 → 受注 → 準備 → 実施 → 精算。現在のPhaseだけを詳しく表示します。</p>
+                        </div>
+                    </div>
+                    <div id="workflow-phase-nav" class="workflow-phase-nav" aria-label="案件の全体位置"></div>
+                    <ol id="case-progress-steps" class="workflow-list workflow-list--case" aria-label="現在Phaseの案件進捗"></ol>
+                </section>
+
+                <section id="communication-section" class="subsection" aria-labelledby="communication-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="communication-title">顧客コミュニケーション</h3>
+                            <p class="small-note">お客様との実際のやり取りを時系列で表示します。内部通知は監査履歴に表示します。</p>
+                        </div>
+                    </div>
+                    <div class="action-panel">
+                        <h4>最近のやり取り</h4>
+                        <div id="email-history" class="mail-history"></div>
+                    </div>
+                </section>
+
+                <section id="next-action-section" class="subsection hidden" aria-labelledby="practical-title">
+                    <div class="section-head">
+                        <div>
+                            <h3 id="practical-title">案件実務情報</h3>
+                            <p class="small-note">メール送信、日程確保、見積、予約、実施、請求、入金の業務操作です。これらは案件工程そのものではありません。</p>
+                        </div>
                     </div>
 
                     <div id="content-hearing-section" class="action-panel hidden">
@@ -344,10 +347,7 @@
                         <p id="result-email-message" class="alert hidden" aria-live="polite"></p>
                     </div>
 
-                    <div class="action-panel">
-                        <h4>送信履歴</h4>
-                        <div id="email-history" class="mail-history"></div>
-                    </div>
+                    <div id="automatic-mail-status" class="hidden" aria-hidden="true"></div>
                 </section>
 
                 <section id="progress-management-section" class="subsection hidden" aria-labelledby="progress-management-title">
@@ -682,13 +682,37 @@
                 </section>
 
                 <section id="audit-section" class="subsection">
-                    <h3>案件履歴</h3>
+                    <h3>履歴・監査</h3>
+                    <p class="small-note">内部通知、状態遷移、操作記録を保持します。顧客との通常のやり取りは上部の「最近のやり取り」に表示します。</p>
                     <ul id="audit-list" class="audit-list"></ul>
                 </section>
 
                 <details class="detail-section detail-section--technical">
                     <summary>技術情報</summary>
                     <dl id="technical-details" class="detail-list detail-section__body"></dl>
+                </details>
+
+                <details id="maintenance-tools" class="detail-section detail-section--technical">
+                    <summary>管理・保守ツール</summary>
+                    <div id="brand-mail-test" aria-labelledby="brand-mail-test-title">
+                        <p class="eyebrow">ADMIN-ONLY E2E TEST</p>
+                        <h3 id="brand-mail-test-title">ブランドメール表示テスト</h3>
+                        <p class="small-note">PA案件・案件進捗・顧客送信履歴には記録しません。送信先はテスト専用の固定許可先だけです。</p>
+                        <dl class="detail-list">
+                            <dt>送信先</dt><dd id="brand-mail-test-recipient">tonokun&#64;gmail.com</dd>
+                            <dt>件名</dt><dd>【ARA-TECH】顧客向けメール共通テンプレート表示テスト</dd>
+                        </dl>
+                        <div class="actions actions--compact">
+                            <button id="preview-brand-mail-test" class="button button--secondary" type="button">プレビュー</button>
+                            <button id="send-brand-mail-test" class="button" type="button" disabled>テストメールを送信</button>
+                        </div>
+                        <div id="brand-mail-test-preview" class="mail-preview hidden" aria-live="polite">
+                            <h4>送信内容のプレビュー</h4>
+                            <p class="small-note">共通rendererが生成したHTMLです。内容と送信先を確認後、送信ボタンをもう一度押し、最終確認で送信してください。</p>
+                            <iframe id="brand-mail-test-frame" class="brand-mail-test-frame" title="ブランドメール表示テストのプレビュー" sandbox="" referrerpolicy="no-referrer"></iframe>
+                        </div>
+                        <p id="brand-mail-test-message" class="alert hidden" aria-live="polite"></p>
+                    </div>
                 </details>
             </section>
         </section>
@@ -758,6 +782,6 @@
         </div>
     </dialog>
 
-    <script type="module" src="js/pa-admin.js?v=ara-20260901-002-brand-mail-test"></script>
+    <script type="module" src="js/pa-admin.js?v=pam-001-workflow"></script>
 </body>
 </html>
