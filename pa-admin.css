@@ -267,3 +267,8 @@ body:has(.case-dialog[open]) { overflow: hidden; }
     .gmail-candidate { align-items: stretch; flex-direction: column; }
     .gmail-candidate .button { width: 100%; }
 }
+#formal-contract-panel { border: 2px solid #136ca9; border-radius: 8px; padding: 20px; }
+#formal-contract-panel input:not([type=checkbox]), #formal-contract-panel select, #formal-contract-panel textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+#formal-contract-panel p, #formal-contract-panel pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+#formal-contract-panel form, #formal-contract-panel .action-panel { margin-top: 18px; }
+#formal-contract-panel [hidden] { display: none !important; }

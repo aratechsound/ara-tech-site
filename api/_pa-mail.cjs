@@ -1260,6 +1260,7 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 };
 
 module.exports = {
+    supabaseConfig,
     ADMIN_URL,
     AUTOMATIC_TYPES,
     BRAND_EMAIL_TEST_RECIPIENT,

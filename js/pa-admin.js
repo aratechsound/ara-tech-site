@@ -1,5 +1,6 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
+import { renderContractPanel } from "./pa-contract-admin.js";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -629,6 +630,11 @@ const workflowStepForCase = (item) => {
     const progress = progressForCase(item);
     const status = item?.status;
     if (isCompletedStatus(status, progress)) return 14;
+    if (progress.formal_contract_id) {
+        if (!progress.event_preparation_completed_on) return 9;
+        if (!progress.event_completed_on) return 11;
+        return progress.invoice_sent ? 13 : 12;
+    }
     if (!["rough_estimate", "schedule_confirmed"].includes(status)) return initialWorkflowStep(status);
     if (!progress.estimate_created_on) return status === "rough_estimate" ? 3 : 6;
     if (!progress.estimate_sent_on || progress.estimate_adjusting) return 7;
@@ -754,6 +760,9 @@ const situationForCase = () => {
             nextAction: "お客様の返信内容・添付資料を確認してください。"
         };
     }
+    if (currentProgress?.formal_contract_id && !isCompletedStatus(currentCase.status, currentProgress)) {
+        return { phase: phase.label, stage: workflowSteps[step - 1], waitingOn: "ARA_TECH", title: "正式受注済み", description: "お客様の正式依頼を契約履歴に保存済みです。", nextAction: "上部の契約控えの生成・送信状態を確認し、イベント準備を進めてください。" };
+    }
     if (currentCase.status === "waiting_customer_reply") {
         return {
             phase: phase.label,
@@ -795,6 +804,7 @@ const renderCurrentSituation = () => {
 };
 
 const renderOverview = () => {
+    renderContractPanel({ case: currentCase, progress: currentProgress, getCurrentCase: () => currentCase, getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token });
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
     $("#overview-date").textContent = formatDate(currentProgress?.confirmed_event_date || currentCase?.event_date);
     $("#overview-contact").textContent = currentCase?.contact_name || currentCase?.customer_name || "未設定";
