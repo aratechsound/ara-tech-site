@@ -17,10 +17,19 @@
   if(!/^[a-f0-9]{64}$/.test(token))throw Error('invalid_link');
   offer=await request('view');if(offer.state==='accepted'){accepted();return;}
   const s=offer.snapshot;
-  for(const [label,value] of [['イベント名',s.event_name],['開催日',s.event_date],['顧客名',s.customer_name],['見積金額（税込）',Number(s.amount).toLocaleString('ja-JP')+'円'],['契約version',s.contract_version],['回答期限（JST）',new Date(Date.parse(offer.expires_at)-1).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})]]){
+  for(const [label,value] of [['イベント名',s.event_name],['開催日',s.event_date],['顧客名',s.customer_name],['見積金額（税込）',Number(s.amount).toLocaleString('ja-JP')+'円'],['回答期限（日本時間）',new Date(Date.parse(offer.expires_at)-1).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})]]){
    const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;$('summary').append(dt,dd);
   }
-  $('request').textContent=s.request_summary;$('cancel').textContent=s.cancellation_terms;$('payment').textContent=s.payment_terms;$('business').textContent=s.business_terms;$('confirmer').value=s.confirmer_name;
+  $('request').textContent=s.request_summary;$('payment').textContent=s.payment_terms;$('confirmer').value=s.confirmer_name;
+  // Render only the issued snapshot. Never substitute current terms into an older offer.
+  for(const block of s.cancellation_terms.split('\n\n')){
+   const p=document.createElement('p');
+   if(/^(開催31日前まで|開催30日前～8日前|開催7日前～2日前|前日・当日)\n/.test(block)){
+    p.className='cancel-band';const [label,...lines]=block.split('\n');const strong=document.createElement('strong');strong.textContent=label;p.append(strong,document.createTextNode(lines.join('\n')));
+   }else{p.className='cancel-note';p.textContent=block;}
+   $('cancel').append(p);
+  }
+  for(const block of s.business_terms.split('\n\n')){const p=document.createElement('p');p.textContent=block;$('business').append(p);}
   $('confirmation').hidden=false;$('status').textContent='';
  }
  $('quote').addEventListener('click',async()=>{

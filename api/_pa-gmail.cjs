@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const {
     OFFICIAL_EMAIL,
     buildRawMessage,
+    buildCustomerHtml,
     cleanBody,
     cleanHeader,
     getGmailAccessToken,
@@ -500,6 +501,7 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
         recipient,
         subject,
         body: normalizedBody,
+        html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
         attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size })),
         confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, recipient, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),

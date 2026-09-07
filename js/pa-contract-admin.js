@@ -60,12 +60,12 @@ export function renderContractPanel(context){
    const blob=await response.blob();const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
    if(hash!==r.identity.sha256)throw Error('quote_identity_mismatch');
    if(!valid()||$('quotes').value!==index)return;selected={...q,quote_sha256:hash};
-   download(blob,r.identity.filename);$('identity').textContent=`確認対象：${r.identity.filename} / SHA-256 ${hash}`;$('issue').disabled=false;
+   download(blob,r.identity.filename);$('identity').textContent=`確認対象：${r.identity.filename} / SHA-256 ${hash}`;$('message').textContent='PDFの一致を確認しました。';$('issue').disabled=false;
   }catch(e){error(e);}finally{$('inspect').disabled=false;}
  };
  $('form').onsubmit=async e=>{
   e.preventDefault();if(!selected||!valid()||issuing)return;issuing=true;$('issue').disabled=true;
-  try{const result=await api('issue',{...selected,customer_name:$('customer').value,amount:$('amount').value,request_summary:$('request').value,custom_payment:$('payment').value,payment_approved:$('payment-approved').checked});if(!valid())return;$('url').value=result.url;$('issued').hidden=false;$('form').hidden=true;await refresh();}
+  try{const result=await api('issue',{...selected,customer_name:$('customer').value,amount:$('amount').value,request_summary:$('request').value,custom_payment:$('payment').value,payment_approved:$('payment-approved').checked});if(!valid())return;$('url').value=result.url;$('issued').hidden=false;$('form').hidden=true;$('message').textContent='確認URLを発行しました。以前の未回答URLは失効しました。メールは送信していません。';await refresh();}
   catch(e){error(e);if(valid())$('issue').disabled=false;}
   finally{issuing=false;}
  };

@@ -353,6 +353,8 @@ const invalidateGmailReplyPreview = () => {
     gmailReplyPreviewBinding = null;
     $("#send-gmail-reply").disabled = true;
     $("#gmail-reply-preview").classList.add("hidden");
+    $("#gmail-reply-preview-frame").srcdoc = "";
+    $("#gmail-reply-preview-frame").hidden = true;
 };
 const isEstimateSubmissionMode = () => gmailReplyMode === "estimate_submission";
 const setGmailReplyMode = (mode = "normal") => {
@@ -3129,6 +3131,10 @@ const previewGmailReply = async () => {
         $("#gmail-reply-preview-recipient").textContent = response.preview.recipient;
         $("#gmail-reply-preview-subject").textContent = response.preview.subject;
         $("#gmail-reply-preview-body").textContent = response.preview.body;
+        // The server uses this same renderer for the Gmail MIME HTML part.
+        // Sandbox permits no scripts, forms, navigation or same-origin access.
+        $("#gmail-reply-preview-frame").srcdoc = response.preview.html || "";
+        $("#gmail-reply-preview-frame").hidden = !response.preview.html;
         renderGmailReplyPreviewAttachments(response.preview.attachments);
         $("#gmail-reply-preview").classList.remove("hidden");
         $("#send-gmail-reply").disabled = false;
