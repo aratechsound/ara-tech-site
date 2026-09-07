@@ -80,7 +80,7 @@ export function renderContractPanel(context){
    for(const d of chosen){const result=await api('inspect_related',d.candidate);if(!valid()||captured!==relatedEpoch)return;size+=result.identity.size;verified.push({entry:d,identity:result.identity});}
    if(size>1500000)throw Error('related_documents_too_large');
    for(const d of verified)d.entry.identity=d.identity;
-   $('related-status').textContent=verified.length?verified.map(d=>`${d.identity.filename} ／ SHA-256 ${d.identity.sha256}`).join('\n'):'関連資料なし';updateReady();
+   $('related-status').textContent=verified.length?verified.map(d=>`${d.identity.filename} ／ SHA-256 ${d.identity.sha256}`).join('\n'):'関連資料なし';$('message').textContent=verified.length?'選択した関連資料の一致を確認しました。発行済みURLは変更していません。':'関連資料なしで確認しました。';updateReady();
   }catch(e){error(e);}finally{$('inspect-related').disabled=false;}
  };
  $('inspect').onclick=async()=>{
