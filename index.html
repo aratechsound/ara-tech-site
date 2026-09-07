@@ -131,6 +131,8 @@
         .section-title { position: relative; display: inline-block; padding-bottom: 15px; margin-bottom: 30px; }
         .section-title::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 3px; background: var(--primary-blue); }
         .etajima-home-feature { margin-bottom: 80px; }
+        .showcase-img { width: 100%; height: auto; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); transition: 0.5s; cursor: pointer; }
+        .showcase-img:hover { transform: scale(1.02); filter: brightness(1.1); }
         .etajima-home-feature__image { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.14); cursor: pointer; }
         .etajima-home-feature__content { padding: 24px 12px; }
         .etajima-home-feature__content h2 { font-weight: 900; margin-bottom: 18px; }
@@ -255,7 +257,7 @@
     <section class="container etajima-home-feature" aria-labelledby="etajima-home-feature-title">
         <div class="row align-items-center g-4">
             <div class="col-lg-7">
-                <img src="img/etajima-fiesta-2026-event.jpg" class="etajima-home-feature__image zoom-single" alt="江田島の屋外DJイベントでの音響・照明演出の様子" width="1448" height="1086" loading="lazy" decoding="async">
+                <img src="img/etajima-fiesta-2026-event.jpg" class="etajima-home-feature__image showcase-img zoom-single" alt="江田島の屋外DJイベントでの音響・照明演出の様子" width="1448" height="1086" loading="lazy" decoding="async">
             </div>
             <div class="col-lg-5 etajima-home-feature__content">
                 <p class="etajima-home-feature__eyebrow mb-2">FIELD REPORT / OUTDOOR DJ EVENT</p>
