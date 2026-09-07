@@ -130,6 +130,11 @@
         .eng-title { font-size: 0.75rem; letter-spacing: 0.2em; color: var(--primary-blue); font-weight: 700; margin-bottom: 5px; display: block; }
         .section-title { position: relative; display: inline-block; padding-bottom: 15px; margin-bottom: 30px; }
         .section-title::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 3px; background: var(--primary-blue); }
+        .etajima-home-feature { margin-bottom: 80px; }
+        .etajima-home-feature__image { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.14); }
+        .etajima-home-feature__content { padding: 24px 12px; }
+        .etajima-home-feature__content h2 { font-weight: 900; margin-bottom: 18px; }
+        .etajima-home-feature__eyebrow { color: var(--primary-blue); font-size: .78rem; font-weight: 800; letter-spacing: .18em; }
         /* 統一された角丸カード型の背景画像付きセクション */
         .cta-section { 
             position: relative; 
@@ -241,6 +246,20 @@
                 <p class="text-muted small">イベントフライヤーとともに、ARA-TECHが手がけた音響・照明・ステージ制作の現場をご紹介します。</p>
             </a>
         </div>    
+    </section>
+
+    <section class="container etajima-home-feature" aria-labelledby="etajima-home-feature-title">
+        <div class="row align-items-center g-4">
+            <div class="col-lg-7">
+                <img src="img/etajima-fiesta-2026-event.jpg" class="etajima-home-feature__image" alt="江田島の屋外DJイベントでの音響・照明演出の様子" width="1448" height="1086" loading="lazy" decoding="async">
+            </div>
+            <div class="col-lg-5 etajima-home-feature__content">
+                <p class="etajima-home-feature__eyebrow mb-2">FIELD REPORT / OUTDOOR DJ EVENT</p>
+                <h2 id="etajima-home-feature-title">屋外イベントの音響・照明を現場で構築</h2>
+                <p class="text-muted">江田島での屋外DJイベントにて、PAシステムの設営から運用、照明による空間演出まで担当しました。昼間の機材設営から来場者を迎えた夜間運用まで、現場に合わせた音と光をつくります。</p>
+                <a href="stage-production.html" class="btn btn-primary mt-2">イベント音響・照明の実績を見る</a>
+            </div>
+        </div>
     </section>
 
     <div class="container">
