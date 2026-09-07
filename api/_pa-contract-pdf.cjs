@@ -3,6 +3,7 @@ const fontkit=require('@pdf-lib/fontkit');
 const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
+const {honorific,japaneseDate,amount}=require('./_pa-contract-display.cjs');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const MAX_QUOTE_BYTES=1500000;
 async function validatePdf(bytes,expectedHash) {
@@ -29,8 +30,9 @@ async function mergeReceipt(snapshot,quote) {
  const original=await validatePdf(quote,snapshot.quote.sha256);
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const font=await doc.embedFont(fs.readFileSync(path.join(__dirname,'contract-fonts','NotoSansJP.ttf')),{subset:true});
- let page,y;const margin=44,width=507,lineHeight=17;
- const newPage=()=>{page=doc.addPage([595,842]);y=794;page.drawText('ARA-TECH  |  契約控え',{x:margin,y,font,size:15,color:rgb(0.05,0.22,0.4)});y-=36;};
+ const logo=await doc.embedPng(fs.readFileSync(path.join(__dirname,'../img/ara-tech-logo-horizontal-white.png')));
+ let page,y;const margin=44,width=507,lineHeight=16;
+ const newPage=()=>{page=doc.addPage([595,842]);page.drawRectangle({x:0,y:768,width:595,height:74,color:rgb(0,123/255,1)});page.drawImage(logo,{x:margin,y:792,width:166,height:166*logo.height/logo.width});y=740;};
  newPage();
  const paragraph=(value,size=10)=>{
   for(const raw of String(value).split('\n')){
@@ -39,20 +41,19 @@ async function mergeReceipt(snapshot,quote) {
    for(const char of raw){if(font.widthOfTextAtSize(line+char,size)>width)put();line+=char;}put();
   } y-=7;
  };
- paragraph('正式依頼の受付内容',14);
- paragraph(`イベント：${snapshot.event_name}\n開催日：${snapshot.event_date}\n顧客：${snapshot.customer_name}\n契約金額（税込）：${Number(snapshot.amount).toLocaleString('ja-JP')}円\n確認者：${snapshot.confirmer_name}\n確認日時（JST）：${snapshot.confirmed_at_jst}\n確認日時（UTC）：${new Date(snapshot.confirmed_at).toISOString()}`);
- paragraph(`依頼内容\n${snapshot.request_summary}`);
- paragraph(`契約ID：${snapshot.contract_id}\n案件ID：${snapshot.case_id}\n契約version：${snapshot.contract_version}\n規約version：${snapshot.terms_version}`,9);
- paragraph(`最終見積：${snapshot.quote.filename}\nファイルID：${snapshot.quote.file_id}\nSHA-256：${snapshot.quote.sha256}`,8);
- if(snapshot.payment_due_date)paragraph(`お支払期限：${snapshot.payment_due_date}`,11);
- for(const d of snapshot.related_documents||[])paragraph(`関連資料（金額根拠資料ではありません）：${d.filename}\nファイルID：${d.file_id}\nSHA-256：${d.sha256}`,8);
- paragraph('契約条件',14);paragraph(snapshot.terms_text);
+ paragraph('正式受注内容確認書',18);
+ paragraph(`イベント：${snapshot.event_name}\n開催日：${japaneseDate(snapshot.event_date)}${snapshot.order_scope?`\n本番時間：${snapshot.order_scope.performance_time}\n会場：${snapshot.order_scope.venue}`:''}\n顧客：${honorific(snapshot.customer_name)}\nご依頼金額：${amount(snapshot.amount)}\n確認者氏名：${snapshot.confirmer_name}\n確認日時（JST）：${snapshot.confirmed_at_jst}\n契約番号：${snapshot.contract_id}`);
+ paragraph('ご依頼内容',13);paragraph(snapshot.order_scope?.services||snapshot.request_summary);
+ // Render persisted terms, not the current issuance template. Only date formatting changes.
+ paragraph(snapshot.payment_due_date?snapshot.terms_text.replace(`今回のお支払期限：${snapshot.payment_due_date}`,`お支払期限：${japaneseDate(snapshot.payment_due_date)}`):snapshot.terms_text);
+ for(const d of snapshot.related_documents||[])paragraph(`関連資料：${d.filename}\n（契約金額の根拠となる最終見積書とは別の資料です。）`,9);
+ paragraph(`最終見積書：${snapshot.quote.filename}`,9);
  paragraph('以下に、お客様へ提示した最終見積PDFの原本ページを結合しています。',9);
  const coverPages=doc.getPageCount();
  for(const [i,p] of doc.getPages().entries())p.drawText(`条件ページ ${i+1} / ${coverPages}`,{x:margin,y:30,font,size:8});
  const pages=await doc.copyPages(original,original.getPageIndices());pages.forEach(p=>doc.addPage(p));
  // Retain the byte-exact source as an embedded file as well as copying its pages.
- await doc.attach(quote,'final-estimate-original.pdf',{mimeType:'application/pdf',description:`Original final estimate SHA-256 ${snapshot.quote.sha256}`});
+ await doc.attach(quote,'final-estimate-original.pdf',{mimeType:'application/pdf',description:'最終見積書の原本'});
  doc.setTitle('ARA-TECH 契約控え');doc.setAuthor('ARA-TECH');
  doc.setCreationDate(new Date(snapshot.confirmed_at));doc.setModificationDate(new Date(snapshot.confirmed_at));
  const bytes=Buffer.from(await doc.save());

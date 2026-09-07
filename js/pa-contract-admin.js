@@ -14,6 +14,11 @@ export function renderContractPanel(context){
  <div class="field"><label>契約上の顧客名<input data-c="customer" maxlength="400" required></label></div><div class="field"><label>税込契約金額（円）<input data-c="amount" type="number" min="1" max="999999999" step="1" required></label></div><div class="field"><label>依頼内容<textarea data-c="request" maxlength="10000" required></textarea></label></div><div class="field"><label>承認する別の支払条件（標準は終了後14日以内）<textarea data-c="payment" maxlength="2000"></textarea></label><label><input data-c="payment-approved" type="checkbox">別の支払条件をARA-TECHとして承認する</label></div><p>公開サイトの支払期間・キャンセル日程・雨天条件には今回の条件と差があります。今回の個別条件を確認して発行してください。</p><button data-c="issue" class="button" type="submit" disabled>この条件で確認URLを発行</button></form>
  <div data-c="issued" hidden><label>顧客向け確認URL<input data-c="url" readonly></label><p>URLはこの画面でのみ表示します。新規発行・再発行後の旧URLは利用できません。メールは自動送信されません。</p></div><div data-c="history"></div><div data-c="mail" hidden><h4>契約控えの送信前確認</h4><pre data-c="preview"></pre><label><input type="checkbox" data-c="ack">送信済みを確認し、再送による重複の可能性を了承する</label><button type="button" data-c="send" class="button">確認した宛先へ契約控えを送信</button></div>`;
  const $=key=>root.querySelector(`[data-c="${key}"]`);let quotes=[],selected=null,mailPreview=null,issuing=false,related=[],relatedEpoch=0,conditionsEpoch=0,conditionsVerified=false,refreshEpoch=0;
+ let mailEpoch=0;
+ const mailMeta=document.createElement('p'),mailAttachments=document.createElement('p'),mailFrame=document.createElement('iframe'),plain=document.createElement('details'),plainTitle=document.createElement('summary');
+ mailFrame.className='brand-mail-test-frame';mailFrame.title='契約控え送付メールの最終HTMLプレビュー';mailFrame.setAttribute('sandbox','allow-same-origin');mailFrame.setAttribute('referrerpolicy','no-referrer');mailFrame.hidden=true;
+ plainTitle.textContent='プレーンテキスト版（補助表示）';plain.append(plainTitle);$('preview').className='mail-preview__body';$('preview').before(mailMeta,mailFrame,mailAttachments,plain);plain.append($('preview'));
+ const clearMail=()=>{mailEpoch++;mailPreview=null;mailFrame.srcdoc='';mailFrame.hidden=true;$('mail').hidden=true;};
  const relatedPanel=document.createElement('fieldset');relatedPanel.innerHTML='<legend>関連資料（任意・最大5件／合計1.5 MB）</legend><p>最終見積書とは別の参考資料です。金額根拠資料にはなりません。表示するPDFだけを明示選択してください。</p><div data-c="related"></div><button type="button" data-c="inspect-related" class="button button--secondary">選択した関連資料を照合</button><p data-c="related-status" role="status"></p>';
  $('identity').after(relatedPanel);
  const conditionsPanel=document.createElement('div');conditionsPanel.innerHTML='<div class="field"><label>承認済みの支払期限日（別の支払条件を承認する場合のみ）<input type="date" data-c="payment-date"></label></div><button type="button" data-c="conditions" class="button button--secondary">発行する条件を確認（URLは発行しません）</button><pre data-c="conditions-preview" class="mail-preview__body"></pre>';
@@ -35,6 +40,7 @@ export function renderContractPanel(context){
  const download=(blob,name)=>{if(!valid())return;const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
  const button=(label,fn)=>{const b=document.createElement('button');b.type='button';b.className='button button--secondary button--small';b.textContent=label;b.addEventListener('click',async()=>{if(!valid())return;b.disabled=true;try{await fn();}catch(e){error(e);}finally{b.disabled=false;}});return b;};
  async function refresh(){
+  clearMail();
   const revision=++refreshEpoch,data=await api('list');if(!valid()||revision!==refreshEpoch)return;
   quotes=data.quotes;selected=null;$('issue').disabled=true;$('identity').textContent='';$('quotes').replaceChildren(new Option('選択してください',''));
   quotes.forEach((q,i)=>$('quotes').append(new Option(`${q.filename} / ${q.sent_at||''}`,String(i))));
@@ -58,7 +64,7 @@ export function renderContractPanel(context){
    const p=document.createElement('p');p.textContent=`v${h.version} / ${{active:'回答待ち',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
    if(h.state==='accepted'){
     card.append(button(h.receipt?'契約控えPDFをダウンロード':'契約控えPDFを生成',async()=>{download(await api('receipt',{contract_id:h.id},true),`契約控え-v${h.version}.pdf`);await refresh();}));
-    card.append(button('控え送信・再送のプレビュー',async()=>{const preview=await api('mail_preview',{contract_id:h.id});if(!valid())return;mailPreview={id:h.id,preview,attempt:crypto.randomUUID()};$('preview').textContent=`To: ${preview.recipient}\n件名: ${preview.subject}\n\n${preview.body}\n\n添付: ${preview.attachments.map(a=>a.filename).join(', ')}`;$('ack').checked=false;$('mail').hidden=false;}));
+    card.append(button('控え送信・再送のプレビュー',async()=>{clearMail();const revision=mailEpoch,preview=await api('mail_preview',{contract_id:h.id});if(!valid()||revision!==mailEpoch)return;if(!preview.html)throw Error('preview_unavailable');mailPreview={id:h.id,preview,attempt:crypto.randomUUID()};mailMeta.textContent=`To: ${preview.recipient} ／ 件名: ${preview.subject}`;mailAttachments.textContent=`添付PDF: ${preview.attachments.map(a=>a.filename).join(', ')}`;mailFrame.srcdoc=preview.html;mailFrame.hidden=false;$('preview').textContent=preview.body;plain.open=false;$('ack').checked=false;$('mail').hidden=false;}));
     const mail=document.createElement('p');mail.textContent='控え送信：'+({sent:'送信済み',failed:'失敗（再送可能）',uncertain:'結果不明（Gmailの送信済みを確認）',sending:'処理中・結果確認中'}[h.delivery?.status]||'未送信');card.append(mail);
     if(h.delivery?.status==='sending'&&Date.now()-Date.parse(h.delivery.created_at)>600000)card.append(button('結果不明として再送確認へ進む',async()=>{await api('mark_uncertain',{contract_id:h.id});await refresh();}));
    }

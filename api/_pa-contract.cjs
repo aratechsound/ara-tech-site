@@ -2,6 +2,7 @@ const crypto=require('node:crypto');
 const mail=require('./_pa-mail.cjs');
 const gmail=require('./_pa-gmail.cjs');
 const pdf=require('./_pa-contract-pdf.cjs');
+const {receiptBody}=require('./_pa-contract-display.cjs');
 const {issuanceTermsV4:issuanceTerms}=require('./_pa-contract-terms.cjs');
 const TOKEN=/^[a-f0-9]{64}$/;
 const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
@@ -145,7 +146,7 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
    r=r||await one('pa_contract_receipts',{contract_id:`eq.${id}`,select:'*'});
   }
   const bytes=fromBytea(r.pdf);if(pdf.sha(bytes)!==r.sha256)throw Error('receipt_identity_mismatch');
-  return {bytes,filename:`ARA-TECH-contract-v${c.version}-${c.id}.pdf`,mime_type:'application/pdf',sha256:r.sha256,snapshot:c.snapshot};
+  return {bytes,filename:`ARA-TECH-contract-${c.id}.pdf`,mime_type:'application/pdf',sha256:r.sha256,snapshot:c.snapshot};
  }
  async function accept(input){
   const r=await resolve(input.token);
@@ -158,7 +159,7 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  }
  async function mailData(caseId,id,actor){
   const receipt=await ensureReceipt(caseId,id);
-  const body=`${receipt.snapshot.customer_name} 様\n\n${receipt.snapshot.event_name}の正式依頼を受け付けました。\n契約控えPDFを添付いたします。\n契約ID：${id}\n契約version：${receipt.snapshot.contract_version}\n確認日時：${receipt.snapshot.confirmed_at_jst}\n\n内容をご確認のうえ保管をお願いいたします。`;
+  const body=receiptBody(receipt.snapshot);
   const attachments=[{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')}];
   const preview=await gmail.replyPreview({inquiryId:caseId,actorId:actor.id,body,attachments},fetchImpl);
   if(address(preview.recipient)!==address(receipt.snapshot.recipient))throw Error('recipient_changed');

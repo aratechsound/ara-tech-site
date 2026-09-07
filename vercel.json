@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/pa-contract.js": { "includeFiles": "api/contract-fonts/**", "maxDuration": 60 }
+    "api/pa-contract.js": { "includeFiles": "{api/contract-fonts/**,img/ara-tech-logo-horizontal-white.png}", "maxDuration": 60 }
   },
   "rewrites": [
     {
