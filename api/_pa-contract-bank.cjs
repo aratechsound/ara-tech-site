@@ -13,7 +13,9 @@ function parseBankFooter(lines){
 async function bankFromQuote(bytes){
  let task;
  try{
-  const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const {getDocument,GlobalWorkerOptions}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // Explicitly trace the worker through Node resolution; do not package pnpm symlink directories.
+  GlobalWorkerOptions.workerSrc=require('node:url').pathToFileURL(require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')).href;
   task=getDocument({data:new Uint8Array(bytes),verbosity:0,useWorkerFetch:false,useSystemFonts:false,disableFontFace:true,isEvalSupported:false});
   const doc=await task.promise,lines=[];
   for(let n=1;n<=doc.numPages;n++){
