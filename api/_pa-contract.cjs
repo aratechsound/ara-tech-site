@@ -5,6 +5,7 @@ const pdf=require('./_pa-contract-pdf.cjs');
 const {issuanceTerms}=require('./_pa-contract-terms.cjs');
 const TOKEN=/^[a-f0-9]{64}$/;
 const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
+for(const code of ['related_index_unavailable','related_link_unavailable','related_gmail_not_found','related_gmail_unavailable','related_pdf_unavailable'])SAFE.add(code);
 const uuid=v=>{if(!mail.isUuid(v))throw Error('invalid_contract');return v;};
 const text=(v,max)=>{const s=String(v||'').trim();if(!s||s.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(s))throw Error('invalid_contract');return s;};
 const fromBytea=v=>{if(typeof v!=='string'||!/^\\x[0-9a-f]+$/i.test(v))throw Error('quote_missing');return Buffer.from(v.slice(2),'hex');};
@@ -22,13 +23,13 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  async function inquiry(id){return mail.getInquiry(uuid(id),fetchImpl);}
  async function relatedSource(caseId,messageId,attachmentId){
   await inquiry(caseId);
-  const row=await one('pa_gmail_message_index',{inquiry_id:`eq.${caseId}`,gmail_message_id:`eq.${text(messageId,200)}`,select:'*'});
+  const row=await one('pa_gmail_message_index',{inquiry_id:`eq.${caseId}`,gmail_message_id:`eq.${text(messageId,200)}`,select:'*'}).catch(()=>{throw Error('related_index_unavailable');});
   if(!row||!['inbound','outbound'].includes(row.direction))throw Error('related_document_invalid');
-  const link=await one('pa_gmail_thread_links',{inquiry_id:`eq.${caseId}`,gmail_thread_id:`eq.${row.gmail_thread_id}`,select:'id'});
+  const link=await one('pa_gmail_thread_links',{inquiry_id:`eq.${caseId}`,gmail_thread_id:`eq.${row.gmail_thread_id}`,select:'gmail_thread_id'}).catch(()=>{throw Error('related_link_unavailable');});
   if(!link)throw Error('related_document_invalid');
-  const a=await gmail.getAttachmentBinary({inquiryId:caseId,gmailMessageId:messageId,gmailAttachmentId:attachmentId},fetchImpl);
+  const a=await gmail.getAttachmentBinary({inquiryId:caseId,gmailMessageId:messageId,gmailAttachmentId:attachmentId},fetchImpl).catch(e=>{throw Error(['gmail_attachment_not_indexed','gmail_attachment_not_found','gmail_read_404'].includes(e.message)?'related_gmail_not_found':'related_gmail_unavailable');});
   if(a.mime_type!=='application/pdf'||!a.filename.toLowerCase().endsWith('.pdf'))throw Error('invalid_pdf');
-  await pdf.validatePdf(a.bytes);
+  await pdf.validatePdf(a.bytes).catch(e=>{throw Error(['invalid_pdf','unsafe_pdf'].includes(e.message)?e.message:'related_pdf_unavailable');});
   return {bytes:a.bytes,identity:{role:'related',file_id:`gmail:${messageId}:${attachmentId}`,gmail_message_id:messageId,gmail_attachment_id:attachmentId,filename:a.filename,mime_type:'application/pdf',sha256:pdf.sha(a.bytes),size:a.bytes.length}};
  }
  async function quoteSource(caseId,messageId,attachmentId){

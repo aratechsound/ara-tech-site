@@ -25,6 +25,9 @@ async function main(){
   const listed=await f.service.offers(f.inquiryId);assert(listed.related_candidates.some(d=>d.gmail_attachment_id==='attachment_2'));
   const inspect=await f.call({action:'inspect_related',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_2'});assert.equal(inspect.statusCode,200);const identity=inspect.body.result.identity;
   assert.equal(identity.sha256,sha(f.state.related));assert.equal(identity.role,'related');
+  const {createService}=require('../api/_pa-contract.cjs');
+  const unavailable=createService({fetchImpl:async(url,options)=>{if(new URL(url).host==='gmail.googleapis.com')throw Error('untrusted upstream detail');return f.fetchImpl(url,options);}});
+  await assert.rejects(unavailable.relatedSource(f.inquiryId,'direct_sent_001','attachment_2'),/^Error: related_gmail_unavailable$/);
   const wrongCase=await f.call({action:'inspect_related',case_id:f.otherId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_2'});assert.notEqual(wrongCase.statusCode,200);
   for(const related_documents of [[{...identity,sha256:'0'.repeat(64)}],[identity,identity],[{...identity,gmail_attachment_id:'attachment_1',sha256:sha(f.quote)}],Array(6).fill(identity)]){
    const bad=await f.call({...input,related_documents});assert.notEqual(bad.statusCode,200);

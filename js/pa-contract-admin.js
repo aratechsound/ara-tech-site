@@ -2,6 +2,7 @@ let active=null,epoch=0;
 const errors={quote_case_mismatch:'この案件のお客様に送付済みの見積PDFを選択してください。',quote_identity_mismatch:'見積書が一致しません。PDFを選び直してください。',invalid_pdf:'PDFが壊れているか、対応範囲（1.5 MB・30ページ以内）を超えています。',unsafe_pdf:'フォーム・注釈・署名・動作を含むPDFは結合できません。固定ページの最終見積をご用意ください。',recipient_changed:'契約時のお客様と現在のGmail返信先が異なります。連携先をご確認ください。',invalid_contract:'入力内容と必須項目をご確認ください。',delivery_in_progress:'送信結果を確認中です。10分以上経過しても変わらない場合は、Gmailの送信済みを確認してください。',resend_ack_required:'再送前にGmailの送信済みと重複送信の可能性をご確認ください。',case_changed:'案件内容が更新されています。案件を開き直してください。'};
 Object.assign(errors,{invalid_payment_date:'別の支払条件には、開催日以降の承認済み支払期限日を指定してください。',payment_calendar_unavailable:'対象年の銀行休業日カレンダーが未対応です。管理者による更新後に発行してください。',related_document_invalid:'関連資料の案件・選択・一致をご確認ください。最終見積との重複、同一資料の重複、6件以上は選べません。',related_documents_too_large:'関連資料のPDFは合計1.5 MB以内で選択してください。'});
 export function renderContractPanel(context){
+ Object.assign(errors,{related_index_unavailable:'関連資料の案件索引を読み取れません。',related_link_unavailable:'関連資料の案件とGmail会話の紐付けを読み取れません。',related_gmail_not_found:'関連資料がGmailの現在の添付情報と一致しません。同期後に選び直してください。',related_gmail_unavailable:'関連資料をGmailから取得できません。読取接続をご確認ください。',related_pdf_unavailable:'関連PDFの構造を検証できません。固定ページのPDFをご確認ください。'});
  const root=document.getElementById('formal-contract-panel');if(!root)return;
  if(!context.case){active=null;epoch++;root.replaceChildren();root.hidden=true;return;}
  if(active?.id===context.case.id&&active.caseRef===context.case&&active.progressRef===context.progress)return;
