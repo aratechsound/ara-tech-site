@@ -6,6 +6,7 @@ The approved v3 layout is connected to the existing formal-contract API and immu
 
 - One mandatory final quote retains the existing sent-to-customer Gmail binding, frozen original bytes and SHA-256 checks.
 - Related PDF candidates are case-linked incoming/outgoing Gmail attachments. No candidate is automatically selected. Administrators inspect selected files before issuance.
+- The candidate list refreshes after Gmail synchronization and when the issuance form is opened; stale asynchronous responses cannot overwrite a newer list. A refresh clears unissued selections/inspection confirmations but does not change issued snapshots or discard the one-time displayed URL. No identity/hash fallback is used for stale attachment references.
 - Each selected related file is frozen in `snapshot.related_documents` with its distinct `related` role, Gmail message/attachment ID, file ID, filename, MIME type, byte length, SHA-256 and original `content_base64`. Related material is not a price/scope basis.
 - The server re-fetches and validates identities/hashes at issuance, rejecting duplicate documents (including the final quote), mismatched hashes, cross-case attachments, unsafe PDFs, more than five related documents or a combined related size above 1,500,000 bytes. The existing per-PDF 1.5 MB / 30-page safety checks remain.
 - Public and admin-list JSON responses omit related content bytes. The public `related_document` action uses only frozen bytes after token validation, and verifies SHA-256 before serving. Gmail edits cannot replace issued material.
