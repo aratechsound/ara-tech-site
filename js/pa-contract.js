@@ -19,13 +19,13 @@
  async function load(){
   if(!/^[a-f0-9]{64}$/.test(token))throw Error('invalid_link');
   offer=await request('view');if(offer.state==='accepted'){accepted();return;}
-  const s=offer.snapshot;
+  const s=offer.snapshot,v4=s.presentation_version===4;
   $('event').textContent=s.event_name;$('date').textContent=japaneseDate(s.event_date);$('customer').textContent=s.customer_name;
   $('amount').textContent=Number(s.amount).toLocaleString('ja-JP')+'円';$('confirmer').value=s.confirmer_name;
   $('expires').textContent='回答期限（日本時間）：'+new Date(Date.parse(offer.expires_at)-1).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'});
   $('cancel-base').textContent='開催日 '+japaneseDate(s.event_date)+'を基準';
   // Legacy links render only their original text: no recalculation/new terms.
-  if(s.presentation_version===3&&Array.isArray(s.cancellation_bands)){
+  if([3,4].includes(s.presentation_version)&&Array.isArray(s.cancellation_bands)){
    $('cancel').hidden=false;
    for(const band of s.cancellation_bands){
     const cell=document.createElement('div');cell.className='cancel-cell';
@@ -42,9 +42,17 @@
   const paymentParts=s.payment_terms.split('\n\n');
   $('payment-help').textContent=paymentParts.slice(1).join('\n\n');
   const appendTerm=(title,value)=>{const h=document.createElement('h3');h.textContent=title;const p=document.createElement('p');p.className='multiline';p.textContent=value;$('business').append(h,p);};
-  appendTerm('ご依頼内容',s.request_summary);
-  // Full issued terms, not shortened mock text; includes every responsibility exception.
-  appendTerm('ご依頼条件の全文',s.terms_text);
+  if(v4){
+   $('order-scope').hidden=false;
+   for(const [label,value] of [['開催日',japaneseDate(s.event_date)],['本番時間',s.order_scope.performance_time],['会場',s.order_scope.venue],['業務内容',s.order_scope.services]]){
+    const title=document.createElement('div'),content=document.createElement('div');title.className='scope-label';content.className='scope-value';title.textContent=label;content.textContent=value;$('scope-grid').append(title,content);
+   }
+   const card=$('business').closest('.card');card.querySelector('h2').textContent='その他のご確認事項';card.querySelector('.card-head p').textContent='上記の見積・キャンセル・お支払条件と重複しない事項だけをまとめています。';$('business').setAttribute('aria-label','その他のご確認事項');
+   for(const section of s.other_terms_sections)appendTerm(section.title,section.text);
+  }else{
+   // Never substitute new conditions for already issued snapshots.
+   appendTerm('ご依頼内容',s.request_summary);appendTerm('ご依頼条件の全文',s.terms_text);
+  }
   documents=[{...s.quote,label:'最終見積書',role:'quote'},...(s.related_documents||[]).map((d,index)=>({...d,label:d.filename,role:'related',index}))];
   $('document-summary').textContent='今回の確認資料：'+documents.map(d=>d.label).join('／');
   documents.forEach((d,index)=>{const b=document.createElement('button');b.type='button';b.className='tab';b.id='document-tab-'+index;b.setAttribute('role','tab');b.setAttribute('aria-controls','pdfViewer');const title=document.createElement('span');title.textContent=d.label;const badge=document.createElement('span');badge.className='badge';badge.textContent=index===0?'契約資料':'関連資料';b.append(title,badge);b.onclick=()=>showDocument(index);b.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?documents.length-1:(index+(e.key==='ArrowRight'?1:-1)+documents.length)%documents.length;showDocument(next);$('document-tab-'+next).focus();};$('tabs').append(b);});
@@ -59,6 +67,7 @@
   const result={blob,url:URL.createObjectURL(blob)};docCache.set(index,result);return result;
  }
  async function showDocument(index){
+  if(index===activeDoc&&!$('pdfViewer').hidden&&$('pdfViewer').hasAttribute('src'))return;
   activeDoc=index;const epoch=++viewEpoch,d=documents[index];$('pdfViewer').hidden=true;$('pdfViewer').removeAttribute('src');
   for(const [i,b] of Array.from($('tabs').children).entries()){b.classList.toggle('active',i===index);b.setAttribute('aria-selected',String(i===index));b.tabIndex=i===index?0:-1;}
   $('docTitle').textContent=d.filename;$('docNote').textContent=d.role==='quote'?'契約金額・業務範囲の正式根拠資料':'関連資料（金額根拠資料ではありません）';$('quote-status').textContent='資料を読み込んでいます。';

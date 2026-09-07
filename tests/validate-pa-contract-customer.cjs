@@ -32,7 +32,7 @@ async function main() {
 
   const f = await createFixture();
   try {
-    const input = { action:'issue', case_id:f.inquiryId, gmail_message_id:'direct_sent_001', gmail_attachment_id:'attachment_1', quote_sha256:sha(f.quote), customer_name:'管理下テスト担当者', amount:170500, request_summary:'管理下テストPA' };
+    const input = { action:'issue', case_id:f.inquiryId, gmail_message_id:'direct_sent_001', gmail_attachment_id:'attachment_1', quote_sha256:sha(f.quote), customer_name:'管理下テスト担当者', amount:170500, order_scope:{performance_time:'10:00〜15:00',venue:'検証用会場',services:'管理下テストPA'} };
     const first = (await f.call(input)).body.result;
     const firstToken = new URL(first.url).hash.slice(1);
     const firstView = await f.service.view(firstToken);

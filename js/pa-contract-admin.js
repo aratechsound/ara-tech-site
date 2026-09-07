@@ -18,10 +18,13 @@ export function renderContractPanel(context){
  $('identity').after(relatedPanel);
  const conditionsPanel=document.createElement('div');conditionsPanel.innerHTML='<div class="field"><label>承認済みの支払期限日（別の支払条件を承認する場合のみ）<input type="date" data-c="payment-date"></label></div><button type="button" data-c="conditions" class="button button--secondary">発行する条件を確認（URLは発行しません）</button><pre data-c="conditions-preview" class="mail-preview__body"></pre>';
  $('issue').before(conditionsPanel);
+ const scopePanel=document.createElement('fieldset');scopePanel.innerHTML='<legend>正式なご依頼内容</legend><p>問い合わせ原文をそのまま使用せず、今回の本番時間・会場・業務内容を確認してください。発行時に固定されます。</p><div class="field"><label>本番時間<input data-c="scope-time" maxlength="120" required></label></div><div class="field"><label>会場<textarea data-c="scope-venue" maxlength="1000" required></textarea></label></div><div class="field"><label>業務内容<textarea data-c="scope-services" maxlength="5000" required></textarea></label></div>';
+ $('request').closest('.field').replaceWith(scopePanel);
+ const scopeInput=()=>({customer_name:$('customer').value,amount:$('amount').value,order_scope:{performance_time:$('scope-time').value,venue:$('scope-venue').value,services:$('scope-services').value}});
  const paymentInput=()=>({custom_payment:$('payment').value,payment_approved:$('payment-approved').checked,approved_payment_date:$('payment-date').value});
  const updateReady=()=>{$('issue').disabled=issuing||!selected||!conditionsVerified||related.some(d=>d.check.checked&&!d.identity);};
  const invalidateConditions=()=>{conditionsEpoch++;conditionsVerified=false;$('conditions-preview').textContent='';updateReady();};
- for(const key of ['payment','payment-approved','payment-date'])$(key).addEventListener('input',invalidateConditions);
+ for(const key of ['payment','payment-approved','payment-date','customer','amount','scope-time','scope-venue','scope-services'])$(key).addEventListener('input',invalidateConditions);
  const error=e=>{if(valid())$('message').textContent=errors[e.message]||'操作を完了できません。状態を更新して確認してください。';};
  const access=async()=>{const token=await context.getAccessToken();if(!valid())throw Error('case_changed');return token;};
  const api=async(action,extra={},binary=false)=>{
@@ -63,13 +66,15 @@ export function renderContractPanel(context){
   }
  }
  $('customer').value=[context.case.organization_name,context.case.customer_name].filter(Boolean).join(' ');
- $('amount').value=context.progress?.estimate_amount||'';$('request').value=context.case.public_request_summary||context.case.request_summary||'';
+ $('amount').value=context.progress?.estimate_amount||'';
+ $('scope-time').value=context.case.event_time||'';$('scope-venue').value=context.case.venue||'';
+ // Services intentionally blank: an administrator must state the formal scope.
  $('start').onclick=async()=>{if(!$('form').hidden){$('form').hidden=true;return;}$('start').disabled=true;try{await refresh();if(valid())$('form').hidden=false;}catch(e){error(e);}finally{if(valid())$('start').disabled=false;}};
  $('reload').onclick=()=>refresh().catch(error);
  $('quotes').onchange=()=>{selected=null;$('issue').disabled=true;$('identity').textContent='';};
  $('conditions').onclick=async()=>{
   const captured=conditionsEpoch;$('conditions').disabled=true;conditionsVerified=false;updateReady();
-  try{const result=await api('preview_conditions',paymentInput());if(!valid()||captured!==conditionsEpoch)return;$('conditions-preview').textContent=result.terms_text;conditionsVerified=true;updateReady();}
+  try{const result=await api('preview_conditions',{...paymentInput(),...scopeInput()});if(!valid()||captured!==conditionsEpoch)return;$('conditions-preview').textContent=result.preview_text;conditionsVerified=true;updateReady();}
   catch(e){error(e);}finally{$('conditions').disabled=false;}
  };
  $('inspect-related').onclick=async()=>{
@@ -99,7 +104,7 @@ export function renderContractPanel(context){
  };
  $('form').onsubmit=async e=>{
   e.preventDefault();if(!selected||!valid()||issuing||!conditionsVerified||related.some(d=>d.check.checked&&!d.identity))return;issuing=true;updateReady();
-  try{const result=await api('issue',{...selected,customer_name:$('customer').value,amount:$('amount').value,request_summary:$('request').value,...paymentInput(),related_documents:related.filter(d=>d.check.checked).map(d=>d.identity)});if(!valid())return;$('url').value=result.url;$('issued').hidden=false;$('form').hidden=true;$('message').textContent='確認URLを発行しました。以前の未回答URLは失効しました。メールは送信していません。';await refresh();}
+  try{const result=await api('issue',{...selected,...scopeInput(),...paymentInput(),related_documents:related.filter(d=>d.check.checked).map(d=>d.identity)});if(!valid())return;$('url').value=result.url;$('issued').hidden=false;$('form').hidden=true;$('message').textContent='確認URLを発行しました。以前の未回答URLは失効しました。メールは送信していません。';await refresh();}
   catch(e){error(e);}
   finally{issuing=false;if(valid())updateReady();}
  };

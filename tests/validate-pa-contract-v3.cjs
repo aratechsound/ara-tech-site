@@ -19,8 +19,8 @@ async function main(){
  try{
   const relatedPdf=await PDFDocument.create();relatedPdf.addPage().drawText('CONTROLLED FIXTURE - LAYOUT');f.state.related=Buffer.from(await relatedPdf.save());
   await f.db.query("update pa_gmail_message_index set attachment_metadata=attachment_metadata || '[{\"id\":\"attachment_2\",\"filename\":\"layout.pdf\",\"mime_type\":\"application/pdf\"}]'::jsonb where gmail_message_id='direct_sent_001'");
-  const input={action:'issue',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'管理下テスト担当者',amount:170500,request_summary:'管理下テストPA'};
-  const conditions=await f.call({action:'preview_conditions',case_id:f.inquiryId});assert.equal(conditions.statusCode,200);assert.equal(conditions.body.result.payment_due_date,'2026-11-02');
+  const input={action:'issue',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'管理下テスト担当者',amount:170500,order_scope:{performance_time:'10:00〜15:00',venue:'検証用会場',services:'管理下テストPA'}};
+  const conditions=await f.call({...input,action:'preview_conditions'});assert.equal(conditions.statusCode,200);assert.equal(conditions.body.result.payment_due_date,'2026-11-02');
   assert.equal(Number((await f.db.query('select count(*) n from pa_contract_offers')).rows[0].n),0);
   const listed=await f.service.offers(f.inquiryId);assert(listed.related_candidates.some(d=>d.gmail_attachment_id==='attachment_2'));
   const inspect=await f.call({action:'inspect_related',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_2'});assert.equal(inspect.statusCode,200);const identity=inspect.body.result.identity;
@@ -36,11 +36,11 @@ async function main(){
   const initial=(await f.db.query('select snapshot,snapshot_sha256 from pa_contract_offers where id=$1',[first.body.result.id])).rows[0];
   assert.equal(initial.snapshot.related_documents.length,0);assert.equal(initial.snapshot.payment_due_date,'2026-11-02');
   // List, source inspection and conditions preview must not touch an issued snapshot/token.
-  await f.service.offers(f.inquiryId);await f.service.previewConditions({case_id:f.inquiryId});
+  await f.service.offers(f.inquiryId);await f.service.previewConditions(input);
   assert.equal((await f.service.view(firstToken)).state,'active');
   assert.deepEqual((await f.db.query('select snapshot,snapshot_sha256 from pa_contract_offers where id=$1',[first.body.result.id])).rows[0],initial);
   const issued=await f.call({...input,related_documents:[identity]});assert.equal(issued.statusCode,200);const token=new URL(issued.body.result.url).hash.slice(1);
-  const view=await f.service.view(token),snapshot=view.snapshot;assert.equal(snapshot.presentation_version,3);assert.equal(snapshot.amount,170500);assert.equal(snapshot.quote.sha256,sha(f.quote));assert.equal(snapshot.related_documents.length,1);
+  const view=await f.service.view(token),snapshot=view.snapshot;assert.equal(snapshot.presentation_version,4);assert.equal(snapshot.amount,170500);assert.equal(snapshot.quote.sha256,sha(f.quote));assert.equal(snapshot.related_documents.length,1);
   assert(!JSON.stringify(view).includes('content_base64'));assert(!JSON.stringify(await f.service.offers(f.inquiryId)).includes('content_base64'));
   const frozen=(await f.db.query('select snapshot from pa_contract_offers where id=$1',[issued.body.result.id])).rows[0].snapshot;
   assert.equal(frozen.related_documents[0].content_base64,f.state.related.toString('base64'));

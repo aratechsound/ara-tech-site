@@ -9,7 +9,7 @@ const results=[];async function test(name,fn){await fn();results.push(name);cons
 async function main(){
  const f=await createFixture();const {db,call,service,state,inquiryId,otherId,actorId}=f;
  const actor={id:actorId};let issued,token,offer,accepted,pdfFile;
- const issueInput={case_id:inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'管理下テスト実行委員会 テスト担当者',amount:110000,request_summary:'屋外イベントPA・設営・本番対応'};
+ const issueInput={case_id:inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'管理下テスト実行委員会 テスト担当者',amount:110000,order_scope:{performance_time:'10:00〜15:00',venue:'検証用会場',services:'屋外イベントPA・設営・本番対応'}};
  const issue=async(extra={})=>{const r=await call({action:'issue',...issueInput,...extra});assert.equal(r.statusCode,200,JSON.stringify(r.body));return r.body.result;};
  const acceptInput=()=>({action:'accept',token,offer_id:offer.offer_id,snapshot_sha256:offer.snapshot_sha256,confirmer_name:'検証用確認者',agree:true});
  const count=async table=>Number((await db.query(`select count(*) n from ${table}`)).rows[0].n);

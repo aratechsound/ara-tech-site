@@ -2,12 +2,17 @@ const crypto=require('node:crypto');
 const mail=require('./_pa-mail.cjs');
 const gmail=require('./_pa-gmail.cjs');
 const pdf=require('./_pa-contract-pdf.cjs');
-const {issuanceTerms}=require('./_pa-contract-terms.cjs');
+const {issuanceTermsV4:issuanceTerms}=require('./_pa-contract-terms.cjs');
 const TOKEN=/^[a-f0-9]{64}$/;
 const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
 for(const code of ['related_index_unavailable','related_link_unavailable','related_gmail_not_found','related_gmail_unavailable','related_pdf_unavailable'])SAFE.add(code);
 const uuid=v=>{if(!mail.isUuid(v))throw Error('invalid_contract');return v;};
 const text=(v,max)=>{const s=String(v||'').trim();if(!s||s.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(s))throw Error('invalid_contract');return s;};
+const orderScope=input=>{
+ const s=input.order_scope;if(!s||typeof s!=='object'||Array.isArray(s))throw Error('invalid_contract');
+ return {performance_time:text(s.performance_time,120),venue:text(s.venue,1000),services:text(s.services,5000)};
+};
+const scopeSummary=s=>`本番時間：${s.performance_time}\n会場：${s.venue}\n業務内容：${s.services}`;
 const fromBytea=v=>{if(typeof v!=='string'||!/^\\x[0-9a-f]+$/i.test(v))throw Error('quote_missing');return Buffer.from(v.slice(2),'hex');};
 const address=v=>String(v||'').trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1]?.toLowerCase()||'';
 const publicSnapshot=s=>Array.isArray(s.related_documents)?({...s,related_documents:s.related_documents.map(({content_base64,...identity})=>identity)}):({...s});
@@ -64,13 +69,14 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  async function previewConditions(input){
   const i=await inquiry(input.case_id),custom=String(input.custom_payment||'').trim();
   if(custom&&(input.payment_approved!==true||custom.length>2000))throw Error('invalid_contract');
-  return issuanceTerms(i.event_date,custom,String(input.approved_payment_date||''));
+  const scope=orderScope(input),agreement=issuanceTerms(i.event_date,custom,String(input.approved_payment_date||''));
+  return {...agreement,order_scope:scope,preview_text:`ご依頼内容\nイベント：${i.event_name}\n開催日：${i.event_date}\n顧客：${text(input.customer_name,400)}\n税込契約金額：${text(input.amount,12)}円\n${scopeSummary(scope)}\n\n${agreement.terms_text}`};
  }
  async function issue(input,actor){
   const src=await quoteSource(input.case_id,input.gmail_message_id,input.gmail_attachment_id);
   if(src.identity.sha256!==input.quote_sha256)throw Error('quote_identity_mismatch');
   const amount=Number(input.amount);if(!Number.isSafeInteger(amount)||amount<=0||amount>999999999)throw Error('invalid_contract');
-  const i=src.inquiry;
+  const i=src.inquiry,scope=orderScope(input);
   const custom=String(input.custom_payment||'').trim();
   if(custom&&(input.payment_approved!==true||custom.length>2000))throw Error('invalid_contract');
   const agreement=issuanceTerms(i.event_date,custom,String(input.approved_payment_date||''));
@@ -85,7 +91,7 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
    if(relatedSize>1500000)throw Error('related_documents_too_large');
    related.push({...r.identity,content_base64:r.bytes.toString('base64')});
   }
-  const snapshot={event_name:text(i.event_name,200),event_date:i.event_date,recipient:i.email,customer_name:text(input.customer_name,400),confirmer_name:text(i.contact_name||i.customer_name,120),amount,request_summary:text(input.request_summary,10000),...agreement,quote:src.identity,related_documents:related,payment_approval:custom?{actor_id:actor.id,approved_at:new Date().toISOString(),due_date:agreement.payment_due_date}:null};
+  const snapshot={event_name:text(i.event_name,200),event_date:i.event_date,recipient:i.email,customer_name:text(input.customer_name,400),confirmer_name:text(i.contact_name||i.customer_name,120),amount,order_scope:scope,request_summary:scopeSummary(scope),...agreement,quote:src.identity,related_documents:related,payment_approval:custom?{actor_id:actor.id,approved_at:new Date().toISOString(),due_date:agreement.payment_due_date}:null};
   const token=crypto.randomBytes(32).toString('hex');
   const result=await rpc('pa_contract_issue',{p_actor:actor.id,p_id:crypto.randomUUID(),p_case:i.id,p_token_hash:pdf.sha(token),p_snapshot:snapshot,p_quote:src.bytes.toString('base64')});
   return {...result,url:`https://ara-tech.cc/pa-contract.html#${token}`};

@@ -188,3 +188,11 @@ button:disabled{opacity:.55;cursor:wait}button:focus-visible,input:focus-visible
 .legacy-payment{font-size:16px!important;white-space:pre-wrap}.cancel-notes p{margin:9px 2px 0;color:#586675;font-size:12.3px}
 .form-grid .field{min-width:0}.tab{max-width:100%;text-align:left;overflow-wrap:anywhere}.tab span:first-child{min-width:0}.badge{flex-shrink:0}
 .quote-status{padding:0 12px;color:#17212b;font-size:13px}.page-footer{margin-top:18px;color:#697887;font-size:12px}
+.scope{padding:0 24px 24px}
+.scope-grid{display:grid;grid-template-columns:150px 1fr;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.scope-label,.scope-value{padding:12px 14px;border-bottom:1px solid var(--line)}
+.scope-label{background:#f7fafd;color:#61707e;font-size:12px;font-weight:800}
+.scope-value{font-size:13.5px;font-weight:650;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.scope-grid>:nth-last-child(-n+2){border-bottom:0}
+@media(max-width:860px){.scope{padding-left:16px;padding-right:16px}.scope-grid{grid-template-columns:120px 1fr}}
+@media(max-width:480px){.scope-grid{grid-template-columns:1fr}.scope-label{border-bottom:0;padding-bottom:4px}.scope-value{padding-top:0}}

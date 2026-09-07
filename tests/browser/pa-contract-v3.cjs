@@ -12,7 +12,7 @@ async function main(){
   f.state.related=f.quote;
   await f.db.query("update pa_gmail_message_index set attachment_metadata=attachment_metadata || '[{\"id\":\"attachment_2\",\"filename\":\"layout.pdf\",\"mime_type\":\"application/pdf\"}]'::jsonb where gmail_message_id='direct_sent_001'");
   const related=await f.service.relatedSource(f.inquiryId,'direct_sent_001','attachment_2');
-  const issued=(await f.call({action:'issue',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'安芸太田町 産業観光課 商工観光係　竹林 智也 様（表示検証用）',amount:170500,request_summary:'希望業務：PA・音響、電源・発電機',related_documents:[related.identity]})).body.result;
+  const issued=(await f.call({action:'issue',case_id:f.inquiryId,gmail_message_id:'direct_sent_001',gmail_attachment_id:'attachment_1',quote_sha256:sha(f.quote),customer_name:'安芸太田町 産業観光課 商工観光係　竹林 智也 様（表示検証用）',amount:170500,order_scope:{performance_time:'10:00〜15:00',venue:'温井ダム堤体横駐車場（検証用）',services:'音響機材・設営・PAオペレート・電源／発電機対応'},related_documents:[related.identity]})).body.result;
   const token=new URL(issued.url).hash.slice(1);
   const mailBody='竹林様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n2026年10月18日開催の「2026龍姫湖まつり」につきまして、正式受注確認の内容をご用意いたしました。\n\n下記URLより、最終見積書（税込170,500円）およびご依頼条件をご確認ください。\n\n【正式受注確認URL】\nhttps://ara-tech.cc/pa-contract.html#'+'a'.repeat(64)+'\n\n内容をご確認のうえ、確認ページ内の「この内容で正式に依頼する」ボタンからお手続きをお願いいたします。\n\nご不明な点や、支払条件などについてご相談がある場合は、正式依頼のお手続き前にこのメールへご返信ください。\n\nどうぞよろしくお願いいたします。\n\nARA-TECH\n荒殿 竜一';
   const preview=await replyPreview({inquiryId:f.inquiryId,actorId:f.actorId,body:mailBody},f.fetchImpl);
@@ -53,6 +53,9 @@ async function main(){
    assert.match(await page.locator('#payment-date').innerText(),/2026年11月2日.*月/);assert(!/version|軽微な運用変更|契約上の主要条件/.test(await page.locator('body').innerText()));
    const geometry=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,content:document.querySelector('main').getBoundingClientRect().width,logo:document.querySelector('.brand img').naturalWidth,background:getComputedStyle(document.querySelector('.brand')).backgroundColor,terms:document.querySelector('#business').clientHeight,termsScroll:document.querySelector('#business').scrollHeight,submitDisabled:document.querySelector('#submit').disabled,pdfHeight:document.querySelector('#pdfViewer').clientHeight}));
    assert(geometry.scroll<=width);assert(geometry.logo>0);assert.equal(geometry.background,'rgb(0, 123, 255)');if(width===1440)assert(geometry.content>=1100&&geometry.content<=1150);assert(geometry.termsScroll>geometry.terms);assert(!geometry.submitDisabled);assert(geometry.pdfHeight>=350);
+   assert(await page.locator('#order-scope').isVisible());assert.match(await page.locator('#scope-grid').innerText(),/10:00〜15:00/);assert.equal(await page.locator('#business h3').count(),6);
+   assert(!/キャンセル条件|支払条件|外注費|いずれか高い方/.test(await page.locator('#business').innerText()));assert.equal(await page.getByRole('heading',{name:'その他のご確認事項',exact:true}).count(),1);
+   assert.equal(await page.locator('#confirmer').getAttribute('readonly'),null);
    await page.waitForTimeout(1800);await page.screenshot({path:path.join(out,'contract-'+width+'.png'),fullPage:true});
    const firstSrc=await page.locator('#pdfViewer').getAttribute('src');await page.getByRole('tab').nth(1).click();await page.waitForFunction(s=>document.querySelector('#pdfViewer').src!==s&&!document.querySelector('#pdfViewer').hidden,firstSrc);
    assert.match(await page.locator('#docNote').innerText(),/金額根拠資料ではありません/);results.push(geometry);
@@ -61,6 +64,7 @@ async function main(){
   await page.goto(base+'/admin-test.html');await page.locator('[data-c="related"] input').first().waitFor({state:'attached'});
   await page.getByRole('button',{name:'正式受注確認を開始',exact:true}).click();
   assert.equal(await page.locator('[data-c="related"] input:checked').count(),0);assert(await page.locator('[data-c="issue"]').isDisabled());
+  await page.locator('[data-c="scope-time"]').fill('10:00〜15:00');await page.locator('[data-c="scope-venue"]').fill('検証用会場');await page.locator('[data-c="scope-services"]').fill('管理下テストPA');
   await page.locator('[data-c="quotes"]').selectOption('0');
   await page.getByRole('button',{name:'選択したPDFを確認',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-c="identity"]').textContent.includes('SHA-256'));
   assert(await page.locator('[data-c="issue"]').isDisabled());await page.locator('[data-c="conditions"]').click();await page.waitForFunction(()=>document.querySelector('[data-c="conditions-preview"]').textContent.includes('2026-11-02'));assert(!await page.locator('[data-c="issue"]').isDisabled());
