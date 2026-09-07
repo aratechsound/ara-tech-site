@@ -60,7 +60,12 @@
         .etajima-case { background-color: #f0f7ff; padding: 50px 30px; border-radius: 20px; border-left: 8px solid var(--primary-blue); margin-bottom: 100px; }
         .etajima-case h2 { color: var(--primary-blue); font-size: 1.9rem; font-weight: 900; margin-bottom: 15px; }
         .etajima-case__lead { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); cursor: pointer; }
-        .etajima-case__gallery img { display: block; width: 100%; height: auto; max-height: 560px; object-fit: contain; background: #101820; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); cursor: pointer; }
+        .etajima-case__gallery { align-items: stretch; }
+        .etajima-case__gallery > div { display: flex; justify-content: center; align-items: flex-start; }
+        .etajima-case__gallery img { display: block; width: auto; height: 420px; max-width: 100%; object-fit: contain; background: transparent; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); cursor: pointer; }
+        @media (max-width: 767.98px) {
+            .etajima-case__gallery img { width: 100%; height: auto; max-height: none; }
+        }
 
         /* MUSICAL RUSH 特別セクション */
         .special-case { background-color: #f0f7ff; padding: 50px 30px; border-radius: 20px; border-left: 8px solid var(--primary-blue); margin-bottom: 100px; }
@@ -154,16 +159,16 @@
                 <div class="col-lg-5 showcase-content">
                     <span class="case-tag">FIELD REPORT</span>
                     <h2 id="etajima-case-title">屋外DJイベント 音響・照明</h2>
-                    <p>屋外会場に合わせて左右のスピーカー、サブウーファー、DJ卓、照明設備を構築。来場者がいる運用中の現場で、音響と照明を一体でコントロールしました。</p>
-                    <p class="mb-0">昼間の設営から夕暮れ・夜間の演出まで、イベントの進行と会場の雰囲気に合わせた現場対応を行います。</p>
+                    <p>江田島の屋外DJイベントで、ARA-TECHの「祭りパック」に18インチ・シングルサブウーファー2台を追加した構成でPAを担当しました。9時に現地入りし、12時のオープンまでにシステムの設営・調整を完了。本番は12時から20時まで、DJプレイに合わせた音響運用を行いました。</p>
+                    <p class="mb-0">日中から夕暮れ、夜へと会場の雰囲気が変化する中、時間帯に合わせて照明演出も加え、音響と照明の両面からイベントをサポートしました。</p>
                 </div>
             </div>
             <div class="row g-3 mt-4 etajima-case__gallery">
                 <div class="col-md-6">
-                    <img src="img/etajima-fiesta-2026-pa.jpg" alt="江田島の屋外DJイベントで設営したPA・音響システム" width="1448" height="1086" loading="lazy" decoding="async">
+                    <img src="img/etajima-fiesta-2026-pa.jpg" class="zoom-gallery" alt="江田島の屋外DJイベントで設営したPA・音響システム" width="1448" height="1086" loading="lazy" decoding="async">
                 </div>
                 <div class="col-md-6">
-                    <img src="img/etajima-fiesta-2026-lighting.jpg" alt="夜間イベントでのステージ照明・音響演出" width="1086" height="1448" loading="lazy" decoding="async">
+                    <img src="img/etajima-fiesta-2026-lighting.jpg" class="zoom-gallery" alt="夜間イベントでのステージ照明・音響演出" width="1086" height="1448" loading="lazy" decoding="async">
                 </div>
             </div>
         </section>

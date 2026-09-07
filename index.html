@@ -131,10 +131,14 @@
         .section-title { position: relative; display: inline-block; padding-bottom: 15px; margin-bottom: 30px; }
         .section-title::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 50px; height: 3px; background: var(--primary-blue); }
         .etajima-home-feature { margin-bottom: 80px; }
-        .etajima-home-feature__image { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.14); }
+        .etajima-home-feature__image { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.14); cursor: pointer; }
         .etajima-home-feature__content { padding: 24px 12px; }
         .etajima-home-feature__content h2 { font-weight: 900; margin-bottom: 18px; }
         .etajima-home-feature__eyebrow { color: var(--primary-blue); font-size: .78rem; font-weight: 800; letter-spacing: .18em; }
+        #lightbox { display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.95); justify-content: center; align-items: center; }
+        #lightbox-img { max-width: 90%; max-height: 80%; border: 3px solid white; border-radius: 5px; }
+        .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); color: white; font-size: 40px; font-weight: bold; cursor: pointer; padding: 20px; user-select: none; }
+        #lightbox-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; z-index: 2001; }
         /* 統一された角丸カード型の背景画像付きセクション */
         .cta-section { 
             position: relative; 
@@ -251,12 +255,12 @@
     <section class="container etajima-home-feature" aria-labelledby="etajima-home-feature-title">
         <div class="row align-items-center g-4">
             <div class="col-lg-7">
-                <img src="img/etajima-fiesta-2026-event.jpg" class="etajima-home-feature__image" alt="江田島の屋外DJイベントでの音響・照明演出の様子" width="1448" height="1086" loading="lazy" decoding="async">
+                <img src="img/etajima-fiesta-2026-event.jpg" class="etajima-home-feature__image zoom-single" alt="江田島の屋外DJイベントでの音響・照明演出の様子" width="1448" height="1086" loading="lazy" decoding="async">
             </div>
             <div class="col-lg-5 etajima-home-feature__content">
                 <p class="etajima-home-feature__eyebrow mb-2">FIELD REPORT / OUTDOOR DJ EVENT</p>
                 <h2 id="etajima-home-feature-title">屋外イベントの音響・照明を現場で構築</h2>
-                <p class="text-muted">江田島での屋外DJイベントにて、PAシステムの設営から運用、照明による空間演出まで担当しました。昼間の機材設営から来場者を迎えた夜間運用まで、現場に合わせた音と光をつくります。</p>
+                <p class="text-muted">江田島で開催された屋外DJイベントで、ARA-TECHの「祭りパック」をベースに、18インチ・シングルサブウーファー2台を追加したPAシステムを構築しました。オープン前に設営・調整を完了し、12時から20時までDJプレイに合わせた音響運用と、時間帯に応じた照明演出を担当しました。</p>
                 <a href="stage-production.html" class="btn btn-primary mt-2">イベント音響・照明の実績を見る</a>
             </div>
         </div>
@@ -273,10 +277,49 @@
     </div>
     </main>
 
+    <div id="lightbox">
+        <span id="lightbox-close" onclick="closeLightbox()">&times;</span>
+        <span class="lb-nav lb-prev" id="prev-btn" onclick="changeImage(-1)">&#10094;</span>
+        <img id="lightbox-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true">
+        <span class="lb-nav lb-next" id="next-btn" onclick="changeImage(1)">&#10095;</span>
+    </div>
+
     <footer class="py-4 border-top text-center text-muted">
             <small>&copy; 2025 ARA-TECH. All Rights Reserved. <span aria-hidden="true">|</span> <a href="privacy.html">プライバシーポリシー</a></small>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+
+        document.querySelectorAll('.zoom-single').forEach(img => {
+            img.addEventListener('click', function() {
+                lightboxImg.src = this.src;
+                lightboxImg.alt = this.alt;
+                prevBtn.style.display = 'none';
+                nextBtn.style.display = 'none';
+                lightbox.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            });
+        });
+
+        function closeLightbox() {
+            lightbox.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function changeImage() {}
+
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) closeLightbox();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (lightbox.style.display === 'flex' && e.key === 'Escape') closeLightbox();
+        });
+    </script>
 </body>
 </html>
