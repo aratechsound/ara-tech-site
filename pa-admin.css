@@ -159,6 +159,10 @@ td { font-size: .84rem; }
 .mail-preview__body--html table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
 .mail-preview__body--html :is(th, td) { border: 1px solid #d7e0e8; padding: .35em .55em; text-align: start; vertical-align: top; }
 .brand-mail-test-frame { background: #f3f6f9; border: 1px solid var(--line); display: block; height: 720px; margin-top: 12px; width: 100%; }
+.brand-mail-test-frame[hidden] { display: none; }
+#gmail-reply-preview .detail-list { display: block; }
+#gmail-reply-preview .detail-list dt { margin-top: 12px; }
+#gmail-reply-preview .detail-list dd { margin: 4px 0 0; min-width: 0; }
 
 .action-panel { background: white; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 18px; }
 .action-panel h4 { margin: 0 0 6px; }

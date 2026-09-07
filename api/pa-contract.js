@@ -2,8 +2,8 @@ const {createService,SAFE}=require('./_pa-contract.cjs');
 const {verifyAdmin}=require('./_pa-mail.cjs');
 const {streamAttachmentResponse}=require('./_pa-gmail.cjs');
 const {applyOriginPolicy,checkRateLimit}=require('./_request-security.cjs');
-const PUBLIC={view:['action','token'],quote:['action','token'],accept:['action','token','offer_id','snapshot_sha256','confirmer_name','agree']};
-const ADMIN=new Set(['list','inspect_quote','issue','receipt','mail_preview','send','mark_uncertain']);
+const PUBLIC={view:['action','token'],quote:['action','token'],related_document:['action','token','index'],accept:['action','token','offer_id','snapshot_sha256','confirmer_name','agree']};
+const ADMIN=new Set(['list','inspect_quote','inspect_related','preview_conditions','issue','receipt','mail_preview','send','mark_uncertain']);
 const headers=res=>{
  for(const [k,v] of Object.entries({'Cache-Control':'private, no-store, max-age=0','X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}))res.setHeader(k,v);
 };
@@ -28,9 +28,12 @@ function createHandler({service=createService(),admin=verifyAdmin,rate=checkRate
    switch(input.action){
     case 'view':result=await service.view(input.token);break;
     case 'quote':return streamAttachmentResponse(res,await service.customerQuote(input.token));
+    case 'related_document':return streamAttachmentResponse(res,await service.customerRelated(input.token,input.index));
     case 'accept':result=await service.accept(input);break;
     case 'list':result=await service.offers(input.case_id);break;
+    case 'preview_conditions':result=await service.previewConditions(input);break;
     case 'inspect_quote':{const q=await service.quoteSource(input.case_id,input.gmail_message_id,input.gmail_attachment_id);result={identity:q.identity};break;}
+    case 'inspect_related':{const d=await service.relatedSource(input.case_id,input.gmail_message_id,input.gmail_attachment_id);result={identity:d.identity};break;}
     case 'issue':result=await service.issue(input,actor);break;
     case 'receipt':return streamAttachmentResponse(res,await service.ensureReceipt(input.case_id,input.contract_id));
     case 'mail_preview':result=await service.mailPreview(input,actor);break;

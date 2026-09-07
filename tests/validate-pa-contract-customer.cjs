@@ -39,7 +39,7 @@ async function main() {
     const rejected = await f.call({...input, custom_payment:'イベント終了翌月末までに銀行振込', payment_approved:false});
     assert.equal(rejected.body.code, 'invalid_contract');
     assert.equal((await f.service.view(firstToken)).state, 'active');
-    const replacement = (await f.call({...input, custom_payment:'イベント終了翌月末までに銀行振込', payment_approved:true})).body.result;
+    const replacement = (await f.call({...input, custom_payment:'イベント終了翌月末までに銀行振込', payment_approved:true, approved_payment_date:'2026-11-30'})).body.result;
     const secondToken = new URL(replacement.url).hash.slice(1);
     const updated = await f.service.view(secondToken);
     assert.match(updated.snapshot.payment_terms, /イベント終了翌月末までに銀行振込/);
@@ -67,7 +67,7 @@ async function main() {
     const unsafe = mail.buildCustomerHtml('<script>alert(1)</script>');
     assert(!unsafe.includes('<script>'));
     assert.equal(f.state.sendCount, 0);
-    assert(read('pa-admin.html').includes('title="送信前のARA-TECHメール" sandbox="" referrerpolicy="no-referrer"'));
+    assert(read('pa-admin.html').includes('title="送信前のARA-TECHメール" sandbox="allow-same-origin" referrerpolicy="no-referrer"'));
     const csp = JSON.parse(read('vercel.json')).headers.find(h => h.source === '/pa-admin.html').headers.find(h => h.key === 'Content-Security-Policy').value;
     assert(csp.includes("style-src-attr 'unsafe-inline'"));
     assert(!/script-src[^;]*unsafe-inline/.test(csp));

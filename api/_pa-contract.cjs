@@ -2,13 +2,14 @@ const crypto=require('node:crypto');
 const mail=require('./_pa-mail.cjs');
 const gmail=require('./_pa-gmail.cjs');
 const pdf=require('./_pa-contract-pdf.cjs');
-const {terms}=require('./_pa-contract-terms.cjs');
+const {issuanceTerms}=require('./_pa-contract-terms.cjs');
 const TOKEN=/^[a-f0-9]{64}$/;
-const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required']);
+const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
 const uuid=v=>{if(!mail.isUuid(v))throw Error('invalid_contract');return v;};
 const text=(v,max)=>{const s=String(v||'').trim();if(!s||s.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(s))throw Error('invalid_contract');return s;};
 const fromBytea=v=>{if(typeof v!=='string'||!/^\\x[0-9a-f]+$/i.test(v))throw Error('quote_missing');return Buffer.from(v.slice(2),'hex');};
 const address=v=>String(v||'').trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1]?.toLowerCase()||'';
+const publicSnapshot=s=>Array.isArray(s.related_documents)?({...s,related_documents:s.related_documents.map(({content_base64,...identity})=>identity)}):({...s});
 function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  const db=async(path,options={})=>{
   const {url,serviceRoleKey}=mail.supabaseConfig();
@@ -19,6 +20,17 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  const rpc=(name,input)=>db('rpc/'+name,{method:'POST',body:JSON.stringify(input)});
  const one=async(table,params)=>{const rows=await db(table+'?'+new URLSearchParams({...params,limit:'1'}));return rows?.[0]||null;};
  async function inquiry(id){return mail.getInquiry(uuid(id),fetchImpl);}
+ async function relatedSource(caseId,messageId,attachmentId){
+  await inquiry(caseId);
+  const row=await one('pa_gmail_message_index',{inquiry_id:`eq.${caseId}`,gmail_message_id:`eq.${text(messageId,200)}`,select:'*'});
+  if(!row||!['inbound','outbound'].includes(row.direction))throw Error('related_document_invalid');
+  const link=await one('pa_gmail_thread_links',{inquiry_id:`eq.${caseId}`,gmail_thread_id:`eq.${row.gmail_thread_id}`,select:'id'});
+  if(!link)throw Error('related_document_invalid');
+  const a=await gmail.getAttachmentBinary({inquiryId:caseId,gmailMessageId:messageId,gmailAttachmentId:attachmentId},fetchImpl);
+  if(a.mime_type!=='application/pdf'||!a.filename.toLowerCase().endsWith('.pdf'))throw Error('invalid_pdf');
+  await pdf.validatePdf(a.bytes);
+  return {bytes:a.bytes,identity:{role:'related',file_id:`gmail:${messageId}:${attachmentId}`,gmail_message_id:messageId,gmail_attachment_id:attachmentId,filename:a.filename,mime_type:'application/pdf',sha256:pdf.sha(a.bytes),size:a.bytes.length}};
+ }
  async function quoteSource(caseId,messageId,attachmentId){
   const i=await inquiry(caseId);
   const row=await one('pa_gmail_message_index',{inquiry_id:`eq.${caseId}`,gmail_message_id:`eq.${text(messageId,200)}`,select:'*'});
@@ -40,10 +52,18 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
    const c=contracts.find(v=>v.id===o.id);
    const receipt=c?await one('pa_contract_receipts',{contract_id:`eq.${o.id}`,select:'sha256,created_at'}):null;
    const delivery=c?await one('pa_contract_deliveries',{contract_id:`eq.${o.id}`,select:'id,status,created_at,finished_at,error_code,gmail_message_id',order:'created_at.desc,id.desc'}):null;
-   history.push({...o,state:c?'accepted':token?.state==='active'&&Date.now()>=Date.parse(o.expires_at)?'expired':token?.state,confirmed_at:c?.confirmed_at,receipt,delivery});
+   history.push({...o,snapshot:publicSnapshot(o.snapshot),state:c?'accepted':token?.state==='active'&&Date.now()>=Date.parse(o.expires_at)?'expired':token?.state,confirmed_at:c?.confirmed_at,receipt,delivery});
   }
   const messages=await db('pa_gmail_message_index?'+new URLSearchParams({inquiry_id:`eq.${caseId}`,direction:'eq.outbound',select:'gmail_message_id,subject,sent_at,attachment_metadata',order:'sent_at.desc',limit:'100'}));
-  return {history,quotes:messages.flatMap(m=>(m.attachment_metadata||[]).filter(a=>a.mime_type==='application/pdf'||String(a.filename).toLowerCase().endsWith('.pdf')).map(a=>({gmail_message_id:m.gmail_message_id,gmail_attachment_id:a.id,filename:a.filename,sent_at:m.sent_at,subject:m.subject})))};
+  const all=await db('pa_gmail_message_index?'+new URLSearchParams({inquiry_id:`eq.${caseId}`,select:'gmail_message_id,gmail_thread_id,direction,sent_at,attachment_metadata',order:'sent_at.desc',limit:'100'}));
+  const links=await db('pa_gmail_thread_links?'+new URLSearchParams({inquiry_id:`eq.${caseId}`,select:'gmail_thread_id',limit:'100'}));
+  const candidates=all.filter(m=>links.some(l=>l.gmail_thread_id===m.gmail_thread_id)&&['inbound','outbound'].includes(m.direction)).flatMap(m=>(m.attachment_metadata||[]).filter(a=>a.mime_type==='application/pdf'||String(a.filename).toLowerCase().endsWith('.pdf')).map(a=>({gmail_message_id:m.gmail_message_id,gmail_attachment_id:a.id,filename:a.filename,sent_at:m.sent_at,direction:m.direction})));
+  return {history,related_candidates:candidates,quotes:messages.flatMap(m=>(m.attachment_metadata||[]).filter(a=>a.mime_type==='application/pdf'||String(a.filename).toLowerCase().endsWith('.pdf')).map(a=>({gmail_message_id:m.gmail_message_id,gmail_attachment_id:a.id,filename:a.filename,sent_at:m.sent_at,subject:m.subject})))};
+ }
+ async function previewConditions(input){
+  const i=await inquiry(input.case_id),custom=String(input.custom_payment||'').trim();
+  if(custom&&(input.payment_approved!==true||custom.length>2000))throw Error('invalid_contract');
+  return issuanceTerms(i.event_date,custom,String(input.approved_payment_date||''));
  }
  async function issue(input,actor){
   const src=await quoteSource(input.case_id,input.gmail_message_id,input.gmail_attachment_id);
@@ -52,7 +72,19 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   const i=src.inquiry;
   const custom=String(input.custom_payment||'').trim();
   if(custom&&(input.payment_approved!==true||custom.length>2000))throw Error('invalid_contract');
-  const snapshot={event_name:text(i.event_name,200),event_date:i.event_date,recipient:i.email,customer_name:text(input.customer_name,400),confirmer_name:text(i.contact_name||i.customer_name,120),amount,request_summary:text(input.request_summary,10000),...terms(i.event_date,custom),quote:src.identity,payment_approval:custom?{actor_id:actor.id,approved_at:new Date().toISOString()}:null};
+  const agreement=issuanceTerms(i.event_date,custom,String(input.approved_payment_date||''));
+  const selected=input.related_documents||[];
+  if(!Array.isArray(selected)||selected.length>5)throw Error('related_document_invalid');
+  const related=[],seen=new Set([src.identity.file_id]);let relatedSize=0;
+  for(const item of selected){
+   if(!item||typeof item!=='object')throw Error('related_document_invalid');
+   const r=await relatedSource(input.case_id,item.gmail_message_id,item.gmail_attachment_id);
+   if(seen.has(r.identity.file_id)||r.identity.sha256!==item.sha256)throw Error('related_document_invalid');
+   seen.add(r.identity.file_id);relatedSize+=r.bytes.length;
+   if(relatedSize>1500000)throw Error('related_documents_too_large');
+   related.push({...r.identity,content_base64:r.bytes.toString('base64')});
+  }
+  const snapshot={event_name:text(i.event_name,200),event_date:i.event_date,recipient:i.email,customer_name:text(input.customer_name,400),confirmer_name:text(i.contact_name||i.customer_name,120),amount,request_summary:text(input.request_summary,10000),...agreement,quote:src.identity,related_documents:related,payment_approval:custom?{actor_id:actor.id,approved_at:new Date().toISOString(),due_date:agreement.payment_due_date}:null};
   const token=crypto.randomBytes(32).toString('hex');
   const result=await rpc('pa_contract_issue',{p_actor:actor.id,p_id:crypto.randomUUID(),p_case:i.id,p_token_hash:pdf.sha(token),p_snapshot:snapshot,p_quote:src.bytes.toString('base64')});
   return {...result,url:`https://ara-tech.cc/pa-contract.html#${token}`};
@@ -73,12 +105,19 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   const {state,offer:o}=await resolve(token);
   if(state==='accepted')return {state};
   const {recipient,issued_by,payment_approval,...snapshot}=o.snapshot;
-  return {state,snapshot,offer_id:o.id,snapshot_sha256:o.snapshot_sha256,expires_at:o.expires_at};
+  return {state,snapshot:publicSnapshot(snapshot),offer_id:o.id,snapshot_sha256:o.snapshot_sha256,expires_at:o.expires_at};
  }
  async function customerQuote(token){
   const r=await resolve(token);if(r.state!=='active')throw Error('invalid_link');
   const bytes=fromBytea(r.offer.quote_pdf);await pdf.validatePdf(bytes,r.offer.quote_sha256);
   return {bytes,filename:r.offer.snapshot.quote.filename,mime_type:'application/pdf'};
+ }
+ async function customerRelated(token,index){
+  const r=await resolve(token);if(r.state!=='active')throw Error('invalid_link');
+  if(!Number.isInteger(index)||index<0)throw Error('related_document_invalid');
+  const d=r.offer.snapshot.related_documents?.[index];if(!d||d.role!=='related')throw Error('related_document_invalid');
+  const bytes=Buffer.from(d.content_base64,'base64');await pdf.validatePdf(bytes,d.sha256);
+  return {bytes,filename:d.filename,mime_type:'application/pdf'};
  }
  async function contract(caseId,id){
   uuid(caseId);uuid(id);await inquiry(caseId);
@@ -142,6 +181,6 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${input.attempt_id}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status:'sent',finished_at:new Date().toISOString(),gmail_message_id:sent.gmail_message_id})});
   return {state:'accepted',delivery_status:'sent'};
  }
- return {offers,quoteSource,issue,view,customerQuote,accept,ensureReceipt,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
+ return {offers,quoteSource,relatedSource,previewConditions,issue,view,customerQuote,customerRelated,accept,ensureReceipt,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
 }
 module.exports={createService,SAFE};

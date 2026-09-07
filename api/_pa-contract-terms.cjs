@@ -25,3 +25,16 @@ function terms(eventDate, customPayment='') {
  return {terms_version:TERMS_VERSION,payment_terms:payment,cancellation_terms:cancel,business_terms:BUSINESS,terms_text:`キャンセル条件\n${cancel}\n\n支払条件\n${payment}\n\nご依頼にあたっての確認事項\n${BUSINESS}`};
 }
 module.exports={terms,TERMS_VERSION};
+
+// Used only by new issuance. Keep the legacy generator for exact historical tests.
+function issuanceTerms(eventDate,customPayment='',approvedDate=''){
+ const {paymentDeadline,cancellationBands}=require('./_pa-contract-calendar.cjs');
+ const custom=String(customPayment||'').trim();
+ if(Boolean(custom)!==Boolean(approvedDate))throw Error('invalid_payment_date');
+ const due=paymentDeadline(eventDate,approvedDate),base=terms(eventDate,custom);
+ const rule='イベント終了後14日以内。期限日が金融機関休業日の場合は翌営業日。';
+ const payment=custom?base.payment_terms:base.payment_terms.replace('イベント終了後14日以内に銀行振込でお支払いください。',rule+'銀行振込でお支払いください。');
+ const paymentText=`今回のお支払期限：${due.payment_due_date}\n${payment}`;
+ return {...base,...due,terms_version:'PA-FORMAL-20260908-v3',presentation_version:3,payment_terms:payment,payment_summary:custom?'ARA-TECH承認済みの支払期限':rule,cancellation_bands:cancellationBands(eventDate),terms_text:`キャンセル条件\n${base.cancellation_terms}\n\n支払条件\n${paymentText}\n\nご依頼にあたっての確認事項\n${base.business_terms}`};
+}
+module.exports.issuanceTerms=issuanceTerms;

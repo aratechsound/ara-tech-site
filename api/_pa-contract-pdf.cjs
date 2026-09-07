@@ -44,6 +44,8 @@ async function mergeReceipt(snapshot,quote) {
  paragraph(`依頼内容\n${snapshot.request_summary}`);
  paragraph(`契約ID：${snapshot.contract_id}\n案件ID：${snapshot.case_id}\n契約version：${snapshot.contract_version}\n規約version：${snapshot.terms_version}`,9);
  paragraph(`最終見積：${snapshot.quote.filename}\nファイルID：${snapshot.quote.file_id}\nSHA-256：${snapshot.quote.sha256}`,8);
+ if(snapshot.payment_due_date)paragraph(`お支払期限：${snapshot.payment_due_date}`,11);
+ for(const d of snapshot.related_documents||[])paragraph(`関連資料（金額根拠資料ではありません）：${d.filename}\nファイルID：${d.file_id}\nSHA-256：${d.sha256}`,8);
  paragraph('契約条件',14);paragraph(snapshot.terms_text);
  paragraph('以下に、お客様へ提示した最終見積PDFの原本ページを結合しています。',9);
  const coverPages=doc.getPageCount();

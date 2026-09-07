@@ -3132,9 +3132,12 @@ const previewGmailReply = async () => {
         $("#gmail-reply-preview-subject").textContent = response.preview.subject;
         $("#gmail-reply-preview-body").textContent = response.preview.body;
         // The server uses this same renderer for the Gmail MIME HTML part.
-        // Sandbox permits no scripts, forms, navigation or same-origin access.
-        $("#gmail-reply-preview-frame").srcdoc = response.preview.html || "";
-        $("#gmail-reply-preview-frame").hidden = !response.preview.html;
+        // Same-origin access allows a rendering check; scripts, forms, popups
+        // and top navigation remain sandboxed. Never rewrite the final HTML.
+        if (!response.preview.html) throw Error("preview_unavailable");
+        $("#gmail-reply-preview").classList.remove("hidden");
+        $("#gmail-reply-preview-frame").hidden = false;
+        $("#gmail-reply-preview-frame").srcdoc = response.preview.html;
         renderGmailReplyPreviewAttachments(response.preview.attachments);
         $("#gmail-reply-preview").classList.remove("hidden");
         $("#send-gmail-reply").disabled = false;

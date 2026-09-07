@@ -25,9 +25,9 @@ async function createFixture(){
   if(u.host==='oauth2.googleapis.com')return json({access_token:'fixture-access',expires_in:3600});
   if(u.host==='gmail.googleapis.com'){
    if(u.pathname.endsWith('/messages/send')){state.sendCount++;state.lastRaw=JSON.parse(options.body);if(state.transport==='uncertain')throw Error('network_response_lost');if(state.transport==='fail')return json({},400);return json({id:'sent_contract_1',threadId:'thread_123'});}
-   if(u.pathname.includes('/attachments/'))return json({data:state.quote.toString('base64url'),size:state.quote.length});
+   if(u.pathname.includes('/attachments/')){const bytes=u.pathname.endsWith('/attachment_2')&&state.related?state.related:state.quote;return json({data:bytes.toString('base64url'),size:bytes.length});}
    if(u.pathname.includes('/threads/'))return json({id:'thread_123',messages:[rawMessage()]});
-   if(u.pathname.includes('/messages/'))return json(rawMessage());
+   if(u.pathname.includes('/messages/')){const message=rawMessage();if(state.related)message.payload.parts.push({mimeType:'application/pdf',filename:'layout.pdf',partId:'2',body:{attachmentId:'attachment_2',size:state.related.length}});return json(message);}
    return json({messages:[]});
   }
   assert.equal(u.origin,'https://fixture.invalid','Live network forbidden');
