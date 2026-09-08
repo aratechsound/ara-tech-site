@@ -13,11 +13,15 @@ let supabase;
 let accessToken = "";
 let caseId = "";
 let previewRequest = 0;
+let portalModel = null;
+let editMode = false;
+let sourceCandidates = [];
+let manageSubmit = null;
 
 const text = (value, fallback = "未設定") => String(value || "").trim() || fallback;
 const dateText = (value) => value ? new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`)) : "未設定";
 const timeText = (value) => text(value);
-const documentTime = (item) => item.occurred_at ? new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(item.occurred_at)) : "日時未登録";
+const documentTime = (item) => (item.source_created_at || item.occurred_at || item.created_at) ? new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(item.source_created_at || item.occurred_at || item.created_at)) : "日時未登録";
 const isImage = (item) => /^image\//iu.test(item.mime_type || "");
 const isPdf = (item) => String(item.mime_type || "").toLowerCase() === "application/pdf" || /\.pdf$/iu.test(item.filename || "");
 const canPreview = (item) => isImage(item) || isPdf(item);
@@ -31,12 +35,13 @@ const categoryFor = (item) => {
     if (/(会場図|配置図|平面図|電源|搬入|導線|layout|stage\s*plot|ステージ図|音響)/iu.test(source)) return "layout";
     return "other";
 };
-const groupKey = (item) => String(item.filename || "資料")
+const groupKey = (item) => item.logical_key || String(item.filename || "資料")
     .replace(/\.[A-Za-z0-9]{1,8}$/u, "")
     .replace(/[＿_\s-]*(最新版|最終|final|ver(?:sion)?|v)?[＿_\s-]*\d+(?:\.\d+)?$/iu, "")
     .trim() || "資料";
-const sourceLabel = (item) => item.direction === "inbound" ? "主催者・関係者提出" : "ARA-TECH共有";
-const attachmentKey = (item) => `${item.message_id}:${item.attachment_id}`;
+const sourceLabel = (item) => ({ organizer: "主催者・関係者提出", ara_tech: "ARA-TECH共有", shared: "共同資料", performer: "出演者提出" }[item.contributor_kind] || (item.direction === "inbound" ? "主催者・関係者提出" : "ARA-TECH共有"));
+const sourceTypeLabel = (item) => ({ gmail_attachment: "メール添付", pa_attachment: "PA案件添付", portal_upload: "ポータル登録" }[item.source_type] || "既存資料");
+const attachmentKey = (item) => `${item.asset_kind}:${item.asset_id}`;
 
 const portalCaseId = () => {
     const match = decodeURIComponent(location.pathname).match(/^\/pa\/cases\/([0-9a-f-]{36})\/portal\/?$/iu);
@@ -47,7 +52,7 @@ const revealError = (message) => { $("#portal-loading").hidden = true; $("#porta
 const getAttachmentRecord = async (item) => {
     const key = attachmentKey(item);
     if (attachmentRecords.has(key)) return attachmentRecords.get(key);
-    const response = await fetch("/api/pa-gmail", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "attachment_download", inquiry_id: caseId, gmail_message_id: item.message_id, gmail_attachment_id: item.attachment_id }), cache: "no-store" });
+    const response = await fetch("/api/pa-portal", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "download", inquiry_id: caseId, asset_id: item.asset_id, asset_kind: item.asset_kind }), cache: "no-store" });
     if (!response.ok) throw new Error("attachment_unavailable");
     const blob = await response.blob();
     const record = { blob, url: URL.createObjectURL(blob) };
@@ -151,7 +156,7 @@ const makePreview = (item, { collection = false } = {}) => {
     if (collection) {
         const label = document.createElement("span");
         label.className = "collection-label";
-        label.textContent = groupKey(item);
+        label.textContent = item.logical_title || groupKey(item);
         button.append(label);
     }
     appendZoomLabel(button);
@@ -201,14 +206,28 @@ const makeHistory = (history) => {
         const name = document.createElement("strong");
         name.textContent = item.filename;
         const timestamp = document.createElement("span");
-        timestamp.textContent = documentTime(item);
+        timestamp.textContent = `${text(item.version_label, "版ラベルなし")} ／ ${sourceLabel(item)} ／ ${sourceTypeLabel(item)} ／ ${documentTime(item)}`;
         meta.append(name, timestamp);
+        const actions = document.createElement("div");
+        actions.className = "history-actions";
         const open = document.createElement("button");
         open.type = "button";
         open.className = "history-open";
         open.textContent = "開く";
         open.addEventListener("click", () => showPreview(item));
-        entry.append(makeHistoryThumbnail(item), meta, open);
+        actions.append(open);
+        const restore = document.createElement("button");
+        restore.type = "button";
+        restore.className = "history-manage manage-only";
+        restore.textContent = "最新版に戻す";
+        restore.addEventListener("click", () => runMutation("switch_current", { card_id: item.card_id, version_id: item.asset_id }, "最新版を切り替えました"));
+        const archive = document.createElement("button");
+        archive.type = "button";
+        archive.className = "history-manage manage-only";
+        archive.textContent = "archive";
+        archive.addEventListener("click", () => runMutation("archive_version", { version_id: item.asset_id }, "過去版をarchiveしました"));
+        actions.append(restore, archive);
+        entry.append(makeHistoryThumbnail(item), meta, actions);
         list.append(entry);
     });
     details.append(summary, list);
@@ -249,9 +268,26 @@ const makeDocumentCard = (latest, history = [], { fixed = false, collection = fa
     body.append(titleRow, meta, badges, view);
     card.append(body);
     if (history.length) card.append(makeHistory(history));
+    const management = document.createElement("div");
+    management.className = "card-management";
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "card-manage";
+    add.textContent = "新版を追加";
+    add.addEventListener("click", () => openVersionDialog(latest.card_id, latest.logical_title));
+    management.append(add);
+    if (!fixed) {
+        const archive = document.createElement("button");
+        archive.type = "button";
+        archive.className = "card-manage";
+        archive.textContent = "カードをarchive";
+        archive.addEventListener("click", () => runMutation("archive_card", { card_id: latest.card_id }, "資料カードをarchiveしました"));
+        management.append(archive);
+    }
+    card.append(management);
     return card;
 };
-const emptyCard = ({ title, message, icon, fixed = false, collection = false }) => {
+const emptyCard = ({ title, message, icon, fixed = false, collection = false, cardId = null }) => {
     const card = document.createElement("article");
     card.className = `empty-document-card document-card--placeholder${collection ? " collection-empty" : ""}`;
     const visual = document.createElement("div");
@@ -287,16 +323,27 @@ const emptyCard = ({ title, message, icon, fixed = false, collection = false }) 
     meta.textContent = "未登録";
     footer.append(titleRow, meta);
     card.append(visual, footer);
+    if (fixed && cardId) {
+        const management = document.createElement("div");
+        management.className = "card-management";
+        const register = document.createElement("button");
+        register.type = "button";
+        register.className = "card-manage";
+        register.textContent = `${title}を登録`;
+        register.addEventListener("click", () => openVersionDialog(cardId, title));
+        management.append(register);
+        card.append(management);
+    }
     return card;
 };
 
-const grouped = (documents) => [...documents.reduce((map, item) => { const key = groupKey(item); map.set(key, [...(map.get(key) || []), item]); return map; }, new Map()).values()].map((items) => items.sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || ""))));
+const grouped = (documents) => [...documents.reduce((map, item) => { const key = groupKey(item); map.set(key, [...(map.get(key) || []), item]); return map; }, new Map()).values()].map((items) => items.sort((a, b) => Number(b.is_current) - Number(a.is_current) || String(b.source_created_at || b.created_at || "").localeCompare(String(a.source_created_at || a.created_at || ""))));
 const renderVersioned = (target, documents, options) => {
     target.replaceChildren();
     if (!documents.length) { target.append(emptyCard(options.empty)); return; }
     const groups = grouped(documents);
     if (!options.multiple) {
-        const versions = groups.flat().sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || "")));
+        const versions = groups.flat().sort((a, b) => Number(b.is_current) - Number(a.is_current) || String(b.source_created_at || b.created_at || "").localeCompare(String(a.source_created_at || a.created_at || "")));
         target.append(makeDocumentCard(versions[0], versions.slice(1), options));
         return;
     }
@@ -325,7 +372,17 @@ const renderPhotos = (documents) => {
         getBlobUrl(item).then((url) => { const image = document.createElement("img"); image.src = url; image.alt = item.filename; tile.prepend(image); }).catch(() => { label.textContent = `${item.filename}（表示不可）`; });
         tile.append(label);
         tile.addEventListener("click", () => showPreview(item));
-        target.append(tile);
+        const wrap = document.createElement("div");
+        wrap.className = "photo-tile";
+        tile.className = "photo-tile photo-tile__preview";
+        wrap.append(tile);
+        const archive = document.createElement("button");
+        archive.type = "button";
+        archive.className = "photo-archive";
+        archive.textContent = "archive";
+        archive.addEventListener("click", (event) => { event.stopPropagation(); runMutation("archive_photo", { photo_id: item.asset_id }, "写真をarchiveしました"); });
+        wrap.append(archive);
+        target.append(wrap);
     });
 };
 const samplePerformer = (index, name, description) => {
@@ -381,25 +438,92 @@ const renderPerformers = (documents) => {
         samplePerformer(3, "□□神楽団", "マイク希望あり / 12名 / 電源要確認")
     );
 };
-const readDocuments = async () => {
-    const response = await fetch("/api/pa-gmail", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "portal_documents", inquiry_id: caseId }), cache: "no-store" });
+const portalRequest = async (action, extra = {}) => {
+    const response = await fetch("/api/pa-portal", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ action, inquiry_id: caseId, ...extra }), cache: "no-store" });
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !Array.isArray(payload?.result)) throw new Error("portal_documents_unavailable");
-    return payload.result.flatMap((message) => (Array.isArray(message.attachment_metadata) ? message.attachment_metadata : []).filter((attachment) => attachment?.id && attachment?.filename).map((attachment) => ({ message_id: message.gmail_message_id, attachment_id: String(attachment.id), filename: String(attachment.filename), mime_type: String(attachment.mime_type || ""), subject: String(message.subject || ""), direction: message.direction, occurred_at: message.received_at || message.sent_at || "" })).filter((attachment) => !isCommercialDocument(attachment)));
+    if (!response.ok) throw new Error(payload?.code || "portal_request_failed");
+    return payload.result;
+};
+const asDocument = (version, card) => ({ ...version, asset_id: version.id, asset_kind: "version", card_id: card.id, logical_key: card.id, logical_title: card.title, filename: version.display_filename, mime_type: version.mime_type, is_current: version.id === card.current_version_id });
+const asPhoto = (photo) => ({ ...photo, asset_id: photo.id, asset_kind: "photo", filename: photo.display_filename, occurred_at: photo.source_created_at || photo.created_at });
+const showToast = (message) => { const toast = $("#portal-toast"); toast.textContent = message; toast.classList.add("is-visible"); setTimeout(() => toast.classList.remove("is-visible"), 2400); };
+const refreshPortal = async () => { portalModel = await portalRequest("read"); renderPortalDocuments(); };
+const runMutation = async (action, payload, success) => {
+    try { await portalRequest(action, { payload, idempotency_key: crypto.randomUUID() }); await refreshPortal(); showToast(success); }
+    catch (error) { showToast(`保存できませんでした（${error.message}）`); }
+};
+const filePayload = async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    return { filename: file.name, mime_type: file.type, data_base64: btoa(binary) };
+};
+const field = (label, control) => { const wrap = document.createElement("label"); wrap.className = "manage-field"; const name = document.createElement("span"); name.textContent = label; wrap.append(name, control); return wrap; };
+const input = (name, options = {}) => { const node = document.createElement(options.multiline ? "textarea" : "input"); node.name = name; if (options.type) node.type = options.type; if (options.required) node.required = true; if (options.multiple) node.multiple = true; if (options.accept) node.accept = options.accept; node.value = options.value || ""; return node; };
+const select = (name, values) => { const node = document.createElement("select"); node.name = name; values.forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; node.append(option); }); return node; };
+const closeManage = () => { manageSubmit = null; if ($("#manage-dialog").open) $("#manage-dialog").close(); };
+const openManage = (title, content, submit) => { $("#manage-dialog-title").textContent = title; $("#manage-dialog-body").replaceChildren(...content); manageSubmit = submit; $("#manage-dialog").showModal(); };
+const sourceFields = ({ photos = false } = {}) => {
+    const available = photos ? sourceCandidates.filter((candidate) => /^image\//u.test(candidate.mime_type)) : sourceCandidates;
+    const mode = select("source_mode", [["upload", "PCからアップロード"], ["existing", "既存PA案件／メール添付から選択"]]);
+    const files = input("files", { type: "file", required: true, multiple: photos, accept: photos ? "image/jpeg,image/png,image/webp" : "application/pdf,image/jpeg,image/png,image/webp" });
+    const existing = select("candidate", [["", "選択してください"], ...available.map((candidate, index) => [String(index), `${candidate.display_filename}（${sourceTypeLabel(candidate)}）`])]);
+    existing.disabled = true;
+    mode.addEventListener("change", () => { const uploadMode = mode.value === "upload"; files.disabled = !uploadMode; files.required = uploadMode; existing.disabled = uploadMode; existing.required = !uploadMode; });
+    return { controls: [field("登録方法", mode), field(photos ? "画像（複数選択可）" : "ファイル", files), field("既存資料", existing)], mode, files, existing, available };
+};
+const commonVersionPayload = async (form, source, extra = {}) => {
+    const contributor = form.elements.contributor_kind.value;
+    const base = { ...extra, contributor_kind: contributor, version_label: form.elements.version_label?.value || "", note: form.elements.note?.value || "" };
+    if (source.mode.value === "existing") return { ...base, source: source.available[Number(source.existing.value)] };
+    return { ...base, upload: await filePayload(source.files.files[0]) };
+};
+const openVersionDialog = (cardId, title, newCard = null) => {
+    const source = sourceFields(); const version = input("version_label", { value: "" }); const note = input("note", { multiline: true });
+    const contributor = select("contributor_kind", [["ara_tech", "ARA-TECH"], ["organizer", "主催者"], ["shared", "共同"], ["performer", "出演者"]]);
+    openManage(`${title}：${cardId ? "新版を追加" : "資料カードを追加"}`, [...source.controls, field("版ラベル", version), field("提供者", contributor), field("メモ", note)], async (form) => {
+        const payload = await commonVersionPayload(form, source, cardId ? { card_id: cardId } : { new_card: newCard });
+        await portalRequest("add_version", { payload, idempotency_key: crypto.randomUUID() }); closeManage(); await refreshPortal(); showToast(cardId ? "新版を登録しました" : "資料カードを作成しました");
+    });
+};
+const openNewCardDialog = (category) => {
+    const title = input("title", { required: true }); const owner = select("owner_kind", [["shared", "共同"], ["ara_tech", "ARA-TECH"], ["organizer", "主催者"], ["performer", "出演者"]]);
+    const source = sourceFields(); const version = input("version_label"); const note = input("note", { multiline: true });
+    const contributor = select("contributor_kind", [["ara_tech", "ARA-TECH"], ["organizer", "主催者"], ["shared", "共同"], ["performer", "出演者"]]);
+    openManage(category === "layout" ? "資料カードを追加" : "共通資料を追加", [field("カードタイトル", title), field("所有区分", owner), ...source.controls, field("版ラベル", version), field("提供者", contributor), field("メモ", note)], async (form) => {
+        const newCard = { category, title: form.elements.title.value, owner_kind: form.elements.owner_kind.value, sort_order: category === "layout" ? 30 : 50 };
+        const payload = await commonVersionPayload(form, source, { new_card: newCard });
+        await portalRequest("add_version", { payload, idempotency_key: crypto.randomUUID() }); closeManage(); await refreshPortal(); showToast("資料カードを作成しました");
+    });
+};
+const openPhotoDialog = () => {
+    const source = sourceFields({ photos: true }); const contributor = select("contributor_kind", [["ara_tech", "ARA-TECH"], ["organizer", "主催者"], ["shared", "共同"]]); const caption = input("caption");
+    openManage("写真を追加", [...source.controls, field("提供者", contributor), field("キャプション", caption)], async (form) => {
+        const basics = { contributor_kind: form.elements.contributor_kind.value, caption: form.elements.caption.value };
+        if (source.mode.value === "existing") await portalRequest("add_photo", { payload: { ...basics, source: source.available[Number(source.existing.value)] }, idempotency_key: crypto.randomUUID() });
+        else for (const file of source.files.files) await portalRequest("add_photo", { payload: { ...basics, upload: await filePayload(file) }, idempotency_key: crypto.randomUUID() });
+        closeManage(); await refreshPortal(); showToast("写真を追加しました");
+    });
+};
+const renderPortalDocuments = () => {
+    const cards = Array.isArray(portalModel?.cards) ? portalModel.cards : [];
+    const versions = (category) => cards.filter((card) => card.category === category).flatMap((card) => (card.versions || []).map((version) => asDocument(version, card)));
+    const fixed = (category) => cards.find((card) => card.category === category && card.card_kind === "fixed");
+    renderVersioned($("#timetable-content"), versions("timetable"), { fixed: true, multiple: false, empty: { title: "タイムテーブル", message: "進行表が登録されると、ここに最新版が表示されます。", icon: "🗓️", fixed: true, cardId: fixed("timetable")?.id } });
+    renderVersioned($("#script-content"), versions("script"), { fixed: true, multiple: false, empty: { title: "台本", message: "進行台本が登録されると、ここに最新版が表示されます。", icon: "📘", fixed: true, cardId: fixed("script")?.id } });
+    renderVersioned($("#layout-content"), versions("layout"), { collection: true, multiple: true, empty: { title: "会場図・配置図", message: "資料カードが追加されると、ここにプレビューと履歴が表示されます。", icon: "📐", collection: true } });
+    renderPhotos((portalModel?.photos || []).map(asPhoto));
+    renderPerformers(versions("performer"));
+    renderVersioned($("#other-content"), versions("other"), { collection: true, multiple: true, empty: { title: "その他の共通資料", message: "運営資料や注意事項などが登録されると、ここに表示されます。", icon: "📄", collection: true } });
 };
 const populate = async (item, progress) => {
     $("#portal-event-name").textContent = text(item.event_name, "イベント資料ポータル");
     $("#portal-date").textContent = dateText(progress?.confirmed_event_date || item.event_date);
     $("#portal-time").textContent = timeText(item.event_time);
     $("#portal-venue").textContent = text(item.venue);
-    const documents = await readDocuments();
-    const byCategory = documents.reduce((map, document) => { const category = categoryFor(document); (map[category] ||= []).push(document); return map; }, {});
-    renderVersioned($("#timetable-content"), byCategory.timetable || [], { fixed: true, multiple: false, empty: { title: "タイムテーブル", message: "進行表が登録されると、ここに最新版が表示されます。", icon: "🗓️", fixed: true } });
-    renderVersioned($("#script-content"), byCategory.script || [], { fixed: true, multiple: false, empty: { title: "台本", message: "進行台本が登録されると、ここに最新版が表示されます。", icon: "📘", fixed: true } });
-    renderVersioned($("#layout-content"), byCategory.layout || [], { collection: true, multiple: true, empty: { title: "会場図・配置図", message: "資料カードが追加されると、ここにプレビューと履歴が表示されます。", icon: "📐", collection: true } });
-    renderPhotos(byCategory.photo || []);
-    renderPerformers(byCategory.performer || []);
-    renderVersioned($("#other-content"), byCategory.other || [], { collection: true, multiple: true, empty: { title: "その他の共通資料", message: "運営資料や注意事項などが登録されると、ここに表示されます。", icon: "📄", collection: true } });
+    portalModel = await portalRequest("read");
+    if (!portalModel) throw new Error("portal_not_initialized");
+    renderPortalDocuments();
 };
 const start = async () => {
     if (!isSupabaseConfigured) { revealError("管理画面の接続設定がありません。"); return; }
@@ -418,4 +542,28 @@ const start = async () => {
 $("#preview-close").addEventListener("click", closePreview);
 $("#preview-dialog").addEventListener("click", (event) => { if (event.target === $("#preview-dialog")) closePreview(); });
 $("#preview-dialog").addEventListener("cancel", () => { previewRequest += 1; });
+$("#edit-mode-toggle").addEventListener("click", async () => {
+    const button = $("#edit-mode-toggle");
+    if (!editMode) {
+        try { sourceCandidates = await portalRequest("candidates"); }
+        catch { showToast("既存資料候補を読み込めませんでした"); return; }
+    }
+    editMode = !editMode;
+    document.body.classList.toggle("portal-editing", editMode);
+    button.setAttribute("aria-pressed", String(editMode));
+    button.textContent = editMode ? "編集を終了" : "資料を編集";
+});
+$("#manage-close").addEventListener("click", closeManage);
+$("#manage-dialog").addEventListener("cancel", closeManage);
+$("#manage-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!manageSubmit) return;
+    const submit = $("#manage-submit");
+    submit.disabled = true;
+    try { await manageSubmit(event.currentTarget); }
+    catch (error) { showToast(`保存できませんでした（${error.message}）`); }
+    finally { submit.disabled = false; }
+});
+document.querySelectorAll('[data-manage="create-card"]').forEach((button) => button.addEventListener("click", () => openNewCardDialog(button.dataset.category)));
+document.querySelector('[data-manage="add-photo"]').addEventListener("click", openPhotoDialog);
 start();

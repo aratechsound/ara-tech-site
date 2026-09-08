@@ -425,7 +425,7 @@ const portalDocuments = async ({ inquiryId }, fetchImpl = fetch) => {
     await getInquiry(inquiryId, fetchImpl);
     const query = new URLSearchParams({
         inquiry_id: `eq.${inquiryId}`,
-        select: "gmail_message_id,direction,subject,sent_at,received_at,attachment_metadata",
+        select: "gmail_message_id,message_source,direction,subject,sent_at,received_at,attachment_metadata",
         order: "indexed_at.desc",
         limit: "100"
     });

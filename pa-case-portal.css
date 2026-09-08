@@ -40,6 +40,16 @@ button { cursor: pointer; font: inherit; }
 .brand img { display: block; max-width: 60vw; width: 230px; }
 
 .portal-shell { margin: 24px auto 64px; width: min(1180px, calc(100% - 28px)); }
+.portal-tools { display: flex; justify-content: flex-end; margin: 0 0 10px; }
+.edit-mode-toggle,
+.section-manage,
+.card-manage,
+.history-manage { background: #fff; border: 1px solid #bfd4e6; border-radius: 9px; color: #31546d; font-size: 11px; font-weight: 800; padding: 7px 10px; }
+.edit-mode-toggle[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.manage-only { display: none; }
+body.portal-editing .manage-only { display: inline-flex; }
+.card-management { border-top: 1px solid var(--line); display: none; flex-wrap: wrap; gap: 7px; padding: 10px 14px; }
+body.portal-editing .card-management { display: flex; }
 .portal-message {
   background: #fff;
   border: 1px solid rgba(0, 123, 255, .17);
@@ -169,6 +179,8 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
 .card-history[open] summary::after { content: "−"; }
 .history-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0 12px 12px; }
 .history-row { align-items: center; background: #fff; border: 1px solid #dce5ee; border-radius: 9px; display: grid; gap: 8px; grid-template-columns: 64px minmax(0, 1fr) auto; padding: 8px; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+.history-current { color: var(--ok); font-size: 10px; font-weight: 900; }
 .history-thumb { align-items: center; background: #f4f7fa; border: 1px solid #d7e0e7; border-radius: 6px; color: var(--brand); display: flex; font-size: 11px; font-weight: 900; height: 50px; justify-content: center; overflow: hidden; }
 .history-thumb img,
 .history-thumb canvas { height: 100%; object-fit: contain; width: 100%; }
@@ -188,8 +200,11 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
 .photo-album { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 7px 24px rgba(25, 48, 73, .06); padding: 14px; }
 .photo-grid { display: grid; gap: 9px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .photo-tile { aspect-ratio: 4 / 3; background: #eef2f6; border: 1px solid #d8e1e9; border-radius: 10px; overflow: hidden; padding: 0; position: relative; }
+.photo-tile__preview { border: 0; border-radius: 0; height: 100%; inset: 0; position: absolute; width: 100%; }
 .photo-tile img { height: 100%; object-fit: cover; width: 100%; }
 .photo-tile span { background: linear-gradient(transparent, rgba(9, 20, 31, .82)); bottom: 0; color: #fff; font-size: 10px; font-weight: 700; left: 0; overflow: hidden; padding: 18px 8px 7px; position: absolute; right: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.photo-archive { background: rgba(255,255,255,.94); border: 0; border-radius: 7px; color: #9b2530; display: none; font-size: 10px; font-weight: 900; padding: 5px 7px; position: absolute; right: 7px; top: 7px; z-index: 2; }
+body.portal-editing .photo-archive { display: block; }
 .photo-empty { align-items: center; display: flex; grid-column: 1 / -1; justify-content: center; min-height: 220px; text-align: center; }
 
 .performer-wrap { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 7px 24px rgba(25, 48, 73, .06); padding: 14px; }
@@ -222,6 +237,22 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
 .pdf-pages canvas { background: #fff; box-shadow: 0 4px 18px rgba(0, 0, 0, .22); display: block; height: auto; max-width: 100%; }
 .modal-loading { color: #fff; font-size: 13px; font-weight: 800; margin: auto; }
 
+.manage-dialog { background: transparent; border: 0; max-height: none; max-width: none; padding: 18px; width: 100%; }
+.manage-dialog::backdrop { background: rgba(10,16,22,.72); }
+.manage-dialog__inner { background: #fff; border: 0; border-radius: 15px; box-shadow: 0 20px 60px rgba(0,0,0,.25); margin: 5vh auto; max-width: 620px; overflow: hidden; padding: 0; width: min(620px, calc(100vw - 28px)); }
+.manage-dialog__head { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 13px 15px; }
+.manage-dialog__body { display: grid; gap: 12px; max-height: 66vh; overflow: auto; padding: 16px; }
+.manage-dialog__foot { border-top: 1px solid var(--line); display: flex; justify-content: flex-end; padding: 12px 16px; }
+.manage-field { display: grid; gap: 5px; }
+.manage-field > span { color: #455b6d; font-size: 11px; font-weight: 800; }
+.manage-field input,.manage-field select,.manage-field textarea { border: 1px solid #cbd9e5; border-radius: 8px; font: inherit; font-size: 13px; max-width: 100%; padding: 9px; width: 100%; }
+.manage-field textarea { min-height: 72px; resize: vertical; }
+.source-choice { display: flex; flex-wrap: wrap; gap: 12px; }
+.source-choice label { font-size: 12px; font-weight: 700; }
+.manage-hint { color: var(--muted); font-size: 11px; margin: 0; }
+.portal-toast { background: #17212b; border-radius: 9px; bottom: 18px; color: #fff; font-size: 12px; font-weight: 800; left: 50%; opacity: 0; padding: 9px 13px; pointer-events: none; position: fixed; transform: translate(-50%, 12px); transition: .2s; z-index: 20; }
+.portal-toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+
 @media (max-width: 920px) {
   .grid3 { grid-template-columns: 1fr 1fr; }
   .photo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -244,6 +275,10 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
   .preview-dialog { padding: 10px; }
   .preview-dialog__inner { height: calc(100dvh - 20px); width: calc(100vw - 20px); }
   .preview-dialog__body { padding: 8px; }
+  .section-head { align-items: flex-start; }
+  .section-manage { flex: 0 0 auto; }
+  .manage-dialog { padding: 8px; }
+  .manage-dialog__inner { margin: 1vh auto; width: calc(100vw - 16px); }
 }
 
 @media (max-width: 390px) {

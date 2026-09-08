@@ -73,6 +73,18 @@ const RATE_LIMIT_POLICIES = Object.freeze({
         maxRequests: 20,
         identity: "scope"
     }),
+    PA_PORTAL_READ: Object.freeze({
+        bucket: "pa-portal-read",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 120,
+        identity: "scope"
+    }),
+    PA_PORTAL_MUTATE: Object.freeze({
+        bucket: "pa-portal-mutate",
+        windowMs: 10 * 60 * 1000,
+        maxRequests: 60,
+        identity: "scope"
+    }),
     SCHEDULE_RESPONSE: Object.freeze({
         bucket: "pa-schedule-response",
         windowMs: 10 * 60 * 1000,
