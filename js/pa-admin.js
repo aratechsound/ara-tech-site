@@ -848,6 +848,13 @@ const renderCurrentSituation = () => {
 
 const renderOverview = () => {
     renderContractPanel({ case: currentCase, progress: currentProgress, gmailRef: currentGmailTimeline, getCurrentCase: () => currentCase, getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token });
+    const portalLink = $("#open-case-portal");
+    if (currentCase?.id) {
+        portalLink.href = `/pa/cases/${encodeURIComponent(currentCase.id)}/portal`;
+        portalLink.hidden = false;
+    } else {
+        portalLink.hidden = true;
+    }
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
     $("#overview-date").textContent = formatDate(currentProgress?.confirmed_event_date || currentCase?.event_date);
     $("#overview-contact").textContent = currentCase?.contact_name || currentCase?.customer_name || "未設定";

@@ -1,0 +1,22 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const root = path.resolve(__dirname, "..");
+const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const page = read("pa-case-portal.html");
+const client = read("js/pa-case-portal.js");
+const admin = read("js/pa-admin.js");
+const config = JSON.parse(read("vercel.json"));
+
+assert.match(admin, /open-case-portal/u, "case detail exposes a portal action");
+assert.match(admin, /\/pa\/cases\/\$\{encodeURIComponent\(currentCase\.id\)\}\/portal/u, "case detail route is case-scoped");
+assert.ok(config.rewrites.some((rule) => rule.source === "/pa/cases/:caseId/portal" && rule.destination === "/pa-case-portal.html"), "case portal route rewrites to the authenticated shell");
+for (const label of ["タイムテーブル", "台本", "会場図・配置図", "会場・ステージ写真", "出演者資料", "その他の共通資料"]) assert.match(page, new RegExp(label, "u"));
+assert.match(client, /attachment_download/u, "preview uses the existing authenticated Gmail attachment route");
+assert.match(client, /音響/u, "layout classification covers audio/power layouts");
+assert.match(client, /isImage\(document\).*写真/u, "photo classification covers stage photos");
+assert.match(client, /isCommercialDocument/u, "contract and payment documents stay outside the portal");
+assert.match(client, /まだ登録されていません/u, "empty states are rendered");
+assert.match(page, /ステージ配置図作成機能：準備中/u, "performer integration is explicitly deferred");
+assert.doesNotMatch(client, /action:\s*"send_reply"/u, "portal cannot send customer email");
+console.log("PA case portal validation: PASS");
