@@ -8,10 +8,12 @@ const client = read("js/pa-case-portal.js");
 const styles = read("pa-case-portal.css");
 const gmailApi = read("api/pa-gmail.js");
 const admin = read("js/pa-admin.js");
+const adminPage = read("pa-admin.html");
 const config = JSON.parse(read("vercel.json"));
 
 assert.match(admin, /open-case-portal/u, "case detail exposes a portal action");
 assert.match(admin, /\/pa\/cases\/\$\{encodeURIComponent\(currentCase\.id\)\}\/portal/u, "case detail route is case-scoped");
+assert.match(adminPage, /id="open-case-portal"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/u, "case detail opens the portal in a safely isolated tab");
 assert.ok(config.rewrites.some((rule) => rule.source === "/pa/cases/:caseId/portal" && rule.destination === "/pa-case-portal.html"), "case portal route rewrites to the authenticated shell");
 assert.ok(config.headers.some((rule) => rule.source === "/pa/cases/:caseId/portal" && rule.headers.some((header) => header.key === "X-Robots-Tag" && /noindex/u.test(header.value))), "case portal route itself remains private and noindex");
 for (const label of ["タイムテーブル", "台本", "会場図・配置図", "会場・ステージ写真", "出演者資料", "その他の共通資料"]) assert.match(page, new RegExp(label, "u"));
@@ -30,6 +32,11 @@ assert.match(client, /isImage\(item\).*写真/u, "photo classification covers st
 assert.match(client, /isCommercialDocument/u, "contract and payment documents stay outside the portal");
 assert.match(client, /まだ登録されていません/u, "empty states are rendered");
 assert.match(page, /ステージ配置図作成機能：準備中/u, "performer integration is explicitly deferred");
+assert.doesNotMatch(page, /PA案件管理へ戻る|管理者専用|PRIVATE ADMIN/u, "shared portal removes internal navigation and admin-only wording");
+assert.doesNotMatch(page, /portal-case-number|portal-status|portal-state|案件状態/u, "shared portal hides internal case metadata and status");
+assert.doesNotMatch(client, /statusLabels|portal-case-number|portal-status|portal-state/u, "client does not bind internal case metadata into the portal UI");
+assert.doesNotMatch(client, /案件ID|この案件|案件管理でGmail/u, "shared portal errors avoid internal case-management wording");
+assert.match(client, /supabase\.auth\.getSession\(\)/u, "existing authentication remains enforced");
 for (const className of ["hero", "grid2", "grid3", "photo-album", "performer-wrap", "preview-dialog"]) assert.match(page, new RegExp(`class="[^"]*${className}`, "u"), `${className} keeps the V8 structure`);
 assert.match(styles, /width:\s*min\(1180px/u, "V8 content width is preserved");
 assert.match(styles, /height:\s*315px/u, "V8 fixed-document preview height is preserved");

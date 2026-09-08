@@ -5,7 +5,6 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabas
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
 
 const $ = (selector) => document.querySelector(selector);
-const statusLabels = Object.freeze({ new: "新規問い合わせ", new_inquiry: "新規問い合わせ", follow_up_pending: "担当者フォロー待ち", waiting_customer_reply: "お客様回答待ち", hearing: "ヒアリング中", rough_estimate: "概算見積中", customer_intent_confirmed: "依頼意思確認済み", schedule_coordination: "日程・人員調整中", reviewing: "内容確認中", second_form_not_issued: "日程確保フォーム未発行", second_form_issued: "日程確保フォーム発行済み", customer_responded: "お客様回答済み", schedule_unconfirmed: "日程確保未確定", schedule_adjusting: "日程調整中", needs_confirmation: "確認事項あり", schedule_confirmed: "日程確保完了", schedule_unavailable: "日程確保不可", on_hold: "保留", cancelled: "取消", closed: "対応終了" });
 const attachmentRecords = new Map();
 const pdfDocuments = new Map();
 let supabase;
@@ -388,13 +387,9 @@ const readDocuments = async () => {
 };
 const populate = async (item, progress) => {
     $("#portal-event-name").textContent = text(item.event_name, "イベント資料ポータル");
-    $("#portal-case-number").textContent = item.inquiry_number || "";
-    const status = statusLabels[item.status] || item.status || "未設定";
-    $("#portal-status").textContent = status;
     $("#portal-date").textContent = dateText(progress?.confirmed_event_date || item.event_date);
     $("#portal-time").textContent = timeText(item.event_time);
     $("#portal-venue").textContent = text(item.venue);
-    $("#portal-state").textContent = status;
     const documents = await readDocuments();
     const byCategory = documents.reduce((map, document) => { const category = categoryFor(document); (map[category] ||= []).push(document); return map; }, {});
     renderVersioned($("#timetable-content"), byCategory.timetable || [], { fixed: true, multiple: false, empty: { title: "タイムテーブル", message: "進行表が登録されると、ここに最新版が表示されます。", icon: "🗓️", fixed: true } });
@@ -407,15 +402,15 @@ const populate = async (item, progress) => {
 const start = async () => {
     if (!isSupabaseConfigured) { revealError("管理画面の接続設定がありません。"); return; }
     caseId = portalCaseId();
-    if (!/^[0-9a-f-]{36}$/iu.test(caseId)) { revealError("案件IDが指定されていません。"); return; }
+    if (!/^[0-9a-f-]{36}$/iu.test(caseId)) { revealError("ポータルURLが正しくありません。"); return; }
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { $("#portal-loading").hidden = true; $("#portal-login").hidden = false; return; }
     accessToken = session.access_token;
     const [{ data: item, error }, { data: progress }] = await Promise.all([supabase.from("pa_inquiries").select("*").eq("id", caseId).is("deleted_at", null).maybeSingle(), supabase.from("pa_case_progress").select("confirmed_event_date").eq("inquiry_id", caseId).maybeSingle()]);
-    if (error || !item) { revealError("この案件を読み込めませんでした。"); return; }
+    if (error || !item) { revealError("イベント情報を読み込めませんでした。"); return; }
     try { await populate(item, progress); $("#portal-loading").hidden = true; $("#portal").hidden = false; }
-    catch (error) { console.error("portal_documents_failed", String(error?.message || "unknown")); revealError("資料一覧を読み込めませんでした。案件管理でGmailの紐付けと同期状態をご確認ください。"); }
+    catch (error) { console.error("portal_documents_failed", String(error?.message || "unknown")); revealError("資料一覧を読み込めませんでした。時間をおいて再度お試しください。"); }
 };
 
 $("#preview-close").addEventListener("click", closePreview);
