@@ -50,31 +50,31 @@ const getBlob = async (document) => {
 };
 window.addEventListener("pagehide", () => blobs.forEach((url) => URL.revokeObjectURL(url)));
 
-const showPreview = async (document) => {
+const showPreview = async (item) => {
     const dialog = $("#preview-dialog");
     const body = $("#preview-dialog-body");
-    $("#preview-dialog-title").textContent = document.filename;
+    $("#preview-dialog-title").textContent = item.filename;
     body.replaceChildren();
     try {
-        const url = await getBlob(document);
-        const node = document.createElement(isImage(document) ? "img" : "iframe");
+        const url = await getBlob(item);
+        const node = document.createElement(isImage(item) ? "img" : "iframe");
         node.src = url;
-        node.alt = document.filename;
-        if (!isImage(document)) node.title = document.filename;
+        node.alt = item.filename;
+        if (!isImage(item)) node.title = item.filename;
         body.append(node);
         dialog.showModal();
     } catch { revealError("正本の添付資料を読み込めませんでした。案件管理でGmail同期状態をご確認ください。"); }
 };
-const makePreview = (document) => {
+const makePreview = (item) => {
     const button = document.createElement("button");
-    button.type = "button"; button.className = "document-card__preview"; button.setAttribute("aria-label", `${document.filename}を拡大表示`);
-    if (canPreview(document)) {
-        const placeholder = document.createElement("span"); placeholder.className = "document-icon"; placeholder.textContent = isPdf(document) ? "PDF" : "画像"; button.append(placeholder);
-        getBlob(document).then((url) => {
-            const media = document.createElement(isImage(document) ? "img" : "object"); media.data = isPdf(document) ? url : ""; media.src = isImage(document) ? url : ""; media.type = document.mime_type || (isPdf(document) ? "application/pdf" : ""); media.alt = document.filename; media.setAttribute("aria-hidden", "true"); button.replaceChildren(media);
+    button.type = "button"; button.className = "document-card__preview"; button.setAttribute("aria-label", `${item.filename}を拡大表示`);
+    if (canPreview(item)) {
+        const placeholder = document.createElement("span"); placeholder.className = "document-icon"; placeholder.textContent = isPdf(item) ? "PDF" : "画像"; button.append(placeholder);
+        getBlob(item).then((url) => {
+            const media = document.createElement(isImage(item) ? "img" : "object"); media.data = isPdf(item) ? url : ""; media.src = isImage(item) ? url : ""; media.type = item.mime_type || (isPdf(item) ? "application/pdf" : ""); media.alt = item.filename; media.setAttribute("aria-hidden", "true"); button.replaceChildren(media);
         }).catch(() => { placeholder.textContent = "表示不可"; });
     } else { const icon = document.createElement("span"); icon.className = "document-icon"; icon.textContent = "資料"; button.append(icon); }
-    button.addEventListener("click", () => canPreview(document) && showPreview(document));
+    button.addEventListener("click", () => canPreview(item) && showPreview(item));
     return button;
 };
 const makeDocumentCard = (latest, history = []) => {
@@ -95,11 +95,11 @@ const renderVersioned = (target, documents, message, multiple = false) => {
 };
 const renderPhotos = (documents) => {
     const target = $("#photo-content"); target.replaceChildren(); if (!documents.length) { target.append(empty("まだ登録されていません")); return; }
-    documents.sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || ""))).forEach((document) => { const card = document.createElement("button"); card.type = "button"; card.className = "photo-card"; const label = document.createElement("span"); label.textContent = document.filename; getBlob(document).then((url) => { const image = document.createElement("img"); image.src = url; image.alt = document.filename; card.prepend(image); }).catch(() => { label.textContent = `${document.filename}（表示不可）`; }); card.append(label); card.addEventListener("click", () => showPreview(document)); target.append(card); });
+    documents.sort((a, b) => String(b.occurred_at || "").localeCompare(String(a.occurred_at || ""))).forEach((item) => { const card = document.createElement("button"); card.type = "button"; card.className = "photo-card"; const label = document.createElement("span"); label.textContent = item.filename; getBlob(item).then((url) => { const image = document.createElement("img"); image.src = url; image.alt = item.filename; card.prepend(image); }).catch(() => { label.textContent = `${item.filename}（表示不可）`; }); card.append(label); card.addEventListener("click", () => showPreview(item)); target.append(card); });
 };
 const renderPerformers = (documents) => {
     const target = $("#performer-content"); target.replaceChildren();
-    if (documents.length) { documents.sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).forEach((document, index) => { const card = document.createElement("article"); card.className = "performer-card"; const order = document.createElement("span"); order.className = "performer-order"; order.textContent = index + 1; const info = document.createElement("div"); const name = document.createElement("h3"); name.textContent = document.filename; const meta = document.createElement("p"); meta.textContent = `${sourceLabel(document)} ／ クリックで資料を確認`; info.append(name, meta); card.append(order, info); card.addEventListener("click", () => showPreview(document)); target.append(card); }); return; }
+    if (documents.length) { documents.sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).forEach((item, index) => { const card = document.createElement("article"); card.className = "performer-card"; const order = document.createElement("span"); order.className = "performer-order"; order.textContent = index + 1; const info = document.createElement("div"); const name = document.createElement("h3"); name.textContent = item.filename; const meta = document.createElement("p"); meta.textContent = `${sourceLabel(item)} ／ クリックで資料を確認`; info.append(name, meta); card.append(order, info); card.addEventListener("click", () => showPreview(item)); target.append(card); }); return; }
     ["出演者 01｜資料登録待ち", "出演者 02｜資料登録待ち", "出演者 03｜資料登録待ち"].forEach((name, index) => { const card = document.createElement("article"); card.className = "performer-card performer-card--sample"; card.innerHTML = `<span class="performer-order">${index + 1}</span><div><h3>${name}</h3><p>実際の出演者資料が登録されると、この位置に置き換わります。</p></div>`; target.append(card); });
 };
 const readDocuments = async () => {

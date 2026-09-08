@@ -19,6 +19,7 @@ assert.match(page, /href="\/pa-case-portal\.css/u, "nested case route loads its 
 assert.match(client, /attachment_download/u, "preview uses the existing authenticated Gmail attachment route");
 assert.match(client, /portal_documents/u, "metadata is read through the authenticated Gmail route");
 assert.match(gmailApi, /portal_documents/u, "server authorizes the portal metadata action");
+assert.doesNotMatch(client, /const makePreview = \(document\)/u, "rendering does not shadow the browser document object");
 assert.match(client, /音響/u, "layout classification covers audio/power layouts");
 assert.match(client, /isImage\(document\).*写真/u, "photo classification covers stage photos");
 assert.match(client, /isCommercialDocument/u, "contract and payment documents stay outside the portal");
