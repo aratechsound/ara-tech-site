@@ -17,6 +17,10 @@
       "destination": "/pa-case-portal.html"
     },
     {
+      "source": "/api/event-portal",
+      "destination": "/api/pa-portal?surface=organizer"
+    },
+    {
       "source": "/works/:slug.html",
       "destination": "/api/work?slug=:slug"
     },

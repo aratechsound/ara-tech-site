@@ -1,5 +1,6 @@
 const portal = require("./_pa-portal.cjs");
 const organizer = require("./_pa-portal-organizer.cjs");
+const { handleOrganizerPortal } = require("./_pa-portal-organizer-handler.cjs");
 const { streamAttachmentResponse } = require("./_pa-gmail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
@@ -13,6 +14,7 @@ const body = (request) => {
 const json = (response, status, payload) => { response.setHeader("Content-Type", "application/json; charset=utf-8"); response.setHeader("Cache-Control", "private, no-store, max-age=0"); response.setHeader("X-Content-Type-Options", "nosniff"); return response.status(status).json(payload); };
 
 module.exports = async (request, response) => {
+    if (request.query?.surface === "organizer") return handleOrganizerPortal(request, response);
     if (request.method !== "POST") { response.setHeader("Allow", "POST"); return json(response, 405, { ok: false, code: "method_not_allowed" }); }
     if (!applyOriginPolicy(request, response)) return json(response, 403, { ok: false, code: "invalid_origin" });
     try {

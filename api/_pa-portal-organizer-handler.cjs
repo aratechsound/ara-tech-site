@@ -21,7 +21,7 @@ const cookie = (request) => String(request.headers?.cookie || "").split(";").map
 const setSession = (response, value) => response.setHeader("Set-Cookie", `${COOKIE}=${value}; Max-Age=${organizer.SESSION_SECONDS}; Path=/api/event-portal; HttpOnly; Secure; SameSite=Strict`);
 const clearSession = (response) => response.setHeader("Set-Cookie", `${COOKIE}=; Max-Age=0; Path=/api/event-portal; HttpOnly; Secure; SameSite=Strict`);
 
-module.exports = async (request, response) => {
+const handleOrganizerPortal = async (request, response) => {
     headers(response);
     if (request.method !== "POST") { response.setHeader("Allow", "POST"); return json(response, 405, { ok: false, code: "method_not_allowed" }); }
     if (!applyOriginPolicy(request, response)) return json(response, 403, { ok: false, code: "link_unavailable" });
@@ -46,5 +46,4 @@ module.exports = async (request, response) => {
     }
 };
 
-module.exports.COOKIE = COOKIE;
-module.exports.MAX_BODY_BYTES = MAX_BODY_BYTES;
+module.exports = { COOKIE, MAX_BODY_BYTES, handleOrganizerPortal };
