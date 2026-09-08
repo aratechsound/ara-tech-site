@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow, noarchive"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#007bff">
-<title>イベント資料ポータル | ARA-TECH</title><link rel="icon" href="/img/favicon.ico"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/pa-case-portal.css?v=phase-1-2a">
+<title>イベント資料ポータル | ARA-TECH</title><link rel="icon" href="/img/favicon.ico"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/pa-case-portal.css?v=phase-1-2b">
 </head><body>
 <header class="portal-header"><div class="header-inner"><div class="brand"><img src="/img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></div></div></header>
 <main class="portal-shell">
 <section id="portal-login" class="portal-message" hidden><p class="kicker">EVENT DOCUMENT PORTAL</p><h1>イベント資料ポータル</h1><p>このポータルは認証された利用者のみ閲覧できます。</p><a class="button" href="/pa-admin.html">認証して開く</a></section>
 <section id="portal-loading" class="portal-message"><p>イベント資料を読み込んでいます…</p></section><section id="portal-error" class="portal-message portal-message--error" hidden aria-live="polite"></section>
 <section id="portal" hidden>
-<div class="portal-tools"><button id="edit-mode-toggle" class="edit-mode-toggle" type="button" aria-pressed="false">資料を編集</button></div>
+<div class="portal-tools"><button id="share-link-manage" class="edit-mode-toggle manage-only admin-only" type="button">主催者共有</button><button id="edit-mode-toggle" class="edit-mode-toggle" type="button" aria-pressed="false">資料を編集</button></div>
 <section class="hero">
   <div class="hero-copy"><span class="kicker">EVENT DOCUMENT PORTAL</span><h1 id="portal-event-name">イベント資料ポータル</h1><p>イベント運営資料の最新版と履歴を確認できます。</p></div>
   <dl class="event-meta" aria-label="イベント基本情報"><div><dt>開催日</dt><dd id="portal-date">未設定</dd></div><div><dt>本番時間</dt><dd id="portal-time">未設定</dd></div><div><dt>会場</dt><dd id="portal-venue">未設定</dd></div></dl>
@@ -27,4 +27,4 @@
 <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-dialog-title"><div class="preview-dialog__inner"><div class="preview-dialog__head"><strong id="preview-dialog-title">資料プレビュー</strong><button id="preview-close" class="icon-button" type="button" aria-label="プレビューを閉じる">閉じる ×</button></div><div id="preview-dialog-body" class="preview-dialog__body"></div></div></dialog>
 <dialog id="manage-dialog" class="manage-dialog" aria-labelledby="manage-dialog-title"><form id="manage-form" class="manage-dialog__inner"><div class="manage-dialog__head"><strong id="manage-dialog-title">資料を管理</strong><button id="manage-close" class="icon-button" type="button">閉じる ×</button></div><div id="manage-dialog-body" class="manage-dialog__body"></div><div class="manage-dialog__foot"><button id="manage-submit" class="button" type="submit">保存</button></div></form></dialog>
 <div id="portal-toast" class="portal-toast" role="status" aria-live="polite"></div>
-<script type="module" src="/js/pa-case-portal.js?v=phase-1-2a"></script></body></html>
+<script type="module" src="/js/pa-case-portal.js?v=phase-1-2b"></script></body></html>

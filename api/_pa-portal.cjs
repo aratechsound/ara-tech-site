@@ -112,4 +112,4 @@ const download = async ({ caseId, accessToken, assetId, kind }, fetchImpl = fetc
     return { bytes, filename: asset.display_filename, mime_type: asset.mime_type };
 };
 
-module.exports = { BUCKET, MAX_UPLOAD_BYTES, candidates, decodeUpload, download, mutate, readPortal, safeFilename };
+module.exports = { BUCKET, MAX_UPLOAD_BYTES, bearerConfig, candidates, decodeUpload, download, mutate, readPortal, rpc, safeFilename, storageRequest };

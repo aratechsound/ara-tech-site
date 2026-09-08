@@ -40,7 +40,7 @@ button { cursor: pointer; font: inherit; }
 .brand img { display: block; max-width: 60vw; width: 230px; }
 
 .portal-shell { margin: 24px auto 64px; width: min(1180px, calc(100% - 28px)); }
-.portal-tools { display: flex; justify-content: flex-end; margin: 0 0 10px; }
+.portal-tools { display: flex; gap: 8px; justify-content: flex-end; margin: 0 0 10px; }
 .edit-mode-toggle,
 .section-manage,
 .card-manage,
@@ -48,6 +48,10 @@ button { cursor: pointer; font: inherit; }
 .edit-mode-toggle[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
 .manage-only { display: none; }
 body.portal-editing .manage-only { display: inline-flex; }
+body.organizer-portal .admin-only { display: none !important; }
+body.organizer-portal [data-owner-editable="false"] .card-management,
+body.organizer-portal [data-owner-editable="false"] .history-manage,
+body.organizer-portal [data-owner-editable="false"] .photo-archive { display: none !important; }
 .card-management { border-top: 1px solid var(--line); display: none; flex-wrap: wrap; gap: 7px; padding: 10px 14px; }
 body.portal-editing .card-management { display: flex; }
 .portal-message {
@@ -204,7 +208,9 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
 .photo-tile img { height: 100%; object-fit: cover; width: 100%; }
 .photo-tile span { background: linear-gradient(transparent, rgba(9, 20, 31, .82)); bottom: 0; color: #fff; font-size: 10px; font-weight: 700; left: 0; overflow: hidden; padding: 18px 8px 7px; position: absolute; right: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .photo-archive { background: rgba(255,255,255,.94); border: 0; border-radius: 7px; color: #9b2530; display: none; font-size: 10px; font-weight: 900; padding: 5px 7px; position: absolute; right: 7px; top: 7px; z-index: 2; }
-body.portal-editing .photo-archive { display: block; }
+.photo-caption-edit { background: rgba(255,255,255,.94); border: 0; border-radius: 7px; color: #31546d; display: none; font-size: 10px; font-weight: 900; left: 7px; padding: 5px 7px; position: absolute; top: 7px; z-index: 2; }
+body.portal-editing .photo-archive,
+body.portal-editing .photo-caption-edit { display: block; }
 .photo-empty { align-items: center; display: flex; grid-column: 1 / -1; justify-content: center; min-height: 220px; text-align: center; }
 
 .performer-wrap { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 7px 24px rgba(25, 48, 73, .06); padding: 14px; }
@@ -250,6 +256,9 @@ body.portal-editing .photo-archive { display: block; }
 .source-choice { display: flex; flex-wrap: wrap; gap: 12px; }
 .source-choice label { font-size: 12px; font-weight: 700; }
 .manage-hint { color: var(--muted); font-size: 11px; margin: 0; }
+.share-status { background: #f4f8fb; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 5px; padding: 12px; }
+.share-url { overflow-wrap: anywhere; user-select: all; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .portal-toast { background: #17212b; border-radius: 9px; bottom: 18px; color: #fff; font-size: 12px; font-weight: 800; left: 50%; opacity: 0; padding: 9px 13px; pointer-events: none; position: fixed; transform: translate(-50%, 12px); transition: .2s; z-index: 20; }
 .portal-toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
