@@ -42,6 +42,7 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     await page.goto(`http://127.0.0.1:${server.address().port}/event-portal#${"9".repeat(64)}`, { waitUntil: "networkidle" });
     await page.waitForSelector("#portal:not([hidden])");
+    assert.equal(await page.locator("#candidate-inbox").count(), 0, "organizer DOM must not contain the internal Gmail candidate inbox");
     assert.equal(new URL(page.url()).hash, ""); assert.equal(new URL(page.url()).pathname, "/event-portal");
     assert.equal(await page.evaluate(() => globalThis.__PORTAL_DEPENDENCY_HASH__), "");
     assert.equal(await page.locator("body").getAttribute("class").then((v) => v.includes("organizer-portal")), true);
@@ -70,7 +71,7 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     await page.locator('button[aria-label="主催者写真.jpgを拡大表示"]').click();
     const imageBox = await page.locator(".preview-dialog__inner").boundingBox(); assert(imageBox.x >= 0 && imageBox.x + imageBox.width <= 390);
     await page.click("#preview-close");
-    assert.equal(requests.some((item) => item.action === "candidates" || Object.hasOwn(item, "inquiry_id")), false);
+    assert.equal(requests.some((item) => item.action === "candidates" || item.action === "candidate_list" || item.action === "candidate_download" || Object.hasOwn(item, "inquiry_id")), false);
     assert.deepEqual(requests.map((item) => item.action).slice(0, 2), ["exchange", "read"]);
     console.log("PA organizer V8 browser validation: PASS (clean fragment, PDF/image previews, edit permissions, picker isolation, history, 390px modals)");
   } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }

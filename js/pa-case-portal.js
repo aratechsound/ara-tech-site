@@ -26,10 +26,11 @@ let previewRequest = 0;
 let portalModel = null;
 let editMode = false;
 let sourceCandidates = [];
+let candidateInbox = { pending_count: 0, candidates: [], cards: [] };
 let manageSubmit = null;
 let issuedShareUrl = "";
 const organizerMode = /^\/event-portal\/?$/u.test(location.pathname);
-if (organizerMode) document.body.classList.add("organizer-portal");
+if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); }
 
 const text = (value, fallback = "未設定") => String(value || "").trim() || fallback;
 const dateText = (value) => value ? new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`)) : "未設定";
@@ -54,6 +55,7 @@ const groupKey = (item) => item.logical_key || String(item.filename || "資料")
     .trim() || "資料";
 const sourceLabel = (item) => ({ organizer: "主催者・関係者提出", ara_tech: "ARA-TECH共有", shared: "共同資料", performer: "出演者提出" }[item.contributor_kind] || (item.direction === "inbound" ? "主催者・関係者提出" : "ARA-TECH共有"));
 const sourceTypeLabel = (item) => ({ gmail_attachment: "メール添付", pa_attachment: "PA案件添付", portal_upload: "ポータル登録" }[item.source_type] || "既存資料");
+const candidateCategoryLabel = (value) => ({ timetable: "タイムテーブル", script: "台本", layout: "会場図・配置図", photo: "会場・ステージ写真", performer: "出演者資料", other: "その他" }[value] || "その他");
 const attachmentKey = (item) => `${item.asset_kind}:${item.asset_id}`;
 
 const portalCaseId = () => {
@@ -66,7 +68,11 @@ const getAttachmentRecord = async (item) => {
     const key = attachmentKey(item);
     if (attachmentRecords.has(key)) return attachmentRecords.get(key);
     const endpoint = organizerMode ? "/api/event-portal" : "/api/pa-portal";
-    const requestBody = organizerMode ? { action: "download", asset_ref: item.asset_id, asset_kind: item.asset_kind } : { action: "download", inquiry_id: caseId, asset_id: item.asset_id, asset_kind: item.asset_kind };
+    const requestBody = organizerMode
+        ? { action: "download", asset_ref: item.asset_id, asset_kind: item.asset_kind }
+        : item.asset_kind === "candidate"
+            ? { action: "candidate_download", inquiry_id: caseId, candidate_id: item.asset_id }
+            : { action: "download", inquiry_id: caseId, asset_id: item.asset_id, asset_kind: item.asset_kind };
     const response = await fetch(endpoint, { method: "POST", headers: { ...(organizerMode ? {} : { Authorization: `Bearer ${accessToken}` }), "Content-Type": "application/json" }, body: JSON.stringify(requestBody), cache: "no-store", credentials: "same-origin" });
     if (!response.ok) throw new Error("attachment_unavailable");
     const blob = await response.blob();
@@ -471,8 +477,47 @@ const portalRequest = async (action, extra = {}) => {
 };
 const asDocument = (version, card) => ({ ...version, asset_id: version.id || version.ref, asset_kind: "version", card_id: card.id || card.ref, logical_key: card.id || card.ref, logical_title: card.title, filename: version.display_filename, mime_type: version.mime_type, is_current: (version.id || version.ref) === (card.current_version_id || card.current_version_ref), can_edit: card.can_edit !== false });
 const asPhoto = (photo) => ({ ...photo, asset_id: photo.id || photo.ref, asset_kind: "photo", filename: photo.display_filename, occurred_at: photo.source_created_at || photo.created_at, can_edit: photo.can_edit !== false });
+const asCandidate = (candidate) => ({ ...candidate, asset_id: candidate.id, asset_kind: "candidate", filename: candidate.display_filename, occurred_at: candidate.source_created_at || candidate.detected_at });
+const candidateActionLabel = (value) => ({ add_new_version: "既存カードへ新版追加", create_new_card: "新しい資料カードを作成", add_photo: "写真ギャラリーへ追加", hold_performer: "出演者連携まで候補保持" }[value] || "登録先を確認");
+const candidateConfidenceLabel = (value) => ({ high: "高", medium: "中", low: "低" }[value] || "低");
 const showToast = (message) => { const toast = $("#portal-toast"); toast.textContent = message; toast.classList.add("is-visible"); setTimeout(() => toast.classList.remove("is-visible"), 2400); };
 const refreshPortal = async () => { portalModel = await portalRequest("read"); renderPortalDocuments(); };
+const renderCandidateInbox = () => {
+    if (organizerMode || !$("#candidate-content")) return;
+    const target = $("#candidate-content");
+    const candidates = (candidateInbox?.candidates || []).map(asCandidate);
+    $("#candidate-count").textContent = String(candidateInbox?.pending_count || candidates.length);
+    target.replaceChildren();
+    if (!candidates.length) {
+        const empty = document.createElement("div"); empty.className = "candidate-empty"; empty.textContent = "未処理の新着資料候補はありません。メール同期または過去メール確認後に候補が表示されます。"; target.append(empty); return;
+    }
+    candidates.forEach((item) => {
+        const card = document.createElement("article"); card.className = "candidate-card";
+        const preview = makePreview(item, { collection: true }); preview.classList.add("candidate-card__preview");
+        const body = document.createElement("div"); body.className = "candidate-card__body";
+        const heading = document.createElement("h3"); heading.textContent = item.filename;
+        const source = document.createElement("p"); source.className = "candidate-meta"; source.textContent = `${item.source_direction === "inbound" ? "受信" : "送信"}メール ／ ${documentTime(item)} ／ ${text(item.source_sender, "送信元不明")}`;
+        const subject = document.createElement("p"); subject.className = "candidate-meta"; subject.textContent = `件名：${text(item.source_subject, "件名なし")}`;
+        const proposal = document.createElement("div"); proposal.className = "candidate-proposal";
+        const proposalTitle = document.createElement("strong");
+        const cardTitle = (candidateInbox.cards || []).find((candidateCard) => candidateCard.id === item.suggested_card_id)?.title;
+        proposalTitle.textContent = `分類候補：${candidateCategoryLabel(item.suggested_category)}（確信度 ${candidateConfidenceLabel(item.confidence)}）`;
+        const destination = document.createElement("p"); destination.textContent = `${candidateActionLabel(item.suggested_action)}${cardTitle ? `「${cardTitle}」` : item.suggested_title ? `「${item.suggested_title}」` : ""}`;
+        const basis = document.createElement("p"); basis.textContent = item.suggestion_basis;
+        proposal.append(proposalTitle, destination, basis);
+        const actions = document.createElement("div"); actions.className = "candidate-actions";
+        const accept = document.createElement("button"); accept.type = "button"; accept.className = "candidate-accept"; accept.textContent = "提案どおり登録";
+        if (item.suggested_action === "hold_performer") { accept.disabled = true; accept.title = "出演者資料の自動登録は今回の対象外です"; }
+        else accept.addEventListener("click", () => openCandidateReview(item, false));
+        const change = document.createElement("button"); change.type = "button"; change.textContent = "登録先を変更"; change.addEventListener("click", () => openCandidateReview(item, true));
+        const ignore = document.createElement("button"); ignore.type = "button"; ignore.className = "candidate-ignore"; ignore.textContent = "無視"; ignore.addEventListener("click", async () => {
+            try { await portalRequest("candidate_ignore", { candidate_id: item.id, payload: {}, idempotency_key: crypto.randomUUID() }); await refreshCandidateInbox(); showToast("候補を無視しました"); }
+            catch (error) { showToast(`候補を更新できませんでした（${error.message}）`); }
+        });
+        actions.append(accept, change, ignore); body.append(heading, source, subject, proposal, actions); card.append(preview, body); target.append(card);
+    });
+};
+const refreshCandidateInbox = async () => { candidateInbox = await portalRequest("candidate_list"); renderCandidateInbox(); };
 const runMutation = async (action, payload, success) => {
     try { await portalRequest(action, { payload, idempotency_key: crypto.randomUUID() }); await refreshPortal(); showToast(success); }
     catch (error) { showToast(`保存できませんでした（${error.message}）`); }
@@ -488,6 +533,40 @@ const input = (name, options = {}) => { const node = document.createElement(opti
 const select = (name, values) => { const node = document.createElement("select"); node.name = name; values.forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; node.append(option); }); return node; };
 const closeManage = () => { manageSubmit = null; $("#manage-submit").hidden = false; $("#manage-submit").textContent = "保存"; if ($("#manage-dialog").open) $("#manage-dialog").close(); };
 const openManage = (title, content, submit) => { $("#manage-dialog-title").textContent = title; $("#manage-dialog-body").replaceChildren(...content); manageSubmit = submit; $("#manage-dialog").showModal(); };
+const openCandidateReview = (candidate, changingTarget) => {
+    const initialCategory = candidate.suggested_action === "hold_performer" ? "other" : candidate.suggested_category;
+    const initialAction = candidate.suggested_action === "hold_performer" ? "create_new_card" : candidate.suggested_action;
+    const category = select("category", [["timetable", "タイムテーブル"], ["script", "台本"], ["layout", "会場図・配置図"], ["photo", "会場・ステージ写真"], ["other", "その他"]]); category.value = initialCategory;
+    const action = select("target_action", [["add_new_version", "既存カードへ版を追加"], ["create_new_card", "新しい資料カードを作成"], ["add_photo", "写真ギャラリーへ追加"]]); action.value = initialAction;
+    const cards = (candidateInbox.cards || []).filter((card) => card.category !== "performer");
+    const card = select("card_id", [["", "登録先を選択"], ...cards.map((item) => [item.id, `${candidateCategoryLabel(item.category)}：${item.title}`])]); card.value = candidate.suggested_card_id || "";
+    const title = input("title", { value: candidate.suggested_title || candidate.filename, required: true });
+    const owner = select("owner_kind", [["shared", "共同"], ["ara_tech", "ARA-TECH"], ["organizer", "主催者"], ["performer", "出演者"]]);
+    const version = input("version_label"); const note = input("note", { multiline: true });
+    const makeCurrent = input("make_current", { type: "checkbox" }); makeCurrent.value = "true";
+    const currentChoice = document.createElement("label"); currentChoice.className = "current-choice"; const currentText = document.createElement("span"); currentText.textContent = "この資料を最新版として登録する（未選択なら履歴版として追加し、現在版は変更しません。新規カード作成時は選択が必要です）"; currentChoice.append(makeCurrent, currentText);
+    const syncTargetFields = () => {
+        if (category.value === "photo") action.value = "add_photo";
+        if (["timetable", "script"].includes(category.value)) action.value = "add_new_version";
+        [...card.options].slice(1).forEach((option) => { const sameCategory = cards.find((item) => item.id === option.value)?.category === category.value; option.hidden = !sameCategory; option.disabled = !sameCategory; });
+        if (card.value && cards.find((item) => item.id === card.value)?.category !== category.value) card.value = "";
+        if (action.value === "add_new_version" && !card.value) card.value = cards.find((item) => item.category === category.value)?.id || "";
+        card.disabled = action.value !== "add_new_version";
+        card.required = action.value === "add_new_version";
+        title.disabled = action.value !== "create_new_card";
+        title.required = action.value === "create_new_card";
+        owner.disabled = action.value !== "create_new_card";
+        makeCurrent.disabled = action.value === "add_photo";
+        if (action.value === "add_photo") makeCurrent.checked = false;
+    };
+    category.addEventListener("change", syncTargetFields); action.addEventListener("change", syncTargetFields); syncTargetFields();
+    const hint = document.createElement("p"); hint.className = "manage-hint"; hint.textContent = "メール添付の正本を参照したまま登録します。添付ファイルの複製や自動最新版化は行いません。";
+    openManage(changingTarget ? "新着資料候補：登録先を変更" : "新着資料候補：提案を確認", [hint, field("分類", category), field("登録方法", action), field("既存カード", card), field("新規カードタイトル", title), field("所有区分", owner), field("版ラベル", version), field("メモ", note), currentChoice], async (form) => {
+        await portalRequest("candidate_accept", { candidate_id: candidate.id, payload: { action: form.elements.target_action.value, category: form.elements.category.value, card_id: form.elements.card_id.value || null, title: form.elements.title.value, owner_kind: form.elements.owner_kind.value, version_label: form.elements.version_label.value, note: form.elements.note.value, make_current: form.elements.make_current.checked }, idempotency_key: crypto.randomUUID() });
+        closeManage(); await Promise.all([refreshPortal(), refreshCandidateInbox()]); showToast("候補をポータル資料へ登録しました");
+    });
+    $("#manage-submit").textContent = "承認して登録";
+};
 const sourceFields = ({ photos = false } = {}) => {
     if (organizerMode) {
         const files = input("files", { type: "file", required: true, multiple: photos, accept: photos ? "image/jpeg,image/png,image/webp" : "application/pdf,image/jpeg,image/png,image/webp" });
@@ -595,8 +674,8 @@ $("#preview-dialog").addEventListener("cancel", () => { previewRequest += 1; });
 $("#edit-mode-toggle").addEventListener("click", async () => {
     const button = $("#edit-mode-toggle");
     if (!editMode && !organizerMode) {
-        try { sourceCandidates = await portalRequest("candidates"); }
-        catch { showToast("既存資料候補を読み込めませんでした"); return; }
+        try { [sourceCandidates, candidateInbox] = await Promise.all([portalRequest("candidates"), portalRequest("candidate_list")]); renderCandidateInbox(); }
+        catch { showToast("資料候補を読み込めませんでした"); return; }
     }
     editMode = !editMode;
     document.body.classList.toggle("portal-editing", editMode);
@@ -631,4 +710,10 @@ $("#manage-form").addEventListener("submit", async (event) => {
 });
 document.querySelectorAll('[data-manage="create-card"]').forEach((button) => button.addEventListener("click", () => openNewCardDialog(button.dataset.category)));
 document.querySelector('[data-manage="add-photo"]').addEventListener("click", openPhotoDialog);
+$("#candidate-backfill")?.addEventListener("click", async () => {
+    const button = $("#candidate-backfill"); button.disabled = true;
+    try { await portalRequest("candidate_backfill", { idempotency_key: crypto.randomUUID() }); await refreshCandidateInbox(); showToast("過去メールの資料候補を確認しました"); }
+    catch (error) { showToast(`過去メールを確認できませんでした（${error.message}）`); }
+    finally { button.disabled = false; }
+});
 start();

@@ -128,6 +128,7 @@ async function main() {
     await assert.rejects(organizer.mutate({ session: serviceSession, operation: "add_version", payload: { card_ref: "c".repeat(36), upload: { ...upload, data_base64: Buffer.from("not-a-pdf").toString("base64") } }, idempotencyKey: uuid() }, fetchFixture), /invalid_upload/);
     await assert.rejects(organizer.mutate({ session: serviceSession, operation: "add_version", payload: { card_ref: "c".repeat(36), upload: { ...upload, data_base64: Buffer.alloc(3 * 1024 * 1024 + 1, 65).toString("base64") } }, idempotencyKey: uuid() }, fetchFixture), /upload_too_large/);
     await assert.rejects(organizer.mutate({ session: serviceSession, operation: "candidates", payload: {}, idempotencyKey: uuid() }, fetchFixture), /invalid_operation/);
+    await assert.rejects(organizer.mutate({ session: serviceSession, operation: "candidate_list", payload: {}, idempotencyKey: uuid() }, fetchFixture), /invalid_operation/);
     const publicApi = fs.readFileSync(path.join(__dirname, "..", "api", "_pa-portal-organizer-handler.cjs"), "utf8");
     const organizerService = fs.readFileSync(path.join(__dirname, "..", "api", "_pa-portal-organizer.cjs"), "utf8");
     const portalApi = fs.readFileSync(path.join(__dirname, "..", "api", "pa-portal.js"), "utf8");

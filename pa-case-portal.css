@@ -49,6 +49,8 @@ button { cursor: pointer; font: inherit; }
 .manage-only { display: none; }
 body.portal-editing .manage-only { display: inline-flex; }
 body.organizer-portal .admin-only { display: none !important; }
+.candidate-inbox.manage-only { display: none; }
+body.portal-editing .candidate-inbox.manage-only { display: block; }
 body.organizer-portal [data-owner-editable="false"] .card-management,
 body.organizer-portal [data-owner-editable="false"] .history-manage,
 body.organizer-portal [data-owner-editable="false"] .photo-archive { display: none !important; }
@@ -109,6 +111,30 @@ h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.
 .section-head p { color: var(--muted); font-size: 12px; margin: 0; }
 .grid2 { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
 .grid3 { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.candidate-inbox { background: #edf6ff; border: 1px solid #bad9f5; border-radius: 18px; box-shadow: 0 8px 26px rgba(0, 123, 255, .08); padding: 16px; }
+.candidate-inbox__head { align-items: flex-end; display: flex; gap: 16px; justify-content: space-between; margin-bottom: 12px; }
+.candidate-inbox__head h2 { font-size: 20px; margin: 0; }
+.candidate-inbox__head p { color: var(--muted); font-size: 12px; margin: 0; }
+.candidate-title-row { align-items: center; display: flex; gap: 8px; }
+.candidate-count { align-items: center; background: var(--brand); border-radius: 999px; color: #fff; display: inline-flex; font-size: 11px; font-weight: 900; height: 24px; justify-content: center; min-width: 24px; padding: 0 7px; }
+.candidate-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.candidate-card { background: #fff; border: 1px solid #cbddea; border-radius: 14px; display: grid; grid-template-columns: minmax(170px, 38%) minmax(0, 1fr); overflow: hidden; }
+.candidate-card__preview { border-bottom: 0; border-right: 1px solid var(--line); height: 100%; min-height: 245px; }
+.candidate-card__body { display: flex; flex-direction: column; min-width: 0; padding: 13px; }
+.candidate-card__body h3 { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.candidate-meta { color: var(--muted); font-size: 10.5px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.candidate-proposal { background: #f5f9fc; border: 1px solid #dce8f1; border-radius: 9px; margin-top: 9px; padding: 9px; }
+.candidate-proposal strong { display: block; font-size: 12px; }
+.candidate-proposal p { color: var(--muted); font-size: 10.5px; margin: 3px 0 0; }
+.candidate-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 10px; }
+.candidate-actions button { background: #fff; border: 1px solid #b9ccdc; border-radius: 8px; color: #31546d; font-size: 10.5px; font-weight: 800; padding: 7px 9px; }
+.candidate-actions .candidate-accept { background: var(--brand); border-color: var(--brand); color: #fff; }
+.candidate-actions .candidate-ignore { color: #8d3b43; }
+.candidate-empty { align-items: center; background: rgba(255,255,255,.78); border: 1px dashed #b5cee2; border-radius: 12px; color: var(--muted); display: flex; font-size: 12px; justify-content: center; min-height: 105px; padding: 18px; text-align: center; }
+.current-choice { align-items: flex-start; background: #f7fafc; border: 1px solid var(--line); border-radius: 9px; display: flex; gap: 8px; padding: 10px; }
+.current-choice input { margin-top: 4px; width: auto; }
+.current-choice span { font-size: 12px; font-weight: 700; }
 
 .document-card,
 .empty-document-card {
@@ -264,6 +290,7 @@ body.portal-editing .photo-caption-edit { display: block; }
 
 @media (max-width: 920px) {
   .grid3 { grid-template-columns: 1fr 1fr; }
+  .candidate-grid { grid-template-columns: 1fr; }
   .photo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .performer-item { grid-template-columns: 46px 90px minmax(0, 1fr); }
 }
@@ -285,6 +312,7 @@ body.portal-editing .photo-caption-edit { display: block; }
   .preview-dialog__inner { height: calc(100dvh - 20px); width: calc(100vw - 20px); }
   .preview-dialog__body { padding: 8px; }
   .section-head { align-items: flex-start; }
+  .candidate-inbox__head { align-items: flex-start; }
   .section-manage { flex: 0 0 auto; }
   .manage-dialog { padding: 8px; }
   .manage-dialog__inner { margin: 1vh auto; width: calc(100vw - 16px); }
@@ -303,4 +331,7 @@ body.portal-editing .photo-caption-edit { display: block; }
   .history-row { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .history-thumb { height: 44px; }
   .photo-grid { grid-template-columns: 1fr 1fr; }
+  .candidate-card { grid-template-columns: 1fr; }
+  .candidate-card__preview { border-bottom: 1px solid var(--line); border-right: 0; height: 230px; min-height: 0; }
+  .candidate-inbox__head { flex-direction: column; }
 }

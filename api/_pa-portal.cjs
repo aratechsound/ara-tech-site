@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const { getInquiry, isUuid, supabaseRequest } = require("./_pa-mail.cjs");
 const { getAttachmentBinary, portalDocuments } = require("./_pa-gmail.cjs");
+const candidateService = require("./_pa-portal-candidates.cjs");
 
 const BUCKET = "pa-portal-assets";
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
@@ -112,4 +113,13 @@ const download = async ({ caseId, accessToken, assetId, kind }, fetchImpl = fetc
     return { bytes, filename: asset.display_filename, mime_type: asset.mime_type };
 };
 
-module.exports = { BUCKET, MAX_UPLOAD_BYTES, bearerConfig, candidates, decodeUpload, download, mutate, readPortal, rpc, safeFilename, storageRequest };
+const candidateList = ({ caseId, accessToken }, fetchImpl = fetch) => candidateService.listCandidates({ caseId, accessToken }, fetchImpl);
+const candidateBackfill = ({ caseId, actorId }, fetchImpl = fetch) => candidateService.backfillCandidates({ caseId, actorId }, fetchImpl);
+const candidateReview = ({ caseId, candidateId, accessToken, decision, target, idempotencyKey }, fetchImpl = fetch) => candidateService.reviewCandidate({ caseId, candidateId, accessToken, decision, target, idempotencyKey }, fetchImpl);
+const candidateDownload = async ({ caseId, candidateId, accessToken }, fetchImpl = fetch) => {
+    const asset = await candidateService.candidateAsset({ caseId, candidateId, accessToken }, fetchImpl);
+    if (!asset || !["gmail_attachment", "pa_attachment"].includes(asset.source_type)) throw new Error("candidate_asset_unavailable");
+    return getAttachmentBinary({ inquiryId: caseId, gmailMessageId: asset.source_ref.gmail_message_id, gmailAttachmentId: asset.source_ref.gmail_attachment_id }, fetchImpl);
+};
+
+module.exports = { BUCKET, MAX_UPLOAD_BYTES, bearerConfig, candidateBackfill, candidateDownload, candidateList, candidateReview, candidates, decodeUpload, download, mutate, readPortal, rpc, safeFilename, storageRequest };

@@ -14,6 +14,7 @@ const {
     replyAttachmentsHash,
     supabaseRequest
 } = require("./_pa-mail.cjs");
+const { detectCandidates } = require("./_pa-portal-candidates.cjs");
 
 const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
 // Gmail attachment IDs are opaque values.  Their URL-safe-looking examples are
@@ -110,14 +111,21 @@ const attachmentReference = (part) => String(part?.body?.attachmentId || part?.p
 const collectParts = (part, result = { plain: "", html: "", attachments: [] }) => {
     if (!part || typeof part !== "object") return result;
     const mime = String(part.mimeType || "").toLowerCase();
+    const partHeaders = Object.fromEntries((part.headers || []).map((header) => [String(header.name || "").toLowerCase(), String(header.value || "")]));
     const reference = attachmentReference(part);
     if (part.filename && part.body && validGmailAttachmentReference(reference)
         && (part.body.attachmentId || part.body.data) && !result.attachments.some((attachment) => attachment.id === reference)) {
+        const contentId = String(partHeaders["content-id"] || "").replace(/[\r\n]/gu, " ").trim().slice(0, 500);
+        const contentDisposition = String(partHeaders["content-disposition"] || "").replace(/[\r\n]/gu, " ").trim().slice(0, 500);
+        const inline = /^inline(?:;|$)/iu.test(contentDisposition) || Boolean(contentId);
         result.attachments.push({
             id: reference,
             filename: safeAttachmentFilename(part.filename),
             mime_type: mime || "application/octet-stream",
-            size: Number(part.body.size || 0)
+            size: Number(part.body.size || 0),
+            ...(inline ? { inline: true } : {}),
+            ...(contentId ? { content_id: contentId } : {}),
+            ...(contentDisposition ? { content_disposition: contentDisposition } : {})
         });
     }
     if (part.body?.data) {
@@ -360,6 +368,10 @@ const recordSync = async ({ inquiryId, actorId, links, messages }, fetchImpl) =>
     return { attention, synced_at: new Date().toISOString() };
 };
 
+const detectCandidatesFailIsolated = ({ inquiryId, actorId, messages }, fetchImpl = fetch, detectImpl = detectCandidates) => detectImpl({ caseId: inquiryId, actorId, messages }, fetchImpl)
+    .then((result) => ({ status: "complete", ...result }))
+    .catch(() => ({ status: "unavailable" }));
+
 const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     const resolved = await resolveThread(inquiry, fetchImpl);
@@ -367,6 +379,7 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     const managedMessageIds = await managedReplyMessageIds(inquiryId, fetchImpl);
     const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiryId, threadId: link.gmail_thread_id, managedMessageIds }, fetchImpl)));
     const messages = [...new Map(indexed.flatMap((result) => result.messages).map((message) => [message.id, message])).values()];
+    const portalCandidateDetection = await detectCandidatesFailIsolated({ inquiryId, actorId, messages }, fetchImpl);
     const summary = await recordSync({ inquiryId, actorId, links: resolved.links, messages }, fetchImpl);
     return {
         linked: Boolean(resolved.primary),
@@ -375,6 +388,7 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
         ambiguous: false,
         candidates: [],
         messages,
+        portal_candidate_detection: portalCandidateDetection,
         ...summary
     };
 };
@@ -611,4 +625,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
