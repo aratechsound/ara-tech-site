@@ -7,11 +7,14 @@ const { chromium } = require("playwright");
 const root = path.resolve(__dirname, "../..");
 const css = fs.readFileSync(path.join(root, "pa-case-portal.css"), "utf8");
 const output = process.env.PA_PORTAL_SCREENSHOT_DIR || path.join(root, "test-results", "pa-case-portal-v8");
+const styleSource = process.env.PA_PORTAL_CSS_URL
+    ? `<link rel="stylesheet" href="${process.env.PA_PORTAL_CSS_URL}">`
+    : `<style>${css}</style>`;
 fs.mkdirSync(output, { recursive: true });
 
 const pdfCard = (title, collection = false) => `<article class="document-card${collection ? " collection-card" : ""}"><button type="button" class="document-card__preview preview-trigger" data-title="${title}"><canvas width="560" height="790"></canvas>${collection ? `<span class="collection-label">${title.replace(/\.pdf$/, "")}</span>` : ""}<span class="zoom-label">クリックで拡大</span></button><div class="document-card__body"><div class="title-row"><h3 class="document-title">${title}</h3>${collection ? "" : '<span class="badge badge--fixed">固定枠</span>'}</div><p class="document-card__meta">主催者・関係者提出 ／ 2026年9月2日 18:22</p><div class="badges"><span class="badge badge--latest">最新版</span></div><button type="button" class="view-button preview-trigger" data-title="${title}">大きく見る</button></div></article>`;
 
-const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>
+const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${styleSource}</head><body>
 <header class="portal-header"><div class="header-inner"><a class="brand"><img src="/img/ARA-TECH%20ロゴ横%20白.png" alt="ARA-TECH"></a><span class="back-link">PA案件管理へ戻る</span></div></header>
 <main class="portal-shell"><section id="portal">
 <section class="hero"><div class="hero-copy"><span class="kicker">EVENT DOCUMENT PORTAL</span><h1>2026龍姫湖まつり</h1><div class="case-line"><span class="case-number">PA-20260901-00013</span><span class="status-badge">お客様回答待ち</span></div><p>案件に紐づくイベント資料の最新版と履歴を確認できます。</p></div><dl class="event-meta"><div><dt>開催日</dt><dd>2026年10月18日</dd></div><div><dt>本番時間</dt><dd>10:00〜15:30</dd></div><div><dt>会場</dt><dd>温井ダム堤体横駐車場</dd></div><div><dt>案件状態</dt><dd>お客様回答待ち</dd></div></dl></section>
@@ -47,7 +50,7 @@ const columns = (value) => value.split(" ").filter(Boolean).length;
     const browser = await chromium.launch({ headless: true, executablePath: process.env.PA_CHROME_EXECUTABLE || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", args: ["--disable-extensions", "--no-first-run"] });
     try {
         const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
-        await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "load" });
+        await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: process.env.PA_PORTAL_CSS_URL ? "networkidle" : "load" });
         const desktop = await page.evaluate(() => ({
             shell: document.querySelector(".portal-shell").getBoundingClientRect().width,
             heroRadius: getComputedStyle(document.querySelector(".hero")).borderRadius,
