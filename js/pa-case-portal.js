@@ -118,6 +118,6 @@ const start = async () => {
     caseId = portalCaseId(); if (!/^[0-9a-f-]{36}$/iu.test(caseId)) { revealError("案件IDが指定されていません。"); return; }
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); const { data: { session } } = await supabase.auth.getSession(); if (!session) { $("#portal-loading").hidden = true; $("#portal-login").hidden = false; return; }
     accessToken = session.access_token; const [{ data: item, error }, { data: progress }] = await Promise.all([supabase.from("pa_inquiries").select("*").eq("id", caseId).is("deleted_at", null).maybeSingle(), supabase.from("pa_case_progress").select("confirmed_event_date").eq("inquiry_id", caseId).maybeSingle()]); if (error || !item) { revealError("この案件を読み込めませんでした。"); return; }
-    try { await populate(item, progress); $("#portal-loading").hidden = true; $("#portal").hidden = false; } catch { revealError("資料一覧を読み込めませんでした。案件管理でGmailの紐付けと同期状態をご確認ください。"); }
+    try { await populate(item, progress); $("#portal-loading").hidden = true; $("#portal").hidden = false; } catch (error) { console.error("portal_documents_failed", String(error?.message || "unknown")); revealError("資料一覧を読み込めませんでした。案件管理でGmailの紐付けと同期状態をご確認ください。"); }
 };
 $("#preview-close").addEventListener("click", () => $("#preview-dialog").close()); $("#preview-dialog").addEventListener("click", (event) => { if (event.target === $("#preview-dialog")) $("#preview-dialog").close(); }); start();
