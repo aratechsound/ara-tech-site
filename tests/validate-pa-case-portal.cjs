@@ -13,6 +13,8 @@ assert.match(admin, /\/pa\/cases\/\$\{encodeURIComponent\(currentCase\.id\)\}\/p
 assert.ok(config.rewrites.some((rule) => rule.source === "/pa/cases/:caseId/portal" && rule.destination === "/pa-case-portal.html"), "case portal route rewrites to the authenticated shell");
 assert.ok(config.headers.some((rule) => rule.source === "/pa/cases/:caseId/portal" && rule.headers.some((header) => header.key === "X-Robots-Tag" && /noindex/u.test(header.value))), "case portal route itself remains private and noindex");
 for (const label of ["タイムテーブル", "台本", "会場図・配置図", "会場・ステージ写真", "出演者資料", "その他の共通資料"]) assert.match(page, new RegExp(label, "u"));
+assert.match(page, /src="\/js\/pa-case-portal\.js/u, "nested case route loads its client from the site root");
+assert.match(page, /href="\/pa-case-portal\.css/u, "nested case route loads its styles from the site root");
 assert.match(client, /attachment_download/u, "preview uses the existing authenticated Gmail attachment route");
 assert.match(client, /音響/u, "layout classification covers audio/power layouts");
 assert.match(client, /isImage\(document\).*写真/u, "photo classification covers stage photos");
