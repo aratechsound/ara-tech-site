@@ -2,7 +2,9 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
+// Keep the PDF.js worker same-origin. PDF.js otherwise wraps the CDN module worker
+// in a Blob URL, a path that can fail in iOS Safari before any page is rendered.
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs?v=6.3.289";
 
 const $ = (selector) => document.querySelector(selector);
 const attachmentRecords = new Map();

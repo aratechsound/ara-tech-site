@@ -22,6 +22,7 @@ assert.match(page, /href="\/pa-case-portal\.css/u, "nested case route loads its 
 assert.match(client, /attachment_download/u, "preview uses the existing authenticated Gmail attachment route");
 assert.match(client, /portal_documents/u, "metadata is read through the authenticated Gmail route");
 assert.match(client, /pdfjs-dist@6\.3\.289/u, "PDF first pages use pinned PDF.js rendering");
+assert.match(client, /GlobalWorkerOptions\.workerSrc\s*=\s*"\/pdfjs\/pdf\.worker\.min\.mjs\?v=6\.3\.289"/u, "PDF cards use the same-origin worker path that avoids the iOS Blob-worker path");
 assert.match(client, /getPage\(1\)|renderPdfPage\(item, 1/u, "PDF cards render the first page");
 assert.match(client, /document\.createElement\("canvas"\)/u, "PDF previews render to canvas without a browser toolbar");
 assert.doesNotMatch(client, /createElement\("object"\)|createElement\("iframe"\)/u, "no embedded browser PDF viewer exposes toolbar or blob UUID");
@@ -44,7 +45,8 @@ assert.match(styles, /height:\s*250px/u, "V8 collection preview height is preser
 assert.match(styles, /grid-template-columns:\s*repeat\(3/u, "V8 desktop collection grid is three columns");
 assert.match(styles, /@media \(max-width:\s*390px\)/u, "390px-specific responsive rules exist");
 assert.match(client, /○○BAND/u, "V8 performer sample state is visible");
-assert.match(config.headers.find((rule) => rule.source === "/pa/cases/:caseId/portal").headers.find((header) => header.key === "Content-Security-Policy").value, /worker-src blob: https:\/\/cdn\.jsdelivr\.net/u, "PDF.js worker is permitted only on the private portal route");
+assert.match(config.headers.find((rule) => rule.source === "/pa/cases/:caseId/portal").headers.find((header) => header.key === "Content-Security-Policy").value, /worker-src 'self' blob: https:\/\/cdn\.jsdelivr\.net/u, "PDF.js worker is permitted only on the private portal route");
+assert.ok(config.rewrites.some((rule) => rule.source === "/pdfjs/pdf.worker.min.mjs" && rule.destination === "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs"), "the pinned PDF.js worker is proxied on the portal origin");
 assert.doesNotMatch(client, /action:\s*"send_reply"/u, "portal cannot send customer email");
 assert.doesNotMatch(page, /アップロード|ドラッグ＆ドロップ|資料カードを作る/u, "Phase 1.1 does not add customer upload or inactive management controls");
 console.log("PA case portal validation: PASS");
