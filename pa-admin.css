@@ -186,6 +186,7 @@ td { font-size: .84rem; }
 .mail-history__item--inbound { background: #fffaf0; border-color: #d97706; }
 .mail-history__item details { margin-top: 10px; max-width: 100%; }
 .mail-history__item summary { color: #005cbb; cursor: pointer; font-weight: 800; }
+.mail-history__reply-actions { margin-top: 10px; }
 .gmail-message-subject, .gmail-attachments, .gmail-candidate code { overflow-wrap: anywhere; word-break: break-word; }
 .gmail-attachment-heading { color: #405060; font-size: .82rem; font-weight: 800; margin: 12px 0 0; }
 .gmail-attachments { color: #405060; display: grid; gap: 8px; list-style: none; margin: 8px 0 0; padding: 0; }

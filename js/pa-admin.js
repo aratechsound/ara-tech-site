@@ -313,6 +313,7 @@ let gmailReplyPreview = null;
 let gmailReplyPreviewBinding = null;
 let gmailReplyAttachments = [];
 let gmailReplyMode = "normal";
+let gmailReplySource = null;
 const MAX_GMAIL_REPLY_ATTACHMENTS = 10;
 const MAX_GMAIL_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 let currentSessionUser = null;
@@ -357,13 +358,52 @@ const invalidateGmailReplyPreview = () => {
     $("#gmail-reply-preview-frame").hidden = true;
 };
 const isEstimateSubmissionMode = () => gmailReplyMode === "estimate_submission";
+const GMAIL_OFFICIAL_ADDRESS = "aratechsound@gmail.com";
+const gmailReplyRecipientForMessage = (message) => String(message?.reply_to || message?.from_address || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
+const gmailReplySubjectForMessage = (value) => {
+    const subject = String(value || "").replace(/[\r\n]/gu, " ").trim().slice(0, 240);
+    return /^re\s*:/iu.test(subject) ? subject : `Re: ${subject}`.slice(0, 240);
+};
 const setGmailReplyMode = (mode = "normal") => {
     gmailReplyMode = mode === "estimate_submission" ? "estimate_submission" : "normal";
     const estimateMode = isEstimateSubmissionMode();
-    $("#gmail-reply-title").textContent = estimateMode ? "見積書を送付" : "Gmailで返信";
+    $("#gmail-reply-title").textContent = estimateMode ? "見積書を送付" : gmailReplySource ? "このメールに返信" : "Gmailで返信";
     $("#gmail-reply-mode-note").textContent = estimateMode
         ? "見積提出モードです。既存のGmail threadを維持し、PCから選んだ見積書・関連資料を添付できます。送信前に本文・添付・宛先を確認してください。"
-        : "Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。";
+        : gmailReplySource
+            ? "選択した受信メールへの返信です。Gmail threadと返信ヘッダーを維持し、プレビューと最終確認を行うまで送信されません。"
+            : "Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。";
+};
+const openGmailReply = (message) => {
+    if (!currentCase || message?.direction !== "inbound" || !message.id || !message.thread_id) return false;
+    const recipient = gmailReplyRecipientForMessage(message);
+    if (!recipient || recipient.toLowerCase() === GMAIL_OFFICIAL_ADDRESS) {
+        setMessage($("#gmail-reply-message"), "この受信メールには有効な返信先がありません。Reply-To / Fromを確認してください。", "error");
+        return false;
+    }
+    const sameSource = gmailReplySource?.inquiryId === currentCase.id
+        && gmailReplySource.messageId === message.id && gmailReplySource.threadId === message.thread_id;
+    if (sameSource) {
+        gmailReplyPanel.classList.remove("hidden");
+        $("#gmail-reply-body").focus();
+        return true;
+    }
+    const hasDraft = Boolean($("#gmail-reply-body").value || gmailReplyAttachments.length || gmailReplyPreview);
+    if (hasDraft && !window.confirm("現在のComposerに入力中の本文または添付があります。選択した受信メールへの返信に切り替えると、現在の入力内容を消去します。続行しますか？")) return false;
+    gmailReplySource = Object.freeze({ inquiryId: currentCase.id, messageId: message.id, threadId: message.thread_id });
+    setGmailReplyMode("normal");
+    $("#gmail-reply-recipient").value = recipient;
+    $("#gmail-reply-subject").value = gmailReplySubjectForMessage(message.subject);
+    $("#gmail-reply-body").value = "";
+    gmailReplyAttachments = [];
+    $("#gmail-reply-attachments-input").value = "";
+    invalidateGmailReplyPreview();
+    renderGmailReplyAttachments();
+    gmailReplyPanel.classList.remove("hidden");
+    gmailReplyPanel.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    $("#gmail-reply-body").focus();
+    setMessage($("#gmail-reply-message"), "返信先と件名を設定しました。本文を入力してプレビューへ進んでください。", "info");
+    return true;
 };
 const openEstimateSubmission = () => {
     if (!currentCase || !currentGmailLink) {
@@ -374,6 +414,7 @@ const openEstimateSubmission = () => {
         setMessage(gmailSyncState, "先に案件進捗で「見積作成日」を保存してから、見積書を送付してください。", "error");
         return;
     }
+    gmailReplySource = null;
     setGmailReplyMode("estimate_submission");
     if (!$("#gmail-reply-body").value.trim()) {
         $("#gmail-reply-body").value = "見積書および関連資料を添付いたします。ご確認をお願いいたします。";
@@ -2212,6 +2253,17 @@ const renderEmailHistory = () => {
                     noAttachments.textContent = "このメールには添付ファイルがありません";
                     item.append(noAttachments);
                 }
+                if (message.direction === "inbound") {
+                    const replyActions = document.createElement("div");
+                    replyActions.className = "actions actions--compact mail-history__reply-actions";
+                    const reply = document.createElement("button");
+                    reply.type = "button";
+                    reply.className = "button button--secondary button--small";
+                    reply.textContent = "このメールに返信";
+                    reply.addEventListener("click", () => openGmailReply(message));
+                    replyActions.append(reply);
+                    item.append(replyActions);
+                }
                 emailHistory.append(item);
             });
         return;
@@ -2418,6 +2470,7 @@ const openCase = async (id) => {
     gmailReplyPreview = null;
     gmailReplyPreviewBinding = null;
     gmailReplyAttachments = [];
+    gmailReplySource = null;
     $("#gmail-reply-attachments-input").value = "";
     renderGmailReplyAttachments();
     gmailReplyPanel.classList.add("hidden");
@@ -3113,7 +3166,11 @@ const previewGmailReply = async () => {
     if (!rawDraftBody) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
         const attachments = await gmailReplyAttachmentPayload();
-        const response = await callGmailApi({ action: "reply_preview", inquiry_id: currentCase.id, body: rawDraftBody, attachments, mode: gmailReplyMode });
+        const replySource = typeof gmailReplySource === "undefined" ? null : gmailReplySource;
+        const response = await callGmailApi({
+            action: "reply_preview", inquiry_id: currentCase.id, body: rawDraftBody, attachments, mode: gmailReplyMode,
+            ...(replySource ? { reply_source_message_id: replySource.messageId, reply_source_thread_id: replySource.threadId } : {})
+        });
         gmailReplyPreview = response.preview;
         gmailReplyPreviewBinding = Object.freeze({
             inquiryId: response.preview.inquiry_id,
@@ -3123,6 +3180,9 @@ const previewGmailReply = async () => {
             subject: response.preview.subject,
             canonicalBody: response.preview.body,
             mode: response.preview.mode,
+            replySourceExplicit: Boolean(response.preview.reply_source_explicit),
+            replySourceMessageId: response.preview.reply_source_message_id,
+            replySourceThreadId: response.preview.gmail_thread_id,
             rawDraftBody,
             attachments: Object.freeze([...gmailReplyAttachments])
         });
@@ -3180,13 +3240,19 @@ const createGmailReplySendSnapshot = () => {
         caseStatus: currentCase.status,
         caseUpdatedAt: currentCase.updated_at,
         progressUpdatedAt: currentProgress?.updated_at || null,
-        attachments: Object.freeze([...gmailReplyAttachments])
+        attachments: Object.freeze([...gmailReplyAttachments]),
+        replySourceExplicit: Boolean(preview.reply_source_explicit),
+        replySourceMessageId: preview.reply_source_message_id,
+        replySourceThreadId: preview.gmail_thread_id
     };
     if (preview.inquiry_id !== snapshot.inquiryId || preview.gmail_thread_id !== snapshot.threadId
         || preview.mode !== snapshot.mode || previewBinding.inquiryId !== snapshot.inquiryId
         || previewBinding.threadId !== snapshot.threadId || previewBinding.confirmationToken !== snapshot.confirmationToken
         || previewBinding.recipient !== snapshot.recipient || previewBinding.subject !== snapshot.subject
         || previewBinding.canonicalBody !== snapshot.canonicalBody || previewBinding.mode !== snapshot.mode
+        || Boolean(previewBinding.replySourceExplicit) !== snapshot.replySourceExplicit
+        || previewBinding.replySourceMessageId !== snapshot.replySourceMessageId
+        || (previewBinding.replySourceThreadId || previewBinding.threadId) !== snapshot.replySourceThreadId
         || previewBinding.rawDraftBody !== snapshot.rawDraftBody
         || !sameGmailReplyAttachments(previewBinding.attachments, snapshot.attachments)
         || !snapshot.threadId || !snapshot.confirmationToken) throw new Error("invalid_gmail_reply_binding");
@@ -3266,9 +3332,14 @@ const sendGmailReply = async () => {
         const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
         const response = await callGmailApi({
             action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.rawDraftBody, attachments,
-            mode: snapshot.mode, confirmation_token: snapshot.confirmationToken
+            mode: snapshot.mode, confirmation_token: snapshot.confirmationToken,
+            ...(snapshot.replySourceExplicit ? {
+                reply_source_message_id: snapshot.replySourceMessageId,
+                reply_source_thread_id: snapshot.replySourceThreadId
+            } : {})
         });
-        if (response?.result?.primary_link?.gmail_thread_id !== snapshot.threadId) throw new Error("invalid_gmail_reply_sync");
+        const syncedLinks = Array.isArray(response?.result?.links) ? response.result.links : [response?.result?.primary_link].filter(Boolean);
+        if (!syncedLinks.some((link) => link.gmail_thread_id === snapshot.threadId)) throw new Error("invalid_gmail_reply_sync");
         const selected = isGmailReplySnapshotSelected(snapshot);
         if (selected) {
             gmailReplyPreview = null;
@@ -3276,6 +3347,7 @@ const sendGmailReply = async () => {
             $("#send-gmail-reply").disabled = true;
             $("#gmail-reply-body").value = "";
             gmailReplyAttachments = [];
+            gmailReplySource = null;
             $("#gmail-reply-attachments-input").value = "";
             renderGmailReplyAttachments();
             $("#gmail-reply-preview").classList.add("hidden");

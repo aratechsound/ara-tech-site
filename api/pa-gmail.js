@@ -72,7 +72,10 @@ module.exports = async (request, response) => {
             return streamAttachmentResponse(response, attachment);
         }
         if (input.action === "reply_preview") {
-            const preview = await replyPreview({ inquiryId: input.inquiry_id, actorId: user.id, body: input.body, attachments: input.attachments, mode: input.mode });
+            const preview = await replyPreview({
+                inquiryId: input.inquiry_id, actorId: user.id, body: input.body, attachments: input.attachments, mode: input.mode,
+                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id
+            });
             return sendJson(response, 200, { ok: true, preview });
         }
         if (input.action === "reconcile_estimate_submission") {
@@ -88,13 +91,15 @@ module.exports = async (request, response) => {
             body: input.body,
             attachments: input.attachments,
             mode: input.mode,
-            confirmationToken: input.confirmation_token
+            confirmationToken: input.confirmation_token,
+            replySourceMessageId: input.reply_source_message_id,
+            replySourceThreadId: input.reply_source_thread_id
         });
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "reply_target_unavailable", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
+        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "invalid_reply_source", "reply_target_unavailable", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";
         const diagnostic = /^(?:gmail_(?:read|send|oauth)|supabase_)\d{3}$|^(?:gmail_send_invalid|gmail_not_configured|primary_conversation_exists|ambiguous_thread_link)$/u.test(code)

@@ -31,6 +31,18 @@ const caseReference = (value) => /^PA-\d{8}-\d{5}$/u.test(String(value || ""));
 const safeAddress = (value) => String(value || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
 const addressList = (value) => String(value || "").split(",")
     .map(safeAddress).filter((address) => EMAIL.test(address)).slice(0, 30);
+const replySubject = (value) => {
+    const subject = cleanHeader(value, 240);
+    if (/^re\s*:/iu.test(subject)) return subject;
+    return cleanHeader(`Re: ${subject}`, 240);
+};
+const replyReferences = (references, messageId) => {
+    const identifiers = `${String(references || "")} ${String(messageId || "")}`
+        .match(/<[^<>\r\n]{1,998}>/gu) || [];
+    const unique = [...new Set(identifiers)];
+    while (unique.join(" ").length > 998) unique.shift();
+    return unique.join(" ");
+};
 
 const gmailJson = async (path, options = {}, fetchImpl = fetch) => {
     const token = await getGmailAccessToken(mailConfig(), fetchImpl);
@@ -153,7 +165,8 @@ const normalizeMessage = (message) => {
         // for its allowlist-based renderer; it must never insert this value directly.
         body_html: String(parts.html || "").slice(0, 50_000),
         attachments: parts.attachments.slice(0, 100),
-        rfc_message_id: String(headers["message-id"] || "").trim()
+        rfc_message_id: String(headers["message-id"] || "").trim(),
+        references: String(headers.references || "").replace(/[\r\n]/gu, " ").trim().slice(0, 998)
     };
 };
 
@@ -452,8 +465,8 @@ const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "second
 };
 
 const previewSecret = () => String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const replyPreviewToken = ({ inquiryId, actorId, threadId, recipient, subject, body, mode, attachmentsHash, expiresAt }) => {
-    const payload = JSON.stringify({ inquiryId, actorId, threadId, recipient, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, expiresAt });
+const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, recipient, subject, body, mode, attachmentsHash, expiresAt }) => {
+    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, recipient, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, expiresAt });
     const signature = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
     return Buffer.from(payload).toString("base64url") + "." + signature;
 };
@@ -466,7 +479,8 @@ const verifyPreviewToken = (token, fields) => {
     const values = JSON.parse(payload);
     const bodyHash = crypto.createHash("sha256").update(fields.body).digest("hex");
     if (Date.now() > Number(values.expiresAt) || values.inquiryId !== fields.inquiryId || values.actorId !== fields.actorId
-        || values.threadId !== fields.threadId || values.recipient !== fields.recipient || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash) {
+        || values.threadId !== fields.threadId || values.replySourceMessageId !== fields.replySourceMessageId
+        || values.recipient !== fields.recipient || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash) {
         throw new Error("invalid_confirmation");
     }
 };
@@ -476,20 +490,38 @@ const replyMode = (value) => {
     if (value === "estimate_submission") return "estimate_submission";
     throw new Error("invalid_reply_mode");
 };
-const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal" }, fetchImpl = fetch) => {
-    const link = await getPrimaryLink(inquiryId, fetchImpl);
+const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl) => {
+    const requestedMessageId = String(replySourceMessageId || "");
+    const requestedThreadId = String(replySourceThreadId || "");
+    const explicit = Boolean(requestedMessageId || requestedThreadId);
+    if (explicit && (!validGmailId(requestedMessageId) || !validGmailId(requestedThreadId))) throw new Error("invalid_reply_source");
+    let link;
+    if (explicit) {
+        const links = await getLinks(inquiryId, fetchImpl);
+        link = links.find((candidate) => candidate.gmail_thread_id === requestedThreadId);
+    } else {
+        link = await getPrimaryLink(inquiryId, fetchImpl);
+    }
     if (!link) throw new Error("gmail_thread_not_linked");
     const thread = await gmailThread(link.gmail_thread_id, fetchImpl);
     const messages = (thread.messages || []).map(normalizeMessage);
-    const latest = [...messages].sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
+    const source = explicit
+        ? messages.find((message) => message.id === requestedMessageId && message.thread_id === requestedThreadId)
+        : [...messages].sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
+    if (!source || (explicit && source.direction !== "inbound")) throw new Error("invalid_reply_source");
+    return { explicit, link, source };
+};
+const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+    const { explicit, link, source } = await resolveReplySource({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
+    const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
     // its original recipient, still in the same Gmail thread; a customer reply
     // takes precedence once one exists.
     const recipient = latest?.direction === "inbound"
         ? safeAddress(latest.reply_to || latest.from_address)
         : safeAddress(Array.isArray(latest?.to_addresses) ? latest.to_addresses.find((address) => EMAIL.test(safeAddress(address))) : "");
-    if (!EMAIL.test(recipient)) throw new Error("reply_target_unavailable");
-    const subject = cleanHeader(latest.subject, 240);
+    if (!EMAIL.test(recipient) || sameAddress(recipient, OFFICIAL_EMAIL)) throw new Error("reply_target_unavailable");
+    const subject = replySubject(source.subject);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
@@ -498,25 +530,30 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
     return {
         inquiry_id: inquiryId,
         gmail_thread_id: link.gmail_thread_id,
+        reply_source_explicit: explicit,
+        reply_source_message_id: source.id,
+        reply_source_rfc_message_id: source.rfc_message_id,
+        reply_source_references: source.references,
         recipient,
         subject,
         body: normalizedBody,
         html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
         attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size })),
-        confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, recipient, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),
+        confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, recipient, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),
         expires_at: new Date(expiresAt).toISOString()
     };
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", confirmationToken }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", confirmationToken, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode }, fetchImpl);
+    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, replySourceMessageId, replySourceThreadId }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
         inquiryId,
         actorId,
         threadId: preview.gmail_thread_id,
+        replySourceMessageId: preview.reply_source_message_id,
         recipient: preview.recipient,
         subject: preview.subject,
         body: preview.body,
@@ -524,8 +561,9 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         attachmentsHash: replyAttachmentsHash(normalizedAttachments)
     });
     const thread = await gmailThread(preview.gmail_thread_id, fetchImpl);
-    const latest = (thread.messages || []).map(normalizeMessage)
-        .sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
+    const source = (thread.messages || []).map(normalizeMessage)
+        .find((message) => message.id === preview.reply_source_message_id);
+    if (!source) throw new Error("invalid_reply_source");
     const config = mailConfig();
     const token = await getGmailAccessToken(config, fetchImpl);
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -538,7 +576,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
                 subject: preview.subject,
                 body: preview.body,
                 messageType: "customer_receipt",
-                replyHeaders: { inReplyTo: latest?.rfc_message_id, references: latest?.rfc_message_id },
+                replyHeaders: { inReplyTo: source.rfc_message_id, references: replyReferences(source.references, source.rfc_message_id) },
                 attachments: normalizedAttachments,
                 config
             })
@@ -551,6 +589,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",
         gmail_thread_id: preview.gmail_thread_id,
+        reply_source_message_id: preview.reply_source_message_id,
         gmail_message_id: sent.id,
         attachment_count: normalizedAttachments.length,
         attachment_filenames: normalizedAttachments.map((attachment) => attachment.filename)
@@ -559,4 +598,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, reconcileEstimateSubmission, replyPreview, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
