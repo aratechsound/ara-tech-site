@@ -419,6 +419,19 @@ const getAttachmentBinary = async (input, fetchImpl = fetch) => {
         bytes: decodeAttachmentData(attachment.data)
     };
 };
+// Metadata only: Gmail remains the binary authority and is fetched separately
+// through getAttachmentBinary after the exact case/message/attachment binding.
+const portalDocuments = async ({ inquiryId }, fetchImpl = fetch) => {
+    await getInquiry(inquiryId, fetchImpl);
+    const query = new URLSearchParams({
+        inquiry_id: `eq.${inquiryId}`,
+        select: "gmail_message_id,direction,subject,sent_at,received_at,attachment_metadata",
+        order: "indexed_at.desc",
+        limit: "100"
+    });
+    const rows = await selectRows("pa_gmail_message_index", query, fetchImpl);
+    return Array.isArray(rows) ? rows : [];
+};
 const streamAttachmentResponse = async (response, attachment) => {
     const bytes = Buffer.isBuffer(attachment?.bytes) ? attachment.bytes : Buffer.from(attachment?.bytes || "");
     if (!bytes.length) throw new Error("gmail_attachment_unavailable");
@@ -598,4 +611,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

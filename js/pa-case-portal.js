@@ -103,9 +103,10 @@ const renderPerformers = (documents) => {
     ["出演者 01｜資料登録待ち", "出演者 02｜資料登録待ち", "出演者 03｜資料登録待ち"].forEach((name, index) => { const card = document.createElement("article"); card.className = "performer-card performer-card--sample"; card.innerHTML = `<span class="performer-order">${index + 1}</span><div><h3>${name}</h3><p>実際の出演者資料が登録されると、この位置に置き換わります。</p></div>`; target.append(card); });
 };
 const readDocuments = async () => {
-    const { data, error } = await supabase.from("pa_gmail_message_index").select("gmail_message_id,direction,subject,sent_at,received_at,attachment_metadata").eq("inquiry_id", caseId).limit(100);
-    if (error) throw error;
-    return (data || []).flatMap((message) => (Array.isArray(message.attachment_metadata) ? message.attachment_metadata : []).filter((attachment) => attachment?.id && attachment?.filename).map((attachment) => ({ message_id: message.gmail_message_id, attachment_id: String(attachment.id), filename: String(attachment.filename), mime_type: String(attachment.mime_type || ""), subject: String(message.subject || ""), direction: message.direction, occurred_at: message.received_at || message.sent_at || "" })).filter((attachment) => !isCommercialDocument(attachment)));
+    const response = await fetch("/api/pa-gmail", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "portal_documents", inquiry_id: caseId }), cache: "no-store" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(payload?.result)) throw new Error("portal_documents_unavailable");
+    return payload.result.flatMap((message) => (Array.isArray(message.attachment_metadata) ? message.attachment_metadata : []).filter((attachment) => attachment?.id && attachment?.filename).map((attachment) => ({ message_id: message.gmail_message_id, attachment_id: String(attachment.id), filename: String(attachment.filename), mime_type: String(attachment.mime_type || ""), subject: String(message.subject || ""), direction: message.direction, occurred_at: message.received_at || message.sent_at || "" })).filter((attachment) => !isCommercialDocument(attachment)));
 };
 const populate = async (item, progress) => {
     $("#portal-event-name").textContent = text(item.event_name, "イベント資料ポータル"); $("#portal-case-number").textContent = item.inquiry_number || ""; const status = statusLabels[item.status] || item.status || "未設定"; $("#portal-status").textContent = status; $("#portal-date").textContent = dateText(progress?.confirmed_event_date || item.event_date); $("#portal-time").textContent = timeText(item.event_time); $("#portal-venue").textContent = text(item.venue); $("#portal-state").textContent = status;

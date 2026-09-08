@@ -5,6 +5,7 @@ const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const page = read("pa-case-portal.html");
 const client = read("js/pa-case-portal.js");
+const gmailApi = read("api/pa-gmail.js");
 const admin = read("js/pa-admin.js");
 const config = JSON.parse(read("vercel.json"));
 
@@ -16,6 +17,8 @@ for (const label of ["タイムテーブル", "台本", "会場図・配置図",
 assert.match(page, /src="\/js\/pa-case-portal\.js/u, "nested case route loads its client from the site root");
 assert.match(page, /href="\/pa-case-portal\.css/u, "nested case route loads its styles from the site root");
 assert.match(client, /attachment_download/u, "preview uses the existing authenticated Gmail attachment route");
+assert.match(client, /portal_documents/u, "metadata is read through the authenticated Gmail route");
+assert.match(gmailApi, /portal_documents/u, "server authorizes the portal metadata action");
 assert.match(client, /音響/u, "layout classification covers audio/power layouts");
 assert.match(client, /isImage\(document\).*写真/u, "photo classification covers stage photos");
 assert.match(client, /isCommercialDocument/u, "contract and payment documents stay outside the portal");

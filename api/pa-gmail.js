@@ -1,4 +1,4 @@
-const { getAttachmentBinary, manualLink, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 
@@ -11,6 +11,7 @@ const ACTION_POLICY = Object.freeze({
     sync: "PA_GMAIL_SYNC",
     manual_link: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
+    portal_documents: "PA_GMAIL_ATTACHMENT_GET",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
     send_reply: "PA_GMAIL_SEND_REPLY",
     reconcile_estimate_submission: "PA_GMAIL_RECONCILE_ESTIMATE"
@@ -70,6 +71,9 @@ module.exports = async (request, response) => {
                 gmailAttachmentId: input.gmail_attachment_id
             });
             return streamAttachmentResponse(response, attachment);
+        }
+        if (input.action === "portal_documents") {
+            return sendJson(response, 200, { ok: true, result: await portalDocuments({ inquiryId: input.inquiry_id }) });
         }
         if (input.action === "reply_preview") {
             const preview = await replyPreview({
