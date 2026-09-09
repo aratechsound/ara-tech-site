@@ -432,16 +432,19 @@
     };
   }
 
-  function renderInspector() {
+  function renderInspector({ hydrateSelection = false } = {}) {
     const parts = inspectorParts();
     const object = selectedObject();
     if (parts.title) parts.title.textContent = `選択中：${object?.label || '未選択'}`;
     [parts.label, parts.rotation, parts.scale, parts.fontSize, parts.category, ...parts.swatches, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, parts.duplicate, parts.remove].forEach(control => { if (control) control.disabled = !object; });
     if (!object) return;
-    if (document.activeElement !== parts.label) parts.label.value = object.label;
-    if (document.activeElement !== parts.rotation) parts.rotation.value = `${object.rotation}°`;
-    if (document.activeElement !== parts.scale) parts.scale.value = `${Math.round(object.scale * 10) / 10}%`;
-    if (document.activeElement !== parts.fontSize) parts.fontSize.value = `${object.fontSize}`;
+    // A selection is a read-only projection boundary.  The browser does not
+    // move focus away from the prior inspector input until after pointerdown,
+    // so preserving that focused value here would leak it onto the new object.
+    if (hydrateSelection || document.activeElement !== parts.label) parts.label.value = object.label;
+    if (hydrateSelection || document.activeElement !== parts.rotation) parts.rotation.value = `${object.rotation}°`;
+    if (hydrateSelection || document.activeElement !== parts.scale) parts.scale.value = `${Math.round(object.scale * 10) / 10}%`;
+    if (hydrateSelection || document.activeElement !== parts.fontSize) parts.fontSize.value = `${object.fontSize}`;
     if (parts.fontDefault) parts.fontDefault.textContent = '16px';
     parts.category.value = CATEGORY_LABELS[object.category];
     parts.swatches.forEach(swatch => swatch.setAttribute('aria-pressed', String(swatch.dataset.objectCategory === object.category)));
@@ -1245,11 +1248,12 @@
       if (!node) { selected = null; showHandles = false; renderStage(); renderInspector(); return; }
       const object = state.objects.find(item => item.id === node.dataset.id);
       if (!object) return;
+      const selectionChanged = selected !== object.id;
       selected = object.id;
       showHandles = true;
       const handle = event.target.closest('[data-transform]');
       const mode = handle?.dataset.transform || 'move';
-      renderInspector();
+      renderInspector({ hydrateSelection: selectionChanged });
       if (!handle) renderStage();
       startPointerAction(event, object, mode);
     });
