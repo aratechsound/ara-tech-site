@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, "..");
 const portalMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260908143000_pa_portal_document_management.sql"), "utf8");
 const candidateMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909060000_pa_portal_document_candidates.sql"), "utf8");
 const remediationMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909093000_pa_portal_candidate_canonical_identity.sql"), "utf8");
+const variantMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909110000_pa_portal_candidate_variant_reconcile.sql"), "utf8");
 const actor = "10000000-0000-4000-8000-000000000001";
 const outsider = "10000000-0000-4000-8000-000000000002";
 const caseA = "20000000-0000-4000-8000-000000000001";
@@ -122,6 +123,7 @@ async function main() {
         await db.query("insert into public.pa_portal_document_versions(card_id,source_type,source_key,source_ref,display_filename,mime_type,contributor_kind) values($1,'gmail_attachment','mail_in:already',$2::jsonb,'既に登録済み.pdf','application/pdf','organizer')", [otherCard, JSON.stringify({ gmail_message_id: "mail_in", gmail_attachment_id: "already" })]);
         await db.exec(candidateMigration);
         await db.exec(remediationMigration);
+        await db.exec(variantMigration);
 
         const cards = (await db.query("select id,category,title,card_kind,archived_at from public.pa_portal_document_cards where portal_id=$1", [portalA])).rows;
         const messages = [message("mail_in", "inbound", "イベント運営資料", inboundAttachments), message("mail_out", "outbound", "見積とイベント資料", outboundAttachments), message("mail_unbound", "inbound", "未紐付", unboundAttachments), message("mail_cross", "inbound", "別案件", crossAttachments)];
@@ -201,6 +203,7 @@ async function main() {
         await db.exec("reset role");
         await db.exec(candidateMigration);
         await db.exec(remediationMigration);
+        await db.exec(variantMigration);
         assert.equal(Number((await db.query("select count(*) n from public.pa_portal_document_candidates")).rows[0].n), 9, "migration replay must be additive and idempotent");
         console.log("PA portal candidate validation: PASS (detection, classification, idempotency, exclusions, atomic review, no auto-current, canonical Gmail refs, RLS/crossover)");
     } finally { await db.close(); }

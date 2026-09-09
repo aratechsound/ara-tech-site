@@ -9,6 +9,7 @@ const migrationA = fs.readFileSync(path.join(__dirname, "..", "supabase", "migra
 const migrationB = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260908213000_pa_portal_organizer_access.sql"), "utf8");
 const migrationC = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260909060000_pa_portal_document_candidates.sql"), "utf8");
 const migrationR1 = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260909093000_pa_portal_candidate_canonical_identity.sql"), "utf8");
+const migrationR1Variant = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260909110000_pa_portal_candidate_variant_reconcile.sql"), "utf8");
 const actor = "10000000-0000-4000-8000-000000000001";
 const caseA = "20000000-0000-4000-8000-000000000001";
 const caseB = "20000000-0000-4000-8000-000000000002";
@@ -37,10 +38,10 @@ async function main() {
       ('in_b','thread_b','${caseB}','gmail_received','inbound','別案件',now(),null,now(),'[{"id":"other","filename":"別資料.pdf","mime_type":"application/pdf"}]');
       select set_config('request.jwt.claim.sub','${actor}',false);
     `);
-    await db.exec(migrationA); await db.exec(migrationB); await db.exec(migrationC); await db.exec(migrationR1);
+    await db.exec(migrationA); await db.exec(migrationB); await db.exec(migrationC); await db.exec(migrationR1); await db.exec(migrationR1Variant);
     const identity = await db.query("select count(*) n,count(distinct public_ref) d from pa_portal_document_cards");
     assert.equal(identity.rows[0].n, identity.rows[0].d);
-    await db.exec(migrationB); await db.exec(migrationR1);
+    await db.exec(migrationB); await db.exec(migrationR1); await db.exec(migrationR1Variant);
     assert.equal(Number((await db.query("select count(*) n from pa_portal_access_links")).rows[0].n), 0);
 
     const raw = organizer.randomSecret();

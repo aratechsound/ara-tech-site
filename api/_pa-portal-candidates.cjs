@@ -161,7 +161,7 @@ const contextCards = async (caseId, fetchImpl) => {
 };
 const contentIdentity = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const identityContext = (caseId, fetchImpl) => serviceRpc("pa_portal_candidate_identity_context", { p_case_id: caseId }, fetchImpl);
-const buildIdentityMappings = async ({ caseId, proposals, registered, attachmentVariantLoader }, fetchImpl) => {
+const buildIdentityMappings = async ({ caseId, proposals, registered, pendingCandidates = [], attachmentVariantLoader }, fetchImpl) => {
     if (typeof attachmentVariantLoader !== "function") return { mappings: [], unresolved: [] };
     const mappings = [];
     const unresolved = [];
@@ -172,18 +172,22 @@ const buildIdentityMappings = async ({ caseId, proposals, registered, attachment
         return cache.get(key);
     };
     for (const asset of Array.isArray(registered) ? registered : []) {
-        if (!asset || asset.canonical_attachment_key || !["gmail_attachment", "pa_attachment"].includes(asset.source_type)) continue;
+        if (!asset || !["gmail_attachment", "pa_attachment"].includes(asset.source_type)) continue;
         const messageId = String(asset.source_ref?.gmail_message_id || "");
         const historicalAttachmentId = String(asset.source_ref?.gmail_attachment_id || "");
         const possible = proposals.filter((item) => item.gmail_message_id === messageId
             && item.display_filename === asset.display_filename
             && item.mime_type === asset.mime_type
-            && item.gmail_part_id && CANONICAL_KEY.test(item.canonical_attachment_key));
+            && item.gmail_part_id && CANONICAL_KEY.test(item.canonical_attachment_key)
+            && (!asset.canonical_attachment_key || item.canonical_attachment_key === asset.canonical_attachment_key));
         if (!GMAIL_ID.test(messageId) || !ATTACHMENT_ID.test(historicalAttachmentId) || !possible.length) continue;
         let matched = null;
         let proofType = "";
-        let digest = "";
-        if (possible.length === 1 && possible[0].gmail_attachment_id === historicalAttachmentId) {
+        let digest = CANONICAL_KEY.test(String(asset.canonical_attachment_key || "")) ? String(asset.source_content_sha256 || "") : "";
+        if (possible.length === 1 && asset.canonical_attachment_key === possible[0].canonical_attachment_key) {
+            matched = possible[0];
+            proofType = "registered_canonical_identity";
+        } else if (possible.length === 1 && possible[0].gmail_attachment_id === historicalAttachmentId) {
             matched = possible[0];
             proofType = "exact_attachment_identity";
         } else {
@@ -208,6 +212,38 @@ const buildIdentityMappings = async ({ caseId, proposals, registered, attachment
             unresolved.push({ asset_kind: asset.asset_kind, asset_id: asset.asset_id, display_filename: asset.display_filename });
             continue;
         }
+        const candidateMatches = [];
+        const candidateVariants = (Array.isArray(pendingCandidates) ? pendingCandidates : []).filter((candidate) => candidate
+            && candidate.status === "pending"
+            && candidate.gmail_message_id === messageId
+            && candidate.display_filename === asset.display_filename
+            && candidate.mime_type === asset.mime_type);
+        let currentDigest = "";
+        let currentSize = 0;
+        for (const candidate of candidateVariants) {
+            if (candidate.canonical_attachment_key === matched.canonical_attachment_key
+                || candidate.gmail_attachment_id === matched.gmail_attachment_id) {
+                candidateMatches.push({ candidate_id: candidate.id, gmail_attachment_id: candidate.gmail_attachment_id, proof_type: "exact_attachment_identity", content_sha256: "" });
+                continue;
+            }
+            try {
+                if (!currentDigest) {
+                    const currentBinary = await load(messageId, matched.gmail_attachment_id);
+                    currentDigest = contentIdentity(currentBinary.bytes);
+                    currentSize = currentBinary.size;
+                }
+                const candidateBinary = await load(messageId, candidate.gmail_attachment_id);
+                const candidateDigest = contentIdentity(candidateBinary.bytes);
+                if (candidateBinary.size === currentSize && candidateDigest === currentDigest) {
+                    candidateMatches.push({ candidate_id: candidate.id, gmail_attachment_id: candidate.gmail_attachment_id, proof_type: "same_message_content_sha256", content_sha256: candidateDigest });
+                    digest = currentDigest;
+                } else {
+                    unresolved.push({ asset_kind: "candidate", asset_id: candidate.id, display_filename: candidate.display_filename });
+                }
+            } catch {
+                unresolved.push({ asset_kind: "candidate", asset_id: candidate.id, display_filename: candidate.display_filename });
+            }
+        }
         mappings.push({
             asset_kind: asset.asset_kind,
             asset_id: asset.asset_id,
@@ -221,6 +257,7 @@ const buildIdentityMappings = async ({ caseId, proposals, registered, attachment
             source_byte_size: matched.size,
             content_sha256: digest,
             proof_type: proofType,
+            candidate_matches: candidateMatches,
             suggested_category: matched.suggested_category,
             suggested_card_id: matched.suggested_card_id,
             suggested_action: matched.suggested_action,
@@ -236,7 +273,7 @@ const detectCandidates = async ({ caseId, actorId, messages, attachmentVariantLo
     const cards = await contextCards(caseId, fetchImpl);
     const built = buildProposals(messages, cards);
     const context = await identityContext(caseId, fetchImpl);
-    const prepared = await buildIdentityMappings({ caseId, proposals: built.proposals, registered: context?.registered, attachmentVariantLoader }, fetchImpl);
+    const prepared = await buildIdentityMappings({ caseId, proposals: built.proposals, registered: context?.registered, pendingCandidates: context?.pending_candidates, attachmentVariantLoader }, fetchImpl);
     const reconciliation = prepared.mappings.length
         ? await serviceRpc("pa_portal_candidate_reconcile", { p_case_id: caseId, p_actor_id: actorId, p_mappings: prepared.mappings }, fetchImpl)
         : { reconciled: 0, suggestions_recalculated: 0 };

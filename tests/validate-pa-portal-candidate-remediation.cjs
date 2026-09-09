@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "..");
 const portalMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260908143000_pa_portal_document_management.sql"), "utf8");
 const candidateMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909060000_pa_portal_document_candidates.sql"), "utf8");
 const remediationMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909093000_pa_portal_candidate_canonical_identity.sql"), "utf8");
+const variantMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909110000_pa_portal_candidate_variant_reconcile.sql"), "utf8");
 const actor = "10000000-0000-4000-8000-000000000011";
 const outsider = "10000000-0000-4000-8000-000000000012";
 const caseId = "20000000-0000-4000-8000-000000000011";
@@ -31,24 +32,28 @@ async function main() {
         await db.exec(portalMigration);
         const portalId = (await db.query("select id from public.pa_portals where case_id=$1", [caseId])).rows[0].id;
         const registeredPhotoId = (await db.query("insert into public.pa_portal_photo_items(portal_id,source_type,source_key,source_ref,display_filename,mime_type,contributor_kind) values($1,'gmail_attachment','mail_variant:historical_opaque',$2::jsonb,'ステージ写真（参考）.JPG','image/jpeg','organizer') returning id", [portalId, JSON.stringify({ gmail_message_id: "mail_variant", gmail_attachment_id: "historical_opaque" })])).rows[0].id;
-        const currentAttachment = { id: "current_opaque", gmail_attachment_id: "current_opaque", part_id: "2.1", filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", size: 8000, content_disposition: "attachment" };
+        const candidateAttachment = { id: "candidate_opaque", gmail_attachment_id: "candidate_opaque", part_id: "2.1", filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", size: 8000, content_disposition: "attachment" };
+        const currentAttachment = { ...candidateAttachment, id: "current_opaque", gmail_attachment_id: "current_opaque" };
         await db.query("insert into public.pa_gmail_thread_links(inquiry_id,gmail_thread_id) values($1,'thread_variant')", [caseId]);
-        await db.query("insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,message_source,direction,from_address,subject,received_at,attachment_metadata) values('mail_variant','thread_variant',$1,'gmail_received','inbound','organizer@example.test','音響・電源・会場資料',now(),$2::jsonb)", [caseId, JSON.stringify([currentAttachment])]);
+        await db.query("insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,message_source,direction,from_address,subject,received_at,attachment_metadata) values('mail_variant','thread_variant',$1,'gmail_received','inbound','organizer@example.test','音響・電源・会場資料',now(),$2::jsonb)", [caseId, JSON.stringify([candidateAttachment])]);
         await db.exec(candidateMigration);
-        const proposal = candidateService.buildProposals([{ id: "mail_variant", direction: "inbound", subject: "音響・電源・会場資料", attachments: [currentAttachment] }], []).proposals[0];
-        const legacyProposal = { ...proposal, suggested_category: "layout", suggested_action: "create_new_card", suggested_title: "ステージ写真(参考)", confidence: "high", suggestion_basis: "legacy combined filename and subject rule" };
+        const candidateProposal = candidateService.buildProposals([{ id: "mail_variant", direction: "inbound", subject: "音響・電源・会場資料", attachments: [candidateAttachment] }], []).proposals[0];
+        const legacyProposal = { ...candidateProposal, suggested_category: "layout", suggested_action: "create_new_card", suggested_title: "ステージ写真(参考)", confidence: "high", suggestion_basis: "legacy combined filename and subject rule" };
         delete legacyProposal.gmail_part_id;
         delete legacyProposal.canonical_attachment_key;
         await db.query("select public.pa_portal_candidate_detect($1,$2,$3::jsonb)", [caseId, actor, JSON.stringify([legacyProposal])]);
-        const duplicateId = (await db.query("select id from public.pa_portal_document_candidates where gmail_attachment_id='current_opaque'")).rows[0].id;
+        const duplicateId = (await db.query("select id from public.pa_portal_document_candidates where gmail_attachment_id='candidate_opaque'")).rows[0].id;
+        await db.query("update public.pa_gmail_message_index set attachment_metadata=$1::jsonb where gmail_message_id='mail_variant'", [JSON.stringify([currentAttachment])]);
+        const proposal = candidateService.buildProposals([{ id: "mail_variant", direction: "inbound", subject: "音響・電源・会場資料", attachments: [currentAttachment] }], []).proposals[0];
         await db.query(`insert into public.pa_portal_document_candidates(portal_id,case_id,source_type,source_direction,gmail_message_id,gmail_attachment_id,display_filename,mime_type,suggested_category,suggested_action,suggested_title,confidence,suggestion_basis,status)
           values($1,$2,'gmail_attachment','inbound','accepted_mail','accepted_id','accepted.pdf','application/pdf','other','create_new_card','accepted','low','fixture','accepted'),
                 ($1,$2,'gmail_attachment','inbound','ignored_mail','ignored_id','ignored.pdf','application/pdf','other','create_new_card','ignored','low','fixture','ignored'),
                 ($1,$2,'gmail_attachment','inbound','unmatched_mail','unmatched_id','unmatched.pdf','application/pdf','other','create_new_card','unmatched','low','fixture','pending')`, [portalId, caseId]);
         const portalBefore = (await db.query("select count(*) versions,(select count(*) from public.pa_portal_photo_items) photos,(select count(*) from public.pa_portal_document_cards where current_version_id is not null) current_count from public.pa_portal_document_versions")).rows[0];
         await db.exec(remediationMigration);
+        await db.exec(variantMigration);
 
-        const mappings = await candidateService.buildIdentityMappings({
+        const initialMappings = await candidateService.buildIdentityMappings({
             caseId,
             proposals: [proposal],
             registered: [{ asset_kind: "photo", asset_id: registeredPhotoId, source_type: "gmail_attachment", source_ref: { gmail_message_id: "mail_variant", gmail_attachment_id: "historical_opaque" }, display_filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", canonical_attachment_key: null }],
@@ -58,7 +63,27 @@ async function main() {
                 return { bytes, size: bytes.length };
             }
         });
-        assert.equal(mappings.mappings.length, 1);
+        assert.equal(initialMappings.mappings.length, 1);
+        const initialReconciliation = (await db.query("select public.pa_portal_candidate_reconcile($1,$2,$3::jsonb) result", [caseId, actor, JSON.stringify(initialMappings.mappings)])).rows[0].result;
+        assert.equal(Number(initialReconciliation.reconciled), 0, "an unproved third candidate variant must remain pending");
+        assert.equal((await db.query("select status from public.pa_portal_document_candidates where id=$1", [duplicateId])).rows[0].status, "pending");
+        const registeredCanonical = (await db.query("select source_ref,gmail_part_id,canonical_attachment_key,source_content_sha256,source_byte_size from public.pa_portal_photo_items where id=$1", [registeredPhotoId])).rows[0];
+        const mappings = await candidateService.buildIdentityMappings({
+            caseId,
+            proposals: [proposal],
+            registered: [{ asset_kind: "photo", asset_id: registeredPhotoId, source_type: "gmail_attachment", source_ref: registeredCanonical.source_ref, display_filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", ...registeredCanonical }],
+            pendingCandidates: [{ id: duplicateId, status: "pending", gmail_message_id: "mail_variant", gmail_attachment_id: "candidate_opaque", display_filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", canonical_attachment_key: null }],
+            attachmentVariantLoader: async ({ gmailAttachmentId }) => {
+                if (!["candidate_opaque", "current_opaque"].includes(gmailAttachmentId)) throw new Error("unexpected_fixture_reference");
+                const bytes = Buffer.alloc(8000, 1);
+                return { bytes, size: bytes.length };
+            }
+        });
+        assert.equal(mappings.mappings[0].proof_type, "registered_canonical_identity");
+        assert.deepEqual(mappings.mappings[0].candidate_matches.map((match) => [match.candidate_id, match.proof_type]), [[duplicateId, "same_message_content_sha256"]], "third attachment-ID variant must require an exact content-hash proof");
+        const forgedMappings = structuredClone(mappings.mappings);
+        forgedMappings[0].candidate_matches[0].content_sha256 = "0".repeat(64);
+        await assert.rejects(db.query("select public.pa_portal_candidate_reconcile($1,$2,$3::jsonb)", [caseId, actor, JSON.stringify(forgedMappings)]), /identity_candidate_variant_mismatch/, "service input cannot reconcile a candidate variant without the exact hash proof");
         const reconciliation = (await db.query("select public.pa_portal_candidate_reconcile($1,$2,$3::jsonb) result", [caseId, actor, JSON.stringify(mappings.mappings)])).rows[0].result;
         assert.deepEqual([Number(reconciliation.reconciled), Number(reconciliation.suggestions_recalculated)], [1, 1]);
         const registeredAfter = (await db.query("select source_ref,gmail_part_id,canonical_attachment_key,source_content_sha256,source_byte_size from public.pa_portal_photo_items where id=$1", [registeredPhotoId])).rows[0];
@@ -86,6 +111,7 @@ async function main() {
         await assert.rejects(db.query("select * from public.pa_portal_candidate_system_audit"), /permission denied/);
         await db.exec("reset role");
         await db.exec(remediationMigration);
+        await db.exec(variantMigration);
         assert.equal(Number((await db.query("select count(*) n from public.pa_portal_candidate_system_audit")).rows[0].n), 2, "migration replay must be additive and audit append-only");
         console.log("PA portal candidate remediation validation: PASS (canonical identity, bounded hash proof, reconcile, classification calibration, idempotency, no formal mutation)");
     } finally {
