@@ -11,9 +11,9 @@
 }
 
 /* Phase 1D: adaptive print and playback cue controls. */
-.sheet-date { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 94px; }
-.sheet-date .sheet-event-date { color: #333; font-size: 9.5px; font-weight: 700; line-height: 1; }
-.sheet-date img { display: block; width: 78px; height: auto; }
+.sheet-date { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 190px; }
+.sheet-date .sheet-event-date { color: #333; font-size: 10px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
+.sheet-date img { display: block; width: 128px; max-height: 28px; height: auto; object-fit: contain; }
 .setlist-output-control {
   position: absolute;
   left: 30px;
@@ -166,7 +166,7 @@
     position: relative !important;
     display: block !important;
     width: 194mm !important;
-    min-height: 277mm !important;
+    height: 277mm !important;
     margin: 0 !important;
     box-sizing: border-box !important;
     page: adaptivePortrait !important;
@@ -177,64 +177,87 @@
   }
   .print-setlist-page:last-child { break-after: auto !important; page-break-after: auto !important; }
   .print-brand {
-    height: 10mm;
+    height: 28px;
     display: flex !important;
-    align-items: flex-start;
+    align-items: center;
     justify-content: flex-end;
-    gap: 3mm;
+    gap: 8px;
+    margin: 0 0 4px auto;
     color: #333;
-    font-size: 8px;
-    font-weight: 800;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.15;
   }
-  .print-brand img { display: block; width: 30mm; height: auto; }
+  .print-brand img { display: block; width: 128px; max-height: 28px; height: auto; object-fit: contain; }
   .print-document-meta {
     width: 100% !important;
-    min-height: 16mm !important;
     display: grid !important;
-    grid-template-columns: 1.65fr 1.3fr .65fr 1.05fr .65fr !important;
-    border: 1px solid #111 !important;
-    margin: 0 0 3mm !important;
+    grid-template-columns: 1.75fr 1.45fr .65fr 1.08fr .7fr !important;
+    border: 0 !important;
+    border-top: 1px solid #9da5ad !important;
+    border-bottom: 2px solid #111 !important;
+    margin: 0 0 10px !important;
     box-sizing: border-box !important;
   }
-  .print-document-meta > div { min-width: 0; padding: 1.4mm 2mm !important; border-right: .7px solid #aeb7bf !important; }
-  .print-document-meta > div:last-child { border-right: 0 !important; }
-  .print-document-meta span { display: block; margin-bottom: .8mm !important; color: #4e5963 !important; font-size: 7px !important; font-weight: 800 !important; line-height: 1 !important; }
-  .print-document-meta strong { display: block; color: #111 !important; font-size: 9px !important; line-height: 1.15 !important; overflow-wrap: anywhere; }
-  .print-page-title { display: flex !important; align-items: baseline; justify-content: space-between; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1.4px solid #111; }
-  .print-page-title strong { font-size: 16px; letter-spacing: .03em; }
-  .print-page-title span { color: #4d5963; font-size: 8px; font-weight: 800; }
-  .equipment-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
-  .equipment-columns h3, .equipment-other h3 { margin: 0 0 2mm; font-size: 11px; }
-  .equipment-columns table { width: 100%; border: 1.4px solid #111; border-collapse: separate; border-spacing: 0; font-size: 9px; }
-  .equipment-columns td { padding: 2.2mm; border: 0; border-bottom: .7px solid #7e8790; color: #111; overflow-wrap: anywhere; }
+  .print-document-meta > div { min-width: 0; padding: 4px 8px 5px !important; border-right: 1px solid #9da5ad !important; }
+  .print-document-meta > div:first-child { padding-left: 0 !important; }
+  .print-document-meta > div:last-child { padding-right: 0 !important; border-right: 0 !important; }
+  .print-document-meta span { display: block; margin-bottom: 4px !important; color: #454b50 !important; font-size: 7.8px !important; font-weight: 800 !important; line-height: 1 !important; }
+  .print-document-meta strong { display: block; color: #111 !important; font-size: 12px !important; font-weight: 900 !important; line-height: 1.1 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .print-page-title { display: flex !important; align-items: center; justify-content: space-between; margin: 0; padding: 7px 10px; border: 2px solid #111; border-bottom: 0; }
+  .print-page-title-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .print-page-title strong { color: #111; font-size: 18px; font-weight: 950; letter-spacing: .02em; line-height: 1.1; }
+  .print-page-title small { color: #555; font-size: 8px; font-weight: 800; }
+  .print-total-badge { flex: none; border: 1.5px solid #222; border-radius: 8px; padding: 5px 11px; color: #111; font-size: 10px; font-weight: 800; line-height: 1; }
+  .print-total-badge b { margin-left: 7px; font-size: 18px; font-weight: 950; }
+  .print-equipment-page { display: flex !important; flex-direction: column; }
+  .print-equipment-page .print-page-title { margin-bottom: 6px; border: 1.6px solid #111; padding: 10px 14px; }
+  .print-equipment-page .print-page-title strong { font-size: 20px; }
+  .equipment-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .equipment-columns.single-section { grid-template-columns: 1fr; }
+  .equipment-panel { border: 1.6px solid #111; }
+  .equipment-panel h3, .equipment-other h3 { margin: 0; padding: 8px 10px; border-bottom: 1px solid #9da5ad; background: #f0f1f2 !important; color: #111; font-size: 11px; font-weight: 950; }
+  .equipment-panel.is-carry h3 { background: #f7e5e7 !important; }
+  .equipment-columns table { width: 100%; border: 0; border-collapse: collapse; font-size: 9.5px; }
+  .equipment-columns td { padding: 8px 10px; border: 0; border-bottom: 1px solid #9da5ad; color: #111; line-height: 1.35; overflow-wrap: anywhere; }
   .equipment-columns tr:last-child td { border-bottom: 0; }
-  .equipment-columns td:last-child { width: 13mm; border-left: .7px solid #7e8790; text-align: center; }
-  .equipment-columns section:first-child table, .equipment-columns section:first-child td { background: #f3cfd2 !important; color: #431215 !important; }
-  .equipment-empty { margin: 0; padding: 3mm; border: 1.4px solid #111; font-size: 9px; }
-  .equipment-other { margin-top: 6mm; }
-  .equipment-other p { min-height: 24mm; margin: 0; padding: 3mm; border: 1.4px solid #111; white-space: pre-wrap; color: #111; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
-  .print-setlist-table { width: 100%; table-layout: fixed; border: 1.4px solid #111; border-collapse: separate; border-spacing: 0; color: #111; font-size: 8.5px; }
-  .print-setlist-table .col-no { width: 8mm; }
-  .print-setlist-table .col-type { width: 15mm; }
-  .print-setlist-table .col-title { width: 54mm; }
-  .print-setlist-table .col-duration { width: 14mm; }
-  .print-setlist-table .col-sound, .print-setlist-table .col-light { width: 43mm; }
-  .print-setlist-table th { padding: 2.2mm 1.5mm; border: 0; border-right: .7px solid #111; border-bottom: 1px solid #111; background: #eceff2 !important; color: #111; font-weight: 900; text-align: center; }
+  .equipment-columns td:last-child { width: 48px; border-left: 1px solid #9da5ad; text-align: center; }
+  .equipment-panel.is-carry td { background: #f3ced1 !important; color: #431215 !important; }
+  .equipment-other { margin-top: 12px; border: 1.6px solid #111; }
+  .equipment-other p { margin: 0; padding: 12px; border: 0; white-space: pre-wrap; color: #111; font-size: 9.5px; line-height: 1.55; overflow-wrap: anywhere; }
+  .print-equipment-page.other-only .equipment-other { flex: 1; display: flex; flex-direction: column; margin-top: 0; }
+  .print-equipment-page.other-only .equipment-other p { flex: 1; }
+  .print-setlist-table { width: 100%; table-layout: fixed; border: 2px solid #111; border-collapse: collapse; color: #111; font-size: 9.3px; }
+  .print-setlist-table .col-no { width: 32px; }
+  .print-setlist-table .col-type { width: 52px; }
+  .print-setlist-table .col-title { width: 190px; }
+  .print-setlist-table .col-duration { width: 58px; }
+  .print-setlist-table .col-sound { width: 196px; }
+  .print-setlist-table .col-light { width: auto; }
+  .print-setlist-table th { padding: 7px 5px; border: 0; border-right: 1px solid #9da5ad; border-bottom: 1px solid #9da5ad; background: #f7f7f7 !important; color: #111; font-size: 8.8px; font-weight: 900; text-align: center; }
   .print-setlist-table th:last-child { border-right: 0; }
-  .print-main-row td { padding: 2.4mm 1.6mm; border: 0; border-right: .7px solid #7e8790; border-top: .7px solid #7e8790; color: #111; line-height: 1.35; vertical-align: top; overflow-wrap: anywhere; }
+  .print-main-row td { padding: 9px 6px; border: 0; border-right: 1px solid #9da5ad; border-bottom: 1px solid #9da5ad; color: #111; font-size: 9.3px; line-height: 1.35; vertical-align: middle; overflow-wrap: anywhere; }
   .print-main-row td:last-child { border-right: 0; }
   .print-main-row td:first-child, .print-main-row td:nth-child(2), .print-main-row td:nth-child(4) { text-align: center; }
   .print-setlist-unit.song .print-main-row td { background: #fff !important; }
-  .print-setlist-unit.non-song .print-main-row td { background: #f0f2f4 !important; }
+  .print-setlist-unit.non-song .print-main-row td { background: #f3f4f5 !important; }
   .print-setlist-unit { break-inside: avoid !important; page-break-inside: avoid !important; }
-  .print-cue-row td { padding: 1.5mm; border: 0; border-top: .7px solid #7e8790; background: #fff !important; }
-  .cue-content { display: block; padding: 1.5mm 2mm 1.5mm 24mm; min-height: 7mm; box-sizing: border-box; color: #111; line-height: 1.35; position: relative; overflow-wrap: anywhere; }
-  .cue-tag { position: absolute; z-index: 1; margin: 1.4mm 0 0 3mm; min-width: 16mm; padding: .8mm 1.2mm; border: 1px solid currentColor; background: #fff; color: #111; font-size: 7px; font-weight: 900; text-align: center; box-sizing: border-box; }
-  .cue-trigger .cue-content { border: 1px dashed #766d63; border-left: 3px solid #8f7964; background: #f5f2ee !important; }
-  .cue-continuous .cue-content { border: 1px solid #647b8f; border-left: 3px solid #557994; background: #edf3f7 !important; }
-  .cue-audio-only .cue-content { border: 1px solid #8a939b; border-left: 3px solid #8a939b; background: #f5f6f7 !important; }
-  .cue-divider { padding: 0 1.5mm; color: #59636c; }
-  .print-setlist-foot { margin: 3mm 0 0; color: #4e5963; font-size: 7.5px; }
+  .print-cue-row td { padding: 7px 10px 7px 12px; border: 0; border-right: 0 !important; border-bottom: 1px solid #9da5ad; color: #111; font-size: 9px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .print-cue-row.cue-trigger td { background: #f7f5f1 !important; box-shadow: inset 4px 0 0 #8a8174; }
+  .print-cue-row.cue-continuous td { background: #f1f6fb !important; box-shadow: inset 4px 0 0 #5f7893; }
+  .print-cue-row.cue-audio-only td { background: #f8f9fa !important; box-shadow: inset 4px 0 0 #8a939b; }
+  .cue-kind { display: inline-block; min-width: 46px; margin-right: 7px; padding: 2px 6px; border-radius: 999px; background: #fff; color: #4e4942; font-size: 7.8px; font-weight: 900; text-align: center; letter-spacing: .02em; vertical-align: 1px; }
+  .cue-kind.trigger { border: 1px dashed #777; background: #fffdf9; }
+  .cue-kind.continuous { border: 1px solid #6f8296; background: #fbfdff; color: #3d5369; }
+  .cue-kind.audio-only { border: 1px solid #8a939b; background: #fff; color: #4e5963; }
+  .cue-label { font-weight: 950; }
+  .cue-action { display: inline-block; padding: 3px 8px; border-radius: 5px; background: #fff; font-weight: 900; line-height: 1.2; }
+  .cue-action.trigger { border: 1.5px dashed #555; background: #fffdf9; }
+  .cue-action.continuous { border: 1.5px solid #33485e; background: #fbfdff; }
+  .cue-divider { padding: 0 10px; color: #666; }
+  .cue-audio { font-weight: 800; }
+  .cue-note { margin-left: 12px; color: #444; font-weight: 700; }
+  .print-setlist-foot { margin: 0; padding: 7px 10px; border: 2px solid #111; border-top: 0; color: #333; font-size: 8.3px; line-height: 1.4; }
 }
 
 /* v28 right-panel adaptive layout. The canonical panel geometry remains fixed. */
