@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=2">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=3">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -624,7 +624,7 @@ button{cursor:pointer}
 </div>
   <div class="top-actions">
       <span class="history-status">履歴 <b id="historyCount">0</b> / 500</span>
-      <a id="stagePlotPortalLink" class="stage-plot-route-action" href="#">資料ポータルへ戻る</a><button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><button id="stagePlotPrintStageBtn" class="stage-plot-print-action" type="button">ステージ図をPDF / 印刷</button><button id="stagePlotPrintSetlistBtn" class="stage-plot-print-action" type="button">セットリストをPDF / 印刷</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
+      <a id="stagePlotPortalLink" class="stage-plot-route-action" href="#">資料ポータルへ戻る</a><button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><button id="stagePlotPrintDocumentBtn" class="stage-plot-print-action" type="button">Adaptive PDF / 印刷</button><button id="stagePlotPrintStageBtn" class="stage-plot-print-action" type="button">ステージ図のみ</button><button id="stagePlotPrintSetlistBtn" class="stage-plot-print-action" type="button">進行のみ</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
 </div>
 <div class="app">
   <aside class="panel left">
@@ -687,6 +687,10 @@ button{cursor:pointer}
         <label>持ち時間</label>
         <input value="35分" placeholder="例：35分">
       </div>
+      <div class="meta-field">
+        <label>開催日</label>
+        <input value="" placeholder="案件の開催日" readonly aria-readonly="true">
+      </div>
     </div>
 
     <div class="viewport" id="viewport">
@@ -695,7 +699,7 @@ button{cursor:pointer}
         <div class="sheet-head">
           <div class="sheet-head-top">
             <div class="sheet-doc-title">STAGE PLOT</div>
-            <div class="sheet-date">2026/10/18<br><b>ARA-TECH</b></div>
+            <div class="sheet-date"><span class="sheet-event-date"></span><img src="/img/ara-tech-logo-horizontal-black.png" alt="ARA-TECH"></div>
           </div>
           <div class="sheet-meta">
             <div class="sheet-meta-item event"><span>イベント名</span><strong>2026 龍姫湖まつり</strong></div>
@@ -815,6 +819,7 @@ DJ卓横に100V×1
           <textarea>Vo-IEM置き場おまかせ。JCにアース。Drへの返しはIEMのみ。モニター置きっぱでも問題なし。
 当日はよろしくお願い致します。</textarea>
         </div>
+        <section class="single-mix-print-block" aria-label="音源・進行"></section>
         </div>
 
 
@@ -835,6 +840,28 @@ DJ卓横に100V×1
               <span class="audio-chip"><button class="play" type="button">▶</button>song_a.wav</span>
             </div>
           </div>
+
+        <section class="setlist-output-control" aria-label="進行とPDF出力形式">
+          <label for="setlistOutputMode">進行 / PDF出力形式</label>
+          <select id="setlistOutputMode">
+            <option value="normal">通常セットリスト</option>
+            <option value="single_mix">完成ミックス1本</option>
+            <option value="none">セットリストなし</option>
+          </select>
+          <span id="setlistOutputHelp">SET LISTページを生成します。</span>
+        </section>
+
+        <section class="single-mix-editor" id="singleMixEditor" hidden aria-label="完成ミックス1本">
+          <div class="single-mix-editor__head"><strong>音源・進行</strong><span>完成音源1本を最初から最後まで流す場合</span></div>
+          <div class="single-mix-editor__grid">
+            <label>音源<select id="singleMixAudio"></select></label>
+            <label>時間<input id="singleMixDuration" placeholder="例：12:30"></label>
+            <label>再生キュー<select id="singleMixCue"></select></label>
+            <label class="single-mix-custom" hidden>任意入力<input id="singleMixCueCustom" placeholder="例：本人『お願いします』後"></label>
+            <label>補足<input id="singleMixCueDetail" placeholder="例：最後まで通し再生・途中停止なし"></label>
+            <label>備考<input id="singleMixNote" placeholder="音源・進行の備考"></label>
+          </div>
+        </section>
 
         <section class="setlist">
           <div class="setlist-head">
@@ -917,6 +944,6 @@ DJ卓横に100V×1
   </div>
 </div>
 
-<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=3"></script>
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=4"></script>
 </body>
 </html>

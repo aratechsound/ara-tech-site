@@ -31,6 +31,7 @@ let manageSubmit = null;
 let issuedShareUrl = "";
 let stagePlotObserver = null;
 let stagePlotRefreshPromise = null;
+let stagePlotEventDate = "";
 const stagePlotPreviewCache = new Map();
 const organizerMode = /^\/event-portal\/?$/u.test(location.pathname);
 if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); document.querySelector("#stage-plot-admin-area")?.remove(); }
@@ -514,7 +515,10 @@ const stagePlotState = (plot) => {
     if (!stagePlotPreviewCache.has(plotId)) {
         const request = portalRequest("stage_plot_get", { stage_plot_id: plotId }).then((record) => {
             if (!record || record.id !== plotId || record.case_id !== caseId || !record.state) throw new Error("stage_plot_case_mismatch");
-            return record.state;
+            const state = typeof structuredClone === "function" ? structuredClone(record.state) : JSON.parse(JSON.stringify(record.state));
+            state.metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+            if (!state.metadata.eventDate) state.metadata.eventDate = stagePlotEventDate;
+            return state;
         });
         stagePlotPreviewCache.set(plotId, request);
     }
@@ -872,6 +876,7 @@ const renderPortalDocuments = () => {
     renderVersioned($("#other-content"), versions("other"), { collection: true, multiple: true, empty: { title: "その他の共通資料", message: "運営資料や注意事項などが登録されると、ここに表示されます。", icon: "📄", collection: true } });
 };
 const populate = async (item, progress) => {
+    stagePlotEventDate = String(progress?.confirmed_event_date || item.event_date || "");
     $("#portal-event-name").textContent = text(item.event_name, "イベント資料ポータル");
     $("#portal-date").textContent = dateText(progress?.confirmed_event_date || item.event_date);
     $("#portal-time").textContent = timeText(item.event_time);
