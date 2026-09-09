@@ -123,7 +123,7 @@ await page.emulateMedia({ media: 'print' });
 await page.evaluate(() => document.body.classList.add('print-adaptive-document'));
 await page.locator('.print-stage-page').screenshot({ path: path.join(outputDir, 'stage-page-black-logo.png') });
 const cueVisual = await page.evaluate(() => {
-  const trigger = document.querySelector('.cue-trigger .cue-content');
+  const trigger = document.querySelector('.cue-trigger .cue-action.trigger');
   return trigger ? { borderStyle: getComputedStyle(trigger).borderStyle, background: getComputedStyle(trigger).backgroundColor } : null;
 });
 await page.emulateMedia({ media: 'screen' });
@@ -134,7 +134,7 @@ await page.evaluate(() => document.body.classList.add('print-adaptive-document')
 await page.locator('.cue-trigger').first().screenshot({ path: path.join(outputDir, 'setlist-cue-trigger.png') });
 await page.locator('.cue-continuous').first().screenshot({ path: path.join(outputDir, 'setlist-cue-continuous.png') });
 const continuousVisual = await page.evaluate(() => {
-  const node = document.querySelector('.cue-continuous .cue-content');
+  const node = document.querySelector('.cue-continuous .cue-action.continuous');
   return node ? { borderStyle: getComputedStyle(node).borderStyle, background: getComputedStyle(node).backgroundColor } : null;
 });
 await page.emulateMedia({ media: 'screen' });
@@ -145,6 +145,8 @@ const overflowEvidence = await page.evaluate(() => ({
   page1VisibleItems: [...document.querySelectorAll('#carryList .equip-row, #requestList .request-row')].filter(node => !node.hidden).length,
   pageCount: document.querySelectorAll('.print-equipment-page').length,
   firstSupplementItem: document.querySelector('.print-equipment-page td')?.textContent,
+  otherOnlyPages: document.querySelectorAll('.print-equipment-page.other-only').length,
+  emptySectionsOnOtherOnly: [...document.querySelectorAll('.print-equipment-page.other-only')].some(node => node.querySelector('.equipment-columns, .equipment-panel')),
   order: [...document.querySelectorAll('.print-stage-page, .print-equipment-pages, .print-setlist-pages')].map(node => node.className),
 }));
 await page.evaluate(() => {
@@ -166,14 +168,16 @@ await page.screenshot({ path: path.join(outputDir, 'mobile-390.png'), fullPage: 
 const mobile = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
 await page.setViewportSize({ width: 1440, height: 1050 });
 
-await makePdf('band-setlist.pdf', band);
-await makePdf('idol-setlist.pdf', idol);
-await makePdf('dance-single-mix.pdf', dance);
-await makePdf('equipment-fit.pdf', fit);
-await makePdf('equipment-overflow.pdf', overflow);
-await makePdf('setlist-page-break.pdf', longSetlist);
+await makePdf('band-setlist-fixed.pdf', band);
+await makePdf('idol-setlist-fixed.pdf', idol);
+await makePdf('dance-single-mix-fixed.pdf', dance);
+await makePdf('equipment-fit-fixed.pdf', fit);
+await makePdf('equipment-overflow-fixed.pdf', overflow);
+await makePdf('setlist-page-break-fixed.pdf', longSetlist);
 
 await loadFixture(longSetlist);
+await page.emulateMedia({ media: 'print' });
+await page.evaluate(() => document.body.classList.add('print-adaptive-document'));
 const printDom = await page.evaluate(() => ({
   columns: [...document.querySelectorAll('.print-setlist-table thead th')].slice(0, 6).map(node => node.textContent),
   units: document.querySelectorAll('.print-setlist-unit').length,
@@ -183,7 +187,24 @@ const printDom = await page.evaluate(() => ({
   brandCount: document.querySelectorAll('.print-setlist-page .print-brand img').length,
   eventDateCount: [...document.querySelectorAll('.print-setlist-page .print-brand')].filter(node => node.textContent.includes('2026/10/18')).length,
   selectableText: document.querySelector('.print-setlist-page')?.textContent.includes('音響要望'),
+  visual: (() => {
+    const style = selector => getComputedStyle(document.querySelector(selector));
+    return {
+      metaHeight: document.querySelector('.print-document-meta')?.getBoundingClientRect().height,
+      metaBorderTop: style('.print-document-meta').borderTopWidth,
+      metaBorderBottom: style('.print-document-meta').borderBottomWidth,
+      titleFontSize: style('.print-page-title strong').fontSize,
+      totalFontSize: style('.print-total-badge b').fontSize,
+      tableOuterBorder: style('.print-setlist-table').borderTopWidth,
+      internalBorder: style('.print-main-row td').borderRightWidth,
+      bodyFontSize: style('.print-main-row td').fontSize,
+      bodyLineHeight: style('.print-main-row td').lineHeight,
+      triggerBackground: style('.print-cue-row.cue-trigger td').backgroundColor,
+      continuousBackground: style('.print-cue-row.cue-continuous td').backgroundColor,
+    };
+  })(),
 }));
+await page.emulateMedia({ media: 'screen' });
 
 const jsonRoundtrip = JSON.stringify(await page.evaluate(() => window.StagePlotEditor.snapshot())) === JSON.stringify(await page.evaluate(value => {
   window.StagePlotEditor.loadSnapshot(JSON.parse(JSON.stringify(value)), { rememberPrevious: false, source: 'json-roundtrip' });
@@ -204,11 +225,22 @@ const checks = {
   equipmentFit: fitEvidence.layout.overflow === 0 && fitEvidence.supplementPages === 0,
   equipmentAllOrNothing: overflowEvidence.layout.overflow === 27 && overflowEvidence.page1VisibleItems === 0 && overflowEvidence.firstSupplementItem === 'Brought item 1',
   equipmentContinuation: overflowEvidence.pageCount >= 2,
+  emptyEquipmentSectionsHidden: overflowEvidence.otherOnlyPages > 0 && overflowEvidence.emptySectionsOnOtherOnly === false,
   pageOrder: overflowEvidence.order[0]?.includes('print-stage-page') && overflowEvidence.order[1]?.includes('print-equipment-pages') && overflowEvidence.order[2]?.includes('print-setlist-pages'),
   columns: printDom.columns.join('|') === 'No.|種別|曲名・内容|時間|音響要望|照明要望',
   cueBeforeTarget: printDom.badCueOrder === 0 && printDom.cueUnits > 0,
   everySetlistPageBranded: printDom.pageCount === printDom.brandCount && printDom.pageCount === printDom.eventDateCount,
   textDom: printDom.selectableText === true,
+  visualAuthorityCss: printDom.visual.metaHeight < 44
+    && printDom.visual.metaBorderTop === '1px'
+    && printDom.visual.metaBorderBottom === '2px'
+    && printDom.visual.titleFontSize === '18px'
+    && printDom.visual.totalFontSize === '18px'
+    && printDom.visual.tableOuterBorder === '2px'
+    && printDom.visual.internalBorder === '1px'
+    && printDom.visual.bodyFontSize === '9.3px'
+    && printDom.visual.triggerBackground === 'rgb(247, 245, 241)'
+    && printDom.visual.continuousBackground === 'rgb(241, 246, 251)',
   jsonRoundtrip,
   audioMetadata: audioTruth.metadata?.fileName === 'long_fixture.wav' && audioTruth.objectUrlPersisted === false,
   audioReloadTruthful: audioTruth.screenText.includes('ファイル未接続'),

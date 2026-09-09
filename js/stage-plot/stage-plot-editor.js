@@ -390,7 +390,7 @@
       node.textContent = values[index] || ['イベント名', '出演者名', '—', '—', '—'][index];
     });
     const eventDate = $('.sheet-event-date');
-    if (eventDate) eventDate.textContent = formatEventDate(state.metadata.eventDate);
+    if (eventDate) eventDate.textContent = `開催日 ${formatEventDate(state.metadata.eventDate) || '未設定'}`;
   }
 
   function formatEventDate(value) {
@@ -429,16 +429,17 @@
     if (!cueText && !audio && !detail) return null;
     const kind = cue === 'continuous' ? 'continuous' : cue === 'none' ? 'audio-only' : 'trigger';
     const tag = kind === 'continuous' ? '連続' : kind === 'trigger' ? 'きっかけ' : '音源';
-    const parts = [];
-    if (cueText) parts.push(`<b>再生キュー：</b>${escapeHtml(cueText)}`);
-    if (audio) parts.push(`<b>音源：</b>${escapeHtml(audio)}`);
-    if (detail) parts.push(`<b>補足：</b>${escapeHtml(detail)}`);
-    return { kind, tag, content: parts.join('<span class="cue-divider">｜</span>') };
+    return { kind, tag, cueText, audio, detail };
   }
 
   function setlistUnitMarkup(row, index) {
     const cue = cuePresentation(row);
-    const cueRow = cue ? `<tr class="print-cue-row cue-${cue.kind}"><td colspan="6"><span class="cue-tag">${cue.tag}</span><span class="cue-content">${cue.content}</span></td></tr>` : '';
+    const cueParts = cue ? [
+      cue.cueText ? `<span class="cue-label">再生キュー：</span><span class="cue-action ${cue.kind}">${escapeHtml(cue.cueText)}</span>` : '',
+      cue.audio ? `<span class="cue-label">音源：</span><span class="cue-audio">${escapeHtml(cue.audio)}</span>` : '',
+      cue.detail ? `<span class="cue-label">補足：</span><span class="cue-note">${escapeHtml(cue.detail)}</span>` : '',
+    ].filter(Boolean) : [];
+    const cueRow = cue ? `<tr class="print-cue-row cue-${cue.kind}"><td colspan="6"><span class="cue-kind ${cue.kind}">${cue.tag}</span>${cueParts.join('<span class="cue-divider">｜</span>')}</td></tr>` : '';
     return `<tbody class="print-setlist-unit ${row.type === '曲' ? 'song' : 'non-song'}">${cueRow}<tr class="print-main-row"><td>${index + 1}</td><td>${escapeHtml(row.type)}</td><td>${escapeHtml(row.title)}</td><td>${escapeHtml(row.duration)}</td><td>${escapeHtml(row.soundRequest)}</td><td>${escapeHtml(row.lightRequest)}</td></tr></tbody>`;
   }
 
@@ -473,7 +474,7 @@
     root.replaceChildren(...pages.map((pageRows, pageIndex) => {
       const article = document.createElement('article');
       article.className = 'print-setlist-page';
-      article.innerHTML = `${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><strong>SET LIST / 進行${pageIndex ? ' 続き' : ''}</strong><span>合計時間 ${escapeHtml(total)} / ${pageIndex + 1} of ${pages.length}</span></div><table class="print-setlist-table"><colgroup><col class="col-no"><col class="col-type"><col class="col-title"><col class="col-duration"><col class="col-sound"><col class="col-light"></colgroup><thead><tr><th>No.</th><th>種別</th><th>曲名・内容</th><th>時間</th><th>音響要望</th><th>照明要望</th></tr></thead>${pageRows.map(({ row, index }) => setlistUnitMarkup(row, index)).join('')}</table>${pageIndex === pages.length - 1 ? '<p class="print-setlist-foot">基本は事前データ提出。CD・本人再生等は例外指定。</p>' : ''}`;
+      article.innerHTML = `${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><div class="print-page-title-main"><strong>SET LIST / 進行${pageIndex ? ' 続き' : ''}</strong>${pages.length > 1 ? `<small>${pageIndex + 1} of ${pages.length}</small>` : ''}</div><span class="print-total-badge">合計時間 <b>${escapeHtml(total)}</b></span></div><table class="print-setlist-table"><colgroup><col class="col-no"><col class="col-type"><col class="col-title"><col class="col-duration"><col class="col-sound"><col class="col-light"></colgroup><thead><tr><th>No.</th><th>種別</th><th>曲名・内容</th><th>時間</th><th>音響要望</th><th>照明要望</th></tr></thead>${pageRows.map(({ row, index }) => setlistUnitMarkup(row, index)).join('')}</table>${pageIndex === pages.length - 1 ? '<p class="print-setlist-foot">基本は事前データ提出。CD・本人再生等は例外指定。</p>' : ''}`;
       return article;
     }));
   }
@@ -526,13 +527,18 @@
     if (!otherChunks.length) otherChunks.push('なし');
     const itemPageCount = Math.max(1, Math.ceil(brought.length / perColumn), Math.ceil(requested.length / perColumn));
     const pageCount = itemPageCount + Math.max(0, otherChunks.length - 1);
-    const rows = items => items.length ? `<table><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.qty)}</td></tr>`).join('')}</tbody></table>` : '<p class="equipment-empty">なし</p>';
+    const rows = items => `<table><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.qty)}</td></tr>`).join('')}</tbody></table>`;
     node.innerHTML = Array.from({ length: pageCount }, (_, pageIndex) => {
       const left = brought.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
       const right = requested.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
       const otherIndex = pageIndex - itemPageCount + 1;
       const otherChunk = otherIndex >= 0 ? otherChunks[otherIndex] : '';
-      return `<article class="print-equipment-page">${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><strong>機材・手配リスト${pageIndex ? ' 続き' : ''}</strong><span>${pageIndex + 1} of ${pageCount}</span></div><div class="equipment-columns"><section><h3>出演者持込</h3>${rows(left)}</section><section><h3>借りたい・用意してほしい機材</h3>${rows(right)}</section></div>${otherChunk ? `<section class="equipment-other"><h3>その他要望${otherChunks.length > 1 ? ` ${otherIndex + 1} / ${otherChunks.length}` : ''}</h3><p>${escapeHtml(otherChunk)}</p></section>` : ''}</article>`;
+      const equipmentSections = [
+        left.length ? `<section class="equipment-panel is-carry"><h3>出演者持込</h3>${rows(left)}</section>` : '',
+        right.length ? `<section class="equipment-panel"><h3>借りたい・用意してほしい機材</h3>${rows(right)}</section>` : '',
+      ].filter(Boolean);
+      const onlyOther = !equipmentSections.length && Boolean(otherChunk);
+      return `<article class="print-equipment-page${onlyOther ? ' other-only' : ''}">${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><div class="print-page-title-main"><strong>機材・手配リスト${pageIndex ? ' 続き' : ''}</strong><small>${pageIndex + 1} of ${pageCount}</small></div></div>${equipmentSections.length ? `<div class="equipment-columns${equipmentSections.length === 1 ? ' single-section' : ''}">${equipmentSections.join('')}</div>` : ''}${otherChunk ? `<section class="equipment-other"><h3>その他要望${otherChunks.length > 1 ? ` ${otherIndex + 1} / ${otherChunks.length}` : ''}</h3><p>${escapeHtml(otherChunk)}</p></section>` : ''}</article>`;
     }).join('');
   }
 

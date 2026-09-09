@@ -38,8 +38,14 @@ assert.match(engine, /colspan="6"/u);
 assert.match(engine, /<th>音響要望<\/th><th>照明要望<\/th>/u);
 assert.doesNotMatch(engine, /<th>音源<\/th>|<th>再生キュー<\/th>/u);
 for (const cue of ['none', 'show_start', 'on_stage', 'title_call', 'mc_end', 'signal', 'blackout', 'continuous', 'custom']) assert.match(engine, new RegExp(`['"]${cue}['"]`, 'u'));
-assert.match(css, /\.cue-trigger \.cue-content \{ border: 1px dashed/u);
-assert.match(css, /\.cue-continuous \.cue-content \{ border: 1px solid/u);
+assert.match(css, /\.cue-action\.trigger \{ border: 1\.5px dashed/u);
+assert.match(css, /\.cue-action\.continuous \{ border: 1\.5px solid/u);
+assert.match(css, /grid-template-columns: 1\.75fr 1\.45fr \.65fr 1\.08fr \.7fr/u);
+assert.match(css, /\.print-page-title strong \{[^}]*font-size: 18px/u);
+assert.match(css, /\.print-total-badge \{[^}]*border: 1\.5px solid #222/u);
+assert.match(css, /\.print-main-row td \{[^}]*font-size: 9\.3px/u);
+assert.match(css, /\.print-cue-row\.cue-trigger td \{ background: #f7f5f1/u);
+assert.match(css, /\.print-cue-row\.cue-continuous td \{ background: #f1f6fb/u);
 assert.match(css, /\.print-setlist-unit \{ break-inside: avoid/u);
 assert.match(css, /@page adaptiveStage \{ size: A4 landscape/u);
 assert.match(css, /@page adaptivePortrait \{ size: A4 portrait/u);
@@ -49,6 +55,8 @@ assert.doesNotMatch(page, /new Date/u, 'event date must never fall back to print
 assert.match(portal, /stagePlotEventDate = String\(progress\?\.confirmed_event_date \|\| item\.event_date \|\| ""\)/u);
 assert.match(portal, /state\.metadata\.eventDate = stagePlotEventDate/u);
 assert.match(persistence, /state\.schemaVersion = 2/u);
+assert.match(engine, /equipmentSections = \[/u);
+assert.match(engine, /print-equipment-page\$\{onlyOther \? ' other-only' : ''\}/u);
 
 const logo = fs.readFileSync(path.join(root, 'img', 'ara-tech-logo-horizontal-black.png'));
 assert.equal(logo.subarray(1, 4).toString('ascii'), 'PNG');
