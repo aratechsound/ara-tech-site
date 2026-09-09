@@ -8,6 +8,10 @@
   const HISTORY_LIMIT = 500;
   const STORE = 'ara-tech-stage-plot-canonical-v25';
   const TYPES = ['曲', 'SE', 'MC', 'BGM', 'End SE', 'その他'];
+  const OUTPUT_MODES = ['normal', 'single_mix', 'none'];
+  const OUTPUT_MODE_LABELS = { normal: '通常セットリスト', single_mix: '完成ミックス1本', none: 'セットリストなし' };
+  const CUES = ['none', 'show_start', 'on_stage', 'title_call', 'mc_end', 'signal', 'blackout', 'continuous', 'custom'];
+  const CUE_LABELS = { none: '未指定', show_start: '開演GO', on_stage: '板付き後GO', title_call: 'タイトルコールでGO', mc_end: 'MC終わりGO', signal: '合図でGO', blackout: '暗転後GO', continuous: '前曲から連続', custom: '任意入力' };
   const TOOLS = ['rect', 'circle', 'line', 'arrow', 'text', 'microphone', 'monitor', 'power'];
   const TYPE_LABELS = { rect: '四角形', circle: '円', line: '線', arrow: '矢印', text: 'テキスト', microphone: 'マイク', monitor: 'モニター', power: '100V' };
   const CATEGORY_LABELS = { brought: '出演者持込', requested: '借用・手配希望', unspecified: '未指定' };
@@ -99,7 +103,7 @@
     });
     const audioByName = new Map(audio.map(item => [item.fileName, item.audioId]));
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       version: 25,
       canvas: { width: STAGE_W, height: STAGE_H },
       metadata: {
@@ -108,6 +112,7 @@
         performanceOrder: metadataInputs[2]?.value || '',
         performanceTime: metadataInputs[3]?.value || '',
         allottedTime: metadataInputs[4]?.value || '',
+        eventDate: metadataInputs[5]?.value || '',
       },
       objects,
       equipment: {
@@ -133,8 +138,13 @@
           playbackMode: audioId ? 'file' : method,
           soundRequest: inputs[2]?.value || '',
           lightRequest: inputs[3]?.value || '',
+          playbackCue: 'none',
+          playbackCueCustom: '',
+          playbackCueDetail: '',
         };
       }),
+      setlistOutputMode: 'normal',
+      singleMix: { audioRef: '音源なし', audioId: '', playbackMode: '音源なし', duration: '', playbackCue: 'none', playbackCueCustom: '', playbackCueDetail: '', note: '' },
     };
   }
 
@@ -142,6 +152,8 @@
     const fallback = initialState || parseInitialState();
     const source = raw && typeof raw === 'object' ? raw : fallback;
     const metadata = { ...fallback.metadata, ...(source.metadata || {}) };
+    metadata.eventDate = String(metadata.eventDate || metadata.event_date || '');
+    delete metadata.event_date;
     const number = (value, fallbackValue, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallbackValue;
     const objects = Array.isArray(source.objects) ? source.objects.map(item => ({
       id: String(item.id || uid()),
@@ -168,10 +180,13 @@
       const id = String(item.id || item.setlistRowId || uid());
       const audioRef = String(item.audioRef || item.playbackMode || '音源なし');
       const audioId = String(item.audioId || (audioRef.startsWith('audio:') ? audioRef.slice(6) : ''));
-      return { id, setlistRowId: id, type: TYPES.includes(item.type) ? item.type : '曲', title: String(item.title || ''), duration: String(item.duration || ''), audioRef, audioId, playbackMode: String(item.playbackMode || (audioId ? 'file' : audioRef)), soundRequest: String(item.soundRequest || ''), lightRequest: String(item.lightRequest || '') };
+      return { id, setlistRowId: id, type: TYPES.includes(item.type) ? item.type : '曲', title: String(item.title || ''), duration: String(item.duration || ''), audioRef, audioId, playbackMode: String(item.playbackMode || (audioId ? 'file' : audioRef)), soundRequest: String(item.soundRequest ?? item.sound ?? ''), lightRequest: String(item.lightRequest ?? item.lighting ?? ''), playbackCue: CUES.includes(item.playbackCue) ? item.playbackCue : 'none', playbackCueCustom: String(item.playbackCueCustom || ''), playbackCueDetail: String(item.playbackCueDetail || '') };
     };
+    const sourceSingleMix = source.singleMix && typeof source.singleMix === 'object' ? source.singleMix : {};
+    const singleMixAudioRef = String(sourceSingleMix.audioRef || sourceSingleMix.playbackMode || '音源なし');
+    const singleMixAudioId = String(sourceSingleMix.audioId || (singleMixAudioRef.startsWith('audio:') ? singleMixAudioRef.slice(6) : ''));
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       version: 25,
       canvas: { width: STAGE_W, height: STAGE_H },
       metadata,
@@ -181,9 +196,20 @@
         requested: Array.isArray(source.equipment?.requested) ? source.equipment.requested.map(row) : [],
       },
       notes: String(source.notes || ''),
-      otherRequests: String(source.otherRequests || ''),
+      otherRequests: String(source.otherRequests ?? source.otherRequest ?? ''),
       audio: Array.isArray(source.audio) ? source.audio.map(audio) : [],
       setlist: Array.isArray(source.setlist) ? source.setlist.map(setRow) : [],
+      setlistOutputMode: OUTPUT_MODES.includes(source.setlistOutputMode) ? source.setlistOutputMode : 'normal',
+      singleMix: {
+        audioRef: singleMixAudioRef,
+        audioId: singleMixAudioId,
+        playbackMode: String(sourceSingleMix.playbackMode || (singleMixAudioId ? 'file' : singleMixAudioRef)),
+        duration: String(sourceSingleMix.duration || ''),
+        playbackCue: CUES.includes(sourceSingleMix.playbackCue) ? sourceSingleMix.playbackCue : 'none',
+        playbackCueCustom: String(sourceSingleMix.playbackCueCustom || ''),
+        playbackCueDetail: String(sourceSingleMix.playbackCueDetail || ''),
+        note: String(sourceSingleMix.note || ''),
+      },
     };
   }
 
@@ -347,7 +373,8 @@
 
   function renderMetadata() {
     const values = [state.metadata.eventName, state.metadata.performerName, state.metadata.performanceOrder, state.metadata.performanceTime, state.metadata.allottedTime];
-    $$('.meta-field input').forEach((input, index) => { if (document.activeElement !== input) input.value = values[index] || ''; });
+    const editorValues = [...values, state.metadata.eventDate];
+    $$('.meta-field input').forEach((input, index) => { if (document.activeElement !== input) input.value = editorValues[index] || ''; });
     const artist = $('.page-title .artist');
     if (artist) artist.textContent = state.metadata.performerName || '出演者名';
     const center = $('.page-title .center');
@@ -362,6 +389,18 @@
     $$('.sheet-meta-item strong').forEach((node, index) => {
       node.textContent = values[index] || ['イベント名', '出演者名', '—', '—', '—'][index];
     });
+    const eventDate = $('.sheet-event-date');
+    if (eventDate) eventDate.textContent = formatEventDate(state.metadata.eventDate);
+  }
+
+  function formatEventDate(value) {
+    const text = String(value || '').trim();
+    const match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/u);
+    return match ? `${match[1]}/${String(match[2]).padStart(2, '0')}/${String(match[3]).padStart(2, '0')}` : text;
+  }
+
+  function printBrandMarkup() {
+    return `<header class="print-brand"><span>開催日 ${escapeHtml(formatEventDate(state.metadata.eventDate) || '未設定')}</span><img src="/img/ara-tech-logo-horizontal-black.png" alt="ARA-TECH"></header>`;
   }
 
   function printMetadataMarkup() {
@@ -375,6 +414,49 @@
     return `<section class="print-document-meta" aria-label="出演情報">${fields.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</section>`;
   }
 
+  function audioLabel(row) {
+    const linked = row.audioId && state.audio.find(item => (item.audioId || item.id) === row.audioId);
+    if (linked) return String(linked.fileName || linked.name || '');
+    const value = String(row.audioRef || '');
+    return ['', '音源なし', '未割当'].includes(value) ? '' : value;
+  }
+
+  function cuePresentation(row) {
+    const cue = CUES.includes(row.playbackCue) ? row.playbackCue : 'none';
+    const cueText = cue === 'custom' ? String(row.playbackCueCustom || '').trim() : cue === 'none' ? '' : CUE_LABELS[cue];
+    const audio = audioLabel(row);
+    const detail = String(row.playbackCueDetail || '').trim();
+    if (!cueText && !audio && !detail) return null;
+    const kind = cue === 'continuous' ? 'continuous' : cue === 'none' ? 'audio-only' : 'trigger';
+    const tag = kind === 'continuous' ? '連続' : kind === 'trigger' ? 'きっかけ' : '音源';
+    const parts = [];
+    if (cueText) parts.push(`<b>再生キュー：</b>${escapeHtml(cueText)}`);
+    if (audio) parts.push(`<b>音源：</b>${escapeHtml(audio)}`);
+    if (detail) parts.push(`<b>補足：</b>${escapeHtml(detail)}`);
+    return { kind, tag, content: parts.join('<span class="cue-divider">｜</span>') };
+  }
+
+  function setlistUnitMarkup(row, index) {
+    const cue = cuePresentation(row);
+    const cueRow = cue ? `<tr class="print-cue-row cue-${cue.kind}"><td colspan="6"><span class="cue-tag">${cue.tag}</span><span class="cue-content">${cue.content}</span></td></tr>` : '';
+    return `<tbody class="print-setlist-unit ${row.type === '曲' ? 'song' : 'non-song'}">${cueRow}<tr class="print-main-row"><td>${index + 1}</td><td>${escapeHtml(row.type)}</td><td>${escapeHtml(row.title)}</td><td>${escapeHtml(row.duration)}</td><td>${escapeHtml(row.soundRequest)}</td><td>${escapeHtml(row.lightRequest)}</td></tr></tbody>`;
+  }
+
+  function paginateSetlist(rows) {
+    const pages = [];
+    let page = [];
+    let weight = 0;
+    rows.forEach((row, index) => {
+      const longest = Math.max(String(row.title || '').length, String(row.soundRequest || '').length, String(row.lightRequest || '').length);
+      const unitWeight = 1 + (cuePresentation(row) ? .62 : 0) + Math.min(1.4, Math.max(0, longest - 42) / 75);
+      if (page.length && weight + unitWeight > 10.4) { pages.push(page); page = []; weight = 0; }
+      page.push({ row, index });
+      weight += unitWeight;
+    });
+    if (page.length) pages.push(page);
+    return pages;
+  }
+
   function renderPrintSetlistPages() {
     let root = $('.print-setlist-pages');
     if (!root) {
@@ -382,32 +464,16 @@
       root.className = 'print-setlist-pages';
       $('.setlist')?.insertAdjacentElement('afterend', root);
     }
-    const sourceRows = $$('#setlistBody .setlist-row');
-    const chunkSize = 16;
-    root.replaceChildren(...Array.from({ length: Math.max(1, Math.ceil(sourceRows.length / chunkSize)) }, (_, pageIndex) => {
+    if (state.setlistOutputMode !== 'normal' || !state.setlist.length) {
+      root.replaceChildren();
+      return;
+    }
+    const pages = paginateSetlist(state.setlist);
+    const total = formatDuration(state.setlist.reduce((sum, row) => sum + parseDuration(row.duration), 0));
+    root.replaceChildren(...pages.map((pageRows, pageIndex) => {
       const article = document.createElement('article');
       article.className = 'print-setlist-page';
-      article.innerHTML = printMetadataMarkup();
-      const sheet = $('.setlist').cloneNode(false);
-      sheet.classList.add('print-setlist-sheet');
-      const head = $('.setlist-head').cloneNode(true);
-      head.querySelectorAll('button, .summary').forEach(node => node.remove());
-      head.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
-      const header = $('.setlist-grid.header').cloneNode(true);
-      const body = document.createElement('div');
-      body.className = 'setlist-body';
-      sourceRows.slice(pageIndex * chunkSize, (pageIndex + 1) * chunkSize).forEach(row => {
-        const copy = row.cloneNode(true);
-        copy.removeAttribute('draggable');
-        copy.querySelectorAll('button, [id]').forEach(node => {
-          if (node.tagName === 'BUTTON') node.remove();
-          else node.removeAttribute('id');
-        });
-        body.append(copy);
-      });
-      sheet.append(head, header, body);
-      if (pageIndex === Math.ceil(sourceRows.length / chunkSize) - 1) sheet.append($('.setlist-foot').cloneNode(true));
-      article.append(sheet);
+      article.innerHTML = `${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><strong>SET LIST / 進行${pageIndex ? ' 続き' : ''}</strong><span>合計時間 ${escapeHtml(total)} / ${pageIndex + 1} of ${pages.length}</span></div><table class="print-setlist-table"><colgroup><col class="col-no"><col class="col-type"><col class="col-title"><col class="col-duration"><col class="col-sound"><col class="col-light"></colgroup><thead><tr><th>No.</th><th>種別</th><th>曲名・内容</th><th>時間</th><th>音響要望</th><th>照明要望</th></tr></thead>${pageRows.map(({ row, index }) => setlistUnitMarkup(row, index)).join('')}</table>${pageIndex === pages.length - 1 ? '<p class="print-setlist-foot">基本は事前データ提出。CD・本人再生等は例外指定。</p>' : ''}`;
       return article;
     }));
   }
@@ -435,19 +501,33 @@
     let node = $('.equipment-continuation');
     if (!node) {
       node = document.createElement('section');
-      node.className = 'equipment-continuation';
+      node.className = 'equipment-continuation print-equipment-pages';
       $('.print-stage-page')?.insertAdjacentElement('afterend', node);
     }
     return node;
   }
 
-  function renderEquipmentContinuation(carryStart, requestStart) {
-    const carried = state.equipment.brought.slice(carryStart);
-    const requested = state.equipment.requested.slice(requestStart);
+  function renderEquipmentContinuation(hasOverflow) {
     const node = continuationNode();
-    const rows = (title, items) => items.length ? `<h3>${title}</h3><table><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.qty)}</td></tr>`).join('')}</tbody></table>` : '';
-    node.innerHTML = carried.length || requested.length ? `${printMetadataMarkup()}<h2>機材・手配リスト 続き</h2>${rows('出演者持込', carried)}${rows('借りたい・用意してほしい機材', requested)}` : '';
-    node.classList.toggle('has-overflow', Boolean(carried.length || requested.length));
+    node.classList.toggle('has-overflow', hasOverflow);
+    if (!hasOverflow) { node.replaceChildren(); return; }
+    const brought = state.equipment.brought;
+    const requested = state.equipment.requested;
+    const perColumn = 12;
+    const other = String(state.otherRequests || '').trim();
+    const otherChunks = [];
+    for (let offset = 0; offset < other.length; offset += 650) otherChunks.push(other.slice(offset, offset + 650));
+    if (!otherChunks.length) otherChunks.push('なし');
+    const itemPageCount = Math.max(1, Math.ceil(brought.length / perColumn), Math.ceil(requested.length / perColumn));
+    const pageCount = itemPageCount + Math.max(0, otherChunks.length - 1);
+    const rows = items => items.length ? `<table><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.qty)}</td></tr>`).join('')}</tbody></table>` : '<p class="equipment-empty">なし</p>';
+    node.innerHTML = Array.from({ length: pageCount }, (_, pageIndex) => {
+      const left = brought.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
+      const right = requested.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
+      const otherIndex = pageIndex - itemPageCount + 1;
+      const otherChunk = otherIndex >= 0 ? otherChunks[otherIndex] : '';
+      return `<article class="print-equipment-page">${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><strong>機材・手配リスト${pageIndex ? ' 続き' : ''}</strong><span>${pageIndex + 1} of ${pageCount}</span></div><div class="equipment-columns"><section><h3>出演者持込</h3>${rows(left)}</section><section><h3>借りたい・用意してほしい機材</h3>${rows(right)}</section></div>${otherChunk ? `<section class="equipment-other"><h3>その他要望${otherChunks.length > 1 ? ` ${otherIndex + 1} / ${otherChunks.length}` : ''}</h3><p>${escapeHtml(otherChunk)}</p></section>` : ''}</article>`;
+    }).join('');
   }
 
   function layoutEquipment() {
@@ -466,7 +546,9 @@
     const fixed = $('.carry-main-title', panel).offsetHeight
       + (panel.children[1]?.offsetHeight || 0)
       + $$('.equip-title', panel).reduce((sum, node) => sum + node.offsetHeight, 0);
-    const minimumOther = 108;
+    const otherText = String(state.otherRequests || '');
+    const otherLines = Math.max(1, otherText.split(/\r?\n/u).length, Math.ceil(otherText.length / 38));
+    const minimumOther = clamp(58 + otherLines * 13, 108, 250);
     const capacity = Math.max(0, Math.floor(panel.clientHeight - fixed - minimumOther - 4));
     const total = carryRows.length + requestRows.length;
     let mode = 'normal';
@@ -474,33 +556,23 @@
     if (total * rowHeight > capacity) { mode = 'compact'; rowHeight = 27; }
     if (total * rowHeight > capacity) { mode = 'dense'; rowHeight = 22; }
     const needsOverflow = total * rowHeight > capacity;
-    const visibleCapacity = needsOverflow ? Math.max(0, Math.floor((capacity - 18) / rowHeight)) : total;
-    let carryVisible = Math.min(carryRows.length, Math.round(visibleCapacity * (carryRows.length / Math.max(total, 1))));
-    let requestVisible = Math.min(requestRows.length, visibleCapacity - carryVisible);
-    const spare = visibleCapacity - carryVisible - requestVisible;
-    if (spare > 0) {
-      const carrySpare = carryRows.length - carryVisible;
-      const fromCarry = Math.min(carrySpare, spare);
-      carryVisible += fromCarry;
-      requestVisible += spare - fromCarry;
-    }
-    const overflow = total - carryVisible - requestVisible;
-    carryRows.forEach((row, index) => { row.hidden = index >= carryVisible; });
-    requestRows.forEach((row, index) => { row.hidden = index >= requestVisible; });
-    const carryOverflow = carryRows.length - carryVisible;
-    const requestOverflow = requestRows.length - requestVisible;
-    const noteTarget = requestOverflow ? requestList : carryOverflow ? carryList : null;
-    if (noteTarget) {
+    const carryVisible = needsOverflow ? 0 : carryRows.length;
+    const requestVisible = needsOverflow ? 0 : requestRows.length;
+    const overflow = needsOverflow ? total : 0;
+    carryRows.forEach(row => { row.hidden = needsOverflow; });
+    requestRows.forEach(row => { row.hidden = needsOverflow; });
+    panel.classList.toggle('equipment-deferred', needsOverflow);
+    if (needsOverflow) {
       const note = document.createElement('div');
       note.className = 'equipment-overflow-note';
-      note.textContent = `他 ${overflow} 件は機材・手配リスト 続きへ`;
-      noteTarget.append(note);
+      note.textContent = '機材・手配リストは次ページに全件掲載';
+      panel.append(note);
     }
-    carryList.style.setProperty('--equipment-list-height', `${carryVisible * rowHeight + (noteTarget === carryList ? 18 : 0)}px`);
-    requestList.style.setProperty('--equipment-list-height', `${requestVisible * rowHeight + (noteTarget === requestList ? 18 : 0)}px`);
+    carryList.style.setProperty('--equipment-list-height', `${carryVisible * rowHeight}px`);
+    requestList.style.setProperty('--equipment-list-height', `${requestVisible * rowHeight}px`);
     panel.classList.add(`density-${mode}`);
     equipmentLayout = { mode, rowHeight, capacity, overflow, carryVisible, requestVisible, otherHeight: sections[2].offsetHeight };
-    renderEquipmentContinuation(carryVisible, requestVisible);
+    renderEquipmentContinuation(needsOverflow);
   }
 
   function renderAudio() {
@@ -544,10 +616,14 @@
     return values.map(option => `<option value="${escapeHtml(option.value)}" ${row.audioRef === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
   }
 
+  function cueOptions(selectedCue) {
+    return CUES.map(cue => `<option value="${cue}" ${selectedCue === cue ? 'selected' : ''}>${CUE_LABELS[cue]}</option>`).join('');
+  }
+
   function setlistRow(row, index) {
     const linked = row.audioId && state.audio.find(item => (item.audioId || item.id) === row.audioId);
     const playable = linked && audioUrls.has(linked.audioId || linked.id);
-    return `<div class="setlist-row ${row.type === '曲' ? 'song' : 'non-song'}" draggable="true" data-set-id="${escapeHtml(row.id)}">
+    return `<div class="setlist-editor-unit" draggable="true" data-set-id="${escapeHtml(row.id)}"><div class="setlist-row ${row.type === '曲' ? 'song' : 'non-song'}">
       <div class="dragcell"><button class="draghandle" type="button" title="ドラッグして並び替え">⠿</button></div>
       <div class="no">${index + 1}</div>
       <div><select class="type-select" data-set-index="${index}" data-set-key="type">${TYPES.map(type => `<option ${row.type === type ? 'selected' : ''}>${type}</option>`).join('')}</select></div>
@@ -557,7 +633,40 @@
       <div><input data-set-index="${index}" data-set-key="soundRequest" value="${escapeHtml(row.soundRequest)}" placeholder="音響への要望"></div>
       <div><input data-set-index="${index}" data-set-key="lightRequest" value="${escapeHtml(row.lightRequest)}" placeholder="照明への要望"></div>
       <div class="rowops"><button class="up" data-move-set="${index}" data-direction="-1" type="button">↑</button><button class="down" data-move-set="${index}" data-direction="1" type="button">↓</button><button class="delete" data-delete-set="${index}" type="button">×</button></div>
-    </div>`;
+    </div><div class="setlist-cue-editor"><span>再生キュー</span><select data-set-index="${index}" data-set-key="playbackCue">${cueOptions(row.playbackCue)}</select><label class="cue-custom-field" ${row.playbackCue === 'custom' ? '' : 'hidden'}>任意入力<input data-set-index="${index}" data-set-key="playbackCueCustom" value="${escapeHtml(row.playbackCueCustom)}" placeholder="例：ギターが手を上げたらFADE OUT"></label><label>補足<input data-set-index="${index}" data-set-key="playbackCueDetail" value="${escapeHtml(row.playbackCueDetail)}" placeholder="固定キューにも補足できます"></label></div></div>`;
+  }
+
+  function renderOutputMode() {
+    const mode = state.setlistOutputMode;
+    const modeSelect = $('#setlistOutputMode');
+    if (modeSelect && document.activeElement !== modeSelect) modeSelect.value = mode;
+    const help = $('#setlistOutputHelp');
+    if (help) help.textContent = mode === 'normal' ? 'SET LISTページを生成します。' : mode === 'single_mix' ? 'Stage Plot 1ページ目へ音源・進行を統合します。' : 'SET LISTページと音源・進行blockを生成しません。';
+    const setlist = $('.setlist');
+    if (setlist) setlist.hidden = mode !== 'normal';
+    const editor = $('#singleMixEditor');
+    if (editor) editor.hidden = mode !== 'single_mix';
+    const mix = state.singleMix;
+    const audio = $('#singleMixAudio');
+    if (audio) { audio.innerHTML = audioOptions(mix); audio.value = mix.audioRef; }
+    const cue = $('#singleMixCue');
+    if (cue) { cue.innerHTML = cueOptions(mix.playbackCue); cue.value = mix.playbackCue; }
+    const values = { singleMixDuration: mix.duration, singleMixCueCustom: mix.playbackCueCustom, singleMixCueDetail: mix.playbackCueDetail, singleMixNote: mix.note };
+    Object.entries(values).forEach(([id, value]) => { const input = $(`#${id}`); if (input && document.activeElement !== input) input.value = value; });
+    $('.single-mix-custom')?.toggleAttribute('hidden', mix.playbackCue !== 'custom');
+    const stagePage = $('.print-stage-page');
+    stagePage?.classList.toggle('output-single-mix', mode === 'single_mix');
+    stagePage?.classList.toggle('output-no-setlist', mode === 'none');
+    const printBlock = $('.single-mix-print-block');
+    if (printBlock) {
+      if (mode !== 'single_mix') printBlock.replaceChildren();
+      else {
+        const presentation = cuePresentation(mix);
+        const audioName = audioLabel(mix) || '音源未指定';
+        const cueName = mix.playbackCue === 'custom' ? mix.playbackCueCustom : CUE_LABELS[mix.playbackCue] || CUE_LABELS.none;
+        printBlock.innerHTML = `<strong>音源・進行</strong><span class="single-mix-cue">${escapeHtml(cueName || CUE_LABELS.none)}</span><span class="single-mix-audio">${escapeHtml(audioName)}</span><span class="single-mix-duration">${escapeHtml(mix.duration || '時間未設定')}</span><span class="single-mix-detail">${escapeHtml(mix.playbackCueDetail || mix.note || '')}</span>${presentation?.kind === 'continuous' ? '<span class="single-mix-kind">連続</span>' : ''}`;
+      }
+    }
   }
 
   function renderSetlist() {
@@ -575,6 +684,7 @@
     renderInspector();
     renderEquipment();
     renderAudio();
+    renderOutputMode();
     renderSetlist();
     renderPrintSetlistPages();
     updateHistory();
@@ -722,7 +832,7 @@
 
   function addSetlistRow() {
     const id = uid();
-    commit(() => state.setlist.push({ id, setlistRowId: id, type: '曲', title: '', duration: '', audioRef: '音源なし', audioId: '', playbackMode: '音源なし', soundRequest: '', lightRequest: '' }));
+    commit(() => state.setlist.push({ id, setlistRowId: id, type: '曲', title: '', duration: '', audioRef: '音源なし', audioId: '', playbackMode: '音源なし', soundRequest: '', lightRequest: '', playbackCue: 'none', playbackCueCustom: '', playbackCueDetail: '' }));
   }
 
   function reorderSetlist(fromId, toId) {
@@ -881,7 +991,7 @@
     });
     bindInspector();
 
-    const metadataKeys = ['eventName', 'performerName', 'performanceOrder', 'performanceTime', 'allottedTime'];
+    const metadataKeys = ['eventName', 'performerName', 'performanceOrder', 'performanceTime', 'allottedTime', 'eventDate'];
     $$('.meta-field input').forEach((input, index) => input.addEventListener('change', () => commit(() => state.metadata[metadataKeys[index]] = input.value)));
     $('.notes textarea')?.addEventListener('change', event => commit(() => state.notes = event.target.value));
     $('.other-request textarea')?.addEventListener('change', event => commit(() => state.otherRequests = event.target.value));
@@ -901,7 +1011,7 @@
     document.addEventListener('click', event => {
       if (event.target.matches('.output-menu,.json-menu')) event.target.classList.remove('open');
       if (event.target.dataset.output === 'png') { $('.output-menu').classList.remove('open'); exportPng(); }
-      if (event.target.dataset.output === 'pdf') { $('.output-menu').classList.remove('open'); window.print(); }
+      if (event.target.dataset.output === 'pdf') { $('.output-menu').classList.remove('open'); document.body.classList.remove('print-stage-only', 'print-setlist-only'); document.body.classList.add('print-adaptive-document'); requestAnimationFrame(() => window.print()); }
       if (event.target.dataset.json === 'save') { $('.json-menu').classList.remove('open'); saveJson(); }
       if (event.target.dataset.json === 'load') $('#jsonLoadInput').click();
       if (event.target.classList.contains('mobile-edit-close')) exitMobileEdit();
@@ -944,6 +1054,16 @@
     $('#otherPlaybackBtn').addEventListener('click', () => alert('各セットリスト行でCD・本人再生・音源なし・その他を選択できます。'));
 
     document.addEventListener('change', event => {
+      if (event.target.id === 'setlistOutputMode') commit(() => { state.setlistOutputMode = event.target.value; });
+      const singleMixKeys = { singleMixAudio: 'audioRef', singleMixDuration: 'duration', singleMixCue: 'playbackCue', singleMixCueCustom: 'playbackCueCustom', singleMixCueDetail: 'playbackCueDetail', singleMixNote: 'note' };
+      if (singleMixKeys[event.target.id]) commit(() => {
+        const key = singleMixKeys[event.target.id];
+        state.singleMix[key] = event.target.value;
+        if (key === 'audioRef') {
+          state.singleMix.audioId = event.target.value.startsWith('audio:') ? event.target.value.slice(6) : '';
+          state.singleMix.playbackMode = state.singleMix.audioId ? 'file' : event.target.value;
+        }
+      });
       const equipment = event.target.closest('[data-eq]');
       if (equipment) commit(() => state.equipment[equipment.dataset.eq][Number(equipment.dataset.index)][equipment.dataset.key] = equipment.value);
       const setInput = event.target.closest('[data-set-index]');
@@ -957,6 +1077,7 @@
         }
       });
     });
+    window.addEventListener('afterprint', () => document.body.classList.remove('print-adaptive-document', 'print-stage-only', 'print-setlist-only'));
 
     const stage = $('.stage');
     stage.addEventListener('pointerdown', event => {

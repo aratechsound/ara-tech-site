@@ -205,7 +205,7 @@ const report = {
   routeChecks, firstSave, dirtyBeforeSave, secondSave, reload, desktop, adaptive, mobile, fullscreen,
   denied: { ...denied, apiCalls: deniedApiCalls }, errors,
   checks: {
-    routeNew: routeChecks.mode === 'new' && routeChecks.caseId === caseId && routeChecks.schemaVersion === 1,
+    routeNew: routeChecks.mode === 'new' && routeChecks.caseId === caseId && routeChecks.schemaVersion === 2,
     firstSaveTransition: firstSave.mode === 'edit' && firstSave.plotId === plotId && firstSave.revision === 1,
     duplicateCreatePrevented: firstSave.createCount === 1,
     revisionIncremented: dirtyBeforeSave && secondSave.revision === 2 && secondSave.saveCount === 1 && !secondSave.dirty,

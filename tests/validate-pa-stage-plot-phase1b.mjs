@@ -36,7 +36,9 @@ const oldJson = {
   setlist: [{ id: 'row-1', title: 'Song', audioRef: 'audio:audio-1' }],
 };
 const canonical = normalizeCanonicalState(oldJson);
-assert.equal(canonical.schemaVersion, 1);
+assert.equal(canonical.schemaVersion, 2);
+assert.equal(canonical.setlistOutputMode, 'normal');
+assert.equal(canonical.setlist[0].playbackCue, 'none');
 assert.equal(canonical.objects[0].fontSize, 72);
 assert.equal(canonical.audio[0].fileName, 'song.wav');
 assert.equal('objectUrl' in canonical.audio[0], false);
@@ -56,7 +58,7 @@ await client.get(caseId, plotId);
 await client.list(caseId);
 await client.save(caseId, plotId, oldJson);
 assert.deepEqual(requests.map(item => item.action), ['stage_plot_create', 'stage_plot_get', 'stage_plot_list', 'stage_plot_save']);
-assert.equal(requests[0].state.schemaVersion, 1);
+assert.equal(requests[0].state.schemaVersion, 2);
 assert.equal(requests[1].inquiry_id, caseId);
 assert.equal(requests[1].stage_plot_id, plotId);
 
@@ -146,7 +148,7 @@ editPage.initialize({ id: plotId, case_id: caseId, current_revision: 7, state: c
 assert.equal(editPage.mode, 'edit');
 assert.equal(editPage.revision, 7);
 assert.equal(editPage.dirty, false);
-assert.equal(editEditor.loads[0].next.schemaVersion, 1);
+assert.equal(editEditor.loads[0].next.schemaVersion, 2);
 
 const classes = new Set(['stage-plot-auth-pending']);
 const messageNode = nodeFixture();
@@ -175,7 +177,7 @@ assert.equal(classes.has('stage-plot-auth-denied'), true);
 assert.match(html, /id="stagePlotSaveBtn"/);
 assert.match(html, /stage-plot-page\.mjs/);
 assert.doesNotMatch(html, /canonical-engine\.js/);
-assert.match(engine, /schemaVersion:\s*1/);
+assert.match(engine, /schemaVersion:\s*2/);
 assert.match(engine, /const HISTORY_LIMIT = 500/);
 assert.match(engine, /fontSize: number\([^\n]+8, 72\)/);
 assert.match(engine, /const TOOLS = \['rect', 'circle', 'line', 'arrow', 'text', 'microphone', 'monitor', 'power'\]/);

@@ -1,5 +1,7 @@
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STATE_BYTES = 3 * 1024 * 1024;
+const OUTPUT_MODES = new Set(['normal', 'single_mix', 'none']);
+const PLAYBACK_CUES = new Set(['none', 'show_start', 'on_stage', 'title_call', 'mc_end', 'signal', 'blackout', 'continuous', 'custom']);
 
 export class StagePlotApiError extends Error {
   constructor(code, status = 0) {
@@ -30,7 +32,13 @@ function clone(value) {
 export function normalizeCanonicalState(input) {
   if (!input || Array.isArray(input) || typeof input !== 'object') throw new StagePlotApiError('invalid_stage_plot_state');
   const state = clone(input);
-  state.schemaVersion = 1;
+  state.schemaVersion = 2;
+  state.metadata = state.metadata && typeof state.metadata === 'object' && !Array.isArray(state.metadata) ? state.metadata : {};
+  state.metadata.eventDate = String(state.metadata.eventDate || state.metadata.event_date || '');
+  delete state.metadata.event_date;
+  state.setlistOutputMode = OUTPUT_MODES.has(state.setlistOutputMode) ? state.setlistOutputMode : 'normal';
+  state.otherRequests = String(state.otherRequests ?? state.otherRequest ?? '');
+  delete state.otherRequest;
   state.audio = Array.isArray(state.audio) ? state.audio.map((item = {}) => {
     const audioId = String(item.audioId || item.id || '');
     return {
@@ -54,8 +62,26 @@ export function normalizeCanonicalState(input) {
       audioRef,
       audioId,
       playbackMode: String(item.playbackMode || (audioId ? 'file' : audioRef)),
+      soundRequest: String(item.soundRequest ?? item.sound ?? ''),
+      lightRequest: String(item.lightRequest ?? item.lighting ?? ''),
+      playbackCue: PLAYBACK_CUES.has(item.playbackCue) ? item.playbackCue : 'none',
+      playbackCueCustom: String(item.playbackCueCustom || ''),
+      playbackCueDetail: String(item.playbackCueDetail || ''),
     };
   }) : [];
+  const singleMix = state.singleMix && typeof state.singleMix === 'object' && !Array.isArray(state.singleMix) ? state.singleMix : {};
+  const singleMixAudioRef = String(singleMix.audioRef || singleMix.playbackMode || '音源なし');
+  const singleMixAudioId = String(singleMix.audioId || (singleMixAudioRef.startsWith('audio:') ? singleMixAudioRef.slice(6) : ''));
+  state.singleMix = {
+    audioRef: singleMixAudioRef,
+    audioId: singleMixAudioId,
+    playbackMode: String(singleMix.playbackMode || (singleMixAudioId ? 'file' : singleMixAudioRef)),
+    duration: String(singleMix.duration || ''),
+    playbackCue: PLAYBACK_CUES.has(singleMix.playbackCue) ? singleMix.playbackCue : 'none',
+    playbackCueCustom: String(singleMix.playbackCueCustom || ''),
+    playbackCueDetail: String(singleMix.playbackCueDetail || ''),
+    note: String(singleMix.note || ''),
+  };
   const bytes = new TextEncoder().encode(JSON.stringify(state)).byteLength;
   if (bytes > MAX_STATE_BYTES) throw new StagePlotApiError('invalid_stage_plot_state');
   return state;
