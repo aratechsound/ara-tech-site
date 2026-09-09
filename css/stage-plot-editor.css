@@ -1,0 +1,509 @@
+/* Functional layer for the canonical v25 DOM. Screen geometry comes from v25. */
+.tool[role="button"] { cursor: pointer; }
+.tool[role="button"]:focus-visible { outline: 3px solid rgba(0,123,255,.3); outline-offset: 2px; }
+.engine-object { touch-action: none; user-select: none; cursor: move; }
+.engine-object.selected::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1.5px solid #007bff;
+  pointer-events: none;
+}
+
+/* v28 right-panel adaptive layout. The canonical panel geometry remains fixed. */
+.carry.adaptive-equipment {
+  --equipment-row-height: 38px;
+  --equipment-font-size: 9.5px;
+}
+.carry.adaptive-equipment > .equip-section:nth-of-type(1),
+.carry.adaptive-equipment > .equip-section:nth-of-type(2) {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.carry.adaptive-equipment .equip-list {
+  height: var(--equipment-list-height, auto);
+  overflow: hidden;
+}
+.carry.adaptive-equipment .equip-row,
+.carry.adaptive-equipment .request-row {
+  min-height: var(--equipment-row-height);
+  height: var(--equipment-row-height);
+}
+.carry.adaptive-equipment .equip-row input,
+.carry.adaptive-equipment .request-row input {
+  font-size: var(--equipment-font-size);
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.carry.adaptive-equipment.density-compact { --equipment-row-height: 27px; --equipment-font-size: 9.3px; }
+.carry.adaptive-equipment.density-compact .equip-row input,
+.carry.adaptive-equipment.density-compact .request-row input { padding-top: 3px; padding-bottom: 3px; }
+.carry.adaptive-equipment.density-dense { --equipment-row-height: 22px; --equipment-font-size: 9px; }
+.carry.adaptive-equipment.density-dense .equip-row input,
+.carry.adaptive-equipment.density-dense .request-row input { padding-top: 1px; padding-bottom: 1px; }
+.equipment-overflow-note {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px dashed #98a3ad;
+  background: #f7f8f9;
+  color: #53616e;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.equipment-continuation { display: none; }
+.print-setlist-pages { display: none; }
+
+.stage-plot-access-shell {
+  min-height: 100vh;
+  display: none;
+  place-items: center;
+  padding: 24px;
+  background: #eef2f5;
+}
+.stage-plot-access-card {
+  width: min(520px, 100%);
+  border: 1px solid #cfd7de;
+  border-radius: 14px;
+  background: #fff;
+  padding: 28px;
+  box-shadow: 0 12px 30px rgba(12, 27, 45, .12);
+}
+.stage-plot-access-card h1 { margin: 0 0 10px; font-size: 22px; }
+.stage-plot-access-card p { margin: 8px 0; color: #56616b; line-height: 1.7; }
+.stage-plot-access-card a { color: #006fe6; font-weight: 900; }
+.stage-plot-auth-pending .stage-plot-access-shell,
+.stage-plot-auth-denied .stage-plot-access-shell,
+.stage-plot-auth-error .stage-plot-access-shell { display: grid; }
+.stage-plot-auth-pending .topbar,
+.stage-plot-auth-pending .app,
+.stage-plot-auth-denied .topbar,
+.stage-plot-auth-denied .app,
+.stage-plot-auth-error .topbar,
+.stage-plot-auth-error .app { display: none; }
+.stage-plot-save-status {
+  align-self: center;
+  min-width: 112px;
+  color: rgba(255,255,255,.9);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: right;
+}
+.stage-plot-save-status[data-state="error"] { color: #ffe0e0; }
+.audio-chip small { margin-left: 5px; color: #a24b00; font-weight: 800; }
+.audio-chip button:disabled { cursor: not-allowed; opacity: .55; }
+.engine-line { width: 110px; border-top: 2px solid #111; }
+.engine-arrow { width: 110px; border-top: 2px solid #111; position: relative; }
+.engine-arrow::after { content: ""; position: absolute; right: -1px; top: -6px; border-left: 11px solid #111; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.engine-text { min-width: 88px; min-height: 28px; display: grid; place-items: center; font-size: 12px; font-weight: 900; white-space: nowrap; }
+.engine-object .rect,
+.engine-object .circle,
+.engine-object .power-mark,
+.engine-object .engine-text { font-size: var(--label-font-size, inherit); }
+.engine-object.category-brought .rect,
+.engine-object.category-brought .circle,
+.engine-object.category-brought .power-mark { background: #f3cfd2; border-color: #b84b51; color: #5f1013; }
+.engine-object.category-brought .mic-svg line,
+.engine-object.category-brought .mic-svg circle { stroke: #d71920; }
+.engine-object.category-brought .mic-svg polygon { fill: #d71920; }
+.transform-handle {
+  position: absolute;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #007bff;
+  background: #fff;
+  padding: 0;
+  border-radius: 50%;
+  touch-action: none;
+}
+.resize-handle.nw { left: -14px; top: -14px; cursor: nwse-resize; }
+.resize-handle.ne { right: -14px; top: -14px; cursor: nesw-resize; }
+.resize-handle.se { right: -14px; bottom: -14px; cursor: nwse-resize; }
+.resize-handle.sw { left: -14px; bottom: -14px; cursor: nesw-resize; }
+.rotate-handle { left: calc(50% - 9px); top: -38px; cursor: grab; background: #007bff; }
+.rotate-handle::after { content: ""; position: absolute; left: 7px; top: 16px; height: 18px; border-left: 1px solid #007bff; }
+.output-menu,
+.json-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  place-items: center;
+  background: rgba(0,0,0,.38);
+}
+.output-menu.open,
+.json-menu.open { display: grid; }
+.action-dialog {
+  width: min(360px, calc(100% - 28px));
+  padding: 18px;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 22px 70px rgba(0,0,0,.28);
+}
+.action-dialog strong { display: block; margin-bottom: 12px; font-size: 16px; }
+.action-dialog .btnrow { display: flex; gap: 8px; }
+.action-dialog button { flex: 1; border: 1px solid #ccd6de; border-radius: 8px; padding: 9px 10px; background: #fff; font-weight: 800; }
+.action-dialog button.primary { background: #007bff; color: #fff; border-color: #007bff; }
+.mobile-edit-close { display: none; }
+
+@media (max-width: 620px) {
+  body.mobile-stage-edit { overflow: hidden; }
+  body.mobile-stage-edit .workspace {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: #edf1f4;
+  }
+  body.mobile-stage-edit .workspace-head,
+  body.mobile-stage-edit .meta-form { display: none; }
+  body.mobile-stage-edit .viewport { height: 100vh !important; min-height: 100vh; overflow: auto; border-radius: 0; }
+  body.mobile-stage-edit .mobile-edit-close {
+    display: block;
+    position: fixed;
+    right: 12px;
+    top: 12px;
+    z-index: 9100;
+    border: 0;
+    border-radius: 999px;
+    padding: 9px 13px;
+    background: #007bff;
+    color: #fff;
+    font-weight: 900;
+    box-shadow: 0 5px 18px rgba(0,0,0,.24);
+  }
+  body.mobile-stage-edit .logical-page { transform-origin: top left; }
+  body.mobile-stage-edit .transform-handle { width: 28px; height: 28px; }
+  body.mobile-stage-edit .resize-handle.nw { left: -20px; top: -20px; }
+  body.mobile-stage-edit .resize-handle.ne { right: -20px; top: -20px; }
+  body.mobile-stage-edit .resize-handle.se { right: -20px; bottom: -20px; }
+  body.mobile-stage-edit .resize-handle.sw { left: -20px; bottom: -20px; }
+  body.mobile-stage-edit .rotate-handle { left: calc(50% - 14px); top: -52px; }
+}
+
+@page stageSheet { size: A4 landscape; margin: 7mm; }
+@page setList { size: A4 portrait; margin: 8mm; }
+
+@media print {
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { margin: 0 !important; background: #fff !important; }
+  .topbar, .left, .workspace-head, .meta-form,
+  .mobile-edit-close, .output-menu, .json-menu,
+  .transform-handle, .engine-object.selected::after,
+  .add-equip, .add-request, .remove-equip,
+  .audio-pool-actions, .rowops, .dragcell,
+  #addSetRow, .setlist-head .summary { display: none !important; }
+  .app { display: block !important; padding: 0 !important; min-height: 0 !important; }
+  .workspace { border: 0 !important; border-radius: 0 !important; padding: 0 !important; overflow: visible !important; }
+  .viewport { width: auto !important; height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; border-radius: 0 !important; }
+  .logical-page {
+    page: stageSheet;
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 1200px !important;
+    height: auto !important;
+    min-height: 690px !important;
+    transform: none !important;
+    transform-origin: top left !important;
+    border: 0 !important;
+    zoom: .88;
+  }
+  .page-title, .stage, .carry, .notes { break-inside: avoid; }
+  .audio-pool {
+    page: setList;
+    break-before: page;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    width: 1140px !important;
+    margin: 0 30px 10px !important;
+    zoom: .76;
+  }
+  .setlist {
+    page: setList;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    width: 1140px !important;
+    height: auto !important;
+    margin: 0 30px !important;
+    zoom: .76;
+    overflow: visible !important;
+  }
+  .setlist-body { height: auto !important; overflow: visible !important; }
+  .setlist-grid.header,
+  .setlist-row { grid-template-columns: 38px 78px minmax(190px,1.45fr) 72px minmax(190px,1.15fr) minmax(165px,1.05fr) minmax(165px,1.05fr) !important; }
+  .setlist-grid.header > div:first-child,
+  .setlist-row > .dragcell { display: none !important; }
+  .setlist-grid.header > div:last-child,
+  .setlist-row > .rowops { display: none !important; }
+  .setlist-row { break-inside: avoid; page-break-inside: avoid; }
+  .setlist-row.non-song { background: #f5f6f7 !important; }
+  .setlist-row.song { background: #fff !important; }
+  .setlist-foot { break-inside: avoid; }
+  input, select, textarea { color: #111 !important; opacity: 1 !important; }
+  .equip-row.borrowed input { color: #5f1013 !important; }
+  body.print-stage-only .audio-pool,
+  body.print-stage-only .setlist { display: none !important; }
+  body.print-stage-only .logical-page { min-height: 690px !important; }
+  body.print-setlist-only .page-title,
+  body.print-setlist-only .stage,
+  body.print-setlist-only .carry,
+  body.print-setlist-only .notes { display: none !important; }
+  body.print-setlist-only .logical-page {
+    page: setList;
+    width: 1140px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    zoom: 1 !important;
+  }
+  body.print-setlist-only .audio-pool,
+  body.print-setlist-only .setlist {
+    page: setList;
+    break-before: auto;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    width: 1140px !important;
+    margin: 0 0 12px !important;
+    zoom: 1 !important;
+  }
+  .rect.borrow, .circle.borrow, .equip-row.borrowed, .redchip,
+  .engine-object.category-brought .rect,
+  .engine-object.category-brought .circle,
+  .engine-object.category-brought .power-mark {
+    background: #f3cfd2 !important;
+    border-color: #b84b51 !important;
+    color: #5f1013 !important;
+    background-image: none !important;
+  }
+}
+
+/* v28 Native Print: print the canonical A4 stage sheet as one scaled DOM sheet. */
+@media print {
+  @page stageSheet { size: A4 landscape; margin: 0; }
+  @page setList { size: A4 portrait; margin: 8mm; }
+  body.print-stage-only .logical-page {
+    width: 1200px !important;
+    height: 848.485px !important;
+    min-height: 0 !important;
+    zoom: .935 !important;
+  }
+  body.print-stage-only .print-stage-page {
+    position: relative !important;
+    width: 1200px !important;
+    height: 848.485px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    page: stageSheet !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+  body.print-stage-only .audio-pool,
+  body.print-stage-only .setlist,
+  body.print-stage-only .equipment-continuation { display: none !important; }
+  body.print-setlist-only .print-stage-page { display: none !important; }
+  body.print-setlist-only .equipment-continuation.has-overflow {
+    display: block !important;
+    page: setList;
+    break-after: page;
+    page-break-after: always;
+    width: 100% !important;
+    margin: 0 0 12mm !important;
+    padding: 12mm !important;
+    border: 1px solid #111;
+    background: #fff;
+  }
+  .equipment-continuation h2 { margin: 0 0 8mm; font-size: 18px; }
+  .equipment-continuation h3 { margin: 6mm 0 2mm; font-size: 13px; }
+  .equipment-continuation table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .equipment-continuation td { padding: 3mm; border: 1px solid #111; }
+  .equipment-continuation td:last-child { width: 18mm; text-align: center; }
+  body.print-setlist-only .logical-page {
+    page: setList !important;
+    width: 1140px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    zoom: 1 !important;
+  }
+  body.print-setlist-only .audio-pool,
+  body.print-setlist-only .setlist {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    width: 1140px !important;
+    margin: 0 0 12px !important;
+    zoom: 1 !important;
+  }
+}
+
+/* v28 print-only table normalization and portrait safety area. */
+@media print {
+  /* Page 1: each equipment list is a two-column table with a single border source. */
+  .carry.adaptive-equipment .equip-list {
+    display: block !important;
+    border: 1px solid #aeb7bf !important;
+    border-bottom: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .carry.adaptive-equipment .equip-row,
+  .carry.adaptive-equipment .request-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 34px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #aeb7bf !important;
+    box-sizing: border-box !important;
+  }
+  .carry.adaptive-equipment .equip-row input,
+  .carry.adaptive-equipment .request-row input {
+    min-width: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .carry.adaptive-equipment .equip-row .qty,
+  .carry.adaptive-equipment .request-row .qty {
+    border-left: 1px solid #aeb7bf !important;
+    text-align: center !important;
+  }
+  .carry.adaptive-equipment .equip-row.borrowed,
+  .carry.adaptive-equipment .equip-row.borrowed input {
+    background: #f3cfd2 !important;
+    color: #5f1013 !important;
+  }
+  .carry.adaptive-equipment .remove-equip { display: none !important; }
+
+  /* Continuation pages use the identical two-column rule: one outer border,
+     one horizontal rule per row, and one quantity separator. */
+  .equipment-continuation table {
+    border: 1px solid #aeb7bf !important;
+    border-bottom: 0 !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+  .equipment-continuation td {
+    border: 0 !important;
+    border-bottom: 1px solid #aeb7bf !important;
+    padding: 3mm !important;
+  }
+  .equipment-continuation td:last-child {
+    border-left: 1px solid #aeb7bf !important;
+  }
+
+  /* Page 2 and onward: use the actual A4 portrait printable width, not screen pixels. */
+  body.print-setlist-only .logical-page {
+    width: 194mm !important;
+    max-width: 194mm !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+  body.print-setlist-only .audio-pool,
+  body.print-setlist-only .setlist {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 0 4mm !important;
+    box-sizing: border-box !important;
+  }
+  body.print-setlist-only .audio-pool-head,
+  body.print-setlist-only .setlist-head {
+    min-width: 0 !important;
+    gap: 4px !important;
+    padding-left: 7px !important;
+    padding-right: 7px !important;
+    box-sizing: border-box !important;
+  }
+  body.print-setlist-only .audio-pool-head > div,
+  body.print-setlist-only .setlist-head > div { min-width: 0 !important; }
+  body.print-setlist-only .setlist-total { min-width: 102px !important; flex: 0 0 auto !important; }
+  body.print-setlist-only .setlist-grid.header,
+  body.print-setlist-only .setlist-row {
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-template-columns: 28px 48px minmax(0, 1.42fr) 46px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+  }
+  body.print-setlist-only .setlist-grid > div,
+  body.print-setlist-only .setlist-row > div {
+    min-width: 0 !important;
+    padding: 2px !important;
+    overflow: visible !important;
+    overflow-wrap: anywhere;
+  }
+  body.print-setlist-only .setlist-row input,
+  body.print-setlist-only .setlist-row select {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: 2px !important;
+    font-size: 9px !important;
+  }
+  body.print-setlist-only .audio-cell { min-width: 0 !important; }
+}
+
+/* Portrait continuation sheets use native DOM fragments, not raster output.
+   Each generated page starts with its own compact identifying information. */
+@media print {
+  @page setList { size: A4 portrait; margin: 8mm; }
+  body.print-setlist-only .audio-pool { display: none !important; }
+  body.print-setlist-only > .print-continuation-meta { display: none !important; }
+  body.print-setlist-only .setlist:not(.print-setlist-sheet) { display: none !important; }
+  body.print-setlist-only .print-setlist-pages { display: block !important; }
+  body.print-setlist-only .print-setlist-page {
+    page: setList;
+    break-after: page;
+    page-break-after: always;
+    width: 100% !important;
+  }
+  body.print-setlist-only .print-setlist-page:last-child { break-after: auto; page-break-after: auto; }
+  body.print-setlist-only .print-setlist-sheet { display: block !important; }
+  body.print-setlist-only .equipment-continuation.has-overflow {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  body.print-setlist-only .print-document-meta {
+    width: 100% !important;
+    min-height: 21mm;
+    display: grid !important;
+    grid-template-columns: 1.65fr 1.3fr .65fr 1.05fr .65fr;
+    border: 1px solid #111 !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+    margin: 0 0 4mm !important;
+  }
+  body.print-setlist-only .print-document-meta > div {
+    min-width: 0;
+    padding: 2.2mm 2.5mm;
+    border-right: 1px solid #b7c0c8;
+    box-sizing: border-box;
+  }
+  body.print-setlist-only .print-document-meta > div:last-child { border-right: 0; }
+  body.print-setlist-only .print-document-meta span {
+    display: block;
+    margin-bottom: 1.1mm;
+    color: #5d6872;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  body.print-setlist-only .print-document-meta strong {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #111;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.16;
+  }
+}

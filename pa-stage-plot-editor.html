@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>ARA-TECH Stage Plot Editor</title>
+<style>
+:root{
+  --brand:#007bff;
+  --navy:#0c1b2d;
+  --ink:#111;
+  --muted:#6e7781;
+  --line:#cfd7de;
+  --grid:#dbe7f0;
+  --borrow:#d71920;
+  --panel:#fff;
+  --bg:#eef2f5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP","Yu Gothic UI","Yu Gothic",Meiryo,sans-serif}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.topbar{height:52px;background:#007bff;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #006fe6}
+.brand{display:flex;align-items:baseline;gap:14px}.brand strong{font-size:18px;letter-spacing:.02em}.brand span{font-size:11px;opacity:.75}
+.top-actions{display:flex;gap:7px;flex-wrap:wrap}.top-actions button{border:1px solid #314258;background:#17283d;color:#fff;border-radius:8px;padding:7px 10px;font-weight:800;font-size:11px}.top-actions .primary{background:var(--brand);border-color:var(--brand)}
+.app{display:grid;grid-template-columns:210px minmax(0,1fr);gap:10px;padding:10px;min-height:calc(100vh - 62px)}
+.panel,.workspace{min-width:0;background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden}.left{max-height:calc(100vh - 82px);overflow-y:auto;align-self:start;position:sticky;top:10px}
+.panel-title{padding:11px 12px;border-bottom:1px solid var(--line);background:#fafbfc;font-size:12px;font-weight:900}
+.tools{padding:8px}.tool{display:grid;grid-template-columns:42px 1fr;gap:8px;align-items:center;min-height:50px;border:1px solid #dce3e8;border-radius:8px;padding:6px 8px;margin-bottom:7px;background:#fff}.tool strong{font-size:11px}.tool small{display:block;color:#7b858e;font-size:9.5px;margin-top:1px}.tool-icon{height:34px;display:flex;align-items:center;justify-content:center}.ico-rect{width:31px;height:20px;border:2px solid #111}.ico-circle{width:25px;height:25px;border:2px solid #111;border-radius:50%}.ico-line{width:31px;border-top:2px solid #111}.ico-arrow{width:31px;border-top:2px solid #111;position:relative}.ico-arrow:after{content:"";position:absolute;right:-1px;top:-5px;border-left:8px solid #111;border-top:4px solid transparent;border-bottom:4px solid transparent}.ico-text{font-size:16px;font-weight:900}
+.workspace{padding:10px;min-width:0}.workspace-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.workspace-head strong{font-size:13px}.workspace-head span{font-size:10px;color:var(--muted)}
+.viewport{position:relative;width:100%;overflow:hidden;background:#edf1f4;border-radius:7px;min-height:280px}.logical-page{position:absolute;left:0;top:0;width:1200px;height:1210px;background:#fff;transform-origin:top left;border:1px solid #bfc8cf}
+.page-title{position:absolute;left:30px;right:30px;top:18px;height:40px;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111}.page-title .artist{font-size:25px;font-weight:950;letter-spacing:.02em}.page-title .center{font-size:19px;font-weight:950}.page-title .date{font-size:11px;font-weight:800;text-align:right}
+.stage{position:absolute;left:30px;top:72px;width:830px;height:500px;border:2px solid #111;background-color:#fff;background-image:radial-gradient(circle,var(--grid) 1.05px,transparent 1.35px);background-size:20px 20px;overflow:hidden}
+.stage:before{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:1px dotted #bbb}.stage-label{position:absolute;font-size:9px;color:#777;font-weight:800}.up{top:4px;left:0;right:0;text-align:center}.aud{bottom:4px;left:0;right:0;text-align:center}.kamite{right:5px;top:48%}.shimote{left:5px;top:48%}
+
+.carry{position:absolute;left:875px;top:72px;width:295px;height:500px;border:2px solid #111;background:#fff;display:flex;flex-direction:column}
+.carry-main-title{height:34px;border-bottom:2px solid #111;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:950;background:#f7f8f9}
+.equip-section{border-bottom:1.5px solid #111}
+.equip-section:last-child{border-bottom:0;flex:1}
+.equip-title{height:27px;display:flex;align-items:center;justify-content:space-between;padding:0 7px;border-bottom:1px solid #111;background:#f3f5f7;font-size:10.5px;font-weight:950}
+.equip-title button{border:1px solid #bfc9d2;background:#fff;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:900}
+.equip-list{display:grid}
+.equip-row{display:grid;grid-template-columns:minmax(0,1fr) 34px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
+.equip-row:last-child{border-bottom:0}
+.equip-row input{width:100%;border:0;outline:none;padding:5px 6px;font-size:9.5px;background:transparent}
+.equip-row .qty{border-left:1px solid #d0d0d0;text-align:center}
+.equip-row button{border:0;border-left:1px solid #d0d0d0;background:#fff;color:#999;font-weight:900}
+.equip-row button:hover{color:#b42318}
+.equip-row.borrowed{
+  background:#f3cfd2;
+  color:#5f1013;
+}
+.equip-row.borrowed input{color:#5f1013;font-weight:800;background:transparent}
+.equip-row.borrowed button{background:rgba(255,255,255,.5);color:#8b1e24;border-left-color:rgba(139,30,36,.22)}
+.request-row{display:grid;grid-template-columns:minmax(0,1fr) 42px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
+.request-row:last-child{border-bottom:0}
+.request-row input{width:100%;border:0;outline:none;padding:5px 6px;font-size:9.5px;background:#fff}
+.request-row .qty{border-left:1px solid #d0d0d0;text-align:center}
+
+.request-row button{border:0;border-left:1px solid #d0d0d0;background:#fff;color:#999;font-weight:900}
+.request-row button:hover{color:#b42318}
+.other-request{padding:6px}
+.other-request textarea{width:100%;height:72px;border:1px solid #c9d1d8;resize:none;outline:none;padding:6px;font:inherit;font-size:9.5px;line-height:1.45}
+
+.notes{position:absolute;left:30px;right:30px;top:585px;height:100px;border:2px solid #111;padding:9px 11px}.notes-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:5px}.notes strong{font-size:12px}.notes textarea{width:100%;height:62px;border:0;resize:none;outline:none;font:inherit;font-size:11px;line-height:1.55;padding:0}.note-legend{font-size:9.5px;white-space:nowrap}.note-legend .redchip{display:inline-block;background:#f3cfd2;color:#5f1013;padding:1px 6px;font-weight:900;border:1px solid #b84b51}.note-legend .whitechip{display:inline-block;border:1px solid #111;padding:0 6px;font-weight:900;background:#fff}
+
+.obj{position:absolute;transform-origin:center}.rect{min-width:76px;min-height:40px;padding:7px 9px;border:2px solid #111;background:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;font-weight:900;line-height:1.15}.rect.tall{min-height:100px}.rect.borrow{background:#f3cfd2;border-color:#b84b51;color:#5f1013}.circle{width:64px;height:64px;border:2px solid #111;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;font-weight:900}.circle.small{width:44px;height:44px}.circle.borrow{background:#f3cfd2;border-color:#b84b51;color:#5f1013}.caption{margin-top:2px;text-align:center;font-size:9px;font-weight:800;white-space:nowrap}
+/* exact approved microphone geometry, reused unchanged */
+.mic-svg{width:38px;height:43px;display:block}.mon-svg{width:56px;height:46px;display:block}.power-mark{min-width:34px;height:20px;border:1.5px solid #111;background:#fff;display:flex;align-items:center;justify-content:center;padding:0 4px;font-size:8.5px;font-weight:900;white-space:nowrap}
+/* Sample positions */
+.bahead{left:28px;top:56px}.bacabi{left:28px;top:115px}.jc{left:140px;top:132px}.seq{left:266px;top:18px}.di-seq{left:228px;top:26px}
+.ft{left:292px;top:122px}.kick{left:350px;top:168px}.ride{left:305px;top:192px}.sn{left:465px;top:98px}.ht{left:496px;top:144px}.hh{left:500px;top:54px}.c16{left:526px;top:195px}
+.gtHead{left:640px;top:110px}.gtCabi{left:640px;top:170px}.boxuma{left:172px;top:210px}.voiem{left:292px;top:338px}.baPos{left:160px;top:350px}.voPos{left:405px;top:358px}.gtPos{left:650px;top:350px}.acKey{left:182px;top:286px}.acVo{left:340px;top:456px}.mon1{left:80px;top:414px;transform:rotate(14deg)}.mon2{left:330px;top:414px;transform:rotate(-15deg)}.mon3{left:520px;top:414px;transform:rotate(13deg)}.mon4{left:705px;top:414px;transform:rotate(-13deg)}.micVo{left:408px;top:397px}.micGt{left:653px;top:397px}.micDr{left:500px;top:50px;transform:rotate(45deg)}
+.props{padding:9px}.props .field{margin-bottom:9px}.props .btnrow{gap:4px}.props .btnrow button{padding:5px 6px;font-size:9.5px}.props .style-box{padding:7px}.field{margin-bottom:11px}.field label{display:block;font-size:9.5px;font-weight:900;color:#65717c;margin-bottom:4px}.field input,.field select{width:100%;border:1px solid #ccd5dc;border-radius:7px;padding:7px 8px;font-size:11px}.btnrow{display:flex;gap:5px;flex-wrap:wrap}.btnrow button{border:1px solid #ccd5dc;background:#fff;border-radius:7px;padding:6px 7px;font-size:10px;font-weight:800}.style-box{border:1px solid #dce3e8;border-radius:8px;padding:8px;font-size:10px;color:#68737d}.swatches{display:flex;gap:7px;margin-top:7px}.sw{width:34px;height:22px;border:2px solid #111}.sw.red{background:#f3cfd2;border-color:#b84b51}.sw.white{background:#fff}
+
+.setlist{position:absolute;left:30px;right:30px;top:790px;height:380px;border:2px solid #111;background:#fff}
+.setlist-head{height:46px;border-bottom:2px solid #111;display:flex;align-items:center;justify-content:space-between;padding:0 12px}
+.setlist-head .ttl{font-size:16px;font-weight:950;letter-spacing:.03em}
+.setlist-head .summary{font-size:10px;color:#65717b}
+.setlist-head button{border:0;background:var(--brand);color:#fff;border-radius:7px;padding:7px 10px;font-size:10px;font-weight:900}
+.setlist-grid{display:grid;grid-template-columns:30px 38px 70px minmax(150px,1.45fr) 58px minmax(175px,1.15fr) minmax(150px,1.05fr) minmax(150px,1.05fr) 62px}
+.setlist-grid.header{height:34px;background:#f3f5f7;border-bottom:1px solid #111;font-size:10px;font-weight:900;align-items:stretch}
+.setlist-grid.header>div{display:flex;align-items:center;justify-content:center;border-right:1px solid #111;padding:4px}
+.setlist-grid.header>div:last-child{border-right:0}
+.setlist-row{display:grid;grid-template-columns:30px 38px 70px minmax(150px,1.45fr) 58px minmax(175px,1.15fr) minmax(150px,1.05fr) minmax(150px,1.05fr) 62px;min-height:45px;border-bottom:1px solid #c8c8c8}
+.setlist-row>div{border-right:1px solid #c8c8c8;display:flex;align-items:center;padding:4px}
+.setlist-row>div:last-child{border-right:0;justify-content:center}
+.setlist-row .no{justify-content:center;font-weight:900;font-size:10px}
+.setlist-row input,.setlist-row select{width:100%;border:0;background:transparent;outline:none;font-size:10.5px;padding:4px}
+.setlist-row .delete{border:0;background:transparent;color:#999;font-weight:900;font-size:14px}
+.setlist-row .delete:hover{color:#b42318}
+.setlist-body{height:298px;overflow:auto}
+.setlist-foot{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:9.5px;color:#65717b;background:#fafbfc}
+.setlist-foot b{color:#111}
+
+
+.setlist-row.non-song{background:#f5f6f7}
+.setlist-row.non-song:hover{background:#f0f2f4}
+.setlist-row.song{background:#fff}
+
+
+.setlist-row.dragging{opacity:.45}
+.dragcell{justify-content:center!important}
+.draghandle{
+  border:0;background:transparent;color:#77838d;font-size:17px;
+  cursor:grab;font-weight:900;line-height:1;padding:4px
+}
+.draghandle:active{cursor:grabbing}
+.rowops{display:flex!important;justify-content:center!important;gap:2px}
+.rowops button{
+  border:0;background:transparent;font-weight:900;padding:3px 5px;color:#78838d
+}
+.rowops .delete{color:#999;font-size:14px}
+.rowops .delete:hover{color:#b42318}
+@media(max-width:620px){
+  .setlist-grid.header,.setlist-row{
+    grid-template-columns:28px 34px 72px minmax(140px,1.35fr) 56px minmax(165px,1.1fr) minmax(145px,1fr) minmax(145px,1fr) 66px;
+  }
+}
+
+
+.topbar .brand{color:#fff;font-weight:900}
+.topbar .brand small{color:rgba(255,255,255,.88)}
+.topbar .top-actions button{
+  background:#fff;
+  color:#007bff;
+  border:1px solid rgba(255,255,255,.95);
+  font-weight:800;
+}
+.topbar .top-actions button:hover{
+  background:#f2f8ff;
+}
+
+
+.topbar .brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.topbar .brand img{
+  display:block;
+  width:190px;
+  max-width:42vw;
+  height:auto;
+}
+.topbar .brand small{
+  display:block;
+  color:rgba(255,255,255,.88);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.04em;
+}
+@media(max-width:620px){
+  .topbar .brand img{width:160px;max-width:52vw}
+  .topbar .brand small{display:none}
+}
+
+
+.topbar .top-actions .reset-all{
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.72);
+}
+.topbar .top-actions .reset-all:hover{
+  background:rgba(255,255,255,.2);
+}
+.reset-confirm{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.46);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+}
+.reset-confirm.open{display:flex}
+.reset-dialog{
+  width:min(420px,calc(100% - 28px));
+  background:#fff;
+  border-radius:14px;
+  box-shadow:0 24px 70px rgba(0,0,0,.3);
+  padding:20px;
+}
+.reset-dialog h3{
+  margin:0 0 7px;
+  font-size:18px;
+}
+.reset-dialog p{
+  margin:0;
+  color:#66727d;
+  font-size:12.5px;
+  line-height:1.6;
+}
+.reset-dialog .dialog-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:18px;
+}
+.reset-dialog button{
+  border-radius:8px;
+  padding:8px 12px;
+  font-weight:800;
+  border:1px solid #ccd6de;
+  background:#fff;
+}
+.reset-dialog .danger{
+  background:#b42318;
+  color:#fff;
+  border-color:#b42318;
+}
+
+
+.history-status{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:5px 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.15);
+  color:#fff;
+  font-size:10px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.history-status b{font-size:11px}
+
+
+.audio-cell{display:grid!important;grid-template-columns:74px minmax(0,1fr);gap:4px;align-items:center}
+.audio-cell select{font-size:9px!important;border:1px solid #d4dbe1!important;border-radius:5px!important;background:#fff!important;padding:3px!important}
+.audio-file{display:flex;align-items:center;gap:4px;min-width:0}
+.audio-file button{border:1px solid #c9d3dc;background:#fff;border-radius:5px;padding:4px 6px;font-size:9px;font-weight:800;white-space:nowrap}
+.audio-file .filename{font-size:8.8px;color:#596773;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.audio-file .done{color:#0b7a4c;font-weight:800}
+.audio-note{font-size:9.3px;color:#60707d;margin-top:2px}
+
+@media(max-width:900px){.app{grid-template-columns:170px minmax(0,1fr)}.right{grid-column:1/3}.viewport{min-height:250px}}
+@media(max-width:620px){.app{grid-template-columns:1fr}.left,.right{display:none}.right{grid-column:auto}.workspace{grid-column:auto}.topbar{height:auto;min-height:62px;align-items:flex-start;padding:10px}.top-actions{justify-content:flex-end}.viewport{min-height:220px}}
+@media print{body{background:#fff}.topbar,.left,.workspace-head{display:none}.app{display:block;padding:0}.workspace{border:0;padding:0}.viewport{overflow:visible;background:#fff}.logical-page{position:relative;transform:none!important;margin:0}.rect.borrow,.circle.borrow,.equip-row.borrowed,.redchip{background:#f3cfd2!important;border-color:#b84b51!important;color:#5f1013!important;background-image:none!important}}
+
+    .meta-form{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+      gap:10px;
+      padding:12px 14px;
+      border-bottom:1px solid var(--line);
+      background:#f8fbff;
+      width:100%;
+      min-width:0;
+    }
+    .meta-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-width:0;
+    }
+    .meta-field label{
+      font-size:11px;
+      color:#5b6770;
+      font-weight:700;
+      letter-spacing:.02em;
+    }
+    .meta-field input, .meta-field select{
+      width:100%;
+      min-width:0;
+      height:34px;
+      border:1px solid #cfd8df;
+      border-radius:8px;
+      padding:0 10px;
+      font-size:13px;
+      background:#fff;
+    }
+
+
+.workspace{container-type:inline-size}
+@container (max-width:760px){
+  .meta-form{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@container (max-width:430px){
+  .meta-form{grid-template-columns:1fr}
+}
+
+
+.audio-pool{
+  position:absolute;
+  left:30px;
+  right:30px;
+  top:700px;
+  margin:0;
+  border:1px solid #cfd8df;
+  border-radius:10px;
+  background:#fafcff;
+  padding:8px 10px;
+}
+.audio-pool-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:6px;
+}
+.audio-pool-head strong{font-size:11px}
+.audio-pool-head span{font-size:9.5px;color:#66737f}
+.audio-pool-actions{display:flex;gap:6px;flex-wrap:wrap}
+.audio-pool-actions button{
+  border:1px solid #c8d2db;
+  background:#fff;
+  border-radius:7px;
+  padding:6px 8px;
+  font-size:9.5px;
+  font-weight:800;
+}
+.audio-files{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.audio-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  border:1px solid #d2dbe3;
+  border-radius:999px;
+  padding:4px 7px;
+  background:#fff;
+  font-size:9px;
+  color:#53616e;
+}
+.audio-chip .play{
+  width:18px;height:18px;border-radius:50%;
+  border:1px solid #bfc9d2;background:#fff;padding:0;
+  font-size:8px;font-weight:900;
+}
+.audio-empty{font-size:9px;color:#7c8790}
+
+
+.setlist-total{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:132px;
+  justify-content:center;
+  padding:7px 11px;
+  border:2px solid #111;
+  border-radius:9px;
+  background:#fff;
+}
+.setlist-total span{
+  font-size:9px;
+  color:#68737d;
+  font-weight:800;
+}
+.setlist-total strong{
+  font-size:18px;
+  line-height:1;
+  color:#111;
+  letter-spacing:.02em;
+}
+.setlist-total.over{
+  border-color:#b42318;
+  background:#fff3f3;
+}
+.setlist-total.over strong{
+  color:#b42318;
+}
+
+
+/* ===== v26 mock refinements ===== */
+.logical-page{
+  height:1340px;
+}
+
+/* New print-sheet header: explicit labels + document title */
+.page-title{display:none!important}
+.sheet-head{
+  position:absolute;
+  left:30px;
+  right:30px;
+  top:14px;
+  height:72px;
+  border-bottom:2px solid #111;
+}
+.sheet-head-top{
+  height:28px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+}
+.sheet-doc-title{
+  font-size:22px;
+  line-height:1;
+  font-weight:950;
+  letter-spacing:.06em;
+}
+.sheet-date{
+  text-align:right;
+  font-size:9.5px;
+  line-height:1.22;
+  color:#444;
+}
+.sheet-meta{
+  height:42px;
+  display:grid;
+  grid-template-columns:2fr 1.55fr .62fr 1.08fr .72fr;
+  border-top:1px solid #d5d9dd;
+}
+.sheet-meta-item{
+  min-width:0;
+  padding:5px 10px 3px;
+  border-right:1px solid #d5d9dd;
+}
+.sheet-meta-item:first-child{padding-left:0}
+.sheet-meta-item:last-child{border-right:0;padding-right:0}
+.sheet-meta-item span{
+  display:block;
+  font-size:8.5px;
+  line-height:1;
+  color:#6a747d;
+  font-weight:800;
+  margin-bottom:4px;
+}
+.sheet-meta-item strong{
+  display:block;
+  font-size:14px;
+  line-height:1.05;
+  font-weight:950;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.sheet-meta-item.event strong{font-size:15px}
+.sheet-meta-item.artist strong{font-size:15px}
+
+/* Use the previously wasted lower-page space: stage + equipment grow vertically */
+.stage{
+  top:98px;
+  height:600px;
+}
+.carry{
+  top:98px;
+  height:600px;
+}
+.other-request textarea{height:150px}
+.notes{
+  top:712px;
+  height:106px;
+}
+.notes textarea{height:66px}
+.audio-pool{
+  top:834px;
+}
+.setlist{
+  top:928px;
+  height:380px;
+}
+
+/* Spread sample objects across the taller stage */
+.boxuma{top:250px}
+.acKey{top:330px}
+.voiem{top:418px}
+.baPos{top:448px}
+.voPos{top:458px}
+.gtPos{top:448px}
+.micVo{top:498px}
+.micGt{top:498px}
+.mon1{top:535px}
+.mon2{top:535px}
+.mon3{top:535px}
+.mon4{top:535px}
+.acVo{top:570px}
+
+/* Slightly more legible stage-side labels */
+.kamite,.shimote{
+  top:49%;
+  font-size:9.5px;
+}
+
+/* v26 product-side top metadata remains responsive */
+.meta-form{
+  background:#f8fbff;
+}
+
+/* Mock-only display for the new font-size control */
+.props input[type="number"]{
+  text-align:right;
+}
+
+/* Keep carried items pale red in screen/print concept; no forced black conversion */
+@media print{
+  .rect.borrow,.circle.borrow,.equip-row.borrowed,.redchip{
+    background:#f3cfd2!important;
+    border-color:#b84b51!important;
+    color:#5f1013!important;
+  }
+}
+
+
+/* ===== v27: first printable sheet locked to A4 landscape aspect ratio ===== */
+:root{
+  --a4-landscape-ratio:1.4142857143;
+  --stage-print-width:1200px;
+  --stage-print-height:848.485px;
+}
+
+.logical-page{
+  height:1390px;
+}
+
+.print-stage-page{
+  position:absolute;
+  left:0;
+  top:0;
+  width:var(--stage-print-width);
+  height:var(--stage-print-height);
+  background:#fff;
+  box-sizing:border-box;
+}
+
+/* Keep page-1 content inside the exact A4-landscape proportion. */
+.sheet-head,
+.stage,
+.carry,
+.notes{
+  box-sizing:border-box;
+}
+
+/* Page 2 content starts after the A4-landscape sheet. */
+.audio-pool{
+  top:872px;
+}
+
+.setlist{
+  top:968px;
+}
+
+/* Editor-only metadata is never part of the printed sheet. */
+@media print{
+  .meta-form{
+    display:none!important;
+  }
+
+  .print-stage-page{
+    position:relative;
+    width:297mm;
+    height:210mm;
+    page:stageSheet;
+    break-after:page;
+    page-break-after:always;
+    overflow:hidden;
+  }
+
+  @page stageSheet{
+    size:A4 landscape;
+    margin:0;
+  }
+}
+
+
+/* ===== v28: notes stay under stage only; right equipment panel uses full page height ===== */
+
+/* Right column now spans the same vertical region as stage + notes. */
+.carry{
+  height:720px;
+}
+
+/* Notes are only under the stage canvas, not under the right column. */
+.notes{
+  left:30px;
+  right:auto;
+  width:830px;
+  top:712px;
+  height:106px;
+}
+
+/* Let "その他要望" sit at the bottom of the taller right column.
+   Equipment sections above can grow naturally when rows are added. */
+.carry > .equip-section:last-child{
+  flex:1 1 auto;
+  min-height:108px;
+  display:flex;
+  flex-direction:column;
+}
+
+.carry > .equip-section:last-child .other-request{
+  flex:1 1 auto;
+  display:flex;
+  padding:6px;
+  min-height:0;
+}
+
+.carry > .equip-section:last-child .other-request textarea{
+  flex:1 1 auto;
+  height:auto;
+  min-height:74px;
+}
+
+/* Preserve room for extra carry/request rows before "その他要望". */
+#carryList,
+#requestList{
+  flex:0 0 auto;
+}
+
+/* First A4-landscape sheet remains fully contained. */
+.print-stage-page{
+  overflow:hidden;
+}
+
+</style>
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=1">
+</head>
+<body class="stage-plot-auth-pending">
+<section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
+  <div class="stage-plot-access-card">
+    <h1>Stage Plot Editor</h1>
+    <p id="stagePlotAccessMessage">管理者セッションを確認しています。</p>
+    <p><a id="stagePlotLoginLink" href="/pa-admin.html">PA案件管理へ戻る</a></p>
+  </div>
+</section>
+<div class="topbar">
+  <div class="brand">
+  <img src="/img/ara-tech-logo-horizontal-white.png" alt="ARA-TECH">
+  <small>STAGE PLOT EDITOR</small>
+</div>
+  <div class="top-actions">
+      <span class="history-status">履歴 <b id="historyCount">0</b> / 500</span>
+      <button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
+</div>
+<div class="app">
+  <aside class="panel left">
+
+    <div class="panel-title">図形・記号</div>
+    <div class="tools">
+      <div class="tool"><div class="tool-icon"><div class="ico-rect"></div></div><div><strong>四角形</strong><small>文字は自由入力</small></div></div>
+      <div class="tool"><div class="tool-icon"><div class="ico-circle"></div></div><div><strong>円</strong><small>文字は自由入力</small></div></div>
+      <div class="tool"><div class="tool-icon"><div class="ico-line"></div></div><div><strong>線</strong><small>回転・伸縮</small></div></div>
+      <div class="tool"><div class="tool-icon"><div class="ico-arrow"></div></div><div><strong>矢印</strong><small>方向・動線</small></div></div>
+      <div class="tool"><div class="tool-icon"><div class="ico-text">Abc</div></div><div><strong>テキスト</strong><small>自由入力</small></div></div>
+      <div class="tool"><div class="tool-icon">
+        <svg class="mic-svg" viewBox="0 0 160 180" aria-label="mic"><line x1="80" y1="28" x2="80" y2="148" stroke="#000" stroke-width="8"/><circle cx="80" cy="92" r="29" fill="#fff" stroke="#000" stroke-width="7"/><line x1="80" y1="54" x2="80" y2="130" stroke="#000" stroke-width="8"/><polygon points="80,8 56,38 104,38" fill="#000"/></svg>
+      </div><div><strong>マイク</strong><small>ステージ用記号</small></div></div>
+      <div class="tool"><div class="tool-icon">
+        <svg class="mon-svg" viewBox="0 0 220 180" aria-label="monitor"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg>
+      </div><div><strong>モニター</strong><small>ステージ用記号</small></div></div>
+      <div class="tool"><div class="tool-icon">
+        <div class="power-mark">100V</div>
+      </div><div><strong>100V</strong><small>電源位置</small></div></div>
+    </div>
+
+    <div class="panel-title" style="border-top:1px solid var(--line)">選択中：Gt Head</div>
+    <div class="props">
+<div class="field"><label>ラベル</label><input value="Gt Head"></div>
+      <div class="field"><label>角度</label><input value="0°"><div class="btnrow" style="margin-top:5px"><button>-15°</button><button>0°</button><button>+15°</button></div></div>
+      <div class="field"><label>サイズ</label><input value="100%"><div class="btnrow" style="margin-top:5px"><button>100%に戻す</button></div></div>
+      <div class="field"><label>文字サイズ</label><div style="display:grid;grid-template-columns:1fr 34px;gap:5px;align-items:center"><input value="24" type="number" min="8" max="72" step="1"><span style="font-size:10px;color:#65717c;font-weight:800">px</span></div><div class="btnrow" style="margin-top:5px"><button>-</button><button>16px</button><button>+</button></div></div>
+      <div class="field"><label>機材区分</label><select>
+        <option>出演者持込</option>
+        <option>借用・手配希望</option>
+        <option>未指定</option>
+      </select></div>
+      <div class="style-box">画面表示<div class="swatches"><div class="sw red" title="出演者持込"></div><div class="sw white" title="未指定・手配側"></div></div><div style="margin-top:5px;font-size:9px;color:#6d7780">持込＝薄い赤 / 借用・手配希望＝白地</div></div>
+      <div class="btnrow" style="margin-top:10px"><button>複製</button><button>削除</button></div>
+    </div>
+  </aside>
+
+  <section class="workspace">
+    <div class="workspace-head"><strong>ステージ資料作成</strong><span>出演者情報・ステージ図・音源・セットリストをまとめて作成</span></div>
+
+    <div class="meta-form">
+      <div class="meta-field">
+        <label>イベント名</label>
+        <input value="2026 龍姫湖まつり" placeholder="イベント名を入力">
+      </div>
+      <div class="meta-field">
+        <label>出演者名 / バンド名</label>
+        <input value="THE ABC" placeholder="出演者名・バンド名を入力">
+      </div>
+      <div class="meta-field">
+        <label>出演順</label>
+        <input value="3番目" placeholder="例：3番目 / 1組目">
+      </div>
+      <div class="meta-field">
+        <label>出演時間</label>
+        <input value="14:15〜14:50" placeholder="例：14:15〜14:50">
+      </div>
+      <div class="meta-field">
+        <label>持ち時間</label>
+        <input value="35分" placeholder="例：35分">
+      </div>
+    </div>
+
+    <div class="viewport" id="viewport">
+      <div class="logical-page" id="page">
+        <div class="print-stage-page">
+        <div class="sheet-head">
+          <div class="sheet-head-top">
+            <div class="sheet-doc-title">STAGE PLOT</div>
+            <div class="sheet-date">2026/10/18<br><b>ARA-TECH</b></div>
+          </div>
+          <div class="sheet-meta">
+            <div class="sheet-meta-item event"><span>イベント名</span><strong>2026 龍姫湖まつり</strong></div>
+            <div class="sheet-meta-item artist"><span>出演者名 / バンド名</span><strong>THE ABC</strong></div>
+            <div class="sheet-meta-item"><span>出演順</span><strong>3番目</strong></div>
+            <div class="sheet-meta-item"><span>出演時間</span><strong>14:15〜14:50</strong></div>
+            <div class="sheet-meta-item"><span>持ち時間</span><strong>35分</strong></div>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stage-label up">ステージ奥 / UPSTAGE</div><div class="stage-label aud">▼ 客席 / AUDIENCE ▼</div><div class="stage-label kamite">上手 / KAMITE</div><div class="stage-label shimote">下手 / SHIMOTE</div>
+
+          <div class="obj bahead"><div class="rect">Ba Head</div></div>
+          <div class="obj bacabi"><div class="rect tall">Ba Cabi</div></div>
+          <div class="obj jc"><div class="rect">JC</div><div class="caption">※JCにアース</div></div>
+          <div class="obj seq"><div class="rect borrow">SEQ (L/R)<br>Dr-IEM (mono)</div></div>
+          <div class="obj di-seq"><div class="rect" style="min-width:40px">DI</div></div>
+
+          <div class="obj ft"><div class="circle">F.T</div></div>
+          <div class="obj kick"><div class="circle" style="width:78px;height:78px">Kick</div></div>
+          <div class="obj ride"><div class="circle">Ride</div></div>
+          <div class="obj sn"><div class="circle borrow" style="width:56px;height:56px">Sn</div></div>
+          <div class="obj ht"><div class="circle borrow" style="width:56px;height:56px">H.T</div></div>
+          <div class="obj hh"><div class="circle borrow" style="width:56px;height:56px">HH</div></div>
+          <div class="obj c16"><div class="circle">16&quot;</div></div>
+
+          <div class="obj gtHead"><div class="rect borrow">Gt Head</div></div>
+          <div class="obj gtCabi"><div class="rect tall">Gt Cabi</div></div>
+          <div class="obj boxuma"><div class="rect">箱馬</div></div>
+          <div class="obj voiem"><div class="rect borrow">Vo-IEM<br>(L/R)</div></div>
+
+          <div class="obj baPos"><div class="circle small">Ba</div></div>
+          <div class="obj voPos"><div class="circle small">Vo</div></div>
+          <div class="obj gtPos"><div class="circle small">Gt</div></div>
+          <div class="obj acKey"><div class="power-mark">100V ×2</div></div>
+          <div class="obj acVo"><div class="power-mark">100V</div></div>
+
+          <div class="obj micVo"><svg class="mic-svg" viewBox="0 0 160 180"><line x1="80" y1="28" x2="80" y2="148" stroke="#000" stroke-width="8"/><circle cx="80" cy="92" r="29" fill="#fff" stroke="#000" stroke-width="7"/><line x1="80" y1="54" x2="80" y2="130" stroke="#000" stroke-width="8"/><polygon points="80,8 56,38 104,38" fill="#000"/></svg></div>
+          <div class="obj micGt"><svg class="mic-svg" viewBox="0 0 160 180"><line x1="80" y1="28" x2="80" y2="148" stroke="#000" stroke-width="8"/><circle cx="80" cy="92" r="29" fill="#fff" stroke="#000" stroke-width="7"/><line x1="80" y1="54" x2="80" y2="130" stroke="#000" stroke-width="8"/><polygon points="80,8 56,38 104,38" fill="#000"/></svg></div>
+          <div class="obj micDr"><svg class="mic-svg" viewBox="0 0 160 180"><line x1="80" y1="28" x2="80" y2="148" stroke="#d71920" stroke-width="8"/><circle cx="80" cy="92" r="29" fill="#fff" stroke="#d71920" stroke-width="7"/><line x1="80" y1="54" x2="80" y2="130" stroke="#d71920" stroke-width="8"/><polygon points="80,8 56,38 104,38" fill="#d71920"/></svg></div>
+
+          <div class="obj mon1"><svg class="mon-svg" viewBox="0 0 220 180"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg></div>
+          <div class="obj mon2"><svg class="mon-svg" viewBox="0 0 220 180"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg></div>
+          <div class="obj mon3"><svg class="mon-svg" viewBox="0 0 220 180"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg></div>
+          <div class="obj mon4"><svg class="mon-svg" viewBox="0 0 220 180"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg></div>
+        </div>
+
+
+        <aside class="carry">
+          <div class="carry-main-title">機材・手配リスト</div>
+          <div style="padding:5px 7px;border-bottom:1px solid #ccc;font-size:8.5px;color:#68737d;background:#fafbfc">※ 誰が手配するかは提出後にARA-TECH側で管理</div>
+
+          <section class="equip-section">
+            <div class="equip-title">
+              <span>出演者持込</span>
+              <button type="button" class="add-equip" data-target="carryList">＋追加</button>
+            </div>
+            <div class="equip-list" id="carryList">
+              <div class="equip-row borrowed">
+                <input value="Gt Head / JCM900">
+                <input class="qty" value="1">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+              <div class="equip-row borrowed">
+                <input value="Snare / Pedal">
+                <input class="qty" value="1">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="equip-section">
+            <div class="equip-title">
+              <span>借りたい・用意してほしい機材</span>
+              <button type="button" class="add-request" data-target="requestList">＋追加</button>
+            </div>
+            <div class="equip-list" id="requestList">
+              <div class="request-row">
+                <input value="ワイヤレスマイク">
+                <input class="qty" value="2">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+              <div class="request-row">
+                <input value="ドラムセット">
+                <input class="qty" value="1">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+              <div class="request-row">
+                <input value="DI">
+                <input class="qty" value="2">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+              <div class="request-row">
+                <input value="100V 2口">
+                <input class="qty" value="2">
+                <button type="button" class="remove-equip">×</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="equip-section">
+            <div class="equip-title"><span>その他要望</span></div>
+            <div class="other-request">
+              <textarea>例：神楽用ワイヤレスピンマイク×3希望
+Key位置に100V×2
+DJ卓横に100V×1
+モニターはVo中央＋下手希望</textarea>
+            </div>
+          </section>
+        </aside>
+
+        <div class="notes">
+          <div class="notes-head">
+            <strong>ステージ図・備考</strong>
+            <div class="note-legend"><span class="redchip">薄い赤＝持込</span>　<span class="whitechip">白地＝未指定 / 手配側</span></div>
+          </div>
+          <textarea>Vo-IEM置き場おまかせ。JCにアース。Drへの返しはIEMのみ。モニター置きっぱでも問題なし。
+当日はよろしくお願い致します。</textarea>
+        </div>
+        </div>
+
+
+          <div class="audio-pool">
+            <div class="audio-pool-head">
+              <div>
+                <strong>音源ファイル</strong>
+                <span>原則データ事前提出。複数ファイルをまとめて追加できます。</span>
+              </div>
+              <div class="audio-pool-actions">
+                <button type="button" id="bulkAudioBtn">＋ 音源をまとめて追加</button>
+                <button type="button" id="otherPlaybackBtn">CD・本人再生など</button>
+                <input id="bulkAudioInput" type="file" accept=".wav,.mp3,.m4a,.aac" multiple hidden>
+              </div>
+            </div>
+            <div class="audio-files" id="audioFiles">
+              <span class="audio-chip"><button class="play" type="button">▶</button>opening_se.wav</span>
+              <span class="audio-chip"><button class="play" type="button">▶</button>song_a.wav</span>
+            </div>
+          </div>
+
+        <section class="setlist">
+          <div class="setlist-head">
+            <div>
+              <div class="ttl">SET LIST / 進行</div>
+              <div class="summary">曲・SE・MCを追加し、⠿ドラッグまたは↑↓で順番変更。音源は原則データで事前提出。</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="setlist-total" id="setlistTotalBox">
+                <span>合計時間</span>
+                <strong id="totalTime">7:20</strong>
+              </div>
+              <button type="button" id="addSetRow">＋ 曲・進行を追加</button>
+            </div>
+          </div>
+
+          <div class="setlist-grid header">
+            <div></div><div>No.</div><div>種別</div><div>曲名・内容</div><div>時間</div><div>音源</div><div>音響要望</div><div>照明要望</div><div></div>
+          </div>
+
+          <div class="setlist-body" id="setlistBody">
+            <div class="setlist-row non-song" draggable="true">
+              <div class="dragcell"><button class="draghandle" type="button" title="ドラッグして並び替え">⠿</button></div>
+              <div class="no">1</div>
+              <div><select class="type-select"><option>SE</option><option>曲</option><option>MC</option><option>BGM</option><option>End SE</option><option>その他</option></select></div>
+              <div><input value="Opening SE"></div>
+              <div><input value="1:00"></div>
+              <div class="audio-cell"><select class="audio-method"><option>opening_se.wav</option><option>song_a.wav</option><option>未割当</option><option>CD</option><option>本人再生</option><option>音源なし</option><option>その他</option></select><div class="audio-file"><button type="button">▶</button><span class="filename done">提出済</span></div></div>
+              <div><input value="SE終了でVoマイクON"></div>
+              <div><input value="暗転 → 青"></div>
+              <div class="rowops"><button class="up" type="button">↑</button><button class="down" type="button">↓</button><button class="delete" type="button">×</button></div>
+            </div>
+
+            <div class="setlist-row song" draggable="true">
+              <div class="dragcell"><button class="draghandle" type="button">⠿</button></div>
+              <div class="no">2</div>
+              <div><select class="type-select"><option>曲</option><option>SE</option><option>MC</option><option>BGM</option><option>End SE</option><option>その他</option></select></div>
+              <div><input value="Song A"></div>
+              <div><input value="4:20"></div>
+              <div class="audio-cell"><select class="audio-method"><option>song_a.wav</option><option>opening_se.wav</option><option>未割当</option><option>CD</option><option>本人再生</option><option>音源なし</option><option>その他</option></select><div class="audio-file"><button type="button">▶</button><span class="filename done">提出済</span></div></div>
+              <div><input value="Voリバーブ少し深め"></div>
+              <div><input value="赤系 / サビ明るく"></div>
+              <div class="rowops"><button class="up" type="button">↑</button><button class="down" type="button">↓</button><button class="delete" type="button">×</button></div>
+            </div>
+
+            <div class="setlist-row non-song" draggable="true">
+              <div class="dragcell"><button class="draghandle" type="button">⠿</button></div>
+              <div class="no">3</div>
+              <div><select class="type-select"><option>MC</option><option>曲</option><option>SE</option><option>BGM</option><option>End SE</option><option>その他</option></select></div>
+              <div><input value="MC"></div>
+              <div><input value="2:00"></div>
+              <div class="audio-cell"><select class="audio-method"><option>音源なし</option><option>未割当</option><option>CD</option><option>本人再生</option><option>その他</option></select><div class="audio-file"><span class="filename">—</span></div></div>
+              <div><input value="Voマイクのみ"></div>
+              <div><input value="明るめ固定"></div>
+              <div class="rowops"><button class="up" type="button">↑</button><button class="down" type="button">↓</button><button class="delete" type="button">×</button></div>
+            </div>
+          </div>
+
+          <div class="setlist-foot">
+            <span>※ 基本は事前データ提出。バンドはOpening SEだけ、アイドル・ダンス等は複数曲の一括提出にも対応。CD等は例外指定。</span>
+
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="reset-confirm" id="resetConfirm">
+  <div class="reset-dialog">
+    <h3>全部リセットしますか？</h3>
+    <p>
+      ステージ図、備考、セットリストを初期状態に戻します。<br>
+      誤操作防止のため、1クリックでは消去しません。
+    </p>
+    <div class="dialog-actions">
+      <button type="button" id="cancelReset">キャンセル</button>
+      <button type="button" class="danger" id="confirmReset">全部リセット</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=1"></script>
+</body>
+</html>
