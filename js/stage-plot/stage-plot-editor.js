@@ -516,7 +516,13 @@
     const perColumn = 12;
     const other = String(state.otherRequests || '').trim();
     const otherChunks = [];
-    for (let offset = 0; offset < other.length; offset += 650) otherChunks.push(other.slice(offset, offset + 650));
+    let otherChunk = '';
+    other.split(/\r?\n/u).forEach(line => {
+      const candidate = otherChunk ? `${otherChunk}\n${line}` : line;
+      if (otherChunk && candidate.length > 650) { otherChunks.push(otherChunk); otherChunk = line; }
+      else otherChunk = candidate;
+    });
+    if (otherChunk) otherChunks.push(otherChunk);
     if (!otherChunks.length) otherChunks.push('なし');
     const itemPageCount = Math.max(1, Math.ceil(brought.length / perColumn), Math.ceil(requested.length / perColumn));
     const pageCount = itemPageCount + Math.max(0, otherChunks.length - 1);
