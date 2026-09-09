@@ -6,7 +6,7 @@ import {
   parseStagePlotRoute,
 } from './stage-plot-persistence.mjs';
 
-const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=2';
+const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=3';
 const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
 
 function routeOptions(search = '') {
@@ -60,13 +60,14 @@ function configureRouteActions({ route, options, editor, windowImpl, documentImp
   if (!options.printMode) return;
   documentImpl.body.classList.add('stage-plot-print-mode');
   const runPrint = mode => {
-    documentImpl.body.classList.remove('print-stage-only', 'print-setlist-only');
+    documentImpl.body.classList.remove('print-adaptive-document', 'print-stage-only', 'print-setlist-only');
     documentImpl.body.classList.add(mode);
     windowImpl.requestAnimationFrame(() => windowImpl.print());
   };
+  documentImpl.getElementById('stagePlotPrintDocumentBtn')?.addEventListener('click', () => runPrint('print-adaptive-document'));
   documentImpl.getElementById('stagePlotPrintStageBtn')?.addEventListener('click', () => runPrint('print-stage-only'));
   documentImpl.getElementById('stagePlotPrintSetlistBtn')?.addEventListener('click', () => runPrint('print-setlist-only'));
-  windowImpl.addEventListener('afterprint', () => documentImpl.body.classList.remove('print-stage-only', 'print-setlist-only'));
+  windowImpl.addEventListener('afterprint', () => documentImpl.body.classList.remove('print-adaptive-document', 'print-stage-only', 'print-setlist-only'));
   editor.loadSnapshot(editor.snapshot(), { rememberPrevious: false, source: 'print-ready' });
 }
 
@@ -77,6 +78,16 @@ function stableState(value) {
 function recordFromResult(result) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new StagePlotApiError('invalid_stage_plot_response');
   return result;
+}
+
+async function readCaseMetadata(authClient, caseId) {
+  if (typeof authClient?.from !== 'function') return null;
+  const [inquiryResult, progressResult] = await Promise.all([
+    authClient.from('pa_inquiries').select('event_date').eq('id', caseId).is('deleted_at', null).maybeSingle(),
+    authClient.from('pa_case_progress').select('confirmed_event_date').eq('inquiry_id', caseId).maybeSingle(),
+  ]);
+  if (inquiryResult?.error || progressResult?.error) throw new StagePlotApiError('service_unavailable');
+  return { eventDate: String(progressResult?.data?.confirmed_event_date || inquiryResult?.data?.event_date || '') };
 }
 
 export class StagePlotPage {
@@ -105,10 +116,11 @@ export class StagePlotPage {
     if (this.saveButton) this.saveButton.disabled = this.saving;
   }
 
-  initialize(prefetched = null) {
+  initialize(prefetched = null, caseMetadata = null) {
     if (this.mode === 'edit') {
       const record = recordFromResult(prefetched);
       const canonical = normalizeCanonicalState(record.state);
+      if (!canonical.metadata.eventDate) canonical.metadata.eventDate = String(caseMetadata?.eventDate || '');
       this.editor.loadSnapshot(canonical, { rememberPrevious: false, source: 'initial' });
       this.revision = Number(record.current_revision || record.currentRevision || 0) || null;
       this.baseline = stableState(canonical);
@@ -117,6 +129,7 @@ export class StagePlotPage {
       return;
     }
     const canonical = normalizeCanonicalState(this.editor.snapshot());
+    canonical.metadata.eventDate = String(caseMetadata?.eventDate || canonical.metadata.eventDate || '');
     this.editor.loadSnapshot(canonical, { rememberPrevious: false, source: 'initial' });
     this.baseline = null;
     this.dirty = true;
@@ -257,10 +270,12 @@ export async function bootStagePlotPage({
     getAccessToken: async () => (await authClient.auth.getSession())?.data?.session?.access_token || '',
   });
   let prefetched = null;
+  let caseMetadata = null;
   try {
-    prefetched = route.mode === 'edit'
-      ? await persistence.get(route.caseId, route.plotId)
-      : await persistence.list(route.caseId);
+    [prefetched, caseMetadata] = await Promise.all([
+      route.mode === 'edit' ? persistence.get(route.caseId, route.plotId) : persistence.list(route.caseId),
+      readCaseMetadata(authClient, route.caseId),
+    ]);
   } catch (error) {
     const code = String(error?.code || error?.message || 'service_unavailable');
     showAccess(code === 'not_authorized' ? 'stage-plot-auth-denied' : 'stage-plot-auth-error', code === 'not_authorized' ? 'PA管理者としてログインしてください。' : '案件またはStage Plotを確認できませんでした。');
@@ -278,7 +293,7 @@ export async function bootStagePlotPage({
     saveButton: documentImpl.getElementById('stagePlotSaveBtn'),
     saveStatus: documentImpl.getElementById('stagePlotSaveStatus'),
   });
-  page.initialize(route.mode === 'edit' ? prefetched : null);
+  page.initialize(route.mode === 'edit' ? prefetched : null, caseMetadata);
   configureRouteActions({ route, options, editor, windowImpl, documentImpl });
   windowImpl.addEventListener('ara:stage-plot-change', event => page.handleEditorChange(event.detail));
   windowImpl.addEventListener('beforeunload', event => page.beforeUnload(event));
