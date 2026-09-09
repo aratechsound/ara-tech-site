@@ -93,6 +93,46 @@
   text-align: right;
 }
 .stage-plot-save-status[data-state="error"] { color: #ffe0e0; }
+.stage-plot-route-action,
+.stage-plot-print-action { display: none; }
+.stage-plot-auth-ready .stage-plot-route-action,
+.stage-plot-print-mode .stage-plot-print-action { align-items: center; display: inline-flex; }
+.stage-plot-route-action {
+  border: 1px solid rgba(255,255,255,.5);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  min-height: 28px;
+  padding: 5px 8px;
+  text-decoration: none;
+}
+.stage-plot-print-mode .top-actions > :not(.stage-plot-route-action):not(.stage-plot-print-action) { display: none !important; }
+.stage-plot-print-mode .stage-plot-print-action { background: #fff; color: #006fe6; }
+
+body.stage-plot-preview-mode { background: #fff; overflow: hidden; }
+body.stage-plot-preview-mode .topbar,
+body.stage-plot-preview-mode .panel.left,
+body.stage-plot-preview-mode .workspace-head,
+body.stage-plot-preview-mode .meta-form,
+body.stage-plot-preview-mode .audio-pool,
+body.stage-plot-preview-mode .setlist,
+body.stage-plot-preview-mode .equipment-continuation,
+body.stage-plot-preview-mode .mobile-edit-close { display: none !important; }
+body.stage-plot-preview-mode .app { display: block; min-height: 0; padding: 0; }
+body.stage-plot-preview-mode .workspace { border: 0; border-radius: 0; padding: 0; }
+body.stage-plot-preview-mode .viewport { background: #fff; border-radius: 0; min-height: 0; }
+body.stage-plot-preview-mode .logical-page { border: 0; pointer-events: none; }
+body.stage-plot-preview-mode .transform-handle,
+body.stage-plot-preview-mode .engine-object.selected::after,
+body.stage-plot-preview-mode .add-equip,
+body.stage-plot-preview-mode .add-request,
+body.stage-plot-preview-mode .remove-equip { display: none !important; }
+.stage-plot-preview-loading .stage-plot-access-shell { background: #fff; min-height: 100vh; padding: 10px; }
+.stage-plot-preview-loading .stage-plot-access-card { border: 0; box-shadow: none; padding: 12px; text-align: center; }
+.stage-plot-preview-loading .stage-plot-access-card h1,
+.stage-plot-preview-loading .stage-plot-access-card a { display: none; }
+.stage-plot-preview-loading .stage-plot-access-card p { font-size: 11px; }
 .audio-chip small { margin-left: 5px; color: #a24b00; font-weight: 800; }
 .audio-chip button:disabled { cursor: not-allowed; opacity: .55; }
 .engine-line { width: 110px; border-top: 2px solid #111; }

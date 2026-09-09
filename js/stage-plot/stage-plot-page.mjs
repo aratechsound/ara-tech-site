@@ -7,6 +7,68 @@ import {
 } from './stage-plot-persistence.mjs';
 
 const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=2';
+const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
+
+function routeOptions(search = '') {
+  const query = new URLSearchParams(search);
+  return {
+    embeddedPreview: query.get('preview') === '1' && query.get('embedded') === '1',
+    printMode: query.get('print') === '1',
+  };
+}
+
+function portalUrl(caseId) {
+  return `/pa/cases/${encodeURIComponent(caseId)}/portal`;
+}
+
+function announcePreview(windowImpl, route, status, code = '') {
+  if (!windowImpl.parent || windowImpl.parent === windowImpl) return;
+  windowImpl.parent.postMessage({
+    type: PREVIEW_MESSAGE_TYPE,
+    status,
+    caseId: route.caseId,
+    plotId: route.plotId,
+    code,
+  }, windowImpl.location.origin);
+}
+
+function bootEmbeddedPreview({ route, editor, windowImpl, documentImpl }) {
+  documentImpl.body.classList.add('stage-plot-preview-mode', 'stage-plot-preview-loading');
+  const app = documentImpl.querySelector('.app');
+  if (app) app.inert = true;
+  const receiveState = event => {
+    if (event.origin !== windowImpl.location.origin || event.source !== windowImpl.parent) return;
+    const message = event.data;
+    if (message?.type !== PREVIEW_MESSAGE_TYPE || message.status !== 'state') return;
+    if (message.caseId !== route.caseId || message.plotId !== route.plotId) return;
+    try {
+      editor.loadSnapshot(normalizeCanonicalState(message.state), { rememberPrevious: false, source: 'portal-preview' });
+      documentImpl.body.classList.remove('stage-plot-preview-loading');
+      announcePreview(windowImpl, route, 'rendered');
+    } catch (error) {
+      announcePreview(windowImpl, route, 'error', String(error?.code || error?.message || 'invalid_stage_plot_state'));
+    }
+  };
+  windowImpl.addEventListener('message', receiveState);
+  announcePreview(windowImpl, route, 'ready');
+  return { ok: true, preview: true, editor };
+}
+
+function configureRouteActions({ route, options, editor, windowImpl, documentImpl }) {
+  const portalLink = documentImpl.getElementById('stagePlotPortalLink');
+  if (portalLink) portalLink.href = portalUrl(route.caseId);
+  if (!options.printMode) return;
+  documentImpl.body.classList.add('stage-plot-print-mode');
+  const runPrint = mode => {
+    documentImpl.body.classList.remove('print-stage-only', 'print-setlist-only');
+    documentImpl.body.classList.add(mode);
+    windowImpl.requestAnimationFrame(() => windowImpl.print());
+  };
+  documentImpl.getElementById('stagePlotPrintStageBtn')?.addEventListener('click', () => runPrint('print-stage-only'));
+  documentImpl.getElementById('stagePlotPrintSetlistBtn')?.addEventListener('click', () => runPrint('print-setlist-only'));
+  windowImpl.addEventListener('afterprint', () => documentImpl.body.classList.remove('print-stage-only', 'print-setlist-only'));
+  editor.loadSnapshot(editor.snapshot(), { rememberPrevious: false, source: 'print-ready' });
+}
 
 function stableState(value) {
   return JSON.stringify(normalizeCanonicalState(value));
@@ -158,9 +220,15 @@ export async function bootStagePlotPage({
   documentImpl = document,
 } = {}) {
   const route = parseStagePlotRoute(windowImpl.location.search);
+  const options = routeOptions(windowImpl.location.search);
   if (!route.ok) {
     showAccess('stage-plot-auth-error', route.code === 'invalid_plot_id' ? 'Stage Plot IDが正しくありません。' : '案件IDが必要です。');
     return { ok: false, code: route.code };
+  }
+  if (options.embeddedPreview && !route.plotId) {
+    showAccess('stage-plot-auth-error', 'Stage Plot IDが必要です。');
+    announcePreview(windowImpl, route, 'error', 'invalid_plot_id');
+    return { ok: false, code: 'invalid_plot_id' };
   }
   if (!isSupabaseConfigured && !suppliedAuthClient) {
     showAccess('stage-plot-auth-error', '管理者認証を初期化できません。');
@@ -172,7 +240,14 @@ export async function bootStagePlotPage({
   const session = sessionResult?.data?.session;
   if (!session?.access_token) {
     showAccess('stage-plot-auth-denied', 'PA管理者としてログインしてください。');
+    if (options.embeddedPreview) announcePreview(windowImpl, route, 'error', 'not_authorized');
     return { ok: false, code: 'not_authorized' };
+  }
+
+  if (options.embeddedPreview) {
+    revealEditor();
+    const editor = await loadEngine();
+    return bootEmbeddedPreview({ route, editor, windowImpl, documentImpl });
   }
 
   const localDependencies = /^(?:127\.0\.0\.1|localhost)$/i.test(String(windowImpl.location.hostname || ''))
@@ -204,6 +279,7 @@ export async function bootStagePlotPage({
     saveStatus: documentImpl.getElementById('stagePlotSaveStatus'),
   });
   page.initialize(route.mode === 'edit' ? prefetched : null);
+  configureRouteActions({ route, options, editor, windowImpl, documentImpl });
   windowImpl.addEventListener('ara:stage-plot-change', event => page.handleEditorChange(event.detail));
   windowImpl.addEventListener('beforeunload', event => page.beforeUnload(event));
   page.saveButton?.addEventListener('click', () => page.save().catch(() => {}));

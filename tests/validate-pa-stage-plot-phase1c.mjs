@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
+const html = read('pa-case-portal.html');
+const css = read('pa-case-portal.css');
+const portal = read('js/pa-case-portal.js');
+const editorHtml = read('pa-stage-plot-editor.html');
+const editorPage = read('js/stage-plot/stage-plot-page.mjs');
+const editorCss = read('css/stage-plot-editor.css');
+const api = read('api/pa-portal.js');
+const vercel = JSON.parse(read('vercel.json'));
+
+assert.match(html, /<h2>出演者資料<\/h2>[\s\S]+id="stage-plot-admin-area"/u);
+assert.doesNotMatch(html, /<h2>ステージプロット<\/h2>/u, 'Stage Plot must not become a top-level Portal section');
+assert.match(html, /ステージプロットはまだありません|stage-plot-content/u);
+assert.match(html, /＋ ステージプロットを作成/u);
+assert.match(portal, /portalRequest\("stage_plot_list"\)/u);
+assert.match(portal, /portalRequest\("stage_plot_get", \{ stage_plot_id: plotId \}\)/u);
+assert.match(portal, /sortStagePlots/u);
+assert.match(portal, /IntersectionObserver/u);
+assert.match(portal, /stagePlotPreviewCache/u);
+assert.match(portal, /プレビューを表示できません/u);
+assert.match(portal, /frame\.src = stagePlotUrls\(plot\.id\)\.preview/u);
+assert.match(portal, /frame\.setAttribute\("sandbox", "allow-scripts allow-same-origin"\)/u);
+assert.match(portal, /event\.origin !== location\.origin/u);
+assert.match(portal, /record\.case_id !== caseId/u);
+assert.match(portal, /document\.querySelector\("#stage-plot-admin-area"\)\?\.remove/u);
+assert.match(portal, /event\.persisted[\s\S]+refreshStagePlots/u);
+assert.match(portal, /plot\.id/u, 'card and actions remain plot-id keyed');
+assert.match(portal, /&print=1/u);
+assert.match(editorHtml, /id="stagePlotPortalLink"[^>]+>資料ポータルへ戻る/u);
+assert.match(editorHtml, /stagePlotPrintStageBtn/u);
+assert.match(editorHtml, /stagePlotPrintSetlistBtn/u);
+assert.match(editorPage, /\/pa\/cases\/\$\{encodeURIComponent\(caseId\)\}\/portal/u);
+assert.match(editorPage, /print-stage-only/u);
+assert.match(editorPage, /print-setlist-only/u);
+assert.match(editorPage, /stage-plot-preview-mode/u);
+assert.match(editorPage, /event\.source !== windowImpl\.parent/u);
+assert.match(css, /stage-plot-card__preview/u);
+assert.match(css, /stage-plot-large-frame/u);
+assert.match(editorCss, /body\.stage-plot-preview-mode/u);
+assert.match(editorCss, /@page stageSheet \{ size: A4 landscape/u);
+assert.match(editorCss, /@page setList \{ size: A4 portrait/u);
+
+for (const action of ['stage_plot_list', 'stage_plot_get']) assert.match(api, new RegExp(`input\\.action === "${action}"`, 'u'));
+assert.equal(fs.readdirSync(path.join(root, 'api')).filter(name => name.endsWith('.js')).length, 12);
+assert.equal(fs.readdirSync(path.join(root, 'supabase', 'migrations')).some(name => name.includes('phase1c')), false);
+assert.doesNotMatch(portal, /stage_plot_(?:create|save)|pa_portal_document_versions/u, 'Portal projection must not write or mirror Stage Plot state');
+const editorHeaders = vercel.headers.find(rule => rule.source === '/pa-stage-plot-editor.html');
+assert.match(JSON.stringify(editorHeaders), /frame-ancestors 'self'/u);
+
+console.log('PASS validate-pa-stage-plot-phase1c');

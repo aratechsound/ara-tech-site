@@ -29,8 +29,11 @@ let sourceCandidates = [];
 let candidateInbox = { pending_count: 0, candidates: [], cards: [] };
 let manageSubmit = null;
 let issuedShareUrl = "";
+let stagePlotObserver = null;
+let stagePlotRefreshPromise = null;
+const stagePlotPreviewCache = new Map();
 const organizerMode = /^\/event-portal\/?$/u.test(location.pathname);
-if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); }
+if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); document.querySelector("#stage-plot-admin-area")?.remove(); }
 
 const text = (value, fallback = "未設定") => String(value || "").trim() || fallback;
 const dateText = (value) => value ? new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`)) : "未設定";
@@ -114,6 +117,7 @@ const closePreview = () => {
     previewRequest += 1;
     const dialog = $("#preview-dialog");
     if (dialog.open) dialog.close();
+    $("#preview-dialog-body").classList.remove("stage-plot-large-preview");
     $("#preview-dialog-body").replaceChildren();
 };
 const showPreview = async (item) => {
@@ -475,6 +479,248 @@ const portalRequest = async (action, extra = {}) => {
     if (!response.ok) throw new Error(payload?.code || "portal_request_failed");
     return payload.result;
 };
+
+const stagePlotOrderNumber = (value) => {
+    const match = String(value || "").match(/\d+/u);
+    return match ? Number(match[0]) : null;
+};
+const sortStagePlots = (plots) => plots.map((plot, index) => ({ plot, index })).sort((a, b) => {
+    const left = stagePlotOrderNumber(a.plot.performer_order);
+    const right = stagePlotOrderNumber(b.plot.performer_order);
+    if (left === null && right !== null) return 1;
+    if (left !== null && right === null) return -1;
+    if (left !== null && right !== null && left !== right) return left - right;
+    return a.index - b.index;
+}).map(({ plot }) => plot);
+const stagePlotUrls = (plotId = "") => {
+    const query = new URLSearchParams({ caseId });
+    if (plotId) query.set("plotId", plotId);
+    const editor = `/pa-stage-plot-editor.html?${query}`;
+    return {
+        create: editor,
+        edit: editor,
+        preview: plotId ? `${editor}&preview=1&embedded=1` : "",
+        print: plotId ? `${editor}&print=1` : ""
+    };
+};
+const stagePlotDuration = (plot) => {
+  const value = plot.duration_minutes;
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))
+    ? `${Number(value)}分`
+    : "未設定";
+};
+const stagePlotState = (plot) => {
+    const plotId = String(plot.id || "");
+    if (!stagePlotPreviewCache.has(plotId)) {
+        const request = portalRequest("stage_plot_get", { stage_plot_id: plotId }).then((record) => {
+            if (!record || record.id !== plotId || record.case_id !== caseId || !record.state) throw new Error("stage_plot_case_mismatch");
+            return record.state;
+        });
+        stagePlotPreviewCache.set(plotId, request);
+    }
+    return stagePlotPreviewCache.get(plotId);
+};
+const previewFallback = (host, message = "プレビューを表示できません") => {
+    host.querySelector("iframe")?.remove();
+    const fallback = document.createElement("span");
+    fallback.className = "stage-plot-preview-fallback";
+    fallback.textContent = message;
+    host.querySelector(".stage-plot-preview-loading")?.remove();
+    host.prepend(fallback);
+};
+const attachStagePlotFrame = (host, plot, state, { large = false } = {}) => {
+    const frame = document.createElement("iframe");
+    frame.className = large ? "stage-plot-large-frame" : "stage-plot-preview-frame";
+    frame.title = `${text(plot.performer_name, "出演者名未設定")}のステージプロット${large ? "拡大表示" : "プレビュー"}`;
+    frame.src = stagePlotUrls(plot.id).preview;
+    frame.loading = large ? "eager" : "lazy";
+    frame.referrerPolicy = "no-referrer";
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin");
+    host.prepend(frame);
+    let settled = false;
+    let timeout = 0;
+    const cleanup = () => { clearTimeout(timeout); window.removeEventListener("message", receive); };
+    const fail = () => { if (settled) return; settled = true; cleanup(); previewFallback(host); };
+    const receive = (event) => {
+        if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+        const message = event.data;
+        if (message?.type !== "ara-stage-plot-preview" || message.caseId !== caseId || message.plotId !== plot.id) return;
+        if (message.status === "ready") {
+            frame.contentWindow.postMessage({ type: "ara-stage-plot-preview", status: "state", caseId, plotId: plot.id, state }, location.origin);
+            return;
+        }
+        if (message.status === "rendered") {
+            settled = true;
+            cleanup();
+            host.querySelector(".stage-plot-preview-loading")?.remove();
+            return;
+        }
+        if (message.status === "error") fail();
+    };
+    window.addEventListener("message", receive);
+    timeout = setTimeout(fail, 10000);
+};
+const loadStagePlotPreview = async (host, plot, options = {}) => {
+    if (host.dataset.previewStarted === "true") return;
+    host.dataset.previewStarted = "true";
+    try { attachStagePlotFrame(host, plot, await stagePlotState(plot), options); }
+    catch { previewFallback(host); }
+};
+const showStagePlotLarge = async (plot) => {
+    const requestId = ++previewRequest;
+    const dialog = $("#preview-dialog");
+    const body = $("#preview-dialog-body");
+    body.classList.remove("stage-plot-large-preview");
+    $("#preview-dialog-title").textContent = `${text(plot.performer_name, "出演者名未設定")} — ステージプロット`;
+    body.classList.add("stage-plot-large-preview");
+    const loading = document.createElement("span");
+    loading.className = "modal-loading stage-plot-preview-loading";
+    loading.textContent = "ステージプロットを読み込んでいます…";
+    body.replaceChildren(loading);
+    if (!dialog.open) dialog.showModal();
+    try {
+        const state = await stagePlotState(plot);
+        if (requestId !== previewRequest) return;
+        attachStagePlotFrame(body, plot, state, { large: true });
+    } catch {
+        if (requestId === previewRequest) previewFallback(body);
+    }
+};
+const makeStagePlotCard = (plot) => {
+    const card = document.createElement("article");
+    card.className = "stage-plot-card";
+    card.dataset.plotId = plot.id;
+    const preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "stage-plot-card__preview";
+    preview.setAttribute("aria-label", `${text(plot.performer_name, "出演者名未設定")}のステージプロットを大きく見る`);
+    const loading = document.createElement("span");
+    loading.className = "stage-plot-preview-loading";
+    loading.textContent = "プレビューを読み込んでいます…";
+    const zoom = document.createElement("span");
+    zoom.className = "stage-plot-preview-zoom";
+    zoom.textContent = "大きく見る";
+    preview.append(loading, zoom);
+    preview.addEventListener("click", () => showStagePlotLarge(plot));
+
+    const body = document.createElement("div");
+    body.className = "stage-plot-card__body";
+    const titleRow = document.createElement("div");
+    titleRow.className = "stage-plot-card__title-row";
+    const order = document.createElement("span");
+    order.className = "stage-plot-order";
+    order.textContent = text(plot.performer_order, "順番未設定");
+    const heading = document.createElement("h4");
+    heading.textContent = text(plot.performer_name, "出演者名未設定");
+    titleRow.append(order, heading);
+    const metadata = document.createElement("div");
+    metadata.className = "stage-plot-card__meta";
+    const performance = document.createElement("span");
+    performance.textContent = `出演時間：${text(plot.performance_time)}`;
+    const duration = document.createElement("span");
+    duration.textContent = `持ち時間：${stagePlotDuration(plot)}`;
+    metadata.append(performance, duration);
+    const status = document.createElement("div");
+    status.className = "stage-plot-card__status";
+    const revision = document.createElement("span");
+    revision.className = "stage-plot-revision";
+    revision.textContent = `Revision ${Number(plot.current_revision || 1)}`;
+    const updated = document.createElement("span");
+    updated.className = "stage-plot-updated";
+    updated.textContent = `更新：${documentTime({ created_at: plot.updated_at })}`;
+    status.append(revision, updated);
+    const actions = document.createElement("div");
+    actions.className = "stage-plot-card__actions";
+    const large = document.createElement("button");
+    large.type = "button";
+    large.className = "stage-plot-action";
+    large.textContent = "大きく見る";
+    large.addEventListener("click", () => showStagePlotLarge(plot));
+    const edit = document.createElement("a");
+    edit.className = "stage-plot-action";
+    edit.href = stagePlotUrls(plot.id).edit;
+    edit.textContent = "編集";
+    const print = document.createElement("a");
+    print.className = "stage-plot-action";
+    print.href = stagePlotUrls(plot.id).print;
+    print.textContent = "PDF / 印刷";
+    actions.append(large, edit, print);
+    body.append(titleRow, metadata, status, actions);
+    card.append(preview, body);
+    return { card, preview };
+};
+const renderStagePlots = (plots) => {
+    const target = $("#stage-plot-content");
+    stagePlotObserver?.disconnect();
+    stagePlotObserver = null;
+    target.replaceChildren();
+    if (!plots.length) {
+        const empty = document.createElement("div");
+        empty.className = "stage-plot-empty";
+        const heading = document.createElement("strong");
+        heading.textContent = "ステージプロットはまだありません";
+        const copy = document.createElement("span");
+        copy.textContent = "Editorで最初に保存した時だけStage Plotが作成されます。";
+        const create = document.createElement("a");
+        create.className = "stage-plot-action stage-plot-action--primary";
+        create.href = stagePlotUrls().create;
+        create.textContent = "＋ ステージプロットを作成";
+        empty.append(heading, copy, create);
+        target.append(empty);
+        return;
+    }
+    const previews = [];
+    sortStagePlots(plots).forEach((plot) => {
+        const { card, preview } = makeStagePlotCard(plot);
+        previews.push({ plot, preview });
+        target.append(card);
+    });
+    if (!("IntersectionObserver" in window)) {
+        previews.forEach(({ plot, preview }) => loadStagePlotPreview(preview, plot));
+        return;
+    }
+    stagePlotObserver = new IntersectionObserver((entries) => entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const match = previews.find(({ preview }) => preview === entry.target);
+        if (match) loadStagePlotPreview(match.preview, match.plot);
+        stagePlotObserver.unobserve(entry.target);
+    }), { rootMargin: "180px 0px" });
+    previews.forEach(({ preview }) => stagePlotObserver.observe(preview));
+};
+const renderStagePlotListFailure = () => {
+    const target = $("#stage-plot-content");
+    const error = document.createElement("div");
+    error.className = "stage-plot-list-error";
+    const heading = document.createElement("strong");
+    heading.textContent = "ステージプロットを読み込めませんでした";
+    const copy = document.createElement("span");
+    copy.textContent = "既存の出演者資料は引き続き利用できます。";
+    error.append(heading, copy);
+    target.replaceChildren(error);
+};
+const refreshStagePlots = async () => {
+    if (organizerMode || !accessToken || !caseId || !$("#stage-plot-admin-area")) return [];
+    if (stagePlotRefreshPromise) return stagePlotRefreshPromise;
+    stagePlotRefreshPromise = (async () => {
+        const target = $("#stage-plot-content");
+        const loading = document.createElement("div");
+        loading.className = "stage-plot-loading";
+        loading.textContent = "ステージプロットを読み込んでいます…";
+        target.replaceChildren(loading);
+        stagePlotObserver?.disconnect();
+        stagePlotPreviewCache.clear();
+        try {
+            const plots = await portalRequest("stage_plot_list");
+            renderStagePlots(Array.isArray(plots) ? plots : []);
+            return plots;
+        } catch {
+            renderStagePlotListFailure();
+            return [];
+        }
+    })();
+    try { return await stagePlotRefreshPromise; }
+    finally { stagePlotRefreshPromise = null; }
+};
 const asDocument = (version, card) => ({ ...version, asset_id: version.id || version.ref, asset_kind: "version", card_id: card.id || card.ref, logical_key: card.id || card.ref, logical_title: card.title, filename: version.display_filename, mime_type: version.mime_type, is_current: (version.id || version.ref) === (card.current_version_id || card.current_version_ref), can_edit: card.can_edit !== false });
 const asPhoto = (photo) => ({ ...photo, asset_id: photo.id || photo.ref, asset_kind: "photo", filename: photo.display_filename, occurred_at: photo.source_created_at || photo.created_at, can_edit: photo.can_edit !== false });
 const asCandidate = (candidate) => ({ ...candidate, asset_id: candidate.id, asset_kind: "candidate", filename: candidate.display_filename, occurred_at: candidate.source_created_at || candidate.detected_at });
@@ -633,6 +879,7 @@ const populate = async (item, progress) => {
     portalModel = await portalRequest("read");
     if (!portalModel) throw new Error("portal_not_initialized");
     renderPortalDocuments();
+    await refreshStagePlots();
 };
 const populateOrganizer = async () => {
     portalModel = await portalRequest("read");
@@ -662,6 +909,8 @@ const start = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { $("#portal-loading").hidden = true; $("#portal-login").hidden = false; return; }
     accessToken = session.access_token;
+    $("#stage-plot-admin-area").hidden = false;
+    $("#stage-plot-create").href = stagePlotUrls().create;
     const [{ data: item, error }, { data: progress }] = await Promise.all([supabase.from("pa_inquiries").select("*").eq("id", caseId).is("deleted_at", null).maybeSingle(), supabase.from("pa_case_progress").select("confirmed_event_date").eq("inquiry_id", caseId).maybeSingle()]);
     if (error || !item) { revealError("イベント情報を読み込めませんでした。"); return; }
     try { await populate(item, progress); $("#portal-loading").hidden = true; $("#portal").hidden = false; }
@@ -715,5 +964,8 @@ $("#candidate-backfill")?.addEventListener("click", async () => {
     try { await portalRequest("candidate_backfill", { idempotency_key: crypto.randomUUID() }); await refreshCandidateInbox(); showToast("過去メールの資料候補を確認しました"); }
     catch (error) { showToast(`過去メールを確認できませんでした（${error.message}）`); }
     finally { button.disabled = false; }
+});
+window.addEventListener("pageshow", (event) => {
+    if (event.persisted && !organizerMode && accessToken && caseId) refreshStagePlots();
 });
 start();

@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=1">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=2">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -624,7 +624,7 @@ button{cursor:pointer}
 </div>
   <div class="top-actions">
       <span class="history-status">履歴 <b id="historyCount">0</b> / 500</span>
-      <button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
+      <a id="stagePlotPortalLink" class="stage-plot-route-action" href="#">資料ポータルへ戻る</a><button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><button id="stagePlotPrintStageBtn" class="stage-plot-print-action" type="button">ステージ図をPDF / 印刷</button><button id="stagePlotPrintSetlistBtn" class="stage-plot-print-action" type="button">セットリストをPDF / 印刷</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
 </div>
 <div class="app">
   <aside class="panel left">
@@ -917,6 +917,6 @@ DJ卓横に100V×1
   </div>
 </div>
 
-<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=1"></script>
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=2"></script>
 </body>
 </html>

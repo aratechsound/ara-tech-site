@@ -192,8 +192,8 @@ assert.equal((html.match(/id="historyCount"/g) || []).length, 1);
 const editorHeaders = vercel.headers.find(item => item.source === '/pa-stage-plot-editor.html');
 assert.ok(editorHeaders);
 assert.match(JSON.stringify(editorHeaders), /no-store/);
-assert.match(JSON.stringify(editorHeaders), /frame-ancestors 'none'/);
-assert.equal(portalHtml.includes('pa-stage-plot-editor'), false);
-assert.equal(portalJs.includes('stage_plot_'), false);
+assert.match(JSON.stringify(editorHeaders), /frame-ancestors 'self'/);
+assert.equal(portalHtml.includes('stage-plot-admin-area'), true);
+assert.match(portalJs, /stage_plot_(?:list|get)/);
 
 console.log('PASS validate-pa-stage-plot-phase1b');

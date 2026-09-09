@@ -29,7 +29,8 @@ assert.match(client, /pdfjs-dist@6\.3\.289/u, "PDF first pages use pinned PDF.js
 assert.match(client, /GlobalWorkerOptions\.workerSrc\s*=\s*"\/pdfjs\/pdf\.worker\.min\.mjs\?v=6\.3\.289"/u, "PDF cards use the same-origin worker path that avoids the iOS Blob-worker path");
 assert.match(client, /getPage\(1\)|renderPdfPage\(item, 1/u, "PDF cards render the first page");
 assert.match(client, /document\.createElement\("canvas"\)/u, "PDF previews render to canvas without a browser toolbar");
-assert.doesNotMatch(client, /createElement\("object"\)|createElement\("iframe"\)/u, "no embedded browser PDF viewer exposes toolbar or blob UUID");
+assert.doesNotMatch(client, /createElement\("object"\)/u, "no embedded browser PDF viewer exposes toolbar or blob UUID");
+assert.match(client, /frame\.src = stagePlotUrls\(plot\.id\)\.preview/u, "the only iframe renderer is the shared Stage Plot Editor preview route");
 assert.match(gmailApi, /portal_documents/u, "server authorizes the portal metadata action");
 assert.match(portalApi, /verifyAdmin/u, "portal API is restricted to authenticated ARA-TECH admins");
 assert.match(portalMigration, /create table if not exists public\.pa_portal_document_cards/u, "logical document cards are additive");
