@@ -1,4 +1,5 @@
 const portal = require("./_pa-portal.cjs");
+const stagePlots = require("./_pa-stage-plots.cjs");
 const organizer = require("./_pa-portal-organizer.cjs");
 const { handleOrganizerPortal } = require("./_pa-portal-organizer-handler.cjs");
 const { streamAttachmentResponse } = require("./_pa-gmail.cjs");
@@ -19,7 +20,7 @@ module.exports = async (request, response) => {
     if (!applyOriginPolicy(request, response)) return json(response, 403, { ok: false, code: "invalid_origin" });
     try {
         const token = bearer(request); const user = await verifyAdmin(token); const input = body(request);
-        const mutation = !["read", "candidates", "download", "candidate_list", "candidate_download"].includes(input.action);
+        const mutation = !["read", "candidates", "download", "candidate_list", "candidate_download", "stage_plot_get", "stage_plot_list", "stage_plot_revision_list", "stage_plot_revision_get"].includes(input.action);
         const rate = await checkRateLimit({ request, policyName: mutation ? "PA_PORTAL_MUTATE" : "PA_PORTAL_READ", scope: user.id });
         if (!rate.allowed) { response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter))); return json(response, 429, { ok: false, code: "rate_limited" }); }
         if (input.action === "read") return json(response, 200, { ok: true, result: await portal.readPortal({ caseId: input.inquiry_id, accessToken: token }) });
@@ -28,13 +29,19 @@ module.exports = async (request, response) => {
         if (input.action === "candidate_list") return json(response, 200, { ok: true, result: await portal.candidateList({ caseId: input.inquiry_id, accessToken: token }) });
         if (input.action === "candidate_download") return streamAttachmentResponse(response, await portal.candidateDownload({ caseId: input.inquiry_id, accessToken: token, candidateId: input.candidate_id }));
         if (input.action === "candidate_backfill") return json(response, 200, { ok: true, result: await portal.candidateBackfill({ caseId: input.inquiry_id, actorId: user.id }) });
+        if (input.action === "stage_plot_create") return json(response, 200, { ok: true, result: await stagePlots.create({ caseId: input.inquiry_id, accessToken: token, state: input.state }) });
+        if (input.action === "stage_plot_get") return json(response, 200, { ok: true, result: await stagePlots.get({ caseId: input.inquiry_id, plotId: input.stage_plot_id, accessToken: token }) });
+        if (input.action === "stage_plot_list") return json(response, 200, { ok: true, result: await stagePlots.list({ caseId: input.inquiry_id, accessToken: token }) });
+        if (input.action === "stage_plot_save") return json(response, 200, { ok: true, result: await stagePlots.save({ caseId: input.inquiry_id, plotId: input.stage_plot_id, accessToken: token, state: input.state }) });
+        if (input.action === "stage_plot_revision_list") return json(response, 200, { ok: true, result: await stagePlots.revisionList({ caseId: input.inquiry_id, plotId: input.stage_plot_id, accessToken: token }) });
+        if (input.action === "stage_plot_revision_get") return json(response, 200, { ok: true, result: await stagePlots.revisionGet({ caseId: input.inquiry_id, plotId: input.stage_plot_id, revisionNo: input.revision_no, accessToken: token }) });
         if (["candidate_accept", "candidate_ignore"].includes(input.action)) return json(response, 200, { ok: true, result: await portal.candidateReview({ caseId: input.inquiry_id, candidateId: input.candidate_id, accessToken: token, decision: input.action === "candidate_accept" ? "accept" : "ignore", target: input.payload || {}, idempotencyKey: input.idempotency_key }) });
         if (["link_status", "link_create", "link_revoke", "link_rotate"].includes(input.action)) return json(response, 200, { ok: true, result: await organizer.manageLink({ accessToken: token, caseId: input.inquiry_id, action: input.action.slice(5), expiresAt: input.expires_at }) });
         return json(response, 200, { ok: true, result: await portal.mutate({ caseId: input.inquiry_id, accessToken: token, operation: input.action, payload: input.payload, idempotencyKey: input.idempotency_key }) });
     } catch (error) {
         const code = String(error?.message || "service_unavailable");
         if (code === "not_authorized") return json(response, 401, { ok: false, code });
-        if (/^(invalid_|active_link_exists|portal_not_found|inquiry_not_found|attachment_case_mismatch|candidate_|upload_case_mismatch|asset_case_mismatch|version_case_mismatch|card_case_mismatch|photo_case_mismatch|cannot_archive_current|portal_source_already_used|storage_409)/u.test(code)) return json(response, 400, { ok: false, code });
+        if (/^(invalid_|active_link_exists|portal_not_found|inquiry_not_found|stage_plot_|attachment_case_mismatch|candidate_|upload_case_mismatch|asset_case_mismatch|version_case_mismatch|card_case_mismatch|photo_case_mismatch|cannot_archive_current|portal_source_already_used|storage_409)/u.test(code)) return json(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return json(response, 503, { ok: false, code: "service_unavailable" });
         console.error("pa-portal operation failed", { diagnostic: /^storage_\d{3}$/u.test(code) ? code : "unclassified", error_type: String(error?.name || "Error").replace(/[^A-Za-z0-9_]/gu, "").slice(0, 80) });
         return json(response, 503, { ok: false, code: "service_unavailable" });
