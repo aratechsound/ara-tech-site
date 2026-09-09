@@ -9,12 +9,13 @@ const gmailService = require("../api/_pa-gmail.cjs");
 const root = path.resolve(__dirname, "..");
 const portalMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260908143000_pa_portal_document_management.sql"), "utf8");
 const candidateMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909060000_pa_portal_document_candidates.sql"), "utf8");
+const remediationMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20260909093000_pa_portal_candidate_canonical_identity.sql"), "utf8");
 const actor = "10000000-0000-4000-8000-000000000001";
 const outsider = "10000000-0000-4000-8000-000000000002";
 const caseA = "20000000-0000-4000-8000-000000000001";
 const caseB = "20000000-0000-4000-8000-000000000002";
 const uuid = () => crypto.randomUUID();
-const attachment = (id, filename, mime = "application/pdf", extra = {}) => ({ id, filename, mime_type: mime, size: 25_000, ...extra });
+const attachment = (id, filename, mime = "application/pdf", extra = {}) => ({ id, gmail_attachment_id: id, part_id: `part-${id}`, filename, mime_type: mime, size: 25_000, ...extra });
 const message = (id, direction, subject, attachments) => ({ id, direction, subject, attachments });
 const detect = async (db, proposals) => (await db.query("select public.pa_portal_candidate_detect($1,$2,$3::jsonb) result", [caseA, actor, JSON.stringify(proposals)])).rows[0].result;
 const review = async (db, candidateId, decision, target, key = uuid(), caseId = caseA) => (await db.query("select public.pa_portal_candidate_apply($1,$2,$3,$4::jsonb,$5) result", [caseId, candidateId, decision, JSON.stringify(target), key])).rows[0].result;
@@ -34,6 +35,50 @@ async function main() {
     assert.deepEqual(isolatedSuccess, { status: "complete", detected: 2, pending: 3 });
     const normalizedInline = gmailService.normalizeMessage({ id: "inline_mail", threadId: "inline_thread", internalDate: "1788900000000", payload: { headers: [{ name: "From", value: "customer@example.test" }], parts: [{ filename: "mail_signature_logo.png", mimeType: "image/png", headers: [{ name: "Content-ID", value: "<logo>" }, { name: "Content-Disposition", value: "inline" }], body: { attachmentId: "inline_logo", size: 12000 } }] } });
     assert.deepEqual({ inline: normalizedInline.attachments[0].inline, content_id: normalizedInline.attachments[0].content_id, content_disposition: normalizedInline.attachments[0].content_disposition }, { inline: true, content_id: "<logo>", content_disposition: "inline" });
+    const identityV1 = gmailService.normalizeMessage({ id: "variant_mail", threadId: "variant_thread", payload: { headers: [], parts: [{ partId: "2.1", filename: "stage_photo.jpg", mimeType: "image/jpeg", body: { attachmentId: "opaque_v1", size: 100 } }] } }).attachments[0];
+    const identityV2 = gmailService.normalizeMessage({ id: "variant_mail", threadId: "variant_thread", payload: { headers: [], parts: [{ partId: "2.1", filename: "stage_photo.jpg", mimeType: "image/jpeg", body: { attachmentId: "opaque_v2", size: 100 } }] } }).attachments[0];
+    assert.deepEqual([identityV1.id, identityV1.gmail_attachment_id, identityV1.part_id], ["opaque_v1", "opaque_v1", "2.1"]);
+    assert.equal(candidateService.canonicalAssetKey("variant_mail", identityV1.part_id), candidateService.canonicalAssetKey("variant_mail", identityV2.part_id), "opaque Gmail attachment-ID variants must share the stable message + MIME-part identity");
+    assert.notEqual(identityV1.id, identityV2.id, "fixture must exercise a changed Gmail attachment ID");
+
+    const stagePhoto = candidateService.suggestionFor({ filename: "ステージ写真（参考）.JPG", mime_type: "image/jpeg", subject: "音響・電源・会場資料" });
+    assert.deepEqual([stagePhoto.suggested_category, stagePhoto.confidence], ["photo", "medium"], "photo filename wins over a conflicting subject without unjustified HIGH");
+    const genericProductionPhoto = candidateService.suggestionFor({ filename: "R0012986.JPG", mime_type: "image/jpeg", subject: "音響・電源・会場資料" });
+    assert.deepEqual([genericProductionPhoto.suggested_category, genericProductionPhoto.confidence], ["photo", "low"], "generic image remains PHOTO but subject-only conflict lowers confidence");
+    assert.deepEqual([candidateService.suggestionFor({ filename: "venue_photo.jpg", mime_type: "image/jpeg", subject: "" }).suggested_category, candidateService.suggestionFor({ filename: "venue_photo.jpg", mime_type: "image/jpeg", subject: "" }).confidence], ["photo", "high"]);
+    assert.deepEqual([candidateService.suggestionFor({ filename: "会場配置図.jpg", mime_type: "image/jpeg", subject: "" }).suggested_category, candidateService.suggestionFor({ filename: "会場配置図.jpg", mime_type: "image/jpeg", subject: "" }).confidence], ["layout", "high"]);
+    assert.deepEqual([candidateService.suggestionFor({ filename: "配置図.pdf", mime_type: "application/pdf", subject: "" }).suggested_category, candidateService.suggestionFor({ filename: "配置図.pdf", mime_type: "application/pdf", subject: "" }).confidence], ["layout", "high"]);
+    assert.deepEqual([candidateService.suggestionFor({ filename: "タイムテーブル.pdf", mime_type: "application/pdf", subject: "" }).suggested_category, candidateService.suggestionFor({ filename: "タイムテーブル.pdf", mime_type: "application/pdf", subject: "" }).confidence], ["timetable", "high"]);
+    assert.notEqual(candidateService.suggestionFor({ filename: "stage_photo.pdf", mime_type: "application/pdf", subject: "" }).confidence, "high", "strong filename with conflicting MIME must not be HIGH");
+    assert.deepEqual([candidateService.suggestionFor({ filename: "IMG_0001.JPG", mime_type: "image/jpeg", subject: "" }).suggested_category, candidateService.suggestionFor({ filename: "IMG_0001.JPG", mime_type: "image/jpeg", subject: "" }).confidence], ["photo", "medium"]);
+    assert.notEqual(candidateService.suggestionFor({ filename: "会場配置図.jpg", mime_type: "image/jpeg", subject: "ステージ写真" }).confidence, "high", "conflicting filename and subject must not be HIGH");
+    assert.notEqual(candidateService.suggestionFor({ filename: "document.pdf", mime_type: "application/pdf", subject: "タイムテーブル" }).confidence, "high", "subject-only evidence must not be HIGH");
+    const sameNameBuilt = candidateService.buildProposals([message("same_message", "inbound", "", [
+        attachment("current_a", "same-name.pdf", "application/pdf", { part_id: "2", size: 4 }),
+        attachment("current_b", "same-name.pdf", "application/pdf", { part_id: "3", size: 4 })
+    ])], []);
+    const variantBytes = new Map([["historical_b", Buffer.from("BBBB")], ["current_a", Buffer.from("AAAA")], ["current_b", Buffer.from("BBBB")]]);
+    const preparedMappings = await candidateService.buildIdentityMappings({
+        caseId: caseA,
+        proposals: sameNameBuilt.proposals,
+        registered: [{ asset_kind: "version", asset_id: "30000000-0000-4000-8000-000000000001", source_type: "gmail_attachment", source_ref: { gmail_message_id: "same_message", gmail_attachment_id: "historical_b" }, display_filename: "same-name.pdf", mime_type: "application/pdf", canonical_attachment_key: null }],
+        attachmentVariantLoader: async ({ gmailAttachmentId }) => {
+            const bytes = variantBytes.get(gmailAttachmentId);
+            if (!bytes) throw new Error("fixture_attachment_missing");
+            return { bytes, size: bytes.length };
+        }
+    });
+    assert.equal(preparedMappings.mappings.length, 1, "same message and same filename still require one exact content-hash match");
+    assert.equal(preparedMappings.mappings[0].current_attachment_id, "current_b", "same-size different attachment must not be reconciled");
+    assert.equal(preparedMappings.mappings[0].gmail_part_id, "3", "canonical identity uses the stable MIME part, not the opaque attachment variant");
+    assert.match(preparedMappings.mappings[0].content_sha256, /^[a-f0-9]{64}$/u);
+    const unmatchedMappings = await candidateService.buildIdentityMappings({
+        caseId: caseA,
+        proposals: sameNameBuilt.proposals,
+        registered: [{ asset_kind: "version", asset_id: "30000000-0000-4000-8000-000000000002", source_type: "gmail_attachment", source_ref: { gmail_message_id: "same_message", gmail_attachment_id: "historical_missing" }, display_filename: "same-name.pdf", mime_type: "application/pdf", canonical_attachment_key: null }],
+        attachmentVariantLoader: async ({ gmailAttachmentId }) => ({ bytes: Buffer.from(gmailAttachmentId === "historical_missing" ? "CCCC" : gmailAttachmentId === "current_a" ? "AAAA" : "BBBB"), size: 4 })
+    });
+    assert.deepEqual([unmatchedMappings.mappings.length, unmatchedMappings.unresolved.length], [0, 1], "unmatched historical asset remains unresolved instead of being guessed by filename or size");
     const db = new PGlite();
     try {
         await db.exec(`
@@ -76,6 +121,7 @@ async function main() {
         const otherCard = (await db.query("select id from public.pa_portal_document_cards where portal_id=$1 and category='other' limit 1", [portalA])).rows[0]?.id || (await db.query("insert into public.pa_portal_document_cards(portal_id,category,title,card_kind,owner_kind,sort_order) values($1,'other','登録済み','collection','shared',50) returning id", [portalA])).rows[0].id;
         await db.query("insert into public.pa_portal_document_versions(card_id,source_type,source_key,source_ref,display_filename,mime_type,contributor_kind) values($1,'gmail_attachment','mail_in:already',$2::jsonb,'既に登録済み.pdf','application/pdf','organizer')", [otherCard, JSON.stringify({ gmail_message_id: "mail_in", gmail_attachment_id: "already" })]);
         await db.exec(candidateMigration);
+        await db.exec(remediationMigration);
 
         const cards = (await db.query("select id,category,title,card_kind,archived_at from public.pa_portal_document_cards where portal_id=$1", [portalA])).rows;
         const messages = [message("mail_in", "inbound", "イベント運営資料", inboundAttachments), message("mail_out", "outbound", "見積とイベント資料", outboundAttachments), message("mail_unbound", "inbound", "未紐付", unboundAttachments), message("mail_cross", "inbound", "別案件", crossAttachments)];
@@ -154,6 +200,7 @@ async function main() {
         await assert.rejects(db.query("select * from public.pa_portal_candidate_audit"), /permission denied/);
         await db.exec("reset role");
         await db.exec(candidateMigration);
+        await db.exec(remediationMigration);
         assert.equal(Number((await db.query("select count(*) n from public.pa_portal_document_candidates")).rows[0].n), 9, "migration replay must be additive and idempotent");
         console.log("PA portal candidate validation: PASS (detection, classification, idempotency, exclusions, atomic review, no auto-current, canonical Gmail refs, RLS/crossover)");
     } finally { await db.close(); }

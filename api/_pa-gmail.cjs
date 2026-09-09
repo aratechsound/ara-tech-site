@@ -120,6 +120,8 @@ const collectParts = (part, result = { plain: "", html: "", attachments: [] }) =
         const inline = /^inline(?:;|$)/iu.test(contentDisposition) || Boolean(contentId);
         result.attachments.push({
             id: reference,
+            gmail_attachment_id: String(part.body.attachmentId || ""),
+            part_id: String(part.partId || ""),
             filename: safeAttachmentFilename(part.filename),
             mime_type: mime || "application/octet-stream",
             size: Number(part.body.size || 0),
@@ -368,7 +370,12 @@ const recordSync = async ({ inquiryId, actorId, links, messages }, fetchImpl) =>
     return { attention, synced_at: new Date().toISOString() };
 };
 
-const detectCandidatesFailIsolated = ({ inquiryId, actorId, messages }, fetchImpl = fetch, detectImpl = detectCandidates) => detectImpl({ caseId: inquiryId, actorId, messages }, fetchImpl)
+const detectCandidatesFailIsolated = ({ inquiryId, actorId, messages }, fetchImpl = fetch, detectImpl = detectCandidates) => detectImpl({
+    caseId: inquiryId,
+    actorId,
+    messages,
+    attachmentVariantLoader: getBoundAttachmentVariantBinary
+}, fetchImpl)
     .then((result) => ({ status: "complete", ...result }))
     .catch(() => ({ status: "unavailable" }));
 
@@ -393,22 +400,26 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     };
 };
 
-const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, fetchImpl = fetch) => {
+const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId, gmailPartId = "" }, fetchImpl = fetch) => {
     if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailAttachmentReference(gmailAttachmentId)) throw new Error("invalid_gmail_attachment");
     const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id,attachment_metadata", limit: "1" });
     const indexed = await selectRows("pa_gmail_message_index", query, fetchImpl);
     if (!Array.isArray(indexed) || !indexed[0]) throw new Error("gmail_attachment_not_indexed");
     const indexedAttachments = Array.isArray(indexed[0].attachment_metadata) ? indexed[0].attachment_metadata : [];
-    const indexedAttachment = indexedAttachments.find((attachment) => String(attachment?.id || "") === gmailAttachmentId);
+    const indexedAttachment = indexedAttachments.find((attachment) => String(attachment?.id || "") === gmailAttachmentId)
+        || (validGmailAttachmentReference(gmailPartId)
+            ? indexedAttachments.find((attachment) => String(attachment?.part_id || "") === gmailPartId)
+            : null);
     if (!indexedAttachment) throw new Error("gmail_attachment_not_indexed");
+    const indexedReference = String(indexedAttachment.id || "");
     const message = await gmailMessage(gmailMessageId, fetchImpl);
-    const part = attachmentPart(message.payload, gmailAttachmentId);
+    const part = attachmentPart(message.payload, indexedReference) || (gmailPartId ? attachmentPart(message.payload, gmailPartId) : null);
     // The persisted reference is scoped to this exact case/message before it is
     // used.  Gmail can omit an attachment part from a later full-message read,
     // while its attachment resource remains addressable by the indexed ID.
     // Prefer the freshly-read part (necessary for inline body.data), then fall
     // back only to that already-authorized indexed Gmail attachment ID.
-    const attachmentResourceId = String(part?.body?.attachmentId || (!part ? gmailAttachmentId : ""));
+    const attachmentResourceId = String(part?.body?.attachmentId || (!part ? indexedReference : ""));
     if (!part?.body && !attachmentResourceId) throw new Error("gmail_attachment_not_found");
     const payload = attachmentResourceId
         ? await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(attachmentResourceId)}`, {}, fetchImpl)
@@ -432,6 +443,23 @@ const getAttachmentBinary = async (input, fetchImpl = fetch) => {
         size: attachment.size,
         bytes: decodeAttachmentData(attachment.data)
     };
+};
+// Internal-only historical alias loader. The reference is supplied from an
+// already registered portal row, while case/message membership is rechecked
+// before Gmail is contacted. It is used only for bounded hash reconciliation;
+// no public route accepts an arbitrary historical attachment ID.
+const getBoundAttachmentVariantBinary = async ({ inquiryId, gmailMessageId, gmailAttachmentId }, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailAttachmentReference(gmailAttachmentId)) throw new Error("invalid_gmail_attachment");
+    const messageQuery = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id,gmail_thread_id", limit: "1" });
+    const indexed = await selectRows("pa_gmail_message_index", messageQuery, fetchImpl);
+    if (!Array.isArray(indexed) || !indexed[0] || !validGmailId(indexed[0].gmail_thread_id)) throw new Error("gmail_attachment_not_indexed");
+    const linkQuery = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_thread_id: `eq.${indexed[0].gmail_thread_id}`, select: "id", limit: "1" });
+    const links = await selectRows("pa_gmail_thread_links", linkQuery, fetchImpl);
+    if (!Array.isArray(links) || !links[0]) throw new Error("gmail_thread_not_linked");
+    const payload = await gmailJson(`/messages/${encodeURIComponent(gmailMessageId)}/attachments/${encodeURIComponent(gmailAttachmentId)}`, {}, fetchImpl);
+    const bytes = decodeAttachmentData(payload?.data);
+    if (!bytes || bytes.length > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
+    return { bytes, size: bytes.length };
 };
 // Metadata only: Gmail remains the binary authority and is fetched separately
 // through getAttachmentBinary after the exact case/message/attachment binding.
@@ -625,4 +653,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

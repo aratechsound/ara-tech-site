@@ -64,6 +64,8 @@ const opaqueAttachmentMessage = gmail.normalizeMessage({
 });
 assert.deepEqual(opaqueAttachmentMessage.attachments, [{
     id: "ANGjdJ9+opaque=",
+    gmail_attachment_id: "ANGjdJ9+opaque=",
+    part_id: "0.3",
     filename: "legacy-gmail-id.pdf",
     mime_type: "application/pdf",
     size: 173259
@@ -174,6 +176,43 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
     });
     assert.equal(indexedFallbackAttachment.filename, "indexed-only.pdf", "an index-bound Gmail attachment ID must remain retrievable when a later message read omits its MIME part");
     assert.equal(Buffer.from(indexedFallbackAttachment.data, "base64url").toString("utf8"), "indexed fallback attachment");
+
+    const canonicalFallbackAttachment = await gmail.getAttachment({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "historical_opaque",
+        gmailPartId: "2.1"
+    }, async (url) => {
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "current_opaque", part_id: "2.1", filename: "canonical.pdf", mime_type: "application/pdf" }] }]);
+        if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
+        if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{ partId: "2.1", filename: "canonical.pdf", mimeType: "application/pdf", body: { attachmentId: "current_opaque" } }] } });
+        if (url.includes("/messages/mail_123/attachments/current_opaque")) return jsonResponse({ data: base64Url("canonical resolver attachment") });
+        throw new Error(`unexpected URL: ${url}`);
+    });
+    assert.equal(canonicalFallbackAttachment.filename, "canonical.pdf");
+    assert.equal(Buffer.from(canonicalFallbackAttachment.data, "base64url").toString("utf8"), "canonical resolver attachment", "historical source_ref must resolve through the stable MIME part to the current Gmail attachment variant");
+
+    const historicalVariant = await gmail.getBoundAttachmentVariantBinary({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "historical_opaque"
+    }, async (url) => {
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", gmail_thread_id: "thread_123" }]);
+        if (url.includes("/rest/v1/pa_gmail_thread_links?")) return jsonResponse([{ id: "123e4567-e89b-42d3-a456-426614174001" }]);
+        if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
+        if (url.includes("/messages/mail_123/attachments/historical_opaque")) return jsonResponse({ data: base64Url("historical exact bytes") });
+        throw new Error(`unexpected URL: ${url}`);
+    });
+    assert.equal(historicalVariant.bytes.toString("utf8"), "historical exact bytes");
+    await assert.rejects(gmail.getBoundAttachmentVariantBinary({
+        inquiryId: "123e4567-e89b-42d3-a456-426614174000",
+        gmailMessageId: "mail_123",
+        gmailAttachmentId: "historical_opaque"
+    }, async (url) => {
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", gmail_thread_id: "thread_123" }]);
+        if (url.includes("/rest/v1/pa_gmail_thread_links?")) return jsonResponse([]);
+        throw new Error(`unexpected URL: ${url}`);
+    }), /gmail_thread_not_linked/u, "historical alias bytes must remain unavailable outside an exact case/thread binding");
 
     const attachmentCalls = [];
     const fetchedAttachment = await gmail.getAttachment({

@@ -77,7 +77,7 @@ const download = async ({ session, assetRef, kind }, fetchImpl = fetch) => {
     if (!/^[a-f0-9]{36}$/u.test(String(assetRef || "")) || !["version", "photo"].includes(kind)) throw new Error("invalid_asset");
     const asset = await serviceRpc("pa_portal_organizer_asset", { p_session_hash: sessionHash(session), p_asset_ref: assetRef, p_asset_kind: kind }, fetchImpl);
     if (!asset?.ok) throw new Error("asset_unavailable");
-    if (["gmail_attachment", "pa_attachment"].includes(asset.source_type)) return getAttachmentBinary({ inquiryId: asset.case_id, gmailMessageId: asset.source_ref.gmail_message_id, gmailAttachmentId: asset.source_ref.gmail_attachment_id }, fetchImpl);
+    if (["gmail_attachment", "pa_attachment"].includes(asset.source_type)) return getAttachmentBinary({ inquiryId: asset.case_id, gmailMessageId: asset.source_ref.gmail_message_id, gmailAttachmentId: asset.source_ref.gmail_attachment_id, gmailPartId: asset.gmail_part_id || "" }, fetchImpl);
     const response = await portal.storageRequest(asset.source_ref.storage_path, { method: "GET" }, fetchImpl);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (crypto.createHash("sha256").update(bytes).digest("hex") !== asset.source_ref.sha256) throw new Error("asset_identity_mismatch");

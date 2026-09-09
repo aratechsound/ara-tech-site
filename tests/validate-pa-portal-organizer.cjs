@@ -7,6 +7,8 @@ const organizer = require("../api/_pa-portal-organizer.cjs");
 
 const migrationA = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260908143000_pa_portal_document_management.sql"), "utf8");
 const migrationB = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260908213000_pa_portal_organizer_access.sql"), "utf8");
+const migrationC = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260909060000_pa_portal_document_candidates.sql"), "utf8");
+const migrationR1 = fs.readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20260909093000_pa_portal_candidate_canonical_identity.sql"), "utf8");
 const actor = "10000000-0000-4000-8000-000000000001";
 const caseA = "20000000-0000-4000-8000-000000000001";
 const caseB = "20000000-0000-4000-8000-000000000002";
@@ -24,19 +26,21 @@ async function main() {
       create table public.work_admins(user_id uuid primary key references auth.users(id));
       create function public.is_work_admin() returns boolean language sql stable security definer set search_path='' as $$select exists(select 1 from public.work_admins where user_id=auth.uid())$$;
       create table public.pa_inquiries(id uuid primary key,deleted_at timestamptz,event_name text,event_date date,event_time text,venue text);
-      create table public.pa_gmail_message_index(gmail_message_id text primary key,gmail_thread_id text not null,inquiry_id uuid not null references public.pa_inquiries(id),message_source text,direction text not null,subject text not null default '',sent_at timestamptz,received_at timestamptz,indexed_at timestamptz not null default now(),attachment_metadata jsonb not null default '[]');
+      create table public.pa_gmail_thread_links(id uuid primary key default gen_random_uuid(),inquiry_id uuid not null references public.pa_inquiries(id),gmail_thread_id text not null unique);
+      create table public.pa_gmail_message_index(gmail_message_id text primary key,gmail_thread_id text not null,inquiry_id uuid not null references public.pa_inquiries(id),message_source text,direction text not null,from_address text not null default 'sender@example.test',to_addresses jsonb not null default '[]',cc_addresses jsonb not null default '[]',subject text not null default '',sent_at timestamptz,received_at timestamptz,indexed_at timestamptz not null default now(),attachment_metadata jsonb not null default '[]');
       insert into auth.users values('${actor}');insert into public.work_admins values('${actor}');
       insert into public.pa_inquiries values('${caseA}',null,'共同ポータル検証','2026-10-18','10:00〜15:30','検証会場'),('${caseB}',null,'別案件','2026-11-01','09:00〜10:00','別会場');
-      insert into public.pa_gmail_message_index values
+      insert into public.pa_gmail_thread_links(inquiry_id,gmail_thread_id) values('${caseA}','thread_a'),('${caseB}','thread_b');
+      insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,message_source,direction,subject,sent_at,received_at,indexed_at,attachment_metadata) values
       ('in_a','thread_a','${caseA}','gmail_received','inbound','主催者資料',now(),null,now(),'[{"id":"tt","filename":"タイムテーブル.pdf","mime_type":"application/pdf"},{"id":"layout","filename":"会場図.pdf","mime_type":"application/pdf"},{"id":"photo","filename":"主催者写真.jpg","mime_type":"image/jpeg"}]'),
       ('out_a','thread_a','${caseA}','pa_case_manager','outbound','ARA共有',now(),null,now(),'[{"id":"power","filename":"音響電源配置図.pdf","mime_type":"application/pdf"},{"id":"ara-photo","filename":"ARA写真.jpg","mime_type":"image/jpeg"}]'),
       ('in_b','thread_b','${caseB}','gmail_received','inbound','別案件',now(),null,now(),'[{"id":"other","filename":"別資料.pdf","mime_type":"application/pdf"}]');
       select set_config('request.jwt.claim.sub','${actor}',false);
     `);
-    await db.exec(migrationA); await db.exec(migrationB);
+    await db.exec(migrationA); await db.exec(migrationB); await db.exec(migrationC); await db.exec(migrationR1);
     const identity = await db.query("select count(*) n,count(distinct public_ref) d from pa_portal_document_cards");
     assert.equal(identity.rows[0].n, identity.rows[0].d);
-    await db.exec(migrationB);
+    await db.exec(migrationB); await db.exec(migrationR1);
     assert.equal(Number((await db.query("select count(*) n from pa_portal_access_links")).rows[0].n), 0);
 
     const raw = organizer.randomSecret();
