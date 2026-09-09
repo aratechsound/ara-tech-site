@@ -54,11 +54,7 @@ await context.addInitScript(({ expectedCase, editablePlot }) => {
   };
   window.__PA_PORTAL_TEST_DEPS__ = { createClient: () => ({ auth: { getSession: async () => ({ data: { session } }) }, from: builderFor }), pdfjsLib: { GlobalWorkerOptions: {}, getDocument() { throw new Error('not used'); } } };
   window.__ARA_STAGE_PLOT_PAGE_TEST_DEPS__ = {
-    createClient: () => ({ auth: { getSession: async () => ({ data: { session } }) } }),
-    persistence: { list: async () => [], get: async (caseId, plotId) => {
-      if (caseId !== expectedCase || plotId !== editablePlot.id) throw Object.assign(new Error('stage_plot_case_mismatch'), { code: 'stage_plot_case_mismatch' });
-      return editablePlot;
-    } }
+    createClient: () => ({ auth: { getSession: async () => ({ data: { session } }) } })
   };
 }, { expectedCase: caseA, editablePlot: records.get(plot3) });
 

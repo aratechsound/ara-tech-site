@@ -77,7 +77,7 @@ export class StagePlotPersistenceClient {
   async request(action, fields = {}) {
     const token = await this.getAccessToken();
     if (!token) throw new StagePlotApiError('not_authorized', 401);
-    const response = await this.fetchImpl(this.endpoint, {
+    const response = await this.fetchImpl.call(globalThis, this.endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
