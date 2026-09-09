@@ -142,6 +142,7 @@ await page.emulateMedia({ media: 'screen' });
 await loadFixture(overflow);
 const overflowEvidence = await page.evaluate(() => ({
   layout: window.StagePlotEditor.equipmentLayout(),
+  expectedItemCount: window.StagePlotEditor.equipmentRows('brought').length + window.StagePlotEditor.equipmentRows('requested').length,
   page1VisibleItems: [...document.querySelectorAll('#carryList .equip-row, #requestList .request-row')].filter(node => !node.hidden).length,
   pageCount: document.querySelectorAll('.print-equipment-page').length,
   firstSupplementItem: document.querySelector('.print-equipment-page td')?.textContent,
@@ -223,7 +224,7 @@ const checks = {
   cueTriggerDashed: cueVisual?.borderStyle.startsWith('dashed'),
   cueContinuousSolid: continuousVisual?.borderStyle === 'solid',
   equipmentFit: fitEvidence.layout.overflow === 0 && fitEvidence.supplementPages === 0,
-  equipmentAllOrNothing: overflowEvidence.layout.overflow === 27 && overflowEvidence.page1VisibleItems === 0 && overflowEvidence.firstSupplementItem === 'Brought item 1',
+  equipmentAllOrNothing: overflowEvidence.layout.overflow === overflowEvidence.expectedItemCount && overflowEvidence.page1VisibleItems === 0 && overflowEvidence.firstSupplementItem === 'Brought item 1',
   equipmentContinuation: overflowEvidence.pageCount >= 2,
   emptyEquipmentSectionsHidden: overflowEvidence.otherOnlyPages > 0 && overflowEvidence.emptySectionsOnOtherOnly === false,
   pageOrder: overflowEvidence.order[0]?.includes('print-stage-page') && overflowEvidence.order[1]?.includes('print-equipment-pages') && overflowEvidence.order[2]?.includes('print-setlist-pages'),

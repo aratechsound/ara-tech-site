@@ -377,7 +377,8 @@ body.stage-plot-preview-mode .transform-handle,
 body.stage-plot-preview-mode .engine-object.selected::after,
 body.stage-plot-preview-mode .add-equip,
 body.stage-plot-preview-mode .add-request,
-body.stage-plot-preview-mode .remove-equip { display: none !important; }
+body.stage-plot-preview-mode .remove-equip,
+body.stage-plot-preview-mode .equipment-dragcell { display: none !important; }
 .stage-plot-preview-loading .stage-plot-access-shell { background: #fff; min-height: 100vh; padding: 10px; }
 .stage-plot-preview-loading .stage-plot-access-card { border: 0; box-shadow: none; padding: 12px; text-align: center; }
 .stage-plot-preview-loading .stage-plot-access-card h1,
@@ -399,6 +400,13 @@ body.stage-plot-preview-mode .remove-equip { display: none !important; }
 .engine-object.category-brought .mic-svg line,
 .engine-object.category-brought .mic-svg circle { stroke: #d71920; }
 .engine-object.category-brought .mic-svg polygon { fill: #d71920; }
+.engine-object.category-brought .mon-svg rect { fill: #f3cfd2; stroke: #d71920; }
+.engine-object.category-brought .mon-svg polygon { fill: #d71920; }
+.equipment-dragcell { display: grid; place-items: center; min-width: 0; border-right: 1px solid #d0d0d0; }
+.equipment-drag-handle { width: 100%; height: 100%; min-height: 22px; padding: 0; border: 0 !important; background: transparent !important; color: #6d7780 !important; cursor: grab; touch-action: none; }
+.equipment-drag-handle:active { cursor: grabbing; }
+[data-source="auto"] input[readonly] { cursor: default; }
+[data-source="auto"] .remove-equip { visibility: hidden; }
 .transform-handle {
   position: absolute;
   z-index: 5;
@@ -672,7 +680,8 @@ body.stage-plot-preview-mode .remove-equip { display: none !important; }
     background: #f3cfd2 !important;
     color: #5f1013 !important;
   }
-  .carry.adaptive-equipment .remove-equip { display: none !important; }
+  .carry.adaptive-equipment .remove-equip,
+  .carry.adaptive-equipment .equipment-dragcell { display: none !important; }
 
   /* Continuation pages use the identical two-column rule: one outer border,
      one horizontal rule per row, and one quantity separator. */

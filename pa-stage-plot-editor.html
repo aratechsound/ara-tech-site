@@ -41,7 +41,7 @@ button{cursor:pointer}
 .equip-title{height:27px;display:flex;align-items:center;justify-content:space-between;padding:0 7px;border-bottom:1px solid #111;background:#f3f5f7;font-size:10.5px;font-weight:950}
 .equip-title button{border:1px solid #bfc9d2;background:#fff;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:900}
 .equip-list{display:grid}
-.equip-row{display:grid;grid-template-columns:minmax(0,1fr) 34px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
+.equip-row{display:grid;grid-template-columns:24px minmax(0,1fr) 34px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
 .equip-row:last-child{border-bottom:0}
 .equip-row input{width:100%;border:0;outline:none;padding:5px 6px;font-size:9.5px;background:transparent}
 .equip-row .qty{border-left:1px solid #d0d0d0;text-align:center}
@@ -53,7 +53,7 @@ button{cursor:pointer}
 }
 .equip-row.borrowed input{color:#5f1013;font-weight:800;background:transparent}
 .equip-row.borrowed button{background:rgba(255,255,255,.5);color:#8b1e24;border-left-color:rgba(139,30,36,.22)}
-.request-row{display:grid;grid-template-columns:minmax(0,1fr) 42px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
+.request-row{display:grid;grid-template-columns:24px minmax(0,1fr) 42px 22px;min-height:38px;border-bottom:1px solid #d0d0d0}
 .request-row:last-child{border-bottom:0}
 .request-row input{width:100%;border:0;outline:none;padding:5px 6px;font-size:9.5px;background:#fff}
 .request-row .qty{border-left:1px solid #d0d0d0;text-align:center}
@@ -72,7 +72,7 @@ button{cursor:pointer}
 .bahead{left:28px;top:56px}.bacabi{left:28px;top:115px}.jc{left:140px;top:132px}.seq{left:266px;top:18px}.di-seq{left:228px;top:26px}
 .ft{left:292px;top:122px}.kick{left:350px;top:168px}.ride{left:305px;top:192px}.sn{left:465px;top:98px}.ht{left:496px;top:144px}.hh{left:500px;top:54px}.c16{left:526px;top:195px}
 .gtHead{left:640px;top:110px}.gtCabi{left:640px;top:170px}.boxuma{left:172px;top:210px}.voiem{left:292px;top:338px}.baPos{left:160px;top:350px}.voPos{left:405px;top:358px}.gtPos{left:650px;top:350px}.acKey{left:182px;top:286px}.acVo{left:340px;top:456px}.mon1{left:80px;top:414px;transform:rotate(14deg)}.mon2{left:330px;top:414px;transform:rotate(-15deg)}.mon3{left:520px;top:414px;transform:rotate(13deg)}.mon4{left:705px;top:414px;transform:rotate(-13deg)}.micVo{left:408px;top:397px}.micGt{left:653px;top:397px}.micDr{left:500px;top:50px;transform:rotate(45deg)}
-.props{padding:9px}.props .field{margin-bottom:9px}.props .btnrow{gap:4px}.props .btnrow button{padding:5px 6px;font-size:9.5px}.props .style-box{padding:7px}.field{margin-bottom:11px}.field label{display:block;font-size:9.5px;font-weight:900;color:#65717c;margin-bottom:4px}.field input,.field select{width:100%;border:1px solid #ccd5dc;border-radius:7px;padding:7px 8px;font-size:11px}.btnrow{display:flex;gap:5px;flex-wrap:wrap}.btnrow button{border:1px solid #ccd5dc;background:#fff;border-radius:7px;padding:6px 7px;font-size:10px;font-weight:800}.style-box{border:1px solid #dce3e8;border-radius:8px;padding:8px;font-size:10px;color:#68737d}.swatches{display:flex;gap:7px;margin-top:7px}.sw{width:34px;height:22px;border:2px solid #111}.sw.red{background:#f3cfd2;border-color:#b84b51}.sw.white{background:#fff}
+.props{padding:9px}.props .field{margin-bottom:9px}.props .btnrow{gap:4px}.props .btnrow button{padding:5px 6px;font-size:9.5px}.props .style-box{padding:7px}.field{margin-bottom:11px}.field label{display:block;font-size:9.5px;font-weight:900;color:#65717c;margin-bottom:4px}.field input,.field select{width:100%;border:1px solid #ccd5dc;border-radius:7px;padding:7px 8px;font-size:11px}.btnrow{display:flex;gap:5px;flex-wrap:wrap}.btnrow button{border:1px solid #ccd5dc;background:#fff;border-radius:7px;padding:6px 7px;font-size:10px;font-weight:800}.style-box{border:1px solid #dce3e8;border-radius:8px;padding:8px;font-size:10px;color:#68737d}.swatches{display:flex;gap:7px;margin-top:7px}.sw{width:34px;height:22px;border:2px solid #111;padding:0}.sw.red{background:#f3cfd2;border-color:#b84b51}.sw.black{background:#111}.sw[aria-pressed="true"]{outline:3px solid #007bff;outline-offset:2px}
 
 .setlist{position:absolute;left:30px;right:30px;top:790px;height:380px;border:2px solid #111;background:#fff}
 .setlist-head{height:46px;border-bottom:2px solid #111;display:flex;align-items:center;justify-content:space-between;padding:0 12px}
@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=3">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=4">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -658,7 +658,7 @@ button{cursor:pointer}
         <option>借用・手配希望</option>
         <option>未指定</option>
       </select></div>
-      <div class="style-box">画面表示<div class="swatches"><div class="sw red" title="出演者持込"></div><div class="sw white" title="未指定・手配側"></div></div><div style="margin-top:5px;font-size:9px;color:#6d7780">持込＝薄い赤 / 借用・手配希望＝白地</div></div>
+      <div class="style-box">画面表示<div class="swatches"><button type="button" class="sw red" data-object-category="brought" title="出演者持込" aria-label="出演者持込（赤表示）"></button><button type="button" class="sw black" data-object-category="requested" title="借用・手配希望" aria-label="借用・手配希望（通常表示）"></button></div><div style="margin-top:5px;font-size:9px;color:#6d7780">持込＝薄い赤 / 借用・手配希望＝白地</div></div>
       <div class="btnrow" style="margin-top:10px"><button>複製</button><button>削除</button></div>
     </div>
   </aside>
@@ -944,6 +944,6 @@ DJ卓横に100V×1
   </div>
 </div>
 
-<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=5"></script>
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=6"></script>
 </body>
 </html>

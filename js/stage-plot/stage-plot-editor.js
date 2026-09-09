@@ -18,6 +18,8 @@
   const TOOLS = ['rect', 'circle', 'line', 'arrow', 'text', 'microphone', 'monitor', 'power'];
   const TYPE_LABELS = { rect: '四角形', circle: '円', line: '線', arrow: '矢印', text: 'テキスト', microphone: 'マイク', monitor: 'モニター', power: '100V' };
   const CATEGORY_LABELS = { brought: '出演者持込', requested: '借用・手配希望', unspecified: '未指定' };
+  const EQUIPMENT_KINDS = ['brought', 'requested'];
+  const EQUIPMENT_OBJECT_TYPES = new Set(['rect', 'circle', 'microphone', 'monitor', 'power']);
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const deep = value => JSON.parse(JSON.stringify(value));
@@ -33,6 +35,8 @@
   let undoStack = [];
   let redoStack = [];
   let pointerAction = null;
+  let draggedEquipment = null;
+  let equipmentPointerAction = null;
   let draggedSetId = null;
   let audioPlayer = null;
   let audioPlaybackStarted = false;
@@ -71,6 +75,66 @@
     const stroke = $('.mic-svg line', node)?.getAttribute('stroke')?.toLowerCase();
     if (stroke === '#d71920') return 'brought';
     return 'unspecified';
+  }
+
+  function normalizedEquipmentLabel(value) {
+    return String(value || '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('ja-JP');
+  }
+
+  function autoEquipmentKey(kind, label) {
+    return `auto:${kind}:${encodeURIComponent(normalizedEquipmentLabel(label))}`;
+  }
+
+  function manualEquipmentKey(item) {
+    return `manual:${item.id}`;
+  }
+
+  function projectedEquipment(objects, kind) {
+    const groups = new Map();
+    objects.forEach(object => {
+      if (object.category !== kind || !EQUIPMENT_OBJECT_TYPES.has(object.type)) return;
+      const normalized = normalizedEquipmentLabel(object.label);
+      if (!normalized) return;
+      const key = autoEquipmentKey(kind, normalized);
+      const current = groups.get(key);
+      if (current) {
+        current.qty = String(Number(current.qty) + 1);
+        current.objectIds.push(object.id);
+      } else {
+        groups.set(key, {
+          id: key,
+          key,
+          source: 'auto',
+          name: String(object.label || '').normalize('NFKC').trim().replace(/\s+/gu, ' '),
+          qty: '1',
+          detail: '',
+          objectIds: [object.id],
+        });
+      }
+    });
+    return [...groups.values()];
+  }
+
+  function equipmentOrderFor(existing, manualRows, objects, kind) {
+    const active = [
+      ...manualRows.map(manualEquipmentKey),
+      ...projectedEquipment(objects, kind).map(item => item.key),
+    ];
+    const activeSet = new Set(active);
+    const ordered = [];
+    (Array.isArray(existing) ? existing : []).forEach(key => {
+      const value = String(key || '');
+      if (activeSet.has(value) && !ordered.includes(value)) ordered.push(value);
+    });
+    active.forEach(key => { if (!ordered.includes(key)) ordered.push(key); });
+    return ordered;
+  }
+
+  function equipmentItems(kind, source = state) {
+    const manual = (source.equipment?.[kind] || []).map(item => ({ ...item, key: manualEquipmentKey(item), source: 'manual' }));
+    const automatic = projectedEquipment(source.objects || [], kind);
+    const byKey = new Map([...manual, ...automatic].map(item => [item.key, item]));
+    return equipmentOrderFor(source.equipment?.order?.[kind], manual, source.objects || [], kind).map(key => byKey.get(key)).filter(Boolean);
   }
 
   function parseInitialState() {
@@ -119,8 +183,9 @@
       },
       objects,
       equipment: {
-        brought: $$('#carryList .equip-row').map(row => ({ id: uid(), name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
-        requested: $$('#requestList .request-row').map(row => ({ id: uid(), name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        brought: $$('#carryList .equip-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        requested: $$('#requestList .request-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        order: { brought: [], requested: [] },
       },
       notes: $('.notes textarea')?.value || '',
       otherRequests: $('.other-request textarea')?.value || '',
@@ -174,7 +239,9 @@
       className: String(item.className || ''),
       html: String(item.html || objectHtml(item.type, item.label)),
     })) : deep(fallback.objects);
-    const row = item => ({ id: String(item.id || uid()), name: String(item.name || ''), qty: String(item.qty || ''), detail: String(item.detail || '') });
+    const row = item => ({ id: String(item.id || uid()), source: 'manual', name: String(item.name || ''), qty: String(item.qty || ''), detail: String(item.detail || '') });
+    const brought = Array.isArray(source.equipment?.brought) ? source.equipment.brought.map(row) : [];
+    const requested = Array.isArray(source.equipment?.requested) ? source.equipment.requested.map(row) : [];
     const audio = item => {
       const id = String(item.audioId || item.id || uid());
       return { id, audioId: id, fileName: String(item.fileName || item.name || '音源'), name: String(item.name || item.fileName || '音源'), mimeType: String(item.mimeType || item.type || ''), type: String(item.type || item.mimeType || ''), size: Number(item.size || 0) };
@@ -195,8 +262,12 @@
       metadata,
       objects,
       equipment: {
-        brought: Array.isArray(source.equipment?.brought) ? source.equipment.brought.map(row) : [],
-        requested: Array.isArray(source.equipment?.requested) ? source.equipment.requested.map(row) : [],
+        brought,
+        requested,
+        order: {
+          brought: equipmentOrderFor(source.equipment?.order?.brought, brought, objects, 'brought'),
+          requested: equipmentOrderFor(source.equipment?.order?.requested, requested, objects, 'requested'),
+        },
       },
       notes: String(source.notes || ''),
       otherRequests: String(source.otherRequests ?? source.otherRequest ?? ''),
@@ -355,6 +426,7 @@
       fontDefault: fontButtons[1],
       fontPlus: fontButtons[2],
       category: $('select', fields[4]),
+      swatches: $$('.sw[data-object-category]', $('.left .props')),
       duplicate: actionButtons[0],
       remove: actionButtons[1],
     };
@@ -364,7 +436,7 @@
     const parts = inspectorParts();
     const object = selectedObject();
     if (parts.title) parts.title.textContent = `選択中：${object?.label || '未選択'}`;
-    [parts.label, parts.rotation, parts.scale, parts.fontSize, parts.category, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, parts.duplicate, parts.remove].forEach(control => { if (control) control.disabled = !object; });
+    [parts.label, parts.rotation, parts.scale, parts.fontSize, parts.category, ...parts.swatches, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, parts.duplicate, parts.remove].forEach(control => { if (control) control.disabled = !object; });
     if (!object) return;
     if (document.activeElement !== parts.label) parts.label.value = object.label;
     if (document.activeElement !== parts.rotation) parts.rotation.value = `${object.rotation}°`;
@@ -372,6 +444,7 @@
     if (document.activeElement !== parts.fontSize) parts.fontSize.value = `${object.fontSize}`;
     if (parts.fontDefault) parts.fontDefault.textContent = '16px';
     parts.category.value = CATEGORY_LABELS[object.category];
+    parts.swatches.forEach(swatch => swatch.setAttribute('aria-pressed', String(swatch.dataset.objectCategory === object.category)));
   }
 
   function renderMetadata() {
@@ -482,17 +555,22 @@
     }));
   }
 
-  function equipmentRow(item, kind, index) {
+  function equipmentRow(item, kind) {
     const row = document.createElement('div');
     row.className = kind === 'brought' ? 'equip-row borrowed' : 'request-row';
-    row.innerHTML = `<input data-eq="${kind}" data-index="${index}" data-key="name" value="${escapeHtml(item.name)}" placeholder="${kind === 'brought' ? '持込機材' : '借りたい・用意してほしい機材'}"><input class="qty" data-eq="${kind}" data-index="${index}" data-key="qty" value="${escapeHtml(item.qty)}"><button type="button" class="remove-equip" data-remove-eq="${kind}" data-index="${index}">×</button>`;
+    row.draggable = true;
+    row.dataset.equipmentKind = kind;
+    row.dataset.equipmentKey = item.key;
+    row.dataset.source = item.source;
+    const manual = item.source === 'manual';
+    row.innerHTML = `<div class="equipment-dragcell"><button class="draghandle equipment-drag-handle" type="button" title="ドラッグして並び替え" aria-label="ドラッグして並び替え">⠿</button></div><input ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="name"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.name)}" placeholder="${kind === 'brought' ? '持込機材' : '借りたい・用意してほしい機材'}"><input class="qty" ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="qty"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.qty)}"><button type="button" class="remove-equip" ${manual ? `data-remove-eq="${kind}" data-manual-id="${escapeHtml(item.id)}"` : 'disabled aria-hidden="true"'}>×</button>`;
     return row;
   }
 
   function renderEquipment() {
-    for (const kind of ['brought', 'requested']) {
+    for (const kind of EQUIPMENT_KINDS) {
       const root = kind === 'brought' ? $('#carryList') : $('#requestList');
-      root.replaceChildren(...state.equipment[kind].map((item, index) => equipmentRow(item, kind, index)));
+      root.replaceChildren(...equipmentItems(kind).map(item => equipmentRow(item, kind)));
     }
     const notes = $('.notes textarea');
     const requests = $('.other-request textarea');
@@ -515,8 +593,8 @@
     const node = continuationNode();
     node.classList.toggle('has-overflow', hasOverflow);
     if (!hasOverflow) { node.replaceChildren(); return; }
-    const brought = state.equipment.brought;
-    const requested = state.equipment.requested;
+    const brought = equipmentItems('brought');
+    const requested = equipmentItems('requested');
     const perColumn = 12;
     const other = String(state.otherRequests || '').trim();
     const otherChunks = [];
@@ -546,6 +624,10 @@
   }
 
   function layoutEquipment() {
+    // Printing must consume the screen-layout decision that already built the
+    // continuation pages. Re-measuring the panel after print CSS is applied can
+    // incorrectly make an overflowing list appear to fit and remove those pages.
+    if (window.matchMedia?.('print').matches) return;
     const panel = $('.carry');
     const carryList = $('#carryList');
     const requestList = $('#requestList');
@@ -760,7 +842,7 @@
       if (key === 'rotation') object.rotation = Number(String(rawValue).replace('°', '').trim()) || 0;
       else if (key === 'scale') object.scale = clamp(Number(String(rawValue).replace('%', '').trim()) || 100, 30, 300);
       else if (key === 'fontSize') object.fontSize = clamp(Number(rawValue) || defaultFontSize(object.type), 8, 72);
-      else if (key === 'category') object.category = Object.entries(CATEGORY_LABELS).find(([, label]) => label === rawValue)?.[0] || 'unspecified';
+      else if (key === 'category') object.category = CATEGORY_LABELS[rawValue] ? rawValue : Object.entries(CATEGORY_LABELS).find(([, label]) => label === rawValue)?.[0] || 'unspecified';
       else {
         object[key] = String(rawValue);
         object.labelEdited = true;
@@ -842,7 +924,61 @@
   }
 
   function addEquipment(kind) {
-    commit(() => state.equipment[kind].push({ id: uid(), name: '', qty: '1', detail: '' }));
+    commit(() => state.equipment[kind].push({ id: uid(), source: 'manual', name: '', qty: '1', detail: '' }));
+  }
+
+  function reorderEquipment(kind, fromKey, toKey) {
+    if (!EQUIPMENT_KINDS.includes(kind) || !fromKey || !toKey || fromKey === toKey) return;
+    commit(() => {
+      const order = equipmentOrderFor(state.equipment.order?.[kind], state.equipment[kind], state.objects, kind);
+      const from = order.indexOf(fromKey);
+      const to = order.indexOf(toKey);
+      if (from < 0 || to < 0) return;
+      order.splice(to, 0, order.splice(from, 1)[0]);
+      state.equipment.order[kind] = order;
+    }, { source: 'equipment-reorder' });
+  }
+
+  function bindEquipmentReorder(root, kind) {
+    root.addEventListener('dragstart', event => {
+      const row = event.target.closest('[data-equipment-key]');
+      if (!row) return;
+      draggedEquipment = { kind, key: row.dataset.equipmentKey };
+      event.dataTransfer?.setData('text/plain', row.dataset.equipmentKey);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    root.addEventListener('dragover', event => event.preventDefault());
+    root.addEventListener('drop', event => {
+      event.preventDefault();
+      const row = event.target.closest('[data-equipment-key]');
+      if (draggedEquipment?.kind === kind && row) reorderEquipment(kind, draggedEquipment.key, row.dataset.equipmentKey);
+      draggedEquipment = null;
+    });
+    root.addEventListener('dragend', () => { draggedEquipment = null; });
+    root.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse') return;
+      const handle = event.target.closest('.equipment-drag-handle');
+      const row = handle?.closest('[data-equipment-key]');
+      if (!handle || !row) return;
+      equipmentPointerAction = { pointerId: event.pointerId, kind, fromKey: row.dataset.equipmentKey, toKey: row.dataset.equipmentKey, handle };
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) {}
+      event.preventDefault();
+    });
+    root.addEventListener('pointermove', event => {
+      if (!equipmentPointerAction || equipmentPointerAction.pointerId !== event.pointerId) return;
+      const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-equipment-key]');
+      if (row?.dataset.equipmentKind === kind) equipmentPointerAction.toKey = row.dataset.equipmentKey;
+      event.preventDefault();
+    });
+    const finishPointer = event => {
+      if (!equipmentPointerAction || equipmentPointerAction.pointerId !== event.pointerId) return;
+      const action = equipmentPointerAction;
+      equipmentPointerAction = null;
+      try { action.handle.releasePointerCapture?.(event.pointerId); } catch (_) {}
+      reorderEquipment(action.kind, action.fromKey, action.toKey);
+    };
+    root.addEventListener('pointerup', finishPointer);
+    root.addEventListener('pointercancel', () => { equipmentPointerAction = null; });
   }
 
   function addSetlistRow() {
@@ -907,8 +1043,8 @@
     context.fillStyle = brought ? '#f3cfd2' : '#fff';
     if (object.type === 'circle') { context.beginPath(); context.ellipse(0, 0, width / 2, height / 2, 0, 0, Math.PI * 2); context.fill(); context.stroke(); }
     else if (object.type === 'line' || object.type === 'arrow') { context.beginPath(); context.moveTo(-width / 2, 0); context.lineTo(width / 2 - (object.type === 'arrow' ? 12 : 0), 0); context.stroke(); if (object.type === 'arrow') { context.fillStyle = '#111'; context.beginPath(); context.moveTo(width / 2, 0); context.lineTo(width / 2 - 14, -7); context.lineTo(width / 2 - 14, 7); context.closePath(); context.fill(); } }
-    else if (object.type === 'microphone') { context.lineWidth = 3; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = '#111'; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
-    else if (object.type === 'monitor') { context.fillStyle = '#fff'; context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); context.fillStyle = '#111'; context.beginPath(); context.moveTo(-width / 2 + 3, -height / 2 + 3); context.lineTo(width / 2 - 3, -height / 2 + 3); context.lineTo(0, height / 4); context.closePath(); context.fill(); }
+    else if (object.type === 'microphone') { context.strokeStyle = brought ? '#d71920' : '#111'; context.lineWidth = 3; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
+    else if (object.type === 'monitor') { context.fillStyle = brought ? '#f3cfd2' : '#fff'; context.strokeStyle = brought ? '#d71920' : '#111'; context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(-width / 2 + 3, -height / 2 + 3); context.lineTo(width / 2 - 3, -height / 2 + 3); context.lineTo(0, height / 4); context.closePath(); context.fill(); }
     else if (object.type !== 'text') { context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); }
     if (!['line', 'arrow', 'microphone', 'monitor'].includes(object.type)) {
       context.fillStyle = brought ? '#5f1013' : '#111';
@@ -976,6 +1112,7 @@
     parts.fontDefault?.addEventListener('click', () => setObjectField('fontSize', 16));
     parts.fontPlus?.addEventListener('click', () => setObjectField('fontSize', (selectedObject()?.fontSize || 16) + 1));
     parts.category?.addEventListener('change', event => setObjectField('category', event.target.value));
+    parts.swatches.forEach(swatch => swatch.addEventListener('click', () => setObjectField('category', swatch.dataset.objectCategory)));
     parts.minus?.addEventListener('click', () => setObjectField('rotation', (selectedObject()?.rotation || 0) - 15));
     parts.zero?.addEventListener('click', () => setObjectField('rotation', 0));
     parts.plus?.addEventListener('click', () => setObjectField('rotation', (selectedObject()?.rotation || 0) + 15));
@@ -1033,7 +1170,11 @@
       const add = event.target.closest('.add-equip,.add-request');
       if (add) addEquipment(add.classList.contains('add-equip') ? 'brought' : 'requested');
       const remove = event.target.closest('[data-remove-eq]');
-      if (remove) commit(() => state.equipment[remove.dataset.removeEq].splice(Number(remove.dataset.index), 1));
+      if (remove) commit(() => {
+        const rows = state.equipment[remove.dataset.removeEq];
+        const index = rows.findIndex(item => item.id === remove.dataset.manualId);
+        if (index >= 0) rows.splice(index, 1);
+      });
       if (event.target.id === 'addSetRow') addSetlistRow();
       const deleteSet = event.target.closest('[data-delete-set]');
       if (deleteSet) commit(() => state.setlist.splice(Number(deleteSet.dataset.deleteSet), 1));
@@ -1080,7 +1221,10 @@
         }
       });
       const equipment = event.target.closest('[data-eq]');
-      if (equipment) commit(() => state.equipment[equipment.dataset.eq][Number(equipment.dataset.index)][equipment.dataset.key] = equipment.value);
+      if (equipment) commit(() => {
+        const row = state.equipment[equipment.dataset.eq].find(item => item.id === equipment.dataset.manualId);
+        if (row) row[equipment.dataset.key] = equipment.value;
+      });
       const setInput = event.target.closest('[data-set-index]');
       if (setInput) commit(() => {
         const row = state.setlist[Number(setInput.dataset.setIndex)];
@@ -1116,6 +1260,8 @@
     $('#setlistBody').addEventListener('dragstart', event => { draggedSetId = event.target.closest('[data-set-id]')?.dataset.setId || null; });
     $('#setlistBody').addEventListener('dragover', event => event.preventDefault());
     $('#setlistBody').addEventListener('drop', event => { event.preventDefault(); reorderSetlist(draggedSetId, event.target.closest('[data-set-id]')?.dataset.setId); draggedSetId = null; });
+    bindEquipmentReorder($('#carryList'), 'brought');
+    bindEquipmentReorder($('#requestList'), 'requested');
   }
 
   function exposeApi() {
@@ -1126,6 +1272,7 @@
       print: () => window.print(),
       stagePng: () => stageCanvas().toDataURL('image/png'),
       equipmentLayout: () => deep(equipmentLayout),
+      equipmentRows: kind => EQUIPMENT_KINDS.includes(kind) ? deep(equipmentItems(kind)) : [],
       audioPlayback: () => audioPlayer ? { paused: audioPlayer.paused, currentTime: audioPlayer.currentTime, src: audioPlayer.currentSrc, started: audioPlaybackStarted } : null,
       enterMobileEdit,
       exitMobileEdit,

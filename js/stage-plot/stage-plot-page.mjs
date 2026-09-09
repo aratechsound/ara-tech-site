@@ -6,7 +6,7 @@ import {
   parseStagePlotRoute,
 } from './stage-plot-persistence.mjs';
 
-const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=4';
+const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=5';
 const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
 
 function routeOptions(search = '') {
