@@ -5,6 +5,9 @@
   const PAGE_H = 1390;
   const STAGE_W = 830;
   const STAGE_H = 500;
+  const GRID_SPACING = 20;
+  const CENTER_X = STAGE_W / 2;
+  const GRID_ORIGIN_X = CENTER_X % GRID_SPACING;
   const HISTORY_LIMIT = 500;
   const STORE = 'ara-tech-stage-plot-canonical-v25';
   const TYPES = ['曲', 'SE', 'MC', 'BGM', 'End SE', 'その他'];
@@ -927,17 +930,17 @@
     context.fillStyle = '#fff';
     context.fillRect(0, 0, STAGE_W, STAGE_H);
     context.fillStyle = '#dbe7f0';
-    for (let x = 20; x < STAGE_W; x += 20) for (let y = 20; y < STAGE_H; y += 20) { context.beginPath(); context.arc(x, y, 1, 0, Math.PI * 2); context.fill(); }
+    for (let x = GRID_ORIGIN_X; x < STAGE_W; x += GRID_SPACING) for (let y = 20; y < STAGE_H; y += 20) { context.beginPath(); context.arc(x, y, 1, 0, Math.PI * 2); context.fill(); }
     context.strokeStyle = '#111';
     context.lineWidth = 2;
     context.strokeRect(1, 1, STAGE_W - 2, STAGE_H - 2);
     context.setLineDash([2, 4]);
     context.strokeStyle = '#bbb';
-    context.beginPath(); context.moveTo(STAGE_W / 2, 0); context.lineTo(STAGE_W / 2, STAGE_H); context.stroke();
+    context.beginPath(); context.moveTo(CENTER_X, 0); context.lineTo(CENTER_X, STAGE_H); context.stroke();
     context.setLineDash([]);
     context.fillStyle = '#777';
     context.font = '800 9px sans-serif';
-    context.textAlign = 'center'; context.fillText('ステージ奥 / UPSTAGE', STAGE_W / 2, 13); context.fillText('▼ 客席 / AUDIENCE ▼', STAGE_W / 2, STAGE_H - 6);
+    context.textAlign = 'center'; context.fillText('ステージ奥 / UPSTAGE', CENTER_X, 13); context.fillText('▼ 客席 / AUDIENCE ▼', CENTER_X, STAGE_H - 6);
     context.textAlign = 'left'; context.fillText('下手', 5, STAGE_H / 2); context.textAlign = 'right'; context.fillText('上手', STAGE_W - 5, STAGE_H / 2);
     state.objects.forEach(object => drawStageObject(context, object));
     return canvas;
