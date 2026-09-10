@@ -93,6 +93,7 @@ export function presetFromSelection(name, selectedObjects) {
 export function instantiatePreset(preset, anchor, createId) {
   const x = Number(anchor?.x) || 0;
   const y = Number(anchor?.y) || 0;
+  const groupIds = new Map();
   return [...(preset?.components || [])]
     .sort((a, b) => (Number(a.zOffset) || 0) - (Number(b.zOffset) || 0))
     .map(component => {
@@ -100,6 +101,10 @@ export function instantiatePreset(preset, anchor, createId) {
       delete copy.relativeX;
       delete copy.relativeY;
       delete copy.zOffset;
+      if (copy.groupId) {
+        if (!groupIds.has(copy.groupId)) groupIds.set(copy.groupId, createId());
+        copy.groupId = groupIds.get(copy.groupId);
+      }
       return { ...copy, id: createId(), x: x + (Number(component.relativeX) || 0), y: y + (Number(component.relativeY) || 0) };
     });
 }

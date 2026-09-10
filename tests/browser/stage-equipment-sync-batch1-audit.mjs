@@ -68,10 +68,10 @@ const color = () => page.evaluate(() => {
   const rect = node?.querySelector('.rect,.circle,.power-mark,.mon-svg rect');
   return line ? getComputedStyle(line).stroke : rect ? `${getComputedStyle(rect).backgroundColor}|${getComputedStyle(rect).stroke}` : '';
 });
-const inspectorInput = page.locator('.left .props .field').first().locator('input');
+const inspectorInput = page.locator('#objectLabelInput');
 const categorySelect = page.locator('.left .props select');
-const duplicateButton = page.locator('.left .props > .btnrow button').first();
-const deleteButton = page.locator('.left .props > .btnrow button').last();
+const duplicateButton = page.locator('.left .props [data-editor-action="duplicate"]');
+const deleteButton = page.locator('.left .props [data-editor-action="delete"]');
 
 await page.locator('.tool[data-tool="microphone"]').click();
 await page.locator('.sw[data-object-category="brought"]').click();

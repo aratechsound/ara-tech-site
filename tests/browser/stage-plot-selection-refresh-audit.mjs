@@ -55,14 +55,13 @@ await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememb
 
 const select = id => page.locator(`.engine-object[data-id="${id}"]`).click();
 const inspector = () => page.evaluate(() => {
-  const fields = [...document.querySelectorAll('.left .props .field')];
   return {
-    title: document.querySelectorAll('.left > .panel-title')[1]?.textContent,
-    label: fields[0]?.querySelector('input')?.value,
-    rotation: fields[1]?.querySelector('input')?.value,
-    scale: fields[2]?.querySelector('input')?.value,
-    fontSize: fields[3]?.querySelector('input')?.value,
-    category: fields[4]?.querySelector('select')?.value,
+    title: document.querySelector('#selectedTitle')?.textContent,
+    label: document.querySelector('#objectLabelInput')?.value,
+    rotation: document.querySelector('#objectRotationInput')?.value,
+    scale: document.querySelector('#objectScaleInput')?.value,
+    fontSize: document.querySelector('#objectFontSizeInput')?.value,
+    category: document.querySelector('#objectCategorySelect')?.value,
     swatches: [...document.querySelectorAll('.left .props .sw[data-object-category]')].map(swatch => [swatch.dataset.objectCategory, swatch.getAttribute('aria-pressed')]),
   };
 });
@@ -70,9 +69,9 @@ const inspector = () => page.evaluate(() => {
 await select('tom-a');
 const a = await inspector();
 // Keep the scale input focused, then select B. This reproduces the reported stale-value path.
-const scaleInput = page.locator('.left .props .field').nth(2).locator('input');
+const scaleInput = page.locator('#objectScaleInput');
 await scaleInput.focus();
-const activeBeforeB = await page.evaluate(() => document.activeElement === document.querySelectorAll('.left .props .field')[2].querySelector('input'));
+const activeBeforeB = await page.evaluate(() => document.activeElement === document.querySelector('#objectScaleInput'));
 await select('tom-b');
 const b = await inspector();
 await select('tom-a');

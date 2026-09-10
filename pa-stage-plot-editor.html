@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=5">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=6">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -624,55 +624,66 @@ button{cursor:pointer}
 </div>
   <div class="top-actions">
       <span class="history-status">履歴 <b id="historyCount">0</b> / 500</span>
-      <a id="stagePlotPortalLink" class="stage-plot-route-action" href="#">資料ポータルへ戻る</a><button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><button id="stagePlotPrintDocumentBtn" class="stage-plot-print-action" type="button">Adaptive PDF / 印刷</button><button id="stagePlotPrintStageBtn" class="stage-plot-print-action" type="button">ステージ図のみ</button><button id="stagePlotPrintSetlistBtn" class="stage-plot-print-action" type="button">進行のみ</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
+      <a id="stagePlotPortalLink" class="stage-plot-route-action" href="#">資料ポータルへ戻る</a><button class="clear-stage" id="clearAllBtn" type="button">全部消去</button><button class="reset-all" id="resetAllBtn" type="button">全部リセット</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button>JSON保存</button><button id="stagePlotSaveBtn" type="button" disabled>保存</button><button class="primary">PDF / PNG出力</button><button id="stagePlotPrintDocumentBtn" class="stage-plot-print-action" type="button">Adaptive PDF / 印刷</button><button id="stagePlotPrintStageBtn" class="stage-plot-print-action" type="button">ステージ図のみ</button><button id="stagePlotPrintSetlistBtn" class="stage-plot-print-action" type="button">進行のみ</button><span class="stage-plot-save-status" id="stagePlotSaveStatus" data-state="pending">認証確認中</span></div>
 </div>
 <div class="app">
   <aside class="panel left">
 
-    <div class="equipment-library-shell">
-      <button id="equipmentLibraryLauncher" class="equipment-library-launcher" type="button" aria-controls="equipmentLibraryFlyout" aria-expanded="false">機材ライブラリ</button>
-      <section id="equipmentLibraryFlyout" class="equipment-library-flyout" aria-label="機材ライブラリ" hidden>
-        <header><strong>機材ライブラリ</strong><button id="equipmentLibraryClose" type="button" aria-label="閉じる">×</button></header>
-        <input id="equipmentLibrarySearch" type="search" placeholder="機材・プリセットを検索" aria-label="機材・プリセットを検索">
-        <div id="equipmentLibraryItems" class="equipment-library-items"></div>
-        <label class="preset-selection-label">更新するプリセット<select id="customPresetSelect"><option value="">選択してください</option></select></label>
-        <div class="preset-actions"><button id="createCustomPreset" type="button">新規プリセット</button><button id="updateCustomPreset" type="button" disabled>プリセットに保存</button><button id="deleteCustomPreset" type="button" disabled>削除</button></div>
-        <small>カスタムプリセットはこのブラウザに保存</small>
-      </section>
-    </div>
-
     <div class="panel-title">図形・記号</div>
-    <div class="tools">
-      <div class="tool"><div class="tool-icon"><div class="ico-rect"></div></div><div><strong>四角形</strong><small>文字は自由入力</small></div></div>
-      <div class="tool"><div class="tool-icon"><div class="ico-circle"></div></div><div><strong>円</strong><small>文字は自由入力</small></div></div>
-      <div class="tool"><div class="tool-icon"><div class="ico-line"></div></div><div><strong>線</strong><small>回転・伸縮</small></div></div>
-      <div class="tool"><div class="tool-icon"><div class="ico-arrow"></div></div><div><strong>矢印</strong><small>方向・動線</small></div></div>
-      <div class="tool"><div class="tool-icon"><div class="ico-text">Abc</div></div><div><strong>テキスト</strong><small>自由入力</small></div></div>
-      <div class="tool"><div class="tool-icon">
+    <div class="tools" aria-label="図形・記号パレット">
+      <button class="tool" type="button" data-tool="rect" data-tooltip="四角形" aria-label="四角形"><span class="tool-icon"><span class="ico-rect"></span></span></button>
+      <button class="tool" type="button" data-tool="circle" data-tooltip="円・楕円" aria-label="円・楕円"><span class="tool-icon"><span class="ico-circle"></span></span></button>
+      <button class="tool" type="button" data-tool="line" data-tooltip="線" aria-label="線"><span class="tool-icon"><span class="ico-line"></span></span></button>
+      <button class="tool" type="button" data-tool="arrow" data-tooltip="矢印" aria-label="矢印"><span class="tool-icon"><span class="ico-arrow"></span></span></button>
+      <button class="tool" type="button" data-tool="text" data-tooltip="テキスト" aria-label="テキスト"><span class="tool-icon"><span class="ico-text">Abc</span></span></button>
+      <button class="tool" type="button" data-tool="microphone" data-tooltip="マイク" aria-label="マイク"><span class="tool-icon">
         <svg class="mic-svg" viewBox="0 0 160 180" aria-label="mic"><line x1="80" y1="28" x2="80" y2="148" stroke="#000" stroke-width="8"/><circle cx="80" cy="92" r="29" fill="#fff" stroke="#000" stroke-width="7"/><line x1="80" y1="54" x2="80" y2="130" stroke="#000" stroke-width="8"/><polygon points="80,8 56,38 104,38" fill="#000"/></svg>
-      </div><div><strong>マイク</strong><small>ステージ用記号</small></div></div>
-      <div class="tool"><div class="tool-icon">
+      </span></button>
+      <button class="tool" type="button" data-tool="monitor" data-tooltip="モニター" aria-label="モニター"><span class="tool-icon">
         <svg class="mon-svg" viewBox="0 0 220 180" aria-label="monitor"><rect x="30" y="34" width="160" height="112" fill="#fff" stroke="#000" stroke-width="9"/><polygon points="38,38 182,38 110,112" fill="#000"/></svg>
-      </div><div><strong>モニター</strong><small>ステージ用記号</small></div></div>
-      <div class="tool"><div class="tool-icon">
+      </span></button>
+      <button class="tool" type="button" data-tool="power" data-tooltip="100V" aria-label="100V"><span class="tool-icon">
         <div class="power-mark">100V</div>
-      </div><div><strong>100V</strong><small>電源位置</small></div></div>
+      </span></button>
+      <button id="equipmentLibraryLauncher" class="tool library-tool" type="button" data-tooltip="機材ライブラリ" aria-label="機材ライブラリ" aria-controls="equipmentLibraryFlyout" aria-expanded="false"><span class="tool-icon library-icon" aria-hidden="true">▦</span></button>
     </div>
+    <section id="equipmentLibraryFlyout" class="equipment-library-flyout" aria-label="機材ライブラリ" hidden>
+      <header><strong>機材ライブラリ</strong><button id="equipmentLibraryClose" type="button" aria-label="閉じる">×</button></header>
+      <input id="equipmentLibrarySearch" type="search" placeholder="機材・プリセットを検索" aria-label="機材・プリセットを検索">
+      <div id="equipmentLibraryItems" class="equipment-library-items"></div>
+      <label class="preset-selection-label">更新するプリセット<select id="customPresetSelect"><option value="">選択してください</option></select></label>
+      <div class="preset-actions"><button id="createCustomPreset" type="button">新規プリセット</button><button id="updateCustomPreset" type="button" disabled>プリセットに保存</button><button id="deleteCustomPreset" type="button" disabled>削除</button></div>
+      <small>お気に入り・最近使った機材・カスタムプリセットはこのブラウザに保存</small>
+    </section>
 
-    <div class="panel-title" style="border-top:1px solid var(--line)">選択中：Gt Head</div>
+    <div class="panel-title selected-title" id="selectedTitle" style="border-top:1px solid var(--line)">選択中：Gt Head</div>
     <div class="props">
-<div class="field"><label>ラベル</label><input value="Gt Head"></div>
-      <div class="field"><label>角度</label><input value="0°"><div class="btnrow" style="margin-top:5px"><button>-15°</button><button>0°</button><button>+15°</button></div></div>
-      <div class="field"><label>サイズ</label><input value="100%"><div class="btnrow" style="margin-top:5px"><button>100%に戻す</button></div></div>
-      <div class="field"><label>文字サイズ</label><div style="display:grid;grid-template-columns:1fr 34px;gap:5px;align-items:center"><input value="24" type="number" min="8" max="72" step="1"><span style="font-size:10px;color:#65717c;font-weight:800">px</span></div><div class="btnrow" style="margin-top:5px"><button>-</button><button>16px</button><button>+</button></div></div>
-      <div class="field"><label>機材区分</label><select>
-        <option>出演者持込</option>
-        <option>借用・手配希望</option>
-        <option>未指定</option>
-      </select></div>
-      <div class="field stroke-field"><label>線幅</label><div class="stroke-control"><button type="button" data-stroke-step="-0.5" aria-label="線幅を細く">−</button><input id="strokeWidthInput" type="number" min="0.5" max="8" step="0.5" value="2"><button type="button" data-stroke-step="0.5" aria-label="線幅を太く">＋</button><span>px</span></div></div>
-      <div class="style-box">画面表示<div class="swatches"><button type="button" class="sw red" data-object-category="brought" title="出演者持込" aria-label="出演者持込（赤表示）"></button><button type="button" class="sw black" data-object-category="requested" title="借用・手配希望" aria-label="借用・手配希望（通常表示）"></button></div><div style="margin-top:5px;font-size:9px;color:#6d7780">持込＝薄い赤 / 借用・手配希望＝白地</div></div>
-      <div class="btnrow" style="margin-top:10px"><button>複製</button><button>削除</button></div>
+      <div class="field always-label"><label for="objectLabelInput">ラベル</label><input id="objectLabelInput" value="Gt Head"></div>
+      <div class="inspector-accordion" id="inspectorAccordion">
+        <section class="inspector-section open"><button class="inspector-toggle" type="button" aria-expanded="true">位置・サイズ</button><div class="inspector-panel">
+          <div class="geometry-grid"><label>X<input id="objectXInput" type="number" step="1"></label><label>Y<input id="objectYInput" type="number" step="1"></label><label>Width<input id="objectWidthInput" type="number" min="6" max="830" step="1"></label><label>Height<input id="objectHeightInput" type="number" min="6" max="500" step="1"></label></div>
+          <div class="field"><label for="objectScaleInput">Scale</label><div class="inline-control"><input id="objectScaleInput" value="100%"><button id="scaleResetBtn" type="button">100%</button></div></div>
+          <label class="check-row"><input id="ratioLockInput" type="checkbox"> Ratio Lock</label>
+          <div class="field stroke-field"><label>線幅</label><div class="stroke-control"><button id="strokeMinusBtn" type="button" aria-label="線幅を細く">−</button><input id="strokeWidthInput" type="number" min="0.5" max="8" step="0.5" value="2"><button id="strokePlusBtn" type="button" aria-label="線幅を太く">＋</button><span>px</span></div></div>
+          <div class="field"><label for="objectRotationInput">角度</label><input id="objectRotationInput" value="0°"><div class="btnrow compact"><button id="rotationMinusBtn" type="button">−15°</button><button id="rotationZeroBtn" type="button">0°</button><button id="rotationPlusBtn" type="button">+15°</button></div></div>
+        </div></section>
+        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">文字</button><div class="inspector-panel" hidden>
+          <div class="field"><label for="objectFontSizeInput">文字サイズ</label><input id="objectFontSizeInput" value="16" type="number" min="8" max="72" step="1"><div class="btnrow compact"><button id="fontMinusBtn" type="button">−</button><button id="fontDefaultBtn" type="button">16px</button><button id="fontPlusBtn" type="button">＋</button></div></div>
+        </div></section>
+        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">機材区分・表示</button><div class="inspector-panel" hidden>
+          <div class="field"><label for="objectCategorySelect">機材区分</label><select id="objectCategorySelect"><option>出演者持込</option><option>借用・手配希望</option><option>未指定</option></select></div>
+          <div class="style-box">画面表示<div class="swatches"><button type="button" class="sw red" data-object-category="brought" aria-label="出演者持込（赤表示）"></button><button type="button" class="sw black white" data-object-category="requested" aria-label="借用・手配希望（白地・黒枠）"></button></div><small>持込＝薄い赤 / 借用・手配希望＝白地＋黒枠</small></div>
+        </div></section>
+        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">ラベル位置</button><div class="inspector-panel" hidden>
+          <div class="geometry-grid"><label>X offset<input id="labelOffsetXInput" type="number" step="1"></label><label>Y offset<input id="labelOffsetYInput" type="number" step="1"></label></div><button id="labelOffsetResetBtn" class="wide-action" type="button">既定位置へ戻す</button>
+        </div></section>
+        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">グループ / レイヤー</button><div class="inspector-panel" hidden>
+          <div class="action-grid"><button data-editor-action="group" type="button">Group</button><button data-editor-action="ungroup" type="button">Ungroup</button><button data-editor-action="lock" type="button">Lock / Unlock</button><button data-editor-action="duplicate" type="button">複製</button><button data-editor-action="front" type="button">最前面</button><button data-editor-action="forward" type="button">前へ</button><button data-editor-action="backward" type="button">後ろへ</button><button data-editor-action="back" type="button">最背面</button><button data-editor-action="delete" class="danger-text" type="button">削除</button></div>
+        </div></section>
+        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">ショートカット</button><div class="inspector-panel" hidden>
+          <dl class="shortcut-list"><div><dt>Delete / Backspace</dt><dd>削除</dd></div><div><dt>Ctrl/Cmd+C · V · D</dt><dd>コピー・貼付・複製</dd></div><div><dt>Alt/Option+Drag</dt><dd>ドラッグ複製</dd></div><div><dt>Shift+Drag / Rotate / Resize</dt><dd>軸・45°・比率固定</dd></div><div><dt>Ctrl/Cmd+G · Shift+G</dt><dd>グループ・解除</dd></div><div><dt>Ctrl/Cmd+Z · Shift+Z</dt><dd>Undo・Redo</dd></div><div><dt>Arrow · Shift+Arrow</dt><dd>1・10移動</dd></div><div><dt>Ctrl/Cmd+[ · ]</dt><dd>レイヤー移動（Shiftで端）</dd></div><div><dt>Esc</dt><dd>操作取消・選択解除</dd></div></dl>
+        </div></section>
+      </div>
     </div>
   </aside>
 
@@ -957,6 +968,14 @@ DJ卓横に100V×1
   </div>
 </div>
 
-<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=7"></script>
+<div class="reset-confirm" id="clearAllConfirm">
+  <div class="reset-dialog">
+    <h3>ステージ上の図形を全部消去しますか？</h3>
+    <p>イベント情報・セットリスト・案件との関連は残し、Stage objectsだけを消去します。Undoで1回で復元できます。</p>
+    <div class="dialog-actions"><button type="button" id="cancelClearAll">キャンセル</button><button type="button" class="danger" id="confirmClearAll">全部消去</button></div>
+  </div>
+</div>
+
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=8"></script>
 </body>
 </html>

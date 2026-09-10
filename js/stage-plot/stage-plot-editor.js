@@ -8,8 +8,12 @@
   const GRID_SPACING = 20;
   const CENTER_X = STAGE_W / 2;
   const GRID_ORIGIN_X = CENTER_X % GRID_SPACING;
+  const GRID_ORIGIN_Y = GRID_SPACING;
+  const SNAP_THRESHOLD = 6;
   const HISTORY_LIMIT = 500;
   const STORE = 'ara-tech-stage-plot-canonical-v25';
+  const EDITOR_UI_STORE = 'ara-tech-stage-plot-editor-ui:v1';
+  const LIBRARY_UI_STORE = 'ara-tech-stage-plot-library-ui:v1';
   const {
     BUILT_IN_PRESETS = [], createPresetStorage, instantiatePreset, presetFromSelection,
   } = window.__ARA_STAGE_PLOT_PRESETS__ || {};
@@ -39,6 +43,11 @@
   let undoStack = [];
   let redoStack = [];
   let pointerAction = null;
+  let stageClipboard = [];
+  let nudgeAction = null;
+  let contextMenuOpen = false;
+  let magnetEnabled = false;
+  let libraryUi = { favorites: [], recent: [] };
   let draggedEquipment = null;
   let equipmentPointerAction = null;
   let draggedSetId = null;
@@ -48,6 +57,14 @@
   const presetStorage = createPresetStorage?.();
   let userPresets = presetStorage?.load?.() || [];
   let activeCustomPresetId = '';
+
+  try {
+    const editorUi = JSON.parse(localStorage.getItem(EDITOR_UI_STORE) || 'null');
+    magnetEnabled = Boolean(editorUi?.magnetEnabled);
+    const storedLibraryUi = JSON.parse(localStorage.getItem(LIBRARY_UI_STORE) || 'null');
+    if (Array.isArray(storedLibraryUi?.favorites)) libraryUi.favorites = storedLibraryUi.favorites.map(String);
+    if (Array.isArray(storedLibraryUi?.recent)) libraryUi.recent = storedLibraryUi.recent.map(String).slice(0, 8);
+  } catch (_) {}
 
   function rotationFromTransform(transform) {
     if (!transform || transform === 'none') return 0;
@@ -246,6 +263,12 @@
         labelEdited: Boolean(item.labelEdited || !item.html),
         className: String(item.className || ''),
         html: String(item.html || ''),
+        labelOffsetX: number(item.labelOffsetX, 0, -STAGE_W, STAGE_W),
+        labelOffsetY: number(item.labelOffsetY, 0, -STAGE_H, STAGE_H),
+        ratioLocked: typeof item.ratioLocked === 'boolean' ? item.ratioLocked : ['line', 'arrow', 'text', 'microphone', 'monitor', 'power'].includes(item.type),
+        geometrySized: Boolean(item.geometrySized || item.symbolKind),
+        groupId: String(item.groupId || ''),
+        locked: Boolean(item.locked),
       };
       if (Number.isFinite(Number(item.strokeWidth))) object.strokeWidth = number(item.strokeWidth, 2, .5, 8);
       for (const key of ['physicalWidthMm', 'physicalDepthMm']) if (Number.isFinite(Number(item[key]))) object[key] = Number(item[key]);
@@ -380,12 +403,12 @@
 
   function objectMarkup(object) {
     const label = escapeHtml(object.label);
-    if (object.symbolKind === 'topview-equipment-split') return `<div class="rect topview-symbol is-split"><span>${label}</span><span>${escapeHtml(object.splitLabel)}</span></div>`;
-    if (object.symbolKind === 'topview-equipment') return `<div class="rect topview-symbol">${label}</div>`;
-    if (object.symbolKind === 'drum-kick') return `<div class="rect topview-symbol is-kick">${label}</div>`;
-    if (object.symbolKind === 'drum-pedal') return `<div class="rect topview-symbol is-pedal">${label}</div>`;
-    if (object.symbolKind === 'cymbal') return `<div class="circle topview-symbol is-cymbal">${label}</div>`;
-    if (object.symbolKind === 'drum-shell') return `<div class="circle topview-symbol is-drum-shell">${label}</div>`;
+    if (object.symbolKind === 'topview-equipment-split') return `<div class="rect topview-symbol is-split"><span class="object-label">${label}</span><span class="object-label">${escapeHtml(object.splitLabel)}</span></div>`;
+    if (object.symbolKind === 'topview-equipment') return `<div class="rect topview-symbol"><span class="object-label">${label}</span></div>`;
+    if (object.symbolKind === 'drum-kick') return `<div class="rect topview-symbol is-kick"><span class="object-label">${label}</span></div>`;
+    if (object.symbolKind === 'drum-pedal') return `<div class="rect topview-symbol is-pedal"><span class="object-label">${label}</span></div>`;
+    if (object.symbolKind === 'cymbal') return `<div class="circle topview-symbol is-cymbal"><span class="object-label">${label}</span></div>`;
+    if (object.symbolKind === 'drum-shell') return `<div class="circle topview-symbol is-drum-shell"><span class="object-label">${label}</span></div>`;
     return objectHtml(object.type, object.label);
   }
 
@@ -394,6 +417,12 @@
     wrapper.innerHTML = object.symbolKind ? objectMarkup(object) : (object.html || objectHtml(object.type, object.label));
     const labelNode = $('.rect,.circle,.power-mark,.engine-text', wrapper);
     if (labelNode && object.labelEdited && !object.symbolKind) labelNode.textContent = object.label;
+    if (labelNode && !object.symbolKind && !$('.object-label', labelNode)) {
+      const label = document.createElement('span');
+      label.className = 'object-label';
+      while (labelNode.firstChild) label.appendChild(labelNode.firstChild);
+      labelNode.appendChild(label);
+    }
     if (object.category === 'brought') $('.rect,.circle', wrapper)?.classList.add('borrow');
     else $('.rect,.circle', wrapper)?.classList.remove('borrow');
     return wrapper.innerHTML;
@@ -402,15 +431,16 @@
   function objectNode(object) {
     const node = document.createElement('div');
     const isSelected = selectedIds.has(object.id);
-    node.className = `obj engine-object ${object.className || ''} category-${object.category}${isSelected ? ' selected' : ''}${Number.isFinite(object.strokeWidth) ? ' has-custom-stroke' : ''}`.replace(/\s+/g, ' ').trim();
+    node.className = `obj engine-object ${object.className || ''} category-${object.category}${isSelected ? ' selected' : ''}${Number.isFinite(object.strokeWidth) ? ' has-custom-stroke' : ''}${object.geometrySized ? ' geometry-sized' : ''}${object.locked ? ' locked' : ''}`.replace(/\s+/g, ' ').trim();
     node.dataset.id = object.id;
     node.tabIndex = 0;
     node.setAttribute('role', 'button');
     node.setAttribute('aria-label', object.label || TYPE_LABELS[object.type]);
+    node.setAttribute('aria-disabled', String(object.locked));
     node.innerHTML = syncObjectContent(object);
     updateObjectNode(node, object);
-    if (selected === object.id && showHandles) {
-      node.insertAdjacentHTML('beforeend', '<button class="transform-handle rotate-handle" data-transform="rotate" type="button" aria-label="自由回転"></button><button class="transform-handle resize-handle nw" data-transform="resize" type="button" aria-label="左上からサイズ変更"></button><button class="transform-handle resize-handle ne" data-transform="resize" type="button" aria-label="右上からサイズ変更"></button><button class="transform-handle resize-handle se" data-transform="resize" type="button" aria-label="右下からサイズ変更"></button><button class="transform-handle resize-handle sw" data-transform="resize" type="button" aria-label="左下からサイズ変更"></button>');
+    if (selectedIds.size === 1 && selected === object.id && showHandles && !object.locked) {
+      node.insertAdjacentHTML('beforeend', '<button class="transform-handle rotate-handle" data-transform="rotate" type="button" aria-label="自由回転"></button><button class="transform-handle resize-handle nw" data-transform="resize-nw" type="button" aria-label="左上からサイズ変更"></button><button class="transform-handle resize-handle ne" data-transform="resize-ne" type="button" aria-label="右上からサイズ変更"></button><button class="transform-handle resize-handle se" data-transform="resize-se" type="button" aria-label="右下からサイズ変更"></button><button class="transform-handle resize-handle sw" data-transform="resize-sw" type="button" aria-label="左下からサイズ変更"></button><button class="transform-handle resize-handle n" data-transform="resize-n" type="button" aria-label="上辺から高さ変更"></button><button class="transform-handle resize-handle e" data-transform="resize-e" type="button" aria-label="右辺から幅変更"></button><button class="transform-handle resize-handle s" data-transform="resize-s" type="button" aria-label="下辺から高さ変更"></button><button class="transform-handle resize-handle w" data-transform="resize-w" type="button" aria-label="左辺から幅変更"></button>');
     }
     return node;
   }
@@ -418,9 +448,11 @@
   function updateObjectNode(node, object) {
     node.style.left = `${object.x}px`;
     node.style.top = `${object.y}px`;
-    if (object.symbolKind) {
+    if (object.symbolKind || object.geometrySized) {
       node.style.width = `${object.width}px`;
       node.style.height = `${object.height}px`;
+      node.style.setProperty('--object-width', `${object.width}px`);
+      node.style.setProperty('--object-height', `${object.height}px`);
     }
     node.style.transform = `rotate(${object.rotation}deg) scale(${object.scale / 100})`;
     node.style.transformOrigin = 'center';
@@ -432,14 +464,20 @@
     } else node.style.removeProperty('--object-stroke-width');
     const labelNode = $('.rect,.circle,.power-mark,.engine-text', node);
     if (labelNode) labelNode.style.fontSize = `${object.fontSize / (object.scale / 100)}px`;
+    $$('.object-label', node).forEach(label => {
+      label.style.position = 'relative';
+      label.style.left = `${object.labelOffsetX / Math.max(.01, object.scale / 100)}px`;
+      label.style.top = `${object.labelOffsetY / Math.max(.01, object.scale / 100)}px`;
+    });
   }
 
   function renderStage() {
     const stage = $('.stage');
-    $$('.stage > .obj').forEach(node => node.remove());
+    $$('.stage > .obj,.stage > .editor-overlay').forEach(node => node.remove());
     const fragment = document.createDocumentFragment();
     state.objects.forEach(object => fragment.appendChild(objectNode(object)));
     stage.appendChild(fragment);
+    renderEditorOverlays();
   }
 
   function selectedObject() {
@@ -450,6 +488,73 @@
     return state.objects.filter(object => selectedIds.has(object.id));
   }
 
+  function effectiveBounds(object) {
+    const scale = object.scale / 100;
+    const width = object.width * scale;
+    const height = object.height * scale;
+    return {
+      left: object.x + (object.width - width) / 2,
+      top: object.y + (object.height - height) / 2,
+      right: object.x + (object.width + width) / 2,
+      bottom: object.y + (object.height + height) / 2,
+      width,
+      height,
+      centerX: object.x + object.width / 2,
+      centerY: object.y + object.height / 2,
+    };
+  }
+
+  function boundsFor(objects) {
+    if (!objects.length) return null;
+    const boxes = objects.map(effectiveBounds);
+    const left = Math.min(...boxes.map(box => box.left));
+    const top = Math.min(...boxes.map(box => box.top));
+    const right = Math.max(...boxes.map(box => box.right));
+    const bottom = Math.max(...boxes.map(box => box.bottom));
+    return { left, top, right, bottom, width: right - left, height: bottom - top, centerX: (left + right) / 2, centerY: (top + bottom) / 2 };
+  }
+
+  function groupIdsFor(object) {
+    if (!object?.groupId) return [object?.id].filter(Boolean);
+    return state.objects.filter(item => item.groupId === object.groupId).map(item => item.id);
+  }
+
+  function expandSelectionGroups(ids) {
+    const expanded = new Set(ids);
+    state.objects.forEach(object => {
+      if (expanded.has(object.id) && object.groupId) state.objects.forEach(member => { if (member.groupId === object.groupId) expanded.add(member.id); });
+    });
+    return expanded;
+  }
+
+  function renderEditorOverlays() {
+    const stage = $('.stage');
+    $$('.editor-overlay', stage).forEach(node => node.remove());
+    const magnet = document.createElement('button');
+    magnet.type = 'button';
+    magnet.className = 'magnet-toggle editor-overlay';
+    magnet.dataset.editorAction = 'magnet';
+    magnet.setAttribute('aria-pressed', String(magnetEnabled));
+    magnet.textContent = `Magnet ${magnetEnabled ? 'ON' : 'OFF'}`;
+    stage.append(magnet);
+    const objects = selectedObjects();
+    if (objects.length < 2) return;
+    const box = boundsFor(objects);
+    const overlay = document.createElement('div');
+    overlay.className = 'selection-box editor-overlay';
+    overlay.dataset.selectionOverlay = 'true';
+    overlay.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
+    if (!objects.every(object => object.locked)) overlay.innerHTML = '<button class="transform-handle rotate-handle" data-transform="multi-rotate" type="button" aria-label="選択範囲を回転"></button><button class="transform-handle resize-handle nw" data-transform="multi-resize-nw" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle ne" data-transform="multi-resize-ne" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle se" data-transform="multi-resize-se" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle sw" data-transform="multi-resize-sw" type="button" aria-label="選択範囲をサイズ変更"></button>';
+    stage.append(overlay);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'selection-toolbar editor-overlay';
+    toolbar.dataset.selectionToolbar = 'true';
+    toolbar.style.left = `${clamp(box.left, 4, STAGE_W - 385)}px`;
+    toolbar.style.top = `${clamp(box.top - 70, 4, STAGE_H - 34)}px`;
+    toolbar.innerHTML = '<button data-editor-action="group" type="button">Group</button><button data-editor-action="lock" type="button">Lock</button><button data-editor-action="align-center" type="button">Align</button><button data-editor-action="distribute-horizontal" type="button">Distribute</button><button data-editor-action="center-equidistance" type="button">Center</button><button data-editor-action="mirror" type="button">Mirror</button><button data-editor-action="mirror-duplicate" type="button">Mirror＋</button>';
+    stage.append(toolbar);
+  }
+
   function selectOnly(id) {
     selected = id || null;
     selectedIds = id ? new Set([id]) : new Set();
@@ -457,32 +562,18 @@
   }
 
   function inspectorParts() {
-    const fields = $$('.left .props .field');
-    const actionButtons = $$('.left .props > .btnrow button');
-    const angleButtons = $$('button', fields[1]);
-    const sizeButtons = $$('button', fields[2]);
-    const fontButtons = $$('button', fields[3]);
-    const strokeButtons = $$('button', fields[5]);
     return {
-      title: $$('.left > .panel-title')[1],
-      label: $('input', fields[0]),
-      rotation: $('input', fields[1]),
-      minus: angleButtons[0],
-      zero: angleButtons[1],
-      plus: angleButtons[2],
-      scale: $('input', fields[2]),
-      scaleReset: sizeButtons[0],
-      fontSize: $('input', fields[3]),
-      fontMinus: fontButtons[0],
-      fontDefault: fontButtons[1],
-      fontPlus: fontButtons[2],
-      category: $('select', fields[4]),
-      strokeWidth: $('input', fields[5]),
-      strokeMinus: strokeButtons[0],
-      strokePlus: strokeButtons[1],
+      title: $('#selectedTitle'),
+      label: $('#objectLabelInput'),
+      x: $('#objectXInput'), y: $('#objectYInput'), width: $('#objectWidthInput'), height: $('#objectHeightInput'),
+      rotation: $('#objectRotationInput'), minus: $('#rotationMinusBtn'), zero: $('#rotationZeroBtn'), plus: $('#rotationPlusBtn'),
+      scale: $('#objectScaleInput'), scaleReset: $('#scaleResetBtn'), ratioLock: $('#ratioLockInput'),
+      fontSize: $('#objectFontSizeInput'), fontMinus: $('#fontMinusBtn'), fontDefault: $('#fontDefaultBtn'), fontPlus: $('#fontPlusBtn'),
+      category: $('#objectCategorySelect'),
+      strokeWidth: $('#strokeWidthInput'), strokeMinus: $('#strokeMinusBtn'), strokePlus: $('#strokePlusBtn'),
+      labelOffsetX: $('#labelOffsetXInput'), labelOffsetY: $('#labelOffsetYInput'), labelOffsetReset: $('#labelOffsetResetBtn'),
       swatches: $$('.sw[data-object-category]', $('.left .props')),
-      duplicate: actionButtons[0],
-      remove: actionButtons[1],
+      actions: $$('[data-editor-action]', $('.left .props')),
     };
   }
 
@@ -491,7 +582,8 @@
     const object = selectedObject();
     const objects = selectedObjects();
     if (parts.title) parts.title.textContent = objects.length > 1 ? `選択中：${objects.length}個` : `選択中：${object?.label || '未選択'}`;
-    [parts.label, parts.rotation, parts.scale, parts.fontSize, parts.category, ...parts.swatches, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, parts.duplicate, parts.remove].forEach(control => { if (control) control.disabled = !object; });
+    const controls = [parts.label, parts.x, parts.y, parts.width, parts.height, parts.rotation, parts.scale, parts.ratioLock, parts.fontSize, parts.category, parts.labelOffsetX, parts.labelOffsetY, parts.labelOffsetReset, ...parts.swatches, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, ...parts.actions];
+    controls.forEach(control => { if (control) control.disabled = !object; });
     const strokeObjects = objects.filter(item => item.type !== 'text');
     [parts.strokeWidth, parts.strokeMinus, parts.strokePlus].forEach(control => { if (control) control.disabled = !strokeObjects.length; });
     if (parts.strokeWidth) {
@@ -499,7 +591,10 @@
       parts.strokeWidth.placeholder = values.length > 1 ? '—' : '';
       parts.strokeWidth.value = values.length === 1 ? String(values[0]) : '';
     }
-    if (!object) return;
+    if (!object) {
+      [parts.label, parts.x, parts.y, parts.width, parts.height, parts.rotation, parts.scale, parts.fontSize, parts.category, parts.labelOffsetX, parts.labelOffsetY].forEach(control => { if (control && document.activeElement !== control) control.value = ''; });
+      return;
+    }
     // A selection is a read-only projection boundary.  The browser does not
     // move focus away from the prior inspector input until after pointerdown,
     // so preserving that focused value here would leak it onto the new object.
@@ -507,9 +602,24 @@
     if (hydrateSelection || document.activeElement !== parts.rotation) parts.rotation.value = `${object.rotation}°`;
     if (hydrateSelection || document.activeElement !== parts.scale) parts.scale.value = `${Math.round(object.scale * 10) / 10}%`;
     if (hydrateSelection || document.activeElement !== parts.fontSize) parts.fontSize.value = `${object.fontSize}`;
+    const box = boundsFor(objects);
+    const setValue = (control, value) => { if (control && (hydrateSelection || document.activeElement !== control)) control.value = Number.isFinite(value) ? String(Math.round(value * 10) / 10) : ''; };
+    setValue(parts.x, objects.length > 1 ? box.left : object.x);
+    setValue(parts.y, objects.length > 1 ? box.top : object.y);
+    setValue(parts.width, objects.length > 1 ? box.width : object.width * object.scale / 100);
+    setValue(parts.height, objects.length > 1 ? box.height : object.height * object.scale / 100);
+    setValue(parts.labelOffsetX, object.labelOffsetX);
+    setValue(parts.labelOffsetY, object.labelOffsetY);
+    if (parts.ratioLock) {
+      const ratioValues = new Set(objects.map(item => Boolean(item.ratioLocked)));
+      parts.ratioLock.indeterminate = ratioValues.size > 1;
+      parts.ratioLock.checked = ratioValues.size === 1 && Boolean(object.ratioLocked);
+    }
     if (parts.fontDefault) parts.fontDefault.textContent = '16px';
-    parts.category.value = CATEGORY_LABELS[object.category];
+    if (parts.category) parts.category.value = CATEGORY_LABELS[object.category];
     parts.swatches.forEach(swatch => swatch.setAttribute('aria-pressed', String(swatch.dataset.objectCategory === object.category)));
+    const lockButton = parts.actions.find(button => button.dataset.editorAction === 'lock');
+    if (lockButton) lockButton.textContent = objects.every(item => item.locked) ? 'Unlock' : 'Lock / Unlock';
   }
 
   function renderMetadata() {
@@ -844,13 +954,49 @@
     return [...BUILT_IN_PRESETS, ...userPresets];
   }
 
+  function presetCategory(preset) {
+    if (preset.kind === 'user') return 'Custom';
+    const id = String(preset.id || '');
+    if (/jc-120|jcm900/u.test(id)) return 'Guitar';
+    if (/svt-810/u.test(id)) return 'Bass';
+    if (/rd-300/u.test(id)) return 'Keyboard';
+    if (/drum/u.test(id)) return 'Drum';
+    return 'Other';
+  }
+
+  function saveLibraryUi() {
+    try { localStorage.setItem(LIBRARY_UI_STORE, JSON.stringify(libraryUi)); } catch (_) {}
+  }
+
+  function recordRecentPreset(id) {
+    libraryUi.recent = [id, ...libraryUi.recent.filter(value => value !== id)].slice(0, 8);
+    saveLibraryUi();
+  }
+
+  function toggleFavoritePreset(id) {
+    libraryUi.favorites = libraryUi.favorites.includes(id) ? libraryUi.favorites.filter(value => value !== id) : [...libraryUi.favorites, id];
+    saveLibraryUi();
+    renderPresetLibrary();
+  }
+
+  function presetRow(preset) {
+    const favorite = libraryUi.favorites.includes(preset.id);
+    return `<div class="library-preset" data-preset-kind="${preset.kind}" data-preset-id="${escapeHtml(preset.id)}"><button class="library-favorite" type="button" data-favorite-preset="${escapeHtml(preset.id)}" aria-pressed="${favorite}" aria-label="${favorite ? 'お気に入りから外す' : 'お気に入りに追加'}">${favorite ? '★' : '☆'}</button><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.kind === 'built-in' ? `${presetCategory(preset)} · 内蔵・読取専用` : `${preset.components.length} components`}</small></div><button type="button" data-place-preset="${escapeHtml(preset.id)}">配置</button></div>`;
+  }
+
   function renderPresetLibrary() {
     const root = $('#equipmentLibraryItems');
     const select = $('#customPresetSelect');
     if (!root || !select) return;
     const query = normalizedEquipmentLabel($('#equipmentLibrarySearch')?.value);
-    const presets = allPresets().filter(preset => !query || normalizedEquipmentLabel([preset.name, ...(preset.searchAliases || [])].join(' ')).includes(query));
-    root.innerHTML = presets.map(preset => `<div class="library-preset" data-preset-kind="${preset.kind}"><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.kind === 'built-in' ? '内蔵・読取専用' : `${preset.components.length} components`}</small></div><button type="button" data-place-preset="${escapeHtml(preset.id)}">配置</button></div>`).join('') || '<small>一致する機材はありません。</small>';
+    const presets = allPresets().filter(preset => !query || normalizedEquipmentLabel([preset.name, presetCategory(preset), ...(preset.searchAliases || [])].join(' ')).includes(query));
+    const byId = new Map(presets.map(preset => [preset.id, preset]));
+    const sections = [];
+    const addSection = (label, items) => { if (items.length) sections.push(`<section class="library-section"><h4>${label}</h4>${items.map(presetRow).join('')}</section>`); };
+    addSection('Favorites', libraryUi.favorites.map(id => byId.get(id)).filter(Boolean));
+    addSection('Recent', libraryUi.recent.map(id => byId.get(id)).filter(Boolean));
+    ['Guitar', 'Bass', 'Keyboard', 'Drum', 'Custom', 'Other'].forEach(category => addSection(category, presets.filter(preset => presetCategory(preset) === category)));
+    root.innerHTML = sections.join('') || '<small>一致する機材はありません。</small>';
     select.innerHTML = `<option value="">選択してください</option>${userPresets.map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === activeCustomPresetId ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}`;
     const hasActive = userPresets.some(preset => preset.id === activeCustomPresetId);
     $('#updateCustomPreset').disabled = !hasActive;
@@ -871,6 +1017,7 @@
     const components = instantiatePreset(preset, { x: 280, y: 145 }, uid);
     if (!components.length) return;
     commit(() => state.objects.push(...components), { source: 'preset-placement' });
+    recordRecentPreset(id);
     selectedIds = new Set(components.map(object => object.id));
     selected = components.at(-1).id;
     showHandles = true;
@@ -964,27 +1111,306 @@
     const sequence = state.objects.length;
     const object = {
       id: uid(), type, x: 365 + (sequence % 4) * 24, y: 225 + (sequence % 3) * 20,
-      width, height, rotation: 0, scale: 100, label: TYPE_LABELS[type], fontSize: defaultFontSize(type), category: 'unspecified', strokeWidth: 2, labelEdited: true, className: '', html: objectHtml(type),
+      width, height, rotation: 0, scale: 100, label: TYPE_LABELS[type], fontSize: defaultFontSize(type), category: 'unspecified', strokeWidth: 2,
+      labelOffsetX: 0, labelOffsetY: 0, ratioLocked: ['line', 'arrow', 'text', 'microphone', 'monitor', 'power'].includes(type), geometrySized: false,
+      groupId: '', locked: false, labelEdited: true, className: '', html: objectHtml(type),
     };
     commit(() => state.objects.push(object));
     selectOnly(object.id);
     render();
   }
 
+  function unlockedSelection() {
+    return selectedObjects().filter(object => !object.locked);
+  }
+
+  function clampMoveDelta(objects, dx, dy) {
+    const box = boundsFor(objects);
+    if (!box) return { dx: 0, dy: 0 };
+    return {
+      dx: clamp(dx, -box.left, STAGE_W - box.right),
+      dy: clamp(dy, -box.top, STAGE_H - box.bottom),
+    };
+  }
+
+  function moveObjects(objects, dx, dy, snap = false) {
+    if (!objects.length) return;
+    let next = clampMoveDelta(objects, dx, dy);
+    if (snap && magnetEnabled) {
+      const box = boundsFor(objects);
+      const targetX = box.centerX + next.dx;
+      const targetY = box.centerY + next.dy;
+      const snapX = GRID_ORIGIN_X + Math.round((targetX - GRID_ORIGIN_X) / GRID_SPACING) * GRID_SPACING;
+      const snapY = GRID_ORIGIN_Y + Math.round((targetY - GRID_ORIGIN_Y) / GRID_SPACING) * GRID_SPACING;
+      if (Math.abs(snapX - targetX) <= SNAP_THRESHOLD) next.dx += snapX - targetX;
+      if (Math.abs(snapY - targetY) <= SNAP_THRESHOLD) next.dy += snapY - targetY;
+      next = clampMoveDelta(objects, next.dx, next.dy);
+    }
+    objects.forEach(object => { object.x += next.dx; object.y += next.dy; });
+  }
+
+  function rotateObjects(objects, degrees, absolute = false) {
+    if (!objects.length) return;
+    if (objects.length === 1) {
+      objects[0].rotation = Math.round((absolute ? degrees : objects[0].rotation + degrees) * 10) / 10;
+      return;
+    }
+    const box = boundsFor(objects);
+    const delta = absolute ? degrees - (selectedObject()?.rotation || 0) : degrees;
+    const radians = delta * Math.PI / 180;
+    objects.forEach(object => {
+      const centerX = object.x + object.width / 2;
+      const centerY = object.y + object.height / 2;
+      const x = centerX - box.centerX;
+      const y = centerY - box.centerY;
+      const nextX = x * Math.cos(radians) - y * Math.sin(radians);
+      const nextY = x * Math.sin(radians) + y * Math.cos(radians);
+      object.x = box.centerX + nextX - object.width / 2;
+      object.y = box.centerY + nextY - object.height / 2;
+      object.rotation = Math.round((object.rotation + delta) * 10) / 10;
+    });
+    const moved = clampMoveDelta(objects, 0, 0);
+    objects.forEach(object => { object.x += moved.dx; object.y += moved.dy; });
+  }
+
+  function resizeObjectsTo(objects, targetWidth, targetHeight, ratioLocked = false) {
+    if (!objects.length) return;
+    const box = boundsFor(objects);
+    let width = clamp(Number(targetWidth) || box.width, 6, STAGE_W);
+    let height = clamp(Number(targetHeight) || box.height, 6, STAGE_H);
+    if (ratioLocked) {
+      const factor = Math.abs(width / box.width - 1) >= Math.abs(height / box.height - 1) ? width / box.width : height / box.height;
+      width = clamp(box.width * factor, 6, STAGE_W);
+      height = clamp(box.height * factor, 6, STAGE_H);
+    }
+    const sx = width / Math.max(1, box.width);
+    const sy = height / Math.max(1, box.height);
+    objects.forEach(object => {
+      const centerX = object.x + object.width / 2;
+      const centerY = object.y + object.height / 2;
+      object.x = box.left + (centerX - box.left) * sx - object.width * sx / 2;
+      object.y = box.top + (centerY - box.top) * sy - object.height * sy / 2;
+      object.width = clamp(object.width * sx, 6, STAGE_W);
+      object.height = clamp(object.height * sy, 6, STAGE_H);
+      object.geometrySized = true;
+    });
+    const moved = clampMoveDelta(objects, 0, 0);
+    objects.forEach(object => { object.x += moved.dx; object.y += moved.dy; });
+  }
+
+  function setSelectedGeometry(key, rawValue) {
+    const objects = unlockedSelection();
+    if (!objects.length) return;
+    const value = Number(String(rawValue).replace(/[°%]/g, '').trim());
+    if (!Number.isFinite(value)) return;
+    commit(() => {
+      const box = boundsFor(objects);
+      if (key === 'x') moveObjects(objects, value - (objects.length > 1 ? box.left : objects[0].x), 0);
+      else if (key === 'y') moveObjects(objects, 0, value - (objects.length > 1 ? box.top : objects[0].y));
+      else if (key === 'width') resizeObjectsTo(objects, value, objects.length === 1 && objects[0].ratioLocked ? value / Math.max(1, box.width) * box.height : box.height, objects.length === 1 && objects[0].ratioLocked);
+      else if (key === 'height') resizeObjectsTo(objects, objects.length === 1 && objects[0].ratioLocked ? value / Math.max(1, box.height) * box.width : box.width, value, objects.length === 1 && objects[0].ratioLocked);
+    }, { source: `geometry-${key}` });
+  }
+
   function setObjectField(key, rawValue) {
     const object = selectedObject();
+    const objects = selectedObjects();
     if (!object) return;
     commit(() => {
-      if (key === 'rotation') object.rotation = Number(String(rawValue).replace('°', '').trim()) || 0;
-      else if (key === 'scale') object.scale = clamp(Number(String(rawValue).replace('%', '').trim()) || 100, 30, 300);
-      else if (key === 'fontSize') object.fontSize = clamp(Number(rawValue) || defaultFontSize(object.type), 8, 72);
-      else if (key === 'category') object.category = CATEGORY_LABELS[rawValue] ? rawValue : Object.entries(CATEGORY_LABELS).find(([, label]) => label === rawValue)?.[0] || 'unspecified';
+      if (key === 'rotation') rotateObjects(unlockedSelection(), Number(String(rawValue).replace('°', '').trim()) || 0, true);
+      else if (key === 'scale') {
+        const editable = unlockedSelection();
+        editable.forEach(item => { item.scale = clamp(Number(String(rawValue).replace('%', '').trim()) || 100, 30, 300); });
+        const adjustment = clampMoveDelta(editable, 0, 0);
+        editable.forEach(item => { item.x += adjustment.dx; item.y += adjustment.dy; });
+      }
+      else if (key === 'fontSize') unlockedSelection().forEach(item => { item.fontSize = clamp(Number(rawValue) || defaultFontSize(item.type), 8, 72); });
+      else if (key === 'strokeWidth') unlockedSelection().filter(item => item.type !== 'text').forEach(item => { item.strokeWidth = Math.round(clamp(Number(rawValue) || 2, .5, 8) * 2) / 2; });
+      else if (key === 'category') {
+        const category = CATEGORY_LABELS[rawValue] ? rawValue : Object.entries(CATEGORY_LABELS).find(([, label]) => label === rawValue)?.[0] || 'unspecified';
+        unlockedSelection().forEach(item => { item.category = category; item.html = syncObjectContent(item); });
+      } else if (key === 'ratioLocked') unlockedSelection().forEach(item => { item.ratioLocked = Boolean(rawValue); });
+      else if (key === 'labelOffsetX' || key === 'labelOffsetY') object[key] = clamp(Number(rawValue) || 0, key.endsWith('X') ? -STAGE_W : -STAGE_H, key.endsWith('X') ? STAGE_W : STAGE_H);
       else {
         object[key] = String(rawValue);
         object.labelEdited = true;
         object.html = syncObjectContent(object);
       }
     });
+  }
+
+  function selectionEntities(objects = selectedObjects()) {
+    const seen = new Set();
+    const entities = [];
+    objects.forEach(object => {
+      const key = object.groupId ? `group:${object.groupId}` : `object:${object.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      entities.push(object.groupId ? objects.filter(item => item.groupId === object.groupId) : [object]);
+    });
+    return entities;
+  }
+
+  function cloneSelection(offset = GRID_SPACING) {
+    const objects = selectedObjects();
+    if (!objects.length) return [];
+    const groupMap = new Map();
+    const clones = objects.map(object => {
+      const copy = deep(object);
+      copy.id = uid();
+      copy.x += offset;
+      copy.y += offset;
+      if (copy.groupId) {
+        if (!groupMap.has(copy.groupId)) groupMap.set(copy.groupId, uid());
+        copy.groupId = groupMap.get(copy.groupId);
+      }
+      return copy;
+    });
+    const delta = clampMoveDelta(clones, 0, 0);
+    clones.forEach(object => { object.x += delta.dx; object.y += delta.dy; });
+    return clones;
+  }
+
+  function duplicateSelection(offset = GRID_SPACING) {
+    const clones = cloneSelection(offset);
+    if (!clones.length) return;
+    commit(() => state.objects.push(...clones), { source: 'duplicate' });
+    selectedIds = new Set(clones.map(object => object.id));
+    selected = clones.at(-1).id;
+    showHandles = true;
+    render();
+  }
+
+  function deleteSelection() {
+    const ids = new Set(unlockedSelection().map(object => object.id));
+    if (!ids.size) return;
+    commit(() => { state.objects = state.objects.filter(object => !ids.has(object.id)); }, { source: 'delete' });
+    selectedIds = new Set([...selectedIds].filter(id => !ids.has(id)));
+    selected = [...selectedIds].at(-1) || null;
+    showHandles = Boolean(selected);
+    render();
+  }
+
+  function groupSelection() {
+    const objects = unlockedSelection();
+    if (objects.length < 2) return;
+    const groupId = uid();
+    commit(() => objects.forEach(object => { object.groupId = groupId; }), { source: 'group' });
+  }
+
+  function ungroupSelection() {
+    const objects = unlockedSelection().filter(object => object.groupId);
+    if (!objects.length) return;
+    const groups = new Set(objects.map(object => object.groupId));
+    commit(() => state.objects.forEach(object => { if (groups.has(object.groupId)) object.groupId = ''; }), { source: 'ungroup' });
+  }
+
+  function toggleSelectionLock() {
+    const objects = selectedObjects();
+    if (!objects.length) return;
+    const next = !objects.every(object => object.locked);
+    commit(() => objects.forEach(object => { object.locked = next; }), { source: next ? 'lock' : 'unlock' });
+  }
+
+  function changeLayer(mode) {
+    const ids = new Set(selectedIds);
+    if (!ids.size) return;
+    commit(() => {
+      const selectedBlock = state.objects.filter(object => ids.has(object.id));
+      const others = state.objects.filter(object => !ids.has(object.id));
+      if (mode === 'front') state.objects = [...others, ...selectedBlock];
+      else if (mode === 'back') state.objects = [...selectedBlock, ...others];
+      else if (mode === 'forward') {
+        for (let index = state.objects.length - 2; index >= 0; index -= 1) if (ids.has(state.objects[index].id) && !ids.has(state.objects[index + 1].id)) [state.objects[index], state.objects[index + 1]] = [state.objects[index + 1], state.objects[index]];
+      } else if (mode === 'backward') {
+        for (let index = 1; index < state.objects.length; index += 1) if (ids.has(state.objects[index].id) && !ids.has(state.objects[index - 1].id)) [state.objects[index], state.objects[index - 1]] = [state.objects[index - 1], state.objects[index]];
+      }
+    }, { source: `layer-${mode}` });
+  }
+
+  function alignSelection(mode) {
+    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    if (entities.length < 2) return;
+    const boxes = entities.map(boundsFor);
+    const outer = boundsFor(entities.flat());
+    commit(() => entities.forEach((entity, index) => {
+      const box = boxes[index];
+      let dx = 0; let dy = 0;
+      if (mode === 'left') dx = outer.left - box.left;
+      if (mode === 'center') dx = outer.centerX - box.centerX;
+      if (mode === 'right') dx = outer.right - box.right;
+      if (mode === 'top') dy = outer.top - box.top;
+      if (mode === 'middle') dy = outer.centerY - box.centerY;
+      if (mode === 'bottom') dy = outer.bottom - box.bottom;
+      moveObjects(entity.filter(object => !object.locked), dx, dy);
+    }), { source: `align-${mode}` });
+  }
+
+  function distributeSelection(axis) {
+    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    if (entities.length < 3) return;
+    const records = entities.map(entity => ({ entity, box: boundsFor(entity) })).sort((a, b) => axis === 'horizontal' ? a.box.centerX - b.box.centerX : a.box.centerY - b.box.centerY);
+    const first = records[0].box;
+    const last = records.at(-1).box;
+    commit(() => records.slice(1, -1).forEach((record, index) => {
+      const ratio = (index + 1) / (records.length - 1);
+      const target = axis === 'horizontal' ? first.centerX + (last.centerX - first.centerX) * ratio : first.centerY + (last.centerY - first.centerY) * ratio;
+      moveObjects(record.entity.filter(object => !object.locked), axis === 'horizontal' ? target - record.box.centerX : 0, axis === 'vertical' ? target - record.box.centerY : 0);
+    }), { source: `distribute-${axis}` });
+  }
+
+  function centerEquidistance() {
+    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    if (entities.length !== 2) return;
+    const first = boundsFor(entities[0]);
+    const second = boundsFor(entities[1]);
+    const distance = Math.min(CENTER_X - first.width / 2, CENTER_X - second.width / 2, Math.max(Math.abs(first.centerX - CENTER_X), Math.abs(second.centerX - CENTER_X)));
+    commit(() => {
+      moveObjects(entities[0].filter(object => !object.locked), CENTER_X - distance - first.centerX, 0);
+      moveObjects(entities[1].filter(object => !object.locked), CENTER_X + distance - second.centerX, 0);
+    }, { source: 'center-equidistance' });
+  }
+
+  function mirrorObjects(objects) {
+    objects.forEach(object => {
+      const center = object.x + object.width / 2;
+      object.x += 2 * (CENTER_X - center);
+      object.rotation = -object.rotation;
+      object.labelOffsetX = -object.labelOffsetX;
+    });
+  }
+
+  function mirrorSelection(duplicate = false) {
+    const objects = unlockedSelection();
+    if (!objects.length) return;
+    if (duplicate) {
+      const clones = cloneSelection(0);
+      mirrorObjects(clones);
+      commit(() => state.objects.push(...clones), { source: 'mirror-duplicate' });
+      selectedIds = new Set(clones.map(object => object.id));
+      selected = clones.at(-1).id;
+      render();
+    } else commit(() => mirrorObjects(objects), { source: 'mirror' });
+  }
+
+  function runEditorAction(action) {
+    if (action === 'duplicate') duplicateSelection();
+    else if (action === 'delete') deleteSelection();
+    else if (action === 'group') groupSelection();
+    else if (action === 'ungroup') ungroupSelection();
+    else if (action === 'lock') toggleSelectionLock();
+    else if (['front', 'forward', 'backward', 'back'].includes(action)) changeLayer(action);
+    else if (action.startsWith('align-')) alignSelection(action.slice(6));
+    else if (action.startsWith('distribute-')) distributeSelection(action.slice(11));
+    else if (action === 'center-equidistance') centerEquidistance();
+    else if (action === 'mirror') mirrorSelection(false);
+    else if (action === 'mirror-duplicate') mirrorSelection(true);
+    else if (action === 'magnet') {
+      magnetEnabled = !magnetEnabled;
+      try { localStorage.setItem(EDITOR_UI_STORE, JSON.stringify({ magnetEnabled })); } catch (_) {}
+      renderStage();
+    }
+    closeContextMenu();
   }
 
   function setSelectedStrokeWidth(rawValue) {
@@ -995,57 +1421,222 @@
     commit(() => state.objects.forEach(object => { if (ids.has(object.id)) object.strokeWidth = Math.round(value * 2) / 2; }), { source: 'stroke-width' });
   }
 
+  function pointerObjects() {
+    const ids = new Set(pointerAction?.ids || []);
+    return state.objects.filter(object => ids.has(object.id));
+  }
+
+  function restorePointerBase() {
+    const byId = new Map((pointerAction?.baseObjects || []).map(object => [object.id, object]));
+    state.objects.forEach(object => {
+      const base = byId.get(object.id);
+      if (base) Object.assign(object, deep(base));
+    });
+  }
+
+  function snappedPointer(point) {
+    if (!magnetEnabled) return point;
+    const x = GRID_ORIGIN_X + Math.round((point.x - GRID_ORIGIN_X) / GRID_SPACING) * GRID_SPACING;
+    const y = GRID_ORIGIN_Y + Math.round((point.y - GRID_ORIGIN_Y) / GRID_SPACING) * GRID_SPACING;
+    return {
+      x: Math.abs(x - point.x) <= SNAP_THRESHOLD ? x : point.x,
+      y: Math.abs(y - point.y) <= SNAP_THRESHOLD ? y : point.y,
+    };
+  }
+
   function startPointerAction(event, object, mode) {
     const point = logicalPoint(event);
-    const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
+    let objects = selectedIds.has(object.id) ? unlockedSelection() : [object].filter(item => !item.locked);
+    if (!objects.length) return;
+    const box = boundsFor(objects);
     pointerAction = {
       mode,
-      id: object.id,
+      ids: objects.map(item => item.id),
       before: deep(state),
+      baseObjects: deep(objects),
       start: point,
-      x: object.x,
-      y: object.y,
-      rotation: object.rotation,
-      scale: object.scale,
-      center,
-      startAngle: Math.atan2(point.y - center.y, point.x - center.x) * 180 / Math.PI,
-      startDistance: Math.max(1, Math.hypot(point.x - center.x, point.y - center.y)),
+      box,
+      center: { x: box.centerX, y: box.centerY },
+      startAngle: Math.atan2(point.y - box.centerY, point.x - box.centerX) * 180 / Math.PI,
+      moved: false,
+      altPending: mode === 'move' && event.altKey,
+      altCreated: false,
+      clickToggleIds: event.shiftKey && mode === 'move' ? groupIdsFor(object) : null,
+      collapseOnClick: !event.shiftKey && !event.ctrlKey && !event.metaKey && mode === 'move' && selectedIds.size > 1 && !object.groupId ? object.id : null,
     };
     $('.stage').setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
 
+  function startMarquee(event) {
+    pointerAction = {
+      mode: 'marquee', before: null, start: logicalPoint(event), end: logicalPoint(event),
+      selectionBefore: new Set(selectedIds), toggle: event.ctrlKey || event.metaKey, add: event.shiftKey, moved: false,
+    };
+    $('.stage').setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  function renderMarquee() {
+    const stage = $('.stage');
+    $('.selection-marquee', stage)?.remove();
+    if (pointerAction?.mode !== 'marquee' || !pointerAction.moved) return;
+    const left = Math.min(pointerAction.start.x, pointerAction.end.x);
+    const top = Math.min(pointerAction.start.y, pointerAction.end.y);
+    const width = Math.abs(pointerAction.start.x - pointerAction.end.x);
+    const height = Math.abs(pointerAction.start.y - pointerAction.end.y);
+    const node = document.createElement('div');
+    node.className = 'selection-marquee editor-overlay';
+    node.style.cssText = `left:${left}px;top:${top}px;width:${width}px;height:${height}px`;
+    stage.append(node);
+  }
+
+  function materializeAltDuplicate() {
+    const originals = pointerObjects();
+    const groupMap = new Map();
+    const clones = originals.map(object => {
+      const copy = deep(object);
+      copy.id = uid();
+      if (copy.groupId) {
+        if (!groupMap.has(copy.groupId)) groupMap.set(copy.groupId, uid());
+        copy.groupId = groupMap.get(copy.groupId);
+      }
+      return copy;
+    });
+    state.objects.push(...clones);
+    pointerAction.ids = clones.map(object => object.id);
+    pointerAction.baseObjects = deep(clones);
+    pointerAction.altCreated = true;
+    selectedIds = new Set(pointerAction.ids);
+    selected = pointerAction.ids.at(-1) || null;
+  }
+
+  function resizeSingleFromPointer(object, base, point, mode, keepRatio) {
+    const direction = mode.replace('resize-', '');
+    let dx = point.x - pointerAction.start.x;
+    let dy = point.y - pointerAction.start.y;
+    const east = direction.includes('e'); const west = direction.includes('w');
+    const north = direction.includes('n'); const south = direction.includes('s');
+    let width = clamp(base.width + (east ? dx : west ? -dx : 0), 6, STAGE_W);
+    let height = clamp(base.height + (south ? dy : north ? -dy : 0), 6, STAGE_H);
+    if (keepRatio && (east || west) && (north || south)) {
+      const ratio = base.width / Math.max(1, base.height);
+      if (Math.abs(width - base.width) >= Math.abs(height - base.height)) height = width / ratio;
+      else width = height * ratio;
+    }
+    object.width = clamp(width, 6, STAGE_W);
+    object.height = clamp(height, 6, STAGE_H);
+    object.x = west ? base.x + base.width - object.width : base.x;
+    object.y = north ? base.y + base.height - object.height : base.y;
+    object.geometrySized = true;
+    const adjustment = clampMoveDelta([object], 0, 0);
+    object.x += adjustment.dx; object.y += adjustment.dy;
+  }
+
   function updatePointerAction(event) {
     if (!pointerAction) return;
-    const object = state.objects.find(item => item.id === pointerAction.id);
-    if (!object) return;
-    const point = logicalPoint(event);
-    if (pointerAction.mode === 'move') {
-      const width = object.width * object.scale / 100;
-      const height = object.height * object.scale / 100;
-      object.x = clamp(pointerAction.x + point.x - pointerAction.start.x, 0, STAGE_W - Math.min(width, STAGE_W));
-      object.y = clamp(pointerAction.y + point.y - pointerAction.start.y, 0, STAGE_H - Math.min(height, STAGE_H));
-    } else if (pointerAction.mode === 'rotate') {
-      const angle = Math.atan2(point.y - pointerAction.center.y, point.x - pointerAction.center.x) * 180 / Math.PI;
-      object.rotation = Math.round((pointerAction.rotation + angle - pointerAction.startAngle) * 10) / 10;
-    } else if (pointerAction.mode === 'resize') {
-      const distance = Math.hypot(point.x - pointerAction.center.x, point.y - pointerAction.center.y);
-      object.scale = Math.round(clamp(pointerAction.scale * distance / pointerAction.startDistance, 30, 300) * 10) / 10;
+    let point = logicalPoint(event);
+    if (pointerAction.mode === 'marquee') {
+      pointerAction.end = point;
+      pointerAction.moved ||= Math.hypot(point.x - pointerAction.start.x, point.y - pointerAction.start.y) > 2;
+      renderMarquee();
+      return;
     }
-    const node = $(`.engine-object[data-id="${CSS.escape(object.id)}"]`);
-    if (node) updateObjectNode(node, object);
+    const distance = Math.hypot(point.x - pointerAction.start.x, point.y - pointerAction.start.y);
+    pointerAction.moved ||= distance > 2;
+    if (pointerAction.altPending && pointerAction.moved && !pointerAction.altCreated) materializeAltDuplicate();
+    restorePointerBase();
+    let objects = pointerObjects();
+    if (!objects.length) return;
+    const mode = pointerAction.mode;
+    if (mode === 'move') {
+      let dx = point.x - pointerAction.start.x;
+      let dy = point.y - pointerAction.start.y;
+      if (event.shiftKey) Math.abs(dx) >= Math.abs(dy) ? dy = 0 : dx = 0;
+      moveObjects(objects, dx, dy, true);
+    } else if (mode === 'rotate' || mode === 'multi-rotate') {
+      const angle = Math.atan2(point.y - pointerAction.center.y, point.x - pointerAction.center.x) * 180 / Math.PI;
+      let delta = angle - pointerAction.startAngle;
+      if (event.shiftKey) delta = Math.round(delta / 45) * 45;
+      rotateObjects(objects, delta);
+    } else if (mode.startsWith('multi-resize-')) {
+      point = snappedPointer(point);
+      const direction = mode.replace('multi-resize-', '');
+      let width = pointerAction.box.width + (direction.includes('e') ? point.x - pointerAction.start.x : pointerAction.start.x - point.x);
+      let height = pointerAction.box.height + (direction.includes('s') ? point.y - pointerAction.start.y : pointerAction.start.y - point.y);
+      const keepRatio = event.shiftKey || objects.every(object => object.ratioLocked);
+      resizeObjectsTo(objects, width, height, keepRatio);
+    } else if (mode.startsWith('resize-')) {
+      point = snappedPointer(point);
+      resizeSingleFromPointer(objects[0], pointerAction.baseObjects[0], point, mode, event.shiftKey || objects[0].ratioLocked);
+    }
+    renderStage();
     renderInspector();
+  }
+
+  function finishMarquee() {
+    const left = Math.min(pointerAction.start.x, pointerAction.end.x);
+    const top = Math.min(pointerAction.start.y, pointerAction.end.y);
+    const right = Math.max(pointerAction.start.x, pointerAction.end.x);
+    const bottom = Math.max(pointerAction.start.y, pointerAction.end.y);
+    if (!pointerAction.moved) {
+      if (!pointerAction.add && !pointerAction.toggle) selectOnly(null);
+      return;
+    }
+    const hits = state.objects.filter(object => {
+      const box = effectiveBounds(object);
+      return box.left >= left && box.right <= right && box.top >= top && box.bottom <= bottom;
+    }).map(object => object.id);
+    let next = pointerAction.add || pointerAction.toggle ? new Set(pointerAction.selectionBefore) : new Set();
+    hits.forEach(id => {
+      if (pointerAction.toggle && next.has(id)) next.delete(id);
+      else next.add(id);
+    });
+    selectedIds = expandSelectionGroups(next);
+    selected = [...selectedIds].at(-1) || null;
+    showHandles = Boolean(selected);
+  }
+
+  function cancelPointerAction() {
+    if (!pointerAction) return false;
+    if (pointerAction.before) state = sanitise(pointerAction.before);
+    pointerAction = null;
+    render();
+    return true;
   }
 
   function endPointerAction() {
     if (!pointerAction) return;
-    const before = pointerAction.before;
+    if (pointerAction.mode === 'marquee') {
+      finishMarquee();
+      pointerAction = null;
+      renderStage(); renderInspector({ hydrateSelection: true });
+      return;
+    }
+    const action = pointerAction;
+    const before = action.before;
     pointerAction = null;
-    state = sanitise(state);
+    if (!action.moved && action.clickToggleIds?.length) {
+      state = sanitise(before);
+      const remove = action.clickToggleIds.every(id => selectedIds.has(id));
+      action.clickToggleIds.forEach(id => remove ? selectedIds.delete(id) : selectedIds.add(id));
+      selected = [...selectedIds].at(-1) || null;
+      showHandles = Boolean(selected);
+      renderStage(); renderInspector({ hydrateSelection: true });
+      return;
+    }
+    if (!action.moved && action.collapseOnClick) {
+      state = sanitise(before);
+      selectOnly(action.collapseOnClick);
+      renderStage(); renderInspector({ hydrateSelection: true });
+      return;
+    }
+    if (action.altPending && !action.altCreated) state = sanitise(before);
+    else state = sanitise(state);
     if (JSON.stringify(before) !== JSON.stringify(state)) {
       remember(before);
       saveLocal();
-      notifyChange('pointer');
+      notifyChange(action.altCreated ? 'alt-drag-duplicate' : 'pointer');
     }
     render();
   }
@@ -1195,14 +1786,14 @@
       context.beginPath(); context.moveTo(-width / 2 + 4, 0); context.lineTo(width / 2 - 4, 0); context.stroke();
       context.fillStyle = brought ? '#5f1013' : '#111';
       context.font = `900 ${object.fontSize}px sans-serif`; context.textAlign = 'center'; context.textBaseline = 'middle';
-      context.fillText(object.label, 0, -height / 4, Math.max(20, width - 6));
-      context.fillText(object.splitLabel || '', 0, height / 4, Math.max(20, width - 6));
+      context.fillText(object.label, object.labelOffsetX / Math.max(.01, scale), -height / 4 + object.labelOffsetY / Math.max(.01, scale), Math.max(20, width - 6));
+      context.fillText(object.splitLabel || '', object.labelOffsetX / Math.max(.01, scale), height / 4 + object.labelOffsetY / Math.max(.01, scale), Math.max(20, width - 6));
     } else if (!['line', 'arrow', 'microphone', 'monitor'].includes(object.type)) {
       context.fillStyle = brought ? '#5f1013' : '#111';
       context.font = `900 ${object.fontSize}px sans-serif`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.fillText(object.label, 0, 0, Math.max(30, width - 6));
+      context.fillText(object.label, object.labelOffsetX / Math.max(.01, scale), object.labelOffsetY / Math.max(.01, scale), Math.max(30, width - 6));
     }
     context.restore();
   }
@@ -1217,7 +1808,7 @@
     context.fillStyle = '#fff';
     context.fillRect(0, 0, STAGE_W, STAGE_H);
     context.fillStyle = '#dbe7f0';
-    for (let x = GRID_ORIGIN_X; x < STAGE_W; x += GRID_SPACING) for (let y = 20; y < STAGE_H; y += 20) { context.beginPath(); context.arc(x, y, 1, 0, Math.PI * 2); context.fill(); }
+    for (let x = GRID_ORIGIN_X; x < STAGE_W; x += GRID_SPACING) for (let y = GRID_ORIGIN_Y; y < STAGE_H; y += GRID_SPACING) { context.beginPath(); context.arc(x, y, 1, 0, Math.PI * 2); context.fill(); }
     context.strokeStyle = '#111';
     context.lineWidth = 2;
     context.strokeRect(1, 1, STAGE_W - 2, STAGE_H - 2);
@@ -1237,6 +1828,92 @@
     stageCanvas().toBlob(blob => download(blob, 'ara-tech-stage-plot.png'), 'image/png');
   }
 
+  function closeContextMenu() {
+    const menu = $('#stageContextMenu');
+    if (menu) menu.hidden = true;
+    contextMenuOpen = false;
+  }
+
+  function openContextMenu(event) {
+    const menu = $('#stageContextMenu');
+    if (!menu) return;
+    const objects = selectedObjects();
+    const lock = $('[data-editor-action="lock"]', menu);
+    if (lock) lock.textContent = objects.every(object => object.locked) ? 'Unlock' : 'Lock';
+    menu.hidden = false;
+    menu.style.left = `${clamp(event.clientX, 4, innerWidth - 180)}px`;
+    menu.style.top = `${clamp(event.clientY, 4, innerHeight - 260)}px`;
+    contextMenuOpen = true;
+  }
+
+  function isTextEditingTarget(target) {
+    return Boolean(target?.closest?.('input,textarea,select,[contenteditable="true"]'));
+  }
+
+  function pasteClipboard() {
+    if (!stageClipboard.length) return;
+    const groupMap = new Map();
+    const clones = stageClipboard.map(object => {
+      const copy = deep(object);
+      copy.id = uid(); copy.x += GRID_SPACING; copy.y += GRID_SPACING;
+      if (copy.groupId) {
+        if (!groupMap.has(copy.groupId)) groupMap.set(copy.groupId, uid());
+        copy.groupId = groupMap.get(copy.groupId);
+      }
+      return copy;
+    });
+    const delta = clampMoveDelta(clones, 0, 0);
+    clones.forEach(object => { object.x += delta.dx; object.y += delta.dy; });
+    commit(() => state.objects.push(...clones), { source: 'paste' });
+    selectedIds = new Set(clones.map(object => object.id)); selected = clones.at(-1).id; showHandles = true;
+    stageClipboard = deep(clones);
+    render();
+  }
+
+  function finishNudge() {
+    if (!nudgeAction) return;
+    const before = nudgeAction.before;
+    nudgeAction = null;
+    state = sanitise(state);
+    if (JSON.stringify(before) !== JSON.stringify(state)) {
+      remember(before); saveLocal(); notifyChange('nudge');
+    }
+    render();
+  }
+
+  function handleEditorKeydown(event) {
+    if (event.key === 'Escape') {
+      if (pointerAction) cancelPointerAction();
+      else if (contextMenuOpen) closeContextMenu();
+      else if ($('#equipmentLibraryFlyout')?.hidden === false) setFlyoutOpen(false);
+      else if (selectedIds.size) { selectOnly(null); renderStage(); renderInspector({ hydrateSelection: true }); }
+      return;
+    }
+    if (isTextEditingTarget(event.target)) return;
+    const modifier = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (modifier && key === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
+    if (modifier && key === 'c') { if (selectedIds.size) { event.preventDefault(); stageClipboard = deep(selectedObjects()); } return; }
+    if (modifier && key === 'v') { event.preventDefault(); pasteClipboard(); return; }
+    if (modifier && key === 'd') { event.preventDefault(); duplicateSelection(); return; }
+    if (modifier && key === 'g') { event.preventDefault(); event.shiftKey ? ungroupSelection() : groupSelection(); return; }
+    if (modifier && (event.key === '[' || event.key === ']')) { event.preventDefault(); changeLayer(event.key === ']' ? (event.shiftKey ? 'front' : 'forward') : (event.shiftKey ? 'back' : 'backward')); return; }
+    if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelection(); return; }
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && selectedIds.size) {
+      event.preventDefault();
+      if (!nudgeAction) nudgeAction = { before: deep(state) };
+      const distance = event.shiftKey ? 10 : 1;
+      const dx = event.key === 'ArrowLeft' ? -distance : event.key === 'ArrowRight' ? distance : 0;
+      const dy = event.key === 'ArrowUp' ? -distance : event.key === 'ArrowDown' ? distance : 0;
+      moveObjects(unlockedSelection(), dx, dy);
+      renderStage(); renderInspector();
+    }
+  }
+
+  function handleEditorKeyup(event) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) finishNudge();
+  }
+
   function createMenus() {
     const output = document.createElement('div');
     output.className = 'output-menu';
@@ -1251,13 +1928,24 @@
     close.type = 'button';
     close.textContent = '通常表示へ戻る';
     document.body.append(close);
+    const context = document.createElement('div');
+    context.id = 'stageContextMenu';
+    context.className = 'stage-context-menu';
+    context.hidden = true;
+    context.innerHTML = '<button data-editor-action="duplicate" type="button">Duplicate</button><button data-editor-action="delete" type="button">Delete</button><button data-editor-action="lock" type="button">Lock</button><hr><button data-editor-action="forward" type="button">Bring Forward</button><button data-editor-action="backward" type="button">Send Backward</button><button data-editor-action="front" type="button">Bring Front</button><button data-editor-action="back" type="button">Send Back</button><hr><button data-editor-action="group" type="button">Group</button><button data-editor-action="ungroup" type="button">Ungroup</button><hr><button data-editor-action="align-left" type="button">Align Left</button><button data-editor-action="align-center" type="button">Align Center</button><button data-editor-action="align-right" type="button">Align Right</button><button data-editor-action="align-top" type="button">Align Top</button><button data-editor-action="align-middle" type="button">Align Middle</button><button data-editor-action="align-bottom" type="button">Align Bottom</button><button data-editor-action="distribute-horizontal" type="button">Distribute H</button><button data-editor-action="distribute-vertical" type="button">Distribute V</button><button data-editor-action="mirror" type="button">Mirror</button><button data-editor-action="mirror-duplicate" type="button">Mirror Duplicate</button>';
+    document.body.append(context);
   }
 
   function bindInspector() {
     const parts = inspectorParts();
     parts.label?.addEventListener('change', event => setObjectField('label', event.target.value));
+    parts.x?.addEventListener('change', event => setSelectedGeometry('x', event.target.value));
+    parts.y?.addEventListener('change', event => setSelectedGeometry('y', event.target.value));
+    parts.width?.addEventListener('change', event => setSelectedGeometry('width', event.target.value));
+    parts.height?.addEventListener('change', event => setSelectedGeometry('height', event.target.value));
     parts.rotation?.addEventListener('change', event => setObjectField('rotation', event.target.value));
     parts.scale?.addEventListener('change', event => setObjectField('scale', event.target.value));
+    parts.ratioLock?.addEventListener('change', event => setObjectField('ratioLocked', event.target.checked));
     parts.fontSize?.addEventListener('change', event => setObjectField('fontSize', event.target.value));
     parts.fontMinus?.addEventListener('click', () => setObjectField('fontSize', (selectedObject()?.fontSize || 16) - 1));
     parts.fontDefault?.addEventListener('click', () => setObjectField('fontSize', 16));
@@ -1271,32 +1959,25 @@
     parts.zero?.addEventListener('click', () => setObjectField('rotation', 0));
     parts.plus?.addEventListener('click', () => setObjectField('rotation', (selectedObject()?.rotation || 0) + 15));
     parts.scaleReset?.addEventListener('click', () => setObjectField('scale', 100));
-    parts.duplicate?.addEventListener('click', () => {
-      const object = selectedObject();
-      if (!object) return;
-      const copy = deep(object);
-      copy.id = uid(); copy.x += 18; copy.y += 18;
-      commit(() => state.objects.push(copy));
-      selectOnly(copy.id); render();
-    });
-    parts.remove?.addEventListener('click', () => {
-      if (!selectedObject()) return;
-      const ids = new Set(selectedIds);
-      commit(() => state.objects = state.objects.filter(object => !ids.has(object.id)));
-      selectOnly(null); render();
-    });
+    parts.labelOffsetX?.addEventListener('change', event => setObjectField('labelOffsetX', event.target.value));
+    parts.labelOffsetY?.addEventListener('change', event => setObjectField('labelOffsetY', event.target.value));
+    parts.labelOffsetReset?.addEventListener('click', () => commit(() => unlockedSelection().forEach(object => { object.labelOffsetX = 0; object.labelOffsetY = 0; }), { source: 'label-offset-reset' }));
+    parts.actions.forEach(button => button.addEventListener('click', () => runEditorAction(button.dataset.editorAction)));
   }
 
   function bind() {
-    const tools = $$('.tools .tool');
-    tools.forEach((tool, index) => {
-      tool.dataset.tool = TOOLS[index];
-      tool.setAttribute('role', 'button');
-      tool.tabIndex = 0;
-      tool.addEventListener('click', () => addObject(TOOLS[index]));
-      tool.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); addObject(TOOLS[index]); } });
-    });
+    $$('.tools .tool[data-tool]').forEach(tool => tool.addEventListener('click', () => addObject(tool.dataset.tool)));
     bindInspector();
+    $$('.inspector-toggle').forEach(toggle => toggle.addEventListener('click', () => {
+      const section = toggle.closest('.inspector-section');
+      $$('.inspector-section').forEach(item => {
+        const open = item === section && !item.classList.contains('open');
+        item.classList.toggle('open', open);
+        $('.inspector-toggle', item)?.setAttribute('aria-expanded', String(open));
+        const panel = $('.inspector-panel', item);
+        if (panel) panel.hidden = !open;
+      });
+    }));
     $('#equipmentLibraryLauncher')?.addEventListener('click', event => {
       event.stopPropagation();
       setFlyoutOpen($('#equipmentLibraryFlyout')?.hidden !== false);
@@ -1322,6 +2003,14 @@
     $('#cancelReset').addEventListener('click', () => $('#resetConfirm').classList.remove('open'));
     $('#confirmReset').addEventListener('click', () => { $('#resetConfirm').classList.remove('open'); replaceState(deep(initialState)); });
     $('#resetConfirm').addEventListener('click', event => { if (event.target.id === 'resetConfirm') $('#resetConfirm').classList.remove('open'); });
+    $('#clearAllBtn')?.addEventListener('click', () => $('#clearAllConfirm').classList.add('open'));
+    $('#cancelClearAll')?.addEventListener('click', () => $('#clearAllConfirm').classList.remove('open'));
+    $('#confirmClearAll')?.addEventListener('click', () => {
+      $('#clearAllConfirm').classList.remove('open');
+      commit(() => { state.objects = []; }, { source: 'clear-all' });
+      selectOnly(null); render();
+    });
+    $('#clearAllConfirm')?.addEventListener('click', event => { if (event.target.id === 'clearAllConfirm') $('#clearAllConfirm').classList.remove('open'); });
 
     const headerButtons = $$('.top-actions button');
     const jsonButton = headerButtons.find(button => button.textContent.trim() === 'JSON保存');
@@ -1329,6 +2018,10 @@
     jsonButton?.addEventListener('click', () => $('.json-menu').classList.add('open'));
     outputButton?.addEventListener('click', () => $('.output-menu').classList.add('open'));
     document.addEventListener('click', event => {
+      const editorAction = event.target.closest('[data-editor-action]');
+      if (editorAction && !editorAction.closest('.left .props')) { event.stopPropagation(); runEditorAction(editorAction.dataset.editorAction); return; }
+      const favorite = event.target.closest('[data-favorite-preset]');
+      if (favorite) { event.stopPropagation(); toggleFavoritePreset(favorite.dataset.favoritePreset); return; }
       const place = event.target.closest('[data-place-preset]');
       if (place) placePreset(place.dataset.placePreset);
       const flyout = $('#equipmentLibraryFlyout');
@@ -1354,8 +2047,10 @@
       if (moveSet) commit(() => { const from = Number(moveSet.dataset.moveSet); const to = from + Number(moveSet.dataset.direction); if (to >= 0 && to < state.setlist.length) state.setlist.splice(to, 0, state.setlist.splice(from, 1)[0]); });
       const play = event.target.closest('[data-play-audio]');
       if (play) playAudio(play.dataset.playAudio).catch(() => {});
+      if (contextMenuOpen && !event.target.closest('#stageContextMenu')) closeContextMenu();
     });
-    document.addEventListener('keydown', event => { if (event.key === 'Escape') setFlyoutOpen(false); });
+    document.addEventListener('keydown', handleEditorKeydown);
+    document.addEventListener('keyup', event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) finishNudge(); });
 
     $('#jsonLoadInput').addEventListener('change', event => {
       const file = event.target.files?.[0];
@@ -1414,31 +2109,51 @@
     const stage = $('.stage');
     stage.addEventListener('pointerdown', event => {
       if (enterMobileEdit()) return;
+      if (event.button !== 0) return;
+      if (event.target.closest('[data-editor-action],.selection-toolbar,.magnet-toggle')) return;
+      const transform = event.target.closest('[data-transform]');
+      if (transform?.dataset.transform?.startsWith('multi-')) {
+        const object = selectedObject();
+        if (object) startPointerAction(event, object, transform.dataset.transform);
+        return;
+      }
       const node = event.target.closest('.engine-object');
-      if (!node) { selectOnly(null); renderStage(); renderInspector(); return; }
+      if (!node) { startMarquee(event); return; }
       const object = state.objects.find(item => item.id === node.dataset.id);
       if (!object) return;
-      if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        if (selectedIds.has(object.id)) {
-          selectedIds.delete(object.id);
-          if (selected === object.id) selected = [...selectedIds].at(-1) || null;
-        } else {
-          selectedIds.add(object.id);
-          selected = object.id;
-        }
+      if (event.ctrlKey || event.metaKey || (event.shiftKey && !selectedIds.has(object.id))) {
+        const ids = groupIdsFor(object);
+        const remove = ids.every(id => selectedIds.has(id));
+        ids.forEach(id => remove ? selectedIds.delete(id) : selectedIds.add(id));
+        selected = remove ? [...selectedIds].at(-1) || null : object.id;
         showHandles = Boolean(selected);
         renderStage();
         renderInspector({ hydrateSelection: true });
         event.preventDefault();
         return;
       }
-      const selectionChanged = selected !== object.id;
-      selectOnly(object.id);
+      const groupIds = groupIdsFor(object);
+      const retainSelection = groupIds.every(id => selectedIds.has(id));
+      const selectionChanged = !retainSelection;
+      if (!retainSelection) {
+        selectedIds = new Set(groupIds);
+        selected = object.id;
+        showHandles = true;
+      }
       const handle = event.target.closest('[data-transform]');
       const mode = handle?.dataset.transform || 'move';
       renderInspector({ hydrateSelection: selectionChanged });
       if (!handle) renderStage();
-      startPointerAction(event, object, mode);
+      if (!object.locked) startPointerAction(event, object, mode);
+    });
+    stage.addEventListener('contextmenu', event => {
+      const node = event.target.closest('.engine-object');
+      if (!node) return;
+      event.preventDefault();
+      const object = state.objects.find(item => item.id === node.dataset.id);
+      if (!object) return;
+      if (!selectedIds.has(object.id)) { selectedIds = new Set(groupIdsFor(object)); selected = object.id; showHandles = true; renderStage(); renderInspector({ hydrateSelection: true }); }
+      openContextMenu(event);
     });
     window.addEventListener('pointermove', updatePointerAction);
     window.addEventListener('pointerup', endPointerAction);
@@ -1463,6 +2178,16 @@
       presets: () => deep(allPresets()),
       placePreset,
       selectedIds: () => [...selectedIds],
+      selectIds: ids => {
+        selectedIds = expandSelectionGroups(new Set((ids || []).map(String).filter(id => state.objects.some(object => object.id === id))));
+        selected = [...selectedIds].at(-1) || null; showHandles = Boolean(selected); renderStage(); renderInspector({ hydrateSelection: true });
+      },
+      selectionBounds: () => deep(boundsFor(selectedObjects())),
+      runAction: runEditorAction,
+      setGeometry: setSelectedGeometry,
+      setField: setObjectField,
+      gridAuthority: () => ({ spacing: GRID_SPACING, originX: GRID_ORIGIN_X, originY: GRID_ORIGIN_Y, centerX: CENTER_X, threshold: SNAP_THRESHOLD }),
+      editorUi: () => ({ magnetEnabled, contextMenuOpen, clipboardSize: stageClipboard.length, historyCount: undoStack.length }),
       audioPlayback: () => audioPlayer ? { paused: audioPlayer.paused, currentTime: audioPlayer.currentTime, src: audioPlayer.currentSrc, started: audioPlaybackStarted } : null,
       enterMobileEdit,
       exitMobileEdit,
@@ -1473,6 +2198,7 @@
 
   function start() {
     initialState = parseInitialState();
+    initialState = sanitise(initialState);
     state = deep(initialState);
     createMenus();
     bind();
