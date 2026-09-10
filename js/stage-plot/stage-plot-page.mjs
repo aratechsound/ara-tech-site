@@ -5,8 +5,11 @@ import {
   normalizeCanonicalState,
   parseStagePlotRoute,
 } from './stage-plot-persistence.mjs';
+import * as stagePlotPresets from './stage-plot-presets.mjs';
 
-const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=5';
+if (typeof window !== 'undefined') window.__ARA_STAGE_PLOT_PRESETS__ = stagePlotPresets;
+
+const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=6';
 const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
 
 function routeOptions(search = '') {

@@ -10,6 +10,9 @@
   const GRID_ORIGIN_X = CENTER_X % GRID_SPACING;
   const HISTORY_LIMIT = 500;
   const STORE = 'ara-tech-stage-plot-canonical-v25';
+  const {
+    BUILT_IN_PRESETS = [], createPresetStorage, instantiatePreset, presetFromSelection,
+  } = window.__ARA_STAGE_PLOT_PRESETS__ || {};
   const TYPES = ['曲', 'SE', 'MC', 'BGM', 'End SE', 'その他'];
   const OUTPUT_MODES = ['normal', 'single_mix', 'none'];
   const OUTPUT_MODE_LABELS = { normal: '通常セットリスト', single_mix: '完成ミックス1本', none: 'セットリストなし' };
@@ -31,6 +34,7 @@
   let state;
   let initialState;
   let selected = null;
+  let selectedIds = new Set();
   let showHandles = false;
   let undoStack = [];
   let redoStack = [];
@@ -41,6 +45,9 @@
   let audioPlayer = null;
   let audioPlaybackStarted = false;
   let equipmentLayout = { mode: 'normal', overflow: 0, carryVisible: 0, requestVisible: 0 };
+  const presetStorage = createPresetStorage?.();
+  let userPresets = presetStorage?.load?.() || [];
+  let activeCustomPresetId = '';
 
   function rotationFromTransform(transform) {
     if (!transform || transform === 'none') return 0;
@@ -223,22 +230,30 @@
     metadata.eventDate = String(metadata.eventDate || metadata.event_date || '');
     delete metadata.event_date;
     const number = (value, fallbackValue, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallbackValue;
-    const objects = Array.isArray(source.objects) ? source.objects.map(item => ({
-      id: String(item.id || uid()),
-      type: TOOLS.includes(item.type) ? item.type : 'rect',
-      x: number(item.x, 350, 0, STAGE_W),
-      y: number(item.y, 220, 0, STAGE_H),
-      width: number(item.width, 76, 20, 420),
-      height: number(item.height, 40, 18, 260),
-      rotation: number(item.rotation, 0, -3600, 3600),
-      scale: number(item.scale, 100, 30, 300),
-      label: String(item.label ?? TYPE_LABELS[item.type] ?? ''),
-      fontSize: number(item.fontSize, defaultFontSize(item.type), 8, 72),
-      category: CATEGORY_LABELS[item.category] ? item.category : 'unspecified',
-      labelEdited: Boolean(item.labelEdited || !item.html),
-      className: String(item.className || ''),
-      html: String(item.html || objectHtml(item.type, item.label)),
-    })) : deep(fallback.objects);
+    const objects = Array.isArray(source.objects) ? source.objects.map(item => {
+      const object = {
+        id: String(item.id || uid()),
+        type: TOOLS.includes(item.type) ? item.type : 'rect',
+        x: number(item.x, 350, 0, STAGE_W),
+        y: number(item.y, 220, 0, STAGE_H),
+        width: number(item.width, 76, 6, 420),
+        height: number(item.height, 40, 6, 260),
+        rotation: number(item.rotation, 0, -3600, 3600),
+        scale: number(item.scale, 100, 30, 300),
+        label: String(item.label ?? TYPE_LABELS[item.type] ?? ''),
+        fontSize: number(item.fontSize, defaultFontSize(item.type), 8, 72),
+        category: CATEGORY_LABELS[item.category] ? item.category : 'unspecified',
+        labelEdited: Boolean(item.labelEdited || !item.html),
+        className: String(item.className || ''),
+        html: String(item.html || ''),
+      };
+      if (Number.isFinite(Number(item.strokeWidth))) object.strokeWidth = number(item.strokeWidth, 2, .5, 8);
+      for (const key of ['physicalWidthMm', 'physicalDepthMm']) if (Number.isFinite(Number(item[key]))) object[key] = Number(item[key]);
+      for (const key of ['physicalDimensionSource', 'dimensionStatus', 'fillStyle', 'symbolKind', 'splitLabel', 'equipmentKey', 'equipmentModel', 'equipmentFamily']) if (item[key] != null) object[key] = String(item[key]);
+      if (typeof item.physicalDimensionVerified === 'boolean') object.physicalDimensionVerified = item.physicalDimensionVerified;
+      if (!object.html) object.html = objectMarkup(object);
+      return object;
+    }) : deep(fallback.objects);
     const row = item => ({ id: String(item.id || uid()), source: 'manual', name: String(item.name || ''), qty: String(item.qty || ''), detail: String(item.detail || '') });
     const brought = Array.isArray(source.equipment?.brought) ? source.equipment.brought.map(row) : [];
     const requested = Array.isArray(source.equipment?.requested) ? source.equipment.requested.map(row) : [];
@@ -321,6 +336,7 @@
     if (rememberPrevious && before) remember(before);
     saveLocal();
     selected = null;
+    selectedIds.clear();
     showHandles = false;
     render();
     notifyChange(source);
@@ -331,6 +347,7 @@
     redoStack.push(deep(state));
     state = sanitise(undoStack.pop());
     selected = null;
+    selectedIds.clear();
     showHandles = false;
     saveLocal();
     render();
@@ -342,6 +359,7 @@
     undoStack.push(deep(state));
     state = sanitise(redoStack.pop());
     selected = null;
+    selectedIds.clear();
     showHandles = false;
     saveLocal();
     render();
@@ -360,11 +378,22 @@
     return `<div class="engine-text">${escapeHtml(label)}</div>`;
   }
 
+  function objectMarkup(object) {
+    const label = escapeHtml(object.label);
+    if (object.symbolKind === 'topview-equipment-split') return `<div class="rect topview-symbol is-split"><span>${label}</span><span>${escapeHtml(object.splitLabel)}</span></div>`;
+    if (object.symbolKind === 'topview-equipment') return `<div class="rect topview-symbol">${label}</div>`;
+    if (object.symbolKind === 'drum-kick') return `<div class="rect topview-symbol is-kick">${label}</div>`;
+    if (object.symbolKind === 'drum-pedal') return `<div class="rect topview-symbol is-pedal">${label}</div>`;
+    if (object.symbolKind === 'cymbal') return `<div class="circle topview-symbol is-cymbal">${label}</div>`;
+    if (object.symbolKind === 'drum-shell') return `<div class="circle topview-symbol is-drum-shell">${label}</div>`;
+    return objectHtml(object.type, object.label);
+  }
+
   function syncObjectContent(object) {
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = object.html || objectHtml(object.type, object.label);
+    wrapper.innerHTML = object.symbolKind ? objectMarkup(object) : (object.html || objectHtml(object.type, object.label));
     const labelNode = $('.rect,.circle,.power-mark,.engine-text', wrapper);
-    if (labelNode && object.labelEdited) labelNode.textContent = object.label;
+    if (labelNode && object.labelEdited && !object.symbolKind) labelNode.textContent = object.label;
     if (object.category === 'brought') $('.rect,.circle', wrapper)?.classList.add('borrow');
     else $('.rect,.circle', wrapper)?.classList.remove('borrow');
     return wrapper.innerHTML;
@@ -372,7 +401,8 @@
 
   function objectNode(object) {
     const node = document.createElement('div');
-    node.className = `obj engine-object ${object.className || ''} category-${object.category}${selected === object.id && showHandles ? ' selected' : ''}`.replace(/\s+/g, ' ').trim();
+    const isSelected = selectedIds.has(object.id);
+    node.className = `obj engine-object ${object.className || ''} category-${object.category}${isSelected ? ' selected' : ''}${Number.isFinite(object.strokeWidth) ? ' has-custom-stroke' : ''}`.replace(/\s+/g, ' ').trim();
     node.dataset.id = object.id;
     node.tabIndex = 0;
     node.setAttribute('role', 'button');
@@ -388,8 +418,18 @@
   function updateObjectNode(node, object) {
     node.style.left = `${object.x}px`;
     node.style.top = `${object.y}px`;
+    if (object.symbolKind) {
+      node.style.width = `${object.width}px`;
+      node.style.height = `${object.height}px`;
+    }
     node.style.transform = `rotate(${object.rotation}deg) scale(${object.scale / 100})`;
     node.style.transformOrigin = 'center';
+    if (Number.isFinite(object.strokeWidth)) {
+      const effectiveScale = Math.max(.01, object.scale / 100);
+      node.style.setProperty('--object-stroke-width', `${object.strokeWidth / effectiveScale}px`);
+      node.style.setProperty('--mic-stroke-width', `${object.strokeWidth * 160 / 38 / effectiveScale}px`);
+      node.style.setProperty('--monitor-stroke-width', `${object.strokeWidth * 220 / 56 / effectiveScale}px`);
+    } else node.style.removeProperty('--object-stroke-width');
     const labelNode = $('.rect,.circle,.power-mark,.engine-text', node);
     if (labelNode) labelNode.style.fontSize = `${object.fontSize / (object.scale / 100)}px`;
   }
@@ -406,12 +446,23 @@
     return state.objects.find(object => object.id === selected);
   }
 
+  function selectedObjects() {
+    return state.objects.filter(object => selectedIds.has(object.id));
+  }
+
+  function selectOnly(id) {
+    selected = id || null;
+    selectedIds = id ? new Set([id]) : new Set();
+    showHandles = Boolean(id);
+  }
+
   function inspectorParts() {
     const fields = $$('.left .props .field');
     const actionButtons = $$('.left .props > .btnrow button');
     const angleButtons = $$('button', fields[1]);
     const sizeButtons = $$('button', fields[2]);
     const fontButtons = $$('button', fields[3]);
+    const strokeButtons = $$('button', fields[5]);
     return {
       title: $$('.left > .panel-title')[1],
       label: $('input', fields[0]),
@@ -426,6 +477,9 @@
       fontDefault: fontButtons[1],
       fontPlus: fontButtons[2],
       category: $('select', fields[4]),
+      strokeWidth: $('input', fields[5]),
+      strokeMinus: strokeButtons[0],
+      strokePlus: strokeButtons[1],
       swatches: $$('.sw[data-object-category]', $('.left .props')),
       duplicate: actionButtons[0],
       remove: actionButtons[1],
@@ -435,8 +489,16 @@
   function renderInspector({ hydrateSelection = false } = {}) {
     const parts = inspectorParts();
     const object = selectedObject();
-    if (parts.title) parts.title.textContent = `選択中：${object?.label || '未選択'}`;
+    const objects = selectedObjects();
+    if (parts.title) parts.title.textContent = objects.length > 1 ? `選択中：${objects.length}個` : `選択中：${object?.label || '未選択'}`;
     [parts.label, parts.rotation, parts.scale, parts.fontSize, parts.category, ...parts.swatches, parts.minus, parts.zero, parts.plus, parts.scaleReset, parts.fontMinus, parts.fontDefault, parts.fontPlus, parts.duplicate, parts.remove].forEach(control => { if (control) control.disabled = !object; });
+    const strokeObjects = objects.filter(item => item.type !== 'text');
+    [parts.strokeWidth, parts.strokeMinus, parts.strokePlus].forEach(control => { if (control) control.disabled = !strokeObjects.length; });
+    if (parts.strokeWidth) {
+      const values = [...new Set(strokeObjects.map(item => Number.isFinite(item.strokeWidth) ? item.strokeWidth : (item.type === 'power' ? 1.5 : 2)))];
+      parts.strokeWidth.placeholder = values.length > 1 ? '—' : '';
+      parts.strokeWidth.value = values.length === 1 ? String(values[0]) : '';
+    }
     if (!object) return;
     // A selection is a read-only projection boundary.  The browser does not
     // move focus away from the prior inspector input until after pointerdown,
@@ -778,6 +840,77 @@
     $('#setlistTotalBox').setAttribute('aria-label', allotted && total > allotted ? `合計時間 ${formatDuration(total)}。持ち時間を超えています` : `合計時間 ${formatDuration(total)}`);
   }
 
+  function allPresets() {
+    return [...BUILT_IN_PRESETS, ...userPresets];
+  }
+
+  function renderPresetLibrary() {
+    const root = $('#equipmentLibraryItems');
+    const select = $('#customPresetSelect');
+    if (!root || !select) return;
+    const query = normalizedEquipmentLabel($('#equipmentLibrarySearch')?.value);
+    const presets = allPresets().filter(preset => !query || normalizedEquipmentLabel([preset.name, ...(preset.searchAliases || [])].join(' ')).includes(query));
+    root.innerHTML = presets.map(preset => `<div class="library-preset" data-preset-kind="${preset.kind}"><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.kind === 'built-in' ? '内蔵・読取専用' : `${preset.components.length} components`}</small></div><button type="button" data-place-preset="${escapeHtml(preset.id)}">配置</button></div>`).join('') || '<small>一致する機材はありません。</small>';
+    select.innerHTML = `<option value="">選択してください</option>${userPresets.map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === activeCustomPresetId ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}`;
+    const hasActive = userPresets.some(preset => preset.id === activeCustomPresetId);
+    $('#updateCustomPreset').disabled = !hasActive;
+    $('#deleteCustomPreset').disabled = !hasActive;
+  }
+
+  function setFlyoutOpen(open) {
+    const flyout = $('#equipmentLibraryFlyout');
+    const launcher = $('#equipmentLibraryLauncher');
+    if (!flyout || !launcher) return;
+    flyout.hidden = !open;
+    launcher.setAttribute('aria-expanded', String(open));
+  }
+
+  function placePreset(id) {
+    const preset = allPresets().find(item => item.id === id);
+    if (!preset || !instantiatePreset) return;
+    const components = instantiatePreset(preset, { x: 280, y: 145 }, uid);
+    if (!components.length) return;
+    commit(() => state.objects.push(...components), { source: 'preset-placement' });
+    selectedIds = new Set(components.map(object => object.id));
+    selected = components.at(-1).id;
+    showHandles = true;
+    render();
+    setFlyoutOpen(false);
+  }
+
+  function createCustomPreset() {
+    const objects = selectedObjects();
+    if (!objects.length) { alert('プリセットに保存する図形を1個以上選択してください。'); return; }
+    const name = prompt('新しいプリセット名');
+    if (!String(name || '').trim() || !presetFromSelection) return;
+    const preset = presetFromSelection(name, objects);
+    userPresets.push(preset);
+    activeCustomPresetId = preset.id;
+    presetStorage?.save?.(userPresets);
+    renderPresetLibrary();
+  }
+
+  function updateCustomPreset() {
+    const index = userPresets.findIndex(preset => preset.id === activeCustomPresetId);
+    const objects = selectedObjects();
+    if (index < 0 || !objects.length || !presetFromSelection) return;
+    if (!confirm(`「${userPresets[index].name}」を現在の選択内容で上書きしますか？`)) return;
+    const replacement = presetFromSelection(userPresets[index].name, objects);
+    replacement.id = userPresets[index].id;
+    userPresets[index] = replacement;
+    presetStorage?.save?.(userPresets);
+    renderPresetLibrary();
+  }
+
+  function deleteCustomPreset() {
+    const preset = userPresets.find(item => item.id === activeCustomPresetId);
+    if (!preset || !confirm(`「${preset.name}」を削除しますか？`)) return;
+    userPresets = userPresets.filter(item => item.id !== activeCustomPresetId);
+    activeCustomPresetId = '';
+    presetStorage?.save?.(userPresets);
+    renderPresetLibrary();
+  }
+
   function render(options = {}) {
     renderMetadata();
     renderStage();
@@ -787,6 +920,7 @@
     renderOutputMode();
     renderSetlist();
     renderPrintSetlistPages();
+    renderPresetLibrary();
     updateHistory();
     if (!options.skipFit) requestAnimationFrame(fitPage);
   }
@@ -830,11 +964,10 @@
     const sequence = state.objects.length;
     const object = {
       id: uid(), type, x: 365 + (sequence % 4) * 24, y: 225 + (sequence % 3) * 20,
-      width, height, rotation: 0, scale: 100, label: TYPE_LABELS[type], fontSize: defaultFontSize(type), category: 'unspecified', labelEdited: true, className: '', html: objectHtml(type),
+      width, height, rotation: 0, scale: 100, label: TYPE_LABELS[type], fontSize: defaultFontSize(type), category: 'unspecified', strokeWidth: 2, labelEdited: true, className: '', html: objectHtml(type),
     };
     commit(() => state.objects.push(object));
-    selected = object.id;
-    showHandles = true;
+    selectOnly(object.id);
     render();
   }
 
@@ -852,6 +985,14 @@
         object.html = syncObjectContent(object);
       }
     });
+  }
+
+  function setSelectedStrokeWidth(rawValue) {
+    const value = clamp(Number(rawValue), .5, 8);
+    if (!Number.isFinite(value)) return;
+    const ids = new Set(selectedObjects().filter(object => object.type !== 'text').map(object => object.id));
+    if (!ids.size) return;
+    commit(() => state.objects.forEach(object => { if (ids.has(object.id)) object.strokeWidth = Math.round(value * 2) / 2; }), { source: 'stroke-width' });
   }
 
   function startPointerAction(event, object, mode) {
@@ -1040,16 +1181,23 @@
     context.translate(object.x + width / 2, object.y + height / 2);
     context.rotate(object.rotation * Math.PI / 180);
     context.scale(scale, scale);
-    context.lineWidth = 2;
-    context.strokeStyle = '#111';
     const brought = object.category === 'brought';
+    const legacyStroke = object.type === 'microphone' ? 3 : 2;
+    context.lineWidth = (Number.isFinite(object.strokeWidth) ? object.strokeWidth : legacyStroke) / Math.max(.01, scale);
+    context.strokeStyle = brought ? '#b84b51' : '#111';
     context.fillStyle = brought ? '#f3cfd2' : '#fff';
     if (object.type === 'circle') { context.beginPath(); context.ellipse(0, 0, width / 2, height / 2, 0, 0, Math.PI * 2); context.fill(); context.stroke(); }
     else if (object.type === 'line' || object.type === 'arrow') { context.beginPath(); context.moveTo(-width / 2, 0); context.lineTo(width / 2 - (object.type === 'arrow' ? 12 : 0), 0); context.stroke(); if (object.type === 'arrow') { context.fillStyle = '#111'; context.beginPath(); context.moveTo(width / 2, 0); context.lineTo(width / 2 - 14, -7); context.lineTo(width / 2 - 14, 7); context.closePath(); context.fill(); } }
-    else if (object.type === 'microphone') { context.strokeStyle = brought ? '#d71920' : '#111'; context.lineWidth = 3; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
+    else if (object.type === 'microphone') { context.strokeStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
     else if (object.type === 'monitor') { context.fillStyle = brought ? '#f3cfd2' : '#fff'; context.strokeStyle = brought ? '#d71920' : '#111'; context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(-width / 2 + 3, -height / 2 + 3); context.lineTo(width / 2 - 3, -height / 2 + 3); context.lineTo(0, height / 4); context.closePath(); context.fill(); }
     else if (object.type !== 'text') { context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); }
-    if (!['line', 'arrow', 'microphone', 'monitor'].includes(object.type)) {
+    if (object.symbolKind === 'topview-equipment-split') {
+      context.beginPath(); context.moveTo(-width / 2 + 4, 0); context.lineTo(width / 2 - 4, 0); context.stroke();
+      context.fillStyle = brought ? '#5f1013' : '#111';
+      context.font = `900 ${object.fontSize}px sans-serif`; context.textAlign = 'center'; context.textBaseline = 'middle';
+      context.fillText(object.label, 0, -height / 4, Math.max(20, width - 6));
+      context.fillText(object.splitLabel || '', 0, height / 4, Math.max(20, width - 6));
+    } else if (!['line', 'arrow', 'microphone', 'monitor'].includes(object.type)) {
       context.fillStyle = brought ? '#5f1013' : '#111';
       context.font = `900 ${object.fontSize}px sans-serif`;
       context.textAlign = 'center';
@@ -1114,6 +1262,9 @@
     parts.fontMinus?.addEventListener('click', () => setObjectField('fontSize', (selectedObject()?.fontSize || 16) - 1));
     parts.fontDefault?.addEventListener('click', () => setObjectField('fontSize', 16));
     parts.fontPlus?.addEventListener('click', () => setObjectField('fontSize', (selectedObject()?.fontSize || 16) + 1));
+    parts.strokeWidth?.addEventListener('change', event => setSelectedStrokeWidth(event.target.value));
+    parts.strokeMinus?.addEventListener('click', () => setSelectedStrokeWidth((Number(parts.strokeWidth.value) || 2) - .5));
+    parts.strokePlus?.addEventListener('click', () => setSelectedStrokeWidth((Number(parts.strokeWidth.value) || 2) + .5));
     parts.category?.addEventListener('change', event => setObjectField('category', event.target.value));
     parts.swatches.forEach(swatch => swatch.addEventListener('click', () => setObjectField('category', swatch.dataset.objectCategory)));
     parts.minus?.addEventListener('click', () => setObjectField('rotation', (selectedObject()?.rotation || 0) - 15));
@@ -1126,12 +1277,13 @@
       const copy = deep(object);
       copy.id = uid(); copy.x += 18; copy.y += 18;
       commit(() => state.objects.push(copy));
-      selected = copy.id; showHandles = true; render();
+      selectOnly(copy.id); render();
     });
     parts.remove?.addEventListener('click', () => {
       if (!selectedObject()) return;
-      commit(() => state.objects = state.objects.filter(object => object.id !== selected));
-      selected = null; showHandles = false; render();
+      const ids = new Set(selectedIds);
+      commit(() => state.objects = state.objects.filter(object => !ids.has(object.id)));
+      selectOnly(null); render();
     });
   }
 
@@ -1145,6 +1297,19 @@
       tool.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); addObject(TOOLS[index]); } });
     });
     bindInspector();
+    $('#equipmentLibraryLauncher')?.addEventListener('click', event => {
+      event.stopPropagation();
+      setFlyoutOpen($('#equipmentLibraryFlyout')?.hidden !== false);
+    });
+    $('#equipmentLibraryClose')?.addEventListener('click', () => setFlyoutOpen(false));
+    $('#equipmentLibrarySearch')?.addEventListener('input', renderPresetLibrary);
+    $('#customPresetSelect')?.addEventListener('change', event => {
+      activeCustomPresetId = event.target.value;
+      renderPresetLibrary();
+    });
+    $('#createCustomPreset')?.addEventListener('click', createCustomPreset);
+    $('#updateCustomPreset')?.addEventListener('click', updateCustomPreset);
+    $('#deleteCustomPreset')?.addEventListener('click', deleteCustomPreset);
 
     const metadataKeys = ['eventName', 'performerName', 'performanceOrder', 'performanceTime', 'allottedTime', 'eventDate'];
     $$('.meta-field input').forEach((input, index) => input.addEventListener('change', () => commit(() => state.metadata[metadataKeys[index]] = input.value)));
@@ -1164,6 +1329,10 @@
     jsonButton?.addEventListener('click', () => $('.json-menu').classList.add('open'));
     outputButton?.addEventListener('click', () => $('.output-menu').classList.add('open'));
     document.addEventListener('click', event => {
+      const place = event.target.closest('[data-place-preset]');
+      if (place) placePreset(place.dataset.placePreset);
+      const flyout = $('#equipmentLibraryFlyout');
+      if (flyout && !flyout.hidden && !flyout.contains(event.target) && !event.target.closest('#equipmentLibraryLauncher')) setFlyoutOpen(false);
       if (event.target.matches('.output-menu,.json-menu')) event.target.classList.remove('open');
       if (event.target.dataset.output === 'png') { $('.output-menu').classList.remove('open'); exportPng(); }
       if (event.target.dataset.output === 'pdf') { $('.output-menu').classList.remove('open'); document.body.classList.remove('print-stage-only', 'print-setlist-only'); document.body.classList.add('print-adaptive-document'); requestAnimationFrame(() => window.print()); }
@@ -1186,6 +1355,7 @@
       const play = event.target.closest('[data-play-audio]');
       if (play) playAudio(play.dataset.playAudio).catch(() => {});
     });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') setFlyoutOpen(false); });
 
     $('#jsonLoadInput').addEventListener('change', event => {
       const file = event.target.files?.[0];
@@ -1245,12 +1415,25 @@
     stage.addEventListener('pointerdown', event => {
       if (enterMobileEdit()) return;
       const node = event.target.closest('.engine-object');
-      if (!node) { selected = null; showHandles = false; renderStage(); renderInspector(); return; }
+      if (!node) { selectOnly(null); renderStage(); renderInspector(); return; }
       const object = state.objects.find(item => item.id === node.dataset.id);
       if (!object) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        if (selectedIds.has(object.id)) {
+          selectedIds.delete(object.id);
+          if (selected === object.id) selected = [...selectedIds].at(-1) || null;
+        } else {
+          selectedIds.add(object.id);
+          selected = object.id;
+        }
+        showHandles = Boolean(selected);
+        renderStage();
+        renderInspector({ hydrateSelection: true });
+        event.preventDefault();
+        return;
+      }
       const selectionChanged = selected !== object.id;
-      selected = object.id;
-      showHandles = true;
+      selectOnly(object.id);
       const handle = event.target.closest('[data-transform]');
       const mode = handle?.dataset.transform || 'move';
       renderInspector({ hydrateSelection: selectionChanged });
@@ -1277,6 +1460,9 @@
       stagePng: () => stageCanvas().toDataURL('image/png'),
       equipmentLayout: () => deep(equipmentLayout),
       equipmentRows: kind => EQUIPMENT_KINDS.includes(kind) ? deep(equipmentItems(kind)) : [],
+      presets: () => deep(allPresets()),
+      placePreset,
+      selectedIds: () => [...selectedIds],
       audioPlayback: () => audioPlayer ? { paused: audioPlayer.paused, currentTime: audioPlayer.currentTime, src: audioPlayer.currentSrc, started: audioPlaybackStarted } : null,
       enterMobileEdit,
       exitMobileEdit,
@@ -1291,7 +1477,7 @@
     createMenus();
     bind();
     renderStage();
-    selected = state.objects.find(object => object.label === 'Gt Head')?.id || null;
+    selectOnly(state.objects.find(object => object.label === 'Gt Head')?.id || null);
     renderInspector();
     renderMetadata();
     renderEquipment();

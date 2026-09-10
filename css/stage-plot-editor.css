@@ -10,6 +10,53 @@
   pointer-events: none;
 }
 
+.equipment-library-shell { padding: 9px; border-bottom: 1px solid #dce3e8; background: #fff; }
+.panel.left { z-index: 80; }
+.equipment-library-launcher { width: 100%; border: 1px solid #121820; border-radius: 8px; padding: 8px 10px; background: #121820; color: #fff; font-size: 11px; font-weight: 900; cursor: pointer; }
+.equipment-library-flyout { position: fixed; z-index: 90; top: 78px; left: 220px; width: min(330px, calc(100vw - 238px)); max-height: calc(100vh - 96px); overflow: auto; padding: 11px; border: 1px solid #aeb8c0; border-radius: 10px; background: #fff; box-shadow: 0 14px 40px rgba(20,30,40,.22); box-sizing: border-box; }
+.equipment-library-flyout[hidden] { display: none; }
+.equipment-library-flyout header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.equipment-library-flyout header strong { font-size: 13px; }
+.equipment-library-flyout header button { width: 28px; height: 28px; border: 1px solid #ccd5dc; border-radius: 50%; background: #fff; font-size: 18px; line-height: 1; }
+.equipment-library-flyout > input,
+.preset-selection-label select { width: 100%; border: 1px solid #ccd5dc; border-radius: 7px; padding: 7px 8px; background: #fff; font-size: 10px; box-sizing: border-box; }
+.equipment-library-items { display: grid; gap: 6px; margin: 9px 0 12px; }
+.library-preset { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #dce3e8; border-radius: 8px; background: #fafbfc; }
+.library-preset strong { display: block; font-size: 10px; }
+.library-preset small { color: #6a7680; font-size: 8.5px; }
+.library-preset button { border: 1px solid #111; border-radius: 6px; padding: 5px 7px; background: #fff; font-size: 9px; font-weight: 900; }
+.preset-selection-label { display: grid; gap: 4px; color: #65717c; font-size: 9px; font-weight: 900; }
+.preset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.preset-actions button { border: 1px solid #ccd5dc; border-radius: 7px; padding: 7px; background: #fff; font-size: 9px; font-weight: 900; }
+.preset-actions button:last-child { grid-column: 2; }
+.equipment-library-flyout > small { display: block; margin-top: 8px; color: #69757f; font-size: 8.5px; }
+.stroke-control { display: grid; grid-template-columns: 30px minmax(0,1fr) 30px 22px; gap: 4px; align-items: center; }
+.stroke-control button { height: 30px; border: 1px solid #ccd5dc; border-radius: 6px; background: #fff; font-weight: 900; }
+.stroke-control span { color: #65717c; font-size: 9px; font-weight: 800; }
+.sw.black { background: #fff; border-color: #111; }
+
+.engine-object.has-custom-stroke .rect,
+.engine-object.has-custom-stroke .circle,
+.engine-object.has-custom-stroke .power-mark { border-width: var(--object-stroke-width); }
+.engine-object.has-custom-stroke .engine-line,
+.engine-object.has-custom-stroke .engine-arrow { height: var(--object-stroke-width); border-top: 0; background: #111; }
+.engine-object.has-custom-stroke .mic-svg line,
+.engine-object.has-custom-stroke .mic-svg circle { stroke-width: var(--mic-stroke-width); }
+.engine-object.has-custom-stroke .mon-svg rect { stroke-width: var(--monitor-stroke-width); }
+.topview-symbol { position: relative; width: 100%; height: 100%; min-width: 0 !important; min-height: 0 !important; padding: 2px !important; box-sizing: border-box; }
+.topview-symbol.is-split::after { content: ""; position: absolute; left: 4px; right: 4px; top: 50%; border-top: var(--object-stroke-width) solid currentColor; }
+.topview-symbol.is-split span { position: absolute; left: 0; right: 0; text-align: center; }
+.topview-symbol.is-split span:first-child { top: 10%; }
+.topview-symbol.is-split span:last-child { bottom: 8%; }
+.topview-symbol.is-cymbal { background: #fffdf3; }
+.topview-symbol.is-cymbal::after { content: ""; width: 5px; height: 5px; border: 1px solid currentColor; border-radius: 50%; position: absolute; left: calc(50% - 3px); top: calc(50% - 3px); }
+.topview-symbol.is-kick { border-radius: 6px; }
+.topview-symbol.is-pedal { border-radius: 45% 45% 10% 10%; }
+
+@media (max-width: 900px) {
+  .equipment-library-flyout { left: 180px; width: min(310px, calc(100vw - 198px)); }
+}
+
 /* Phase 1D: adaptive print and playback cue controls. */
 .sheet-date { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 190px; }
 .sheet-date .sheet-event-date { color: #333; font-size: 10px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
