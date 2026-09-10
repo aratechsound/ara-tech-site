@@ -47,9 +47,6 @@
 .engine-object.has-custom-stroke .mic-svg line,
 .engine-object.has-custom-stroke .mic-svg circle { stroke-width: var(--mic-stroke-width); }
 .engine-object.has-custom-stroke .mon-svg rect { stroke-width: var(--monitor-stroke-width); }
-.engine-object .mic-svg line,
-.engine-object .mic-svg circle,
-.engine-object .mon-svg rect { vector-effect: non-scaling-stroke; }
 .topview-symbol { position: relative; width: 100%; height: 100%; min-width: 0 !important; min-height: 0 !important; padding: 2px !important; box-sizing: border-box; }
 .topview-symbol.is-split::after { content: ""; position: absolute; left: 4px; right: 4px; top: 50%; border-top: var(--object-stroke-width) solid currentColor; }
 .topview-symbol.is-split span { position: absolute; left: 0; right: 0; text-align: center; }
@@ -133,6 +130,7 @@
 .inspector-toggle[aria-expanded="true"]::after { content: "−"; }
 .inspector-section.open > .inspector-toggle { background: #edf6ff; color: #006fe6; }
 .inspector-panel { display: grid; gap: 7px; padding: 8px; border-top: 1px solid #e2e8ed; }
+.inspector-panel[hidden] { display: none !important; }
 .geometry-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
 .geometry-grid label { color: #65717c; font-size: 8.5px; font-weight: 900; }
 .geometry-grid input,
@@ -170,8 +168,15 @@
 }
 .engine-object.geometry-sized > .engine-line,
 .engine-object.geometry-sized > .engine-arrow { width: 100% !important; }
-.engine-object.geometry-sized .mic-svg *,
-.engine-object.geometry-sized .mon-svg * { vector-effect: non-scaling-stroke; }
+.engine-object.geometry-sized .mic-svg line,
+.engine-object.geometry-sized .mic-svg circle,
+.engine-object.geometry-sized .mon-svg rect { vector-effect: non-scaling-stroke; }
+.engine-object.geometry-sized:not(.has-custom-stroke) > .mic-svg line { stroke-width: 2px; }
+.engine-object.geometry-sized:not(.has-custom-stroke) > .mic-svg circle { stroke-width: 1.6625px; }
+.engine-object.geometry-sized:not(.has-custom-stroke) > .mon-svg rect { stroke-width: 2.2909px; }
+.engine-object.geometry-sized.has-custom-stroke > .mic-svg line,
+.engine-object.geometry-sized.has-custom-stroke > .mic-svg circle { stroke-width: var(--mic-stroke-width); }
+.engine-object.geometry-sized.has-custom-stroke > .mon-svg rect { stroke-width: var(--monitor-stroke-width); }
 .object-label { display: inline-block; }
 .engine-object.locked { cursor: not-allowed; }
 .engine-object.locked::before { content: "🔒"; position: absolute; z-index: 4; right: -8px; top: -12px; font-size: 10px; }

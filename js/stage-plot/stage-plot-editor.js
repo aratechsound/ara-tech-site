@@ -459,8 +459,8 @@
     if (Number.isFinite(object.strokeWidth)) {
       const effectiveScale = Math.max(.01, object.scale / 100);
       node.style.setProperty('--object-stroke-width', `${object.strokeWidth / effectiveScale}px`);
-      node.style.setProperty('--mic-stroke-width', `${object.strokeWidth * 160 / 38 / effectiveScale}px`);
-      node.style.setProperty('--monitor-stroke-width', `${object.strokeWidth * 220 / 56 / effectiveScale}px`);
+      node.style.setProperty('--mic-stroke-width', `${object.geometrySized ? object.strokeWidth : object.strokeWidth * 160 / 38 / effectiveScale}px`);
+      node.style.setProperty('--monitor-stroke-width', `${object.geometrySized ? object.strokeWidth : object.strokeWidth * 220 / 56 / effectiveScale}px`);
     } else node.style.removeProperty('--object-stroke-width');
     const labelNode = $('.rect,.circle,.power-mark,.engine-text', node);
     if (labelNode) labelNode.style.fontSize = `${object.fontSize / (object.scale / 100)}px`;
@@ -1975,7 +1975,10 @@
         item.classList.toggle('open', open);
         $('.inspector-toggle', item)?.setAttribute('aria-expanded', String(open));
         const panel = $('.inspector-panel', item);
-        if (panel) panel.hidden = !open;
+        if (panel) {
+          panel.hidden = !open;
+          panel.toggleAttribute('inert', !open);
+        }
       });
     }));
     $('#equipmentLibraryLauncher')?.addEventListener('click', event => {

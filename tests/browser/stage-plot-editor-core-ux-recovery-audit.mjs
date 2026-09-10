@@ -153,6 +153,7 @@ const labelState = await objectById('a');
 const labelStyle = await page.locator('[data-id="a"] .object-label').evaluate(node => ({ left: parseFloat(node.style.left), top: parseFloat(node.style.top) }));
 record(18, 'label offset', labelState.labelOffsetX === 17 && labelState.labelOffsetY === -9 && labelStyle.left === 17 && labelStyle.top === -9);
 await page.evaluate(() => window.StagePlotEditor.runAction('noop'));
+await page.locator('#inspectorLabelToggle').click();
 await page.locator('#labelOffsetResetBtn').click();
 const resetLabel = await objectById('a');
 record(19, 'label reset', resetLabel.labelOffsetX === 0 && resetLabel.labelOffsetY === 0);

@@ -9,7 +9,7 @@ import * as stagePlotPresets from './stage-plot-presets.mjs';
 
 if (typeof window !== 'undefined') window.__ARA_STAGE_PLOT_PRESETS__ = stagePlotPresets;
 
-const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=7';
+const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=8';
 const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
 
 function routeOptions(search = '') {

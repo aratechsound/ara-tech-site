@@ -72,17 +72,24 @@ const inspectorInput = page.locator('#objectLabelInput');
 const categorySelect = page.locator('.left .props select');
 const duplicateButton = page.locator('.left .props [data-editor-action="duplicate"]');
 const deleteButton = page.locator('.left .props [data-editor-action="delete"]');
+const openInspector = async selector => {
+  const toggle = page.locator(selector);
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+};
 
 await page.locator('.tool[data-tool="microphone"]').click();
+await openInspector('#inspectorCategoryToggle');
 await page.locator('.sw[data-object-category="brought"]').click();
 const a = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested'), dirty: await page.evaluate(() => window.StagePlotPage.dirty) };
 await page.screenshot({ path: path.join(outputDir, '01_red_to_carry.png'), fullPage: false, animations: 'disabled' });
 
+await openInspector('#inspectorGroupToggle');
 await duplicateButton.click();
 await duplicateButton.click();
 const b = { carry: await rows('brought') };
 await page.locator('.print-stage-page').screenshot({ path: path.join(outputDir, '04_auto_quantity.png'), animations: 'disabled' });
 
+await openInspector('#inspectorCategoryToggle');
 await page.locator('.sw[data-object-category="requested"]').click();
 const c = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested') };
 await page.screenshot({ path: path.join(outputDir, '02_black_to_requested.png'), fullPage: false, animations: 'disabled' });
@@ -101,6 +108,7 @@ await categorySelect.selectOption({ label: '借用・手配希望' });
 await inspectorInput.fill('Vo Wireless');
 await inspectorInput.dispatchEvent('change');
 const h = { requested: await rows('requested') };
+await openInspector('#inspectorGroupToggle');
 await deleteButton.click();
 const i = { requested: await rows('requested') };
 
@@ -115,7 +123,9 @@ await manualQty.dispatchEvent('change');
 await page.locator('.tool[data-tool="microphone"]').click();
 await inspectorInput.fill('Stage Mic');
 await inspectorInput.dispatchEvent('change');
+await openInspector('#inspectorCategoryToggle');
 await page.locator('.sw[data-object-category="brought"]').click();
+await openInspector('#inspectorGroupToggle');
 await deleteButton.click();
 const j = { carry: await rows('brought'), snapshot: await page.evaluate(() => window.StagePlotEditor.snapshot().equipment.brought) };
 

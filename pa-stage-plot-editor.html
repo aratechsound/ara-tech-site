@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=6">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=7">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -660,27 +660,27 @@ button{cursor:pointer}
     <div class="props">
       <div class="field always-label"><label for="objectLabelInput">ラベル</label><input id="objectLabelInput" value="Gt Head"></div>
       <div class="inspector-accordion" id="inspectorAccordion">
-        <section class="inspector-section open"><button class="inspector-toggle" type="button" aria-expanded="true">位置・サイズ</button><div class="inspector-panel">
+        <section class="inspector-section open"><button id="inspectorPositionToggle" class="inspector-toggle" type="button" aria-expanded="true" aria-controls="inspectorPositionPanel">位置・サイズ</button><div id="inspectorPositionPanel" class="inspector-panel" role="region" aria-labelledby="inspectorPositionToggle">
           <div class="geometry-grid"><label>X<input id="objectXInput" type="number" step="1"></label><label>Y<input id="objectYInput" type="number" step="1"></label><label>Width<input id="objectWidthInput" type="number" min="6" max="830" step="1"></label><label>Height<input id="objectHeightInput" type="number" min="6" max="500" step="1"></label></div>
           <div class="field"><label for="objectScaleInput">Scale</label><div class="inline-control"><input id="objectScaleInput" value="100%"><button id="scaleResetBtn" type="button">100%</button></div></div>
           <label class="check-row"><input id="ratioLockInput" type="checkbox"> Ratio Lock</label>
           <div class="field stroke-field"><label>線幅</label><div class="stroke-control"><button id="strokeMinusBtn" type="button" aria-label="線幅を細く">−</button><input id="strokeWidthInput" type="number" min="0.5" max="8" step="0.5" value="2"><button id="strokePlusBtn" type="button" aria-label="線幅を太く">＋</button><span>px</span></div></div>
           <div class="field"><label for="objectRotationInput">角度</label><input id="objectRotationInput" value="0°"><div class="btnrow compact"><button id="rotationMinusBtn" type="button">−15°</button><button id="rotationZeroBtn" type="button">0°</button><button id="rotationPlusBtn" type="button">+15°</button></div></div>
         </div></section>
-        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">文字</button><div class="inspector-panel" hidden>
+        <section class="inspector-section"><button id="inspectorTextToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorTextPanel">文字</button><div id="inspectorTextPanel" class="inspector-panel" role="region" aria-labelledby="inspectorTextToggle" hidden inert>
           <div class="field"><label for="objectFontSizeInput">文字サイズ</label><input id="objectFontSizeInput" value="16" type="number" min="8" max="72" step="1"><div class="btnrow compact"><button id="fontMinusBtn" type="button">−</button><button id="fontDefaultBtn" type="button">16px</button><button id="fontPlusBtn" type="button">＋</button></div></div>
         </div></section>
-        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">機材区分・表示</button><div class="inspector-panel" hidden>
+        <section class="inspector-section"><button id="inspectorCategoryToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorCategoryPanel">機材区分・表示</button><div id="inspectorCategoryPanel" class="inspector-panel" role="region" aria-labelledby="inspectorCategoryToggle" hidden inert>
           <div class="field"><label for="objectCategorySelect">機材区分</label><select id="objectCategorySelect"><option>出演者持込</option><option>借用・手配希望</option><option>未指定</option></select></div>
           <div class="style-box">画面表示<div class="swatches"><button type="button" class="sw red" data-object-category="brought" aria-label="出演者持込（赤表示）"></button><button type="button" class="sw black white" data-object-category="requested" aria-label="借用・手配希望（白地・黒枠）"></button></div><small>持込＝薄い赤 / 借用・手配希望＝白地＋黒枠</small></div>
         </div></section>
-        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">ラベル位置</button><div class="inspector-panel" hidden>
+        <section class="inspector-section"><button id="inspectorLabelToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorLabelPanel">ラベル位置</button><div id="inspectorLabelPanel" class="inspector-panel" role="region" aria-labelledby="inspectorLabelToggle" hidden inert>
           <div class="geometry-grid"><label>X offset<input id="labelOffsetXInput" type="number" step="1"></label><label>Y offset<input id="labelOffsetYInput" type="number" step="1"></label></div><button id="labelOffsetResetBtn" class="wide-action" type="button">既定位置へ戻す</button>
         </div></section>
-        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">グループ / レイヤー</button><div class="inspector-panel" hidden>
+        <section class="inspector-section"><button id="inspectorGroupToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorGroupPanel">グループ / レイヤー</button><div id="inspectorGroupPanel" class="inspector-panel" role="region" aria-labelledby="inspectorGroupToggle" hidden inert>
           <div class="action-grid"><button data-editor-action="group" type="button">Group</button><button data-editor-action="ungroup" type="button">Ungroup</button><button data-editor-action="lock" type="button">Lock / Unlock</button><button data-editor-action="duplicate" type="button">複製</button><button data-editor-action="front" type="button">最前面</button><button data-editor-action="forward" type="button">前へ</button><button data-editor-action="backward" type="button">後ろへ</button><button data-editor-action="back" type="button">最背面</button><button data-editor-action="delete" class="danger-text" type="button">削除</button></div>
         </div></section>
-        <section class="inspector-section"><button class="inspector-toggle" type="button" aria-expanded="false">ショートカット</button><div class="inspector-panel" hidden>
+        <section class="inspector-section"><button id="inspectorShortcutToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorShortcutPanel">ショートカット</button><div id="inspectorShortcutPanel" class="inspector-panel" role="region" aria-labelledby="inspectorShortcutToggle" hidden inert>
           <dl class="shortcut-list"><div><dt>Delete / Backspace</dt><dd>削除</dd></div><div><dt>Ctrl/Cmd+C · V · D</dt><dd>コピー・貼付・複製</dd></div><div><dt>Alt/Option+Drag</dt><dd>ドラッグ複製</dd></div><div><dt>Shift+Drag / Rotate / Resize</dt><dd>軸・45°・比率固定</dd></div><div><dt>Ctrl/Cmd+G · Shift+G</dt><dd>グループ・解除</dd></div><div><dt>Ctrl/Cmd+Z · Shift+Z</dt><dd>Undo・Redo</dd></div><div><dt>Arrow · Shift+Arrow</dt><dd>1・10移動</dd></div><div><dt>Ctrl/Cmd+[ · ]</dt><dd>レイヤー移動（Shiftで端）</dd></div><div><dt>Esc</dt><dd>操作取消・選択解除</dd></div></dl>
         </div></section>
       </div>
@@ -976,6 +976,6 @@ DJ卓横に100V×1
   </div>
 </div>
 
-<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=8"></script>
+<script type="module" src="/js/stage-plot/stage-plot-page.mjs?v=9"></script>
 </body>
 </html>
