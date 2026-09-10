@@ -43,12 +43,13 @@ const row = (id, type, title, duration, cue = 'none', options = {}) => ({
   soundRequest: options.sound || '', lightRequest: options.light || '', playbackCue: cue,
   playbackCueCustom: options.custom || '', playbackCueDetail: options.detail || '',
 });
-const equipment = (broughtCount, requestedCount) => ({
+const equipment = (broughtCount, venueBorrowCount) => ({
   brought: Array.from({ length: broughtCount }, (_, index) => ({ id: `b-${index + 1}`, name: `Brought item ${index + 1}`, qty: String((index % 3) + 1) })),
-  requested: Array.from({ length: requestedCount }, (_, index) => ({ id: `r-${index + 1}`, name: `Requested item ${index + 1}`, qty: String((index % 4) + 1) })),
+  venue_borrow: Array.from({ length: venueBorrowCount }, (_, index) => ({ id: `r-${index + 1}`, name: `Venue item ${index + 1}`, qty: String((index % 4) + 1) })),
+  rental: [], unspecified: [],
 });
 const metadata = { eventName: 'Phase 1D Local Festival', performerName: 'LOCAL FIXTURE', performanceOrder: '3番目', performanceTime: '14:15〜14:50', allottedTime: '35分', eventDate: '2026-10-18' };
-const common = { ...baseState, schemaVersion: 2, metadata, notes: 'Phase 1D synthetic local fixture', otherRequests: 'ステージ転換時は安全確認を優先してください。' };
+const common = { ...baseState, schemaVersion: 2, metadata, objects: [], notes: 'Phase 1D synthetic local fixture', otherRequests: 'ステージ転換時は安全確認を優先してください。' };
 
 const band = {
   ...common, metadata: { ...metadata, performerName: 'BAND FIXTURE' }, equipment: equipment(4, 4),
@@ -142,8 +143,8 @@ await page.emulateMedia({ media: 'screen' });
 await loadFixture(overflow);
 const overflowEvidence = await page.evaluate(() => ({
   layout: window.StagePlotEditor.equipmentLayout(),
-  expectedItemCount: window.StagePlotEditor.equipmentRows('brought').length + window.StagePlotEditor.equipmentRows('requested').length,
-  page1VisibleItems: [...document.querySelectorAll('#carryList .equip-row, #requestList .request-row')].filter(node => !node.hidden).length,
+  expectedItemCount: ['brought', 'venue_borrow', 'rental', 'unspecified'].reduce((sum, kind) => sum + window.StagePlotEditor.equipmentRows(kind).length, 0),
+  page1VisibleItems: [...document.querySelectorAll('#carryList .equip-row, #venueBorrowList .request-row, #rentalList .request-row, #unspecifiedList .request-row')].filter(node => !node.hidden).length,
   pageCount: document.querySelectorAll('.print-equipment-page').length,
   firstSupplementItem: document.querySelector('.print-equipment-page td')?.textContent,
   otherOnlyPages: document.querySelectorAll('.print-equipment-page.other-only').length,

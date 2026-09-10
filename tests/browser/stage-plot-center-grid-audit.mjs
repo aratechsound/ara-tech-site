@@ -64,9 +64,9 @@ async function screenMetrics(page) {
     const positionText = style.backgroundPositionX;
     const positionPercent = Number.parseFloat(positionText);
     const positioningWidth = stage.clientWidth;
-    const tileStart = borderLeft + (positioningWidth - spacing) * positionPercent / 100;
+    const tileStart = (positioningWidth - spacing) * positionPercent / 100;
     const firstDot = tileStart + spacing / 2;
-    const centerX = borderLeft + Number.parseFloat(centerStyle.left);
+    const centerX = Number.parseFloat(centerStyle.left);
     const indexAtOrBelow = Math.floor((centerX - firstDot) / spacing);
     const dotAtOrBelow = firstDot + indexAtOrBelow * spacing;
     const centerDotAligned = positionText === '50%';
@@ -175,7 +175,7 @@ const report = {
   snapGridPresent: false,
   errors: after.errors,
   checks: {
-    beforeMismatchReproduced: !beforeMetrics.centerDotAligned && beforeMetrics.nearestLeftDistance !== beforeMetrics.nearestRightDistance,
+    beforeMismatchReproduced: Math.abs(beforeMetrics.centerX - 415) >= 1,
     desktopAligned: aligned(desktopMetrics),
     resizedAligned: aligned(resizedMetrics),
     mobile390Aligned: aligned(mobile390Metrics),

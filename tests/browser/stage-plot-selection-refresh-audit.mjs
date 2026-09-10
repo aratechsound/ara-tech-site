@@ -45,10 +45,10 @@ const state = await page.evaluate(() => {
   const next = window.StagePlotEditor.snapshot();
   next.objects = [
     { id: 'tom-a', type: 'circle', x: 80, y: 70, width: 64, height: 64, rotation: -15, scale: 75, label: 'Tom 12"', fontSize: 13, category: 'brought', labelEdited: true, className: '', html: '<div class="circle">Tom 12"</div>' },
-    { id: 'tom-b', type: 'circle', x: 300, y: 70, width: 64, height: 64, rotation: 15, scale: 100, label: 'Floor Tom 16"', fontSize: 18, category: 'requested', labelEdited: true, className: '', html: '<div class="circle">Floor Tom 16"</div>' },
+    { id: 'tom-b', type: 'circle', x: 300, y: 70, width: 64, height: 64, rotation: 15, scale: 100, label: 'Floor Tom 16"', fontSize: 18, category: 'venue_borrow', labelEdited: true, className: '', html: '<div class="circle">Floor Tom 16"</div>' },
     { id: 'tom-c', type: 'circle', x: 520, y: 70, width: 64, height: 64, rotation: 0, scale: 90, label: 'Rack Tom', fontSize: 10, category: 'unspecified', labelEdited: true, className: '', html: '<div class="circle">Rack Tom</div>' },
   ];
-  next.equipment = { brought: [], requested: [], order: { brought: [], requested: [] } };
+  next.equipment = { brought: [], venue_borrow: [], rental: [], unspecified: [], order: { brought: [], venue_borrow: [], rental: [], unspecified: [] } };
   return next;
 });
 await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'selection-refresh-fixture' }), state);
@@ -62,7 +62,7 @@ const inspector = () => page.evaluate(() => {
     scale: document.querySelector('#objectScaleInput')?.value,
     fontSize: document.querySelector('#objectFontSizeInput')?.value,
     category: document.querySelector('#objectCategorySelect')?.value,
-    swatches: [...document.querySelectorAll('.left .props .sw[data-object-category]')].map(swatch => [swatch.dataset.objectCategory, swatch.getAttribute('aria-pressed')]),
+    swatches: [...document.querySelectorAll('.left .props [data-object-category]')].map(swatch => [swatch.dataset.objectCategory, swatch.getAttribute('aria-pressed')]),
   };
 });
 
@@ -93,8 +93,8 @@ const checks = {
   rotationRefresh: a.rotation === '-15°' && b.rotation === '15°',
   fontSizeRefresh: a.fontSize === '13' && b.fontSize === '18' && c.fontSize === '10',
   labelRefresh: a.label === 'Tom 12"' && b.label === 'Floor Tom 16"' && aAgain.label === 'Tom 12"',
-  categoryRefresh: a.category === '出演者持込' && b.category === '借用・手配希望' && c.category === '未指定',
-  swatchRefresh: pressed(a, 'brought') && !pressed(a, 'requested') && !pressed(b, 'brought') && pressed(b, 'requested') && !pressed(c, 'brought') && !pressed(c, 'requested'),
+  categoryRefresh: a.category === 'brought' && b.category === 'venue_borrow' && c.category === 'unspecified',
+  swatchRefresh: pressed(a, 'brought') && !pressed(a, 'venue_borrow') && !pressed(b, 'brought') && pressed(b, 'venue_borrow') && pressed(c, 'unspecified'),
   historySafety: beforeSelections.history === afterSelections.history && !afterSelections.dirty && beforeSelections.revision === afterSelections.revision,
   objectStateUnchanged: JSON.stringify(beforeSelections.state) === JSON.stringify(afterSelections.state),
   noFatalErrors: errors.length === 0,

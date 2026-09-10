@@ -49,13 +49,13 @@ assert.match(css, /\.print-cue-row\.cue-continuous td \{ background: #f1f6fb/u);
 assert.match(css, /\.print-setlist-unit \{ break-inside: avoid/u);
 assert.match(css, /@page adaptiveStage \{ size: A4 landscape/u);
 assert.match(css, /@page adaptivePortrait \{ size: A4 portrait/u);
-assert.match(page, /from\('pa_inquiries'\)\.select\('event_date'\)/u);
+assert.match(page, /from\('pa_inquiries'\)\.select\('event_name,event_date'\)/u);
 assert.match(page, /from\('pa_case_progress'\)\.select\('confirmed_event_date'\)/u);
 assert.doesNotMatch(page, /new Date/u, 'event date must never fall back to print/current date');
 assert.match(portal, /stagePlotEventDate = String\(progress\?\.confirmed_event_date \|\| item\.event_date \|\| ""\)/u);
 assert.match(portal, /state\.metadata\.eventDate = stagePlotEventDate/u);
 assert.match(persistence, /state\.schemaVersion = 2/u);
-assert.match(engine, /equipmentSections = \[/u);
+assert.match(engine, /const equipmentSections = EQUIPMENT_KINDS\.map/u);
 assert.match(engine, /print-equipment-page\$\{onlyOther \? ' other-only' : ''\}/u);
 
 const logo = fs.readFileSync(path.join(root, 'img', 'ara-tech-logo-horizontal-black.png'));

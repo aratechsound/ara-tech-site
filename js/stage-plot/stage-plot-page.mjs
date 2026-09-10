@@ -9,7 +9,7 @@ import * as stagePlotPresets from './stage-plot-presets.mjs';
 
 if (typeof window !== 'undefined') window.__ARA_STAGE_PLOT_PRESETS__ = stagePlotPresets;
 
-const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=8';
+const ENGINE_URL = '/js/stage-plot/stage-plot-editor.js?v=9';
 const PREVIEW_MESSAGE_TYPE = 'ara-stage-plot-preview';
 
 function routeOptions(search = '') {
@@ -17,6 +17,9 @@ function routeOptions(search = '') {
   return {
     embeddedPreview: query.get('preview') === '1' && query.get('embedded') === '1',
     printMode: query.get('print') === '1',
+    performerId: String(query.get('performerId') || '').trim(),
+    performerName: String(query.get('performerName') || '').trim(),
+    performerOrder: String(query.get('performerOrder') || '').trim(),
   };
 }
 
@@ -86,11 +89,14 @@ function recordFromResult(result) {
 async function readCaseMetadata(authClient, caseId) {
   if (typeof authClient?.from !== 'function') return null;
   const [inquiryResult, progressResult] = await Promise.all([
-    authClient.from('pa_inquiries').select('event_date').eq('id', caseId).is('deleted_at', null).maybeSingle(),
+    authClient.from('pa_inquiries').select('event_name,event_date').eq('id', caseId).is('deleted_at', null).maybeSingle(),
     authClient.from('pa_case_progress').select('confirmed_event_date').eq('inquiry_id', caseId).maybeSingle(),
   ]);
   if (inquiryResult?.error || progressResult?.error) throw new StagePlotApiError('service_unavailable');
-  return { eventDate: String(progressResult?.data?.confirmed_event_date || inquiryResult?.data?.event_date || '') };
+  return {
+    eventName: String(inquiryResult?.data?.event_name || ''),
+    eventDate: String(progressResult?.data?.confirmed_event_date || inquiryResult?.data?.event_date || ''),
+  };
 }
 
 export class StagePlotPage {
@@ -119,11 +125,14 @@ export class StagePlotPage {
     if (this.saveButton) this.saveButton.disabled = this.saving;
   }
 
-  initialize(prefetched = null, caseMetadata = null) {
+  initialize(prefetched = null, caseMetadata = null, performerSeed = null) {
     if (this.mode === 'edit') {
       const record = recordFromResult(prefetched);
       const canonical = normalizeCanonicalState(record.state);
-      if (!canonical.metadata.eventDate) canonical.metadata.eventDate = String(caseMetadata?.eventDate || '');
+      if (caseMetadata) {
+        canonical.metadata.eventName = String(caseMetadata.eventName || '');
+        canonical.metadata.eventDate = String(caseMetadata.eventDate || '');
+      }
       this.editor.loadSnapshot(canonical, { rememberPrevious: false, source: 'initial' });
       this.revision = Number(record.current_revision || record.currentRevision || 0) || null;
       this.baseline = stableState(canonical);
@@ -132,7 +141,18 @@ export class StagePlotPage {
       return;
     }
     const canonical = normalizeCanonicalState(this.editor.snapshot());
-    canonical.metadata.eventDate = String(caseMetadata?.eventDate || canonical.metadata.eventDate || '');
+    if (caseMetadata) {
+      canonical.metadata.eventName = String(caseMetadata.eventName || '');
+      canonical.metadata.eventDate = String(caseMetadata.eventDate || '');
+    }
+    canonical.metadata.performerName = '';
+    canonical.metadata.performanceOrder = '';
+    delete canonical.metadata.performerId;
+    if (performerSeed?.performerId) {
+      canonical.metadata.performerId = String(performerSeed.performerId);
+      canonical.metadata.performerName = String(performerSeed.performerName || '');
+      canonical.metadata.performanceOrder = String(performerSeed.performerOrder || '').match(/[1-6]/u)?.[0] || '';
+    }
     this.editor.loadSnapshot(canonical, { rememberPrevious: false, source: 'initial' });
     this.baseline = null;
     this.dirty = true;
@@ -296,7 +316,7 @@ export async function bootStagePlotPage({
     saveButton: documentImpl.getElementById('stagePlotSaveBtn'),
     saveStatus: documentImpl.getElementById('stagePlotSaveStatus'),
   });
-  page.initialize(route.mode === 'edit' ? prefetched : null, caseMetadata);
+  page.initialize(route.mode === 'edit' ? prefetched : null, caseMetadata, options);
   configureRouteActions({ route, options, editor, windowImpl, documentImpl });
   windowImpl.addEventListener('ara:stage-plot-change', event => page.handleEditorChange(event.detail));
   windowImpl.addEventListener('beforeunload', event => page.beforeUnload(event));

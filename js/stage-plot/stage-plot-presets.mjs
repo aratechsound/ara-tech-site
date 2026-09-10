@@ -1,6 +1,6 @@
 export const PHYSICAL_MM_TO_STAGE_PX = 0.12;
 export const USER_PRESET_STORAGE_KEY = 'ara-tech-stage-plot-user-presets:v1';
-export const USER_PRESET_SCHEMA_VERSION = 1;
+export const USER_PRESET_SCHEMA_VERSION = 2;
 
 const px = mm => mm * PHYSICAL_MM_TO_STAGE_PX;
 
@@ -8,8 +8,10 @@ function equipment({ key, name, label, widthMm, depthMm, source, aliases = [], s
   return {
     id: `builtin:${key}`,
     kind: 'built-in',
-    readOnly: true,
+    origin: 'builtin',
+    readOnly: false,
     name,
+    description: '',
     searchAliases: aliases,
     components: [{
       type: 'rect', label, relativeX: 0, relativeY: 0,
@@ -38,8 +40,8 @@ export const BUILT_IN_PRESETS = Object.freeze([
   equipment({ key: 'ampeg-svt-810', name: 'SVT + 810', label: 'SVT', splitLabel: '810', widthMm: 660.4, depthMm: 406.4, source: 'verified seed: Ampeg SVT-810E cabinet outer footprint', symbolKind: 'topview-equipment-split' }),
   equipment({ key: 'roland-rd-300', name: 'Roland RD-300', label: 'RD300', widthMm: 1405, depthMm: 461, source: 'verified seed: Roland RD-300', aliases: ['RD3000'] }),
   {
-    id: 'builtin:six-one-live-star-drum', kind: 'built-in', readOnly: true,
-    name: 'SIX ONE Live STAR Drum', searchAliases: ['Pearl VISION VLX', 'ドラム'],
+    id: 'builtin:six-one-live-star-drum', kind: 'built-in', origin: 'builtin', readOnly: false,
+    name: 'SIX ONE Live STAR Drum', description: '2タムバージョン', searchAliases: ['Pearl VISION VLX', 'ドラム'],
     components: [
       {
         type: 'rect', label: 'Kick 22×18', relativeX: 105, relativeY: 92,
@@ -72,14 +74,14 @@ export const BUILT_IN_PRESETS = Object.freeze([
   },
 ]);
 
-export function presetFromSelection(name, selectedObjects) {
+export function presetFromSelection(name, selectedObjects, description = '') {
   if (!Array.isArray(selectedObjects) || selectedObjects.length < 1) throw new Error('preset_selection_required');
   const originX = Math.min(...selectedObjects.map(object => Number(object.x) || 0));
   const originY = Math.min(...selectedObjects.map(object => Number(object.y) || 0));
   return {
     id: `user:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`}`,
-    kind: 'user', readOnly: false, schemaVersion: USER_PRESET_SCHEMA_VERSION,
-    name: String(name || '').trim(), updatedAt: new Date().toISOString(),
+    kind: 'user', origin: 'custom', readOnly: false, schemaVersion: USER_PRESET_SCHEMA_VERSION,
+    name: String(name || '').trim(), description: String(description || ''), updatedAt: new Date().toISOString(),
     components: selectedObjects.map((object, zOffset) => {
       const copy = structuredClone(object);
       delete copy.id;
@@ -109,17 +111,38 @@ export function instantiatePreset(preset, anchor, createId) {
     });
 }
 
+function normalizedCustomPresets(items) {
+  return (Array.isArray(items) ? items : []).filter(item => item && Array.isArray(item.components)).map(item => ({
+    ...item,
+    kind: 'user',
+    origin: 'custom',
+    readOnly: false,
+    description: String(item.description || ''),
+  }));
+}
+
+function normalizedLibrary(payload) {
+  if (!payload || typeof payload !== 'object') return { custom: [], overrides: {}, tombstones: [] };
+  const custom = normalizedCustomPresets(payload.custom || payload.presets);
+  const overrides = payload.overrides && typeof payload.overrides === 'object' && !Array.isArray(payload.overrides) ? payload.overrides : {};
+  const tombstones = Array.isArray(payload.tombstones) ? [...new Set(payload.tombstones.map(String))] : [];
+  return { custom, overrides, tombstones };
+}
+
 export function createPresetStorage(storage = globalThis.localStorage) {
+  const read = () => {
+    try { return normalizedLibrary(JSON.parse(storage?.getItem(USER_PRESET_STORAGE_KEY) || 'null')); }
+    catch (_) { return normalizedLibrary(null); }
+  };
+  const write = library => {
+    const next = normalizedLibrary(library);
+    storage?.setItem(USER_PRESET_STORAGE_KEY, JSON.stringify({ schemaVersion: USER_PRESET_SCHEMA_VERSION, ...next }));
+    return next;
+  };
   return {
-    load() {
-      try {
-        const payload = JSON.parse(storage?.getItem(USER_PRESET_STORAGE_KEY) || 'null');
-        if (payload?.schemaVersion !== USER_PRESET_SCHEMA_VERSION || !Array.isArray(payload.presets)) return [];
-        return payload.presets.filter(item => item?.kind === 'user' && Array.isArray(item.components));
-      } catch (_) { return []; }
-    },
-    save(presets) {
-      storage?.setItem(USER_PRESET_STORAGE_KEY, JSON.stringify({ schemaVersion: USER_PRESET_SCHEMA_VERSION, presets }));
-    },
+    load: () => read().custom,
+    save: custom => write({ ...read(), custom }),
+    loadLibrary: read,
+    saveLibrary: write,
   };
 }

@@ -53,7 +53,7 @@ await page.waitForFunction(() => window.StagePlotEditor && window.StagePlotPage?
 const blankState = await page.evaluate(() => {
   const value = window.StagePlotEditor.snapshot();
   value.objects = [];
-  value.equipment = { brought: [], requested: [], order: { brought: [], requested: [] } };
+  value.equipment = { brought: [], venue_borrow: [], rental: [], unspecified: [], order: { brought: [], venue_borrow: [], rental: [], unspecified: [] } };
   value.notes = '';
   value.otherRequests = '';
   return value;
@@ -69,7 +69,7 @@ const color = () => page.evaluate(() => {
   return line ? getComputedStyle(line).stroke : rect ? `${getComputedStyle(rect).backgroundColor}|${getComputedStyle(rect).stroke}` : '';
 });
 const inspectorInput = page.locator('#objectLabelInput');
-const categorySelect = page.locator('.left .props select');
+const categorySelect = page.locator('#objectCategorySelect');
 const duplicateButton = page.locator('.left .props [data-editor-action="duplicate"]');
 const deleteButton = page.locator('.left .props [data-editor-action="delete"]');
 const openInspector = async selector => {
@@ -78,9 +78,8 @@ const openInspector = async selector => {
 };
 
 await page.locator('.tool[data-tool="microphone"]').click();
-await openInspector('#inspectorCategoryToggle');
-await page.locator('.sw[data-object-category="brought"]').click();
-const a = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested'), dirty: await page.evaluate(() => window.StagePlotPage.dirty) };
+await page.locator('[data-object-category="brought"]').click();
+const a = { category: await category(), color: await color(), carry: await rows('brought'), venue: await rows('venue_borrow'), dirty: await page.evaluate(() => window.StagePlotPage.dirty) };
 await page.screenshot({ path: path.join(outputDir, '01_red_to_carry.png'), fullPage: false, animations: 'disabled' });
 
 await openInspector('#inspectorGroupToggle');
@@ -89,28 +88,34 @@ await duplicateButton.click();
 const b = { carry: await rows('brought') };
 await page.locator('.print-stage-page').screenshot({ path: path.join(outputDir, '04_auto_quantity.png'), animations: 'disabled' });
 
-await openInspector('#inspectorCategoryToggle');
-await page.locator('.sw[data-object-category="requested"]').click();
-const c = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested') };
+await page.locator('[data-object-category="venue_borrow"]').click();
+const c = { category: await category(), color: await color(), carry: await rows('brought'), venue: await rows('venue_borrow') };
 await page.screenshot({ path: path.join(outputDir, '02_black_to_requested.png'), fullPage: false, animations: 'disabled' });
 
-await page.locator('.sw[data-object-category="brought"]').click();
-const d = { carry: await rows('brought'), requested: await rows('requested') };
-await categorySelect.selectOption({ label: '借用・手配希望' });
-const e = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested') };
+await page.locator('[data-object-category="brought"]').click();
+const d = { carry: await rows('brought'), venue: await rows('venue_borrow') };
+await categorySelect.selectOption('venue_borrow');
+await categorySelect.dispatchEvent('change');
+const e = { category: await category(), color: await color(), carry: await rows('brought'), venue: await rows('venue_borrow') };
 await page.screenshot({ path: path.join(outputDir, '03_dropdown_sync.png'), fullPage: false, animations: 'disabled' });
-await categorySelect.selectOption({ label: '出演者持込' });
-const f = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested') };
-await categorySelect.selectOption({ label: '未指定' });
-const g = { category: await category(), color: await color(), carry: await rows('brought'), requested: await rows('requested') };
+await categorySelect.selectOption('brought');
+await categorySelect.dispatchEvent('change');
+const f = { category: await category(), color: await color(), carry: await rows('brought'), venue: await rows('venue_borrow') };
+await categorySelect.selectOption('rental');
+await categorySelect.dispatchEvent('change');
+const rentalState = { category: await category(), color: await color(), rental: await rows('rental') };
+await categorySelect.selectOption('unspecified');
+await categorySelect.dispatchEvent('change');
+const g = { category: await category(), color: await color(), carry: await rows('brought'), venue: await rows('venue_borrow'), unspecified: await rows('unspecified') };
 
-await categorySelect.selectOption({ label: '借用・手配希望' });
+await categorySelect.selectOption('venue_borrow');
+await categorySelect.dispatchEvent('change');
 await inspectorInput.fill('Vo Wireless');
 await inspectorInput.dispatchEvent('change');
-const h = { requested: await rows('requested') };
+const h = { venue: await rows('venue_borrow') };
 await openInspector('#inspectorGroupToggle');
 await deleteButton.click();
-const i = { requested: await rows('requested') };
+const i = { venue: await rows('venue_borrow') };
 
 await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'manual-separation' }), blankState);
 await page.locator('.add-equip').click();
@@ -123,8 +128,7 @@ await manualQty.dispatchEvent('change');
 await page.locator('.tool[data-tool="microphone"]').click();
 await inspectorInput.fill('Stage Mic');
 await inspectorInput.dispatchEvent('change');
-await openInspector('#inspectorCategoryToggle');
-await page.locator('.sw[data-object-category="brought"]').click();
+await page.locator('[data-object-category="brought"]').click();
 await openInspector('#inspectorGroupToggle');
 await deleteButton.click();
 const j = { carry: await rows('brought'), snapshot: await page.evaluate(() => window.StagePlotEditor.snapshot().equipment.brought) };
@@ -134,17 +138,18 @@ const orderState = {
   objects: [
     { id: 'carry-amp', type: 'rect', x: 40, y: 60, width: 76, height: 40, rotation: 0, scale: 100, label: 'Amp', fontSize: 11, category: 'brought', labelEdited: true, className: '', html: '<div class="rect">Amp</div>' },
     { id: 'carry-monitor', type: 'monitor', x: 150, y: 60, width: 56, height: 46, rotation: 0, scale: 100, label: 'Monitor', fontSize: 11, category: 'brought', labelEdited: true, className: '', html: '' },
-    { id: 'requested-di', type: 'rect', x: 260, y: 60, width: 76, height: 40, rotation: 0, scale: 100, label: 'DI', fontSize: 11, category: 'requested', labelEdited: true, className: '', html: '<div class="rect">DI</div>' },
-    { id: 'requested-power', type: 'power', x: 370, y: 60, width: 46, height: 20, rotation: 0, scale: 100, label: '100V', fontSize: 8.5, category: 'requested', labelEdited: true, className: '', html: '' },
+    { id: 'venue-di', type: 'rect', x: 260, y: 60, width: 76, height: 40, rotation: 0, scale: 100, label: 'DI', fontSize: 11, category: 'venue_borrow', labelEdited: true, className: '', html: '<div class="rect">DI</div>' },
+    { id: 'venue-power', type: 'power', x: 370, y: 60, width: 46, height: 20, rotation: 0, scale: 100, label: '100V', fontSize: 8.5, category: 'venue_borrow', labelEdited: true, className: '', html: '' },
   ],
   equipment: {
     brought: [{ id: 'manual-cable', source: 'manual', name: 'Manual Cable', qty: '2', detail: '' }],
-    requested: [{ id: 'manual-stand', source: 'manual', name: 'Manual Stand', qty: '1', detail: '' }],
-    order: { brought: [], requested: [] },
+    venue_borrow: [{ id: 'manual-stand', source: 'manual', name: 'Manual Stand', qty: '1', detail: '' }],
+    rental: [], unspecified: [],
+    order: { brought: [], venue_borrow: [], rental: [], unspecified: [] },
   },
 };
 await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'order-start' }), orderState);
-const names = kind => page.locator(kind === 'brought' ? '#carryList [data-equipment-key] > input:not(.qty)' : '#requestList [data-equipment-key] > input:not(.qty)').evaluateAll(inputs => inputs.map(input => input.value));
+const names = kind => page.locator(kind === 'brought' ? '#carryList [data-equipment-key] > input:not(.qty)' : '#venueBorrowList [data-equipment-key] > input:not(.qty)').evaluateAll(inputs => inputs.map(input => input.value));
 const initialCarryOrder = await names('brought');
 await page.locator('#carryList [data-equipment-key]').last().dragTo(page.locator('#carryList [data-equipment-key]').first());
 const carryOrder = await names('brought');
@@ -155,10 +160,10 @@ await page.locator('#redoBtn').click();
 const carryRedo = await names('brought');
 await page.locator('.print-stage-page').screenshot({ path: path.join(outputDir, '05_carry_drag_order.png'), animations: 'disabled' });
 
-const initialRequestedOrder = await names('requested');
-await page.locator('#requestList [data-equipment-key]').last().dragTo(page.locator('#requestList [data-equipment-key]').first());
-const requestedOrder = await names('requested');
-const requestedOrderState = await page.evaluate(() => window.StagePlotEditor.snapshot().equipment.order.requested);
+const initialRequestedOrder = await names('venue_borrow');
+await page.locator('#venueBorrowList [data-equipment-key]').last().dragTo(page.locator('#venueBorrowList [data-equipment-key]').first());
+const requestedOrder = await names('venue_borrow');
+const requestedOrderState = await page.evaluate(() => window.StagePlotEditor.snapshot().equipment.order.venue_borrow);
 await page.locator('.print-stage-page').screenshot({ path: path.join(outputDir, '06_requested_drag_order.png'), animations: 'disabled' });
 
 const beforeSave = await page.evaluate(() => window.StagePlotEditor.snapshot());
@@ -172,7 +177,7 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.StagePlotEditor && window.StagePlotPage?.revision === 1);
 const reload = {
   carry: await names('brought'),
-  requested: await names('requested'),
+  requested: await names('venue_borrow'),
   order: await page.evaluate(() => window.StagePlotEditor.snapshot().equipment.order),
   dirty: await page.evaluate(() => window.StagePlotPage.dirty),
 };
@@ -181,18 +186,18 @@ const savedState = await page.evaluate(() => window.StagePlotEditor.snapshot());
 const backward = await page.evaluate(value => {
   delete value.equipment.order;
   value.equipment.brought.forEach(item => delete item.source);
-  value.equipment.requested.forEach(item => delete item.source);
+  value.equipment.venue_borrow.forEach(item => delete item.source);
   window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'backward-compat' });
   const snapshot = window.StagePlotEditor.snapshot();
   return {
     schemaVersion: snapshot.schemaVersion,
-    manualSources: [...snapshot.equipment.brought, ...snapshot.equipment.requested].every(item => item.source === 'manual'),
-    orderPresent: Array.isArray(snapshot.equipment.order?.brought) && Array.isArray(snapshot.equipment.order?.requested),
+    manualSources: [...snapshot.equipment.brought, ...snapshot.equipment.venue_borrow].every(item => item.source === 'manual'),
+    orderPresent: Array.isArray(snapshot.equipment.order?.brought) && Array.isArray(snapshot.equipment.order?.venue_borrow),
   };
 }, structuredClone(savedState));
 await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'pdf-restore' }), savedState);
 
-const pdfDom = { carry: await names('brought'), requested: await names('requested') };
+const pdfDom = { carry: await names('brought'), requested: await names('venue_borrow') };
 await page.emulateMedia({ media: 'print' });
 await page.evaluate(() => document.body.classList.add('print-stage-only'));
 await page.pdf({ path: path.join(outputDir, 'equipment-order.pdf'), format: 'A4', landscape: true, margin: { top: '0', right: '0', bottom: '0', left: '0' }, printBackground: true, tagged: true });
@@ -217,19 +222,20 @@ await page.screenshot({ path: path.join(outputDir, '08_mobile_390.png'), fullPag
 
 const oneAuto = (items, name, qty) => items.length === 1 && items[0].source === 'auto' && items[0].name === name && items[0].qty === String(qty);
 const checks = {
-  A_redToCarry: a.category === 'brought' && a.color === 'rgb(215, 25, 32)' && oneAuto(a.carry, 'マイク', 1) && a.requested.length === 0 && a.dirty,
+  A_redToCarry: a.category === 'brought' && a.color === 'rgb(215, 25, 32)' && oneAuto(a.carry, 'マイク', 1) && a.venue.length === 0 && a.dirty,
   B_quantityThree: oneAuto(b.carry, 'マイク', 3),
-  C_blackMovesOne: c.category === 'requested' && c.color === 'rgb(0, 0, 0)' && oneAuto(c.carry, 'マイク', 2) && oneAuto(c.requested, 'マイク', 1),
-  D_redRestoresGroup: oneAuto(d.carry, 'マイク', 3) && d.requested.length === 0,
-  E_dropdownRequested: e.category === 'requested' && e.color === 'rgb(0, 0, 0)' && oneAuto(e.requested, 'マイク', 1),
-  F_dropdownCarry: f.category === 'brought' && f.color === 'rgb(215, 25, 32)' && f.requested.length === 0,
-  G_unspecifiedExcluded: g.category === 'unspecified' && g.color === 'rgb(0, 0, 0)' && g.carry[0]?.qty === '2' && g.requested.length === 0,
-  H_renameSync: oneAuto(h.requested, 'Vo Wireless', 1) && !h.requested.some(item => item.name === 'マイク'),
-  I_deleteSync: i.requested.length === 0,
-  J_manualPreserved: j.carry.length === 1 && j.carry[0].source === 'manual' && j.carry[0].name === 'Manual Stand' && j.carry[0].qty === '2' && j.snapshot[0]?.source === 'manual',
-  K_carryReorder: initialCarryOrder.join('|') === 'Manual Cable|Amp|Monitor' && carryOrder.join('|') === 'Monitor|Manual Cable|Amp' && carryUndo.join('|') === initialCarryOrder.join('|') && carryRedo.join('|') === carryOrder.join('|') && carryOrderState.length === 3,
-  L_requestedReorder: initialRequestedOrder.join('|') === 'Manual Stand|DI|100V' && requestedOrder.join('|') === '100V|Manual Stand|DI' && requestedOrderState.length === 3,
-  M_pdfOrder: pdfDom.carry.join('|') === carryOrder.join('|') && pdfDom.requested.join('|') === requestedOrder.join('|'),
+  C_blackMovesOne: c.category === 'venue_borrow' && c.color === 'rgb(17, 17, 17)' && oneAuto(c.carry, 'マイク', 2) && oneAuto(c.venue, 'マイク', 1),
+  D_redRestoresGroup: oneAuto(d.carry, 'マイク', 3) && d.venue.length === 0,
+  E_dropdownVenueBorrow: e.category === 'venue_borrow' && e.color === 'rgb(17, 17, 17)' && oneAuto(e.venue, 'マイク', 1),
+  F_dropdownCarry: f.category === 'brought' && f.color === 'rgb(215, 25, 32)' && f.venue.length === 0,
+  G_rentalBlueAndListed: rentalState.category === 'rental' && rentalState.color === 'rgb(35, 130, 184)' && oneAuto(rentalState.rental, 'マイク', 1),
+  H_unspecifiedGrayAndListed: g.category === 'unspecified' && g.color === 'rgb(201, 209, 216)' && g.carry[0]?.qty === '2' && g.venue.length === 0 && oneAuto(g.unspecified, 'マイク', 1),
+  I_renameSync: oneAuto(h.venue, 'Vo Wireless', 1) && !h.venue.some(item => item.name === 'マイク'),
+  J_deleteSync: i.venue.length === 0,
+  K_manualPreserved: j.carry.length === 1 && j.carry[0].source === 'manual' && j.carry[0].name === 'Manual Stand' && j.carry[0].qty === '2' && j.snapshot[0]?.source === 'manual',
+  L_carryReorder: initialCarryOrder.join('|') === 'Manual Cable|Amp|Monitor' && carryOrder.join('|') === 'Monitor|Manual Cable|Amp' && carryUndo.join('|') === initialCarryOrder.join('|') && carryRedo.join('|') === carryOrder.join('|') && carryOrderState.length === 3,
+  M_venueBorrowReorder: initialRequestedOrder.join('|') === 'Manual Stand|DI|100V' && requestedOrder.join('|') === '100V|Manual Stand|DI' && requestedOrderState.length === 3,
+  N_pdfOrder: pdfDom.carry.join('|') === carryOrder.join('|') && pdfDom.requested.join('|') === requestedOrder.join('|'),
   jsonOrder: jsonRoundTrip,
   dbReloadOrder: reload.carry.join('|') === carryOrder.join('|') && reload.requested.join('|') === requestedOrder.join('|') && !reload.dirty,
   backwardCompatible: backward.schemaVersion === 2 && backward.manualSources && backward.orderPresent,
@@ -238,7 +244,7 @@ const checks = {
   noFatalErrors: errors.length === 0,
 };
 
-const report = { checks, a, b, c, d, e, f, g, h, i, j, initialCarryOrder, carryOrder, carryUndo, carryRedo, carryOrderState, initialRequestedOrder, requestedOrder, requestedOrderState, jsonRoundTrip, reload, backward, pdfDom, mobile, fullscreen, errors };
+const report = { checks, a, b, c, d, e, f, rentalState, g, h, i, j, initialCarryOrder, carryOrder, carryUndo, carryRedo, carryOrderState, initialRequestedOrder, requestedOrder, requestedOrderState, jsonRoundTrip, reload, backward, pdfDom, mobile, fullscreen, errors };
 await fs.writeFile(path.join(outputDir, '09_test_results.txt'), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(checks, null, 2));
 await context.close();

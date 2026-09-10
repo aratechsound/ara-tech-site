@@ -48,10 +48,10 @@ const uiState = () => page.evaluate(() => window.StagePlotEditor.editorUi());
 const bounds = () => page.evaluate(() => window.StagePlotEditor.selectionBounds());
 
 const fixtureObjects = () => [
-  { id: 'a', type: 'rect', x: 90, y: 80, width: 80, height: 40, rotation: 0, scale: 100, label: 'A', fontSize: 11, category: 'requested', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="rect">A</div>' },
+  { id: 'a', type: 'rect', x: 90, y: 80, width: 80, height: 40, rotation: 0, scale: 100, label: 'A', fontSize: 11, category: 'venue_borrow', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="rect">A</div>' },
   { id: 'b', type: 'circle', x: 240, y: 120, width: 60, height: 60, rotation: 0, scale: 100, label: 'B', fontSize: 11, category: 'brought', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="circle">B</div>' },
   { id: 'c', type: 'rect', x: 390, y: 170, width: 70, height: 45, rotation: 0, scale: 100, label: 'C', fontSize: 12, category: 'unspecified', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="rect">C</div>' },
-  { id: 'd', type: 'rect', x: 560, y: 225, width: 90, height: 50, rotation: 0, scale: 100, label: 'D', fontSize: 13, category: 'requested', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="rect">D</div>' },
+  { id: 'd', type: 'rect', x: 560, y: 225, width: 90, height: 50, rotation: 0, scale: 100, label: 'D', fontSize: 13, category: 'rental', strokeWidth: 2, labelEdited: true, className: '', html: '<div class="rect">D</div>' },
 ];
 
 const loadFixture = async (objects = fixtureObjects()) => {
@@ -59,7 +59,7 @@ const loadFixture = async (objects = fixtureObjects()) => {
     const next = window.StagePlotEditor.snapshot();
     next.metadata = { ...next.metadata, eventName: 'LOCAL UX AUDIT', performerName: 'SYNTHETIC BAND' };
     next.objects = value;
-    next.equipment = { brought: [], requested: [], order: { brought: [], requested: [] } };
+    next.equipment = { brought: [], venue_borrow: [], rental: [], unspecified: [], order: { brought: [], venue_borrow: [], rental: [], unspecified: [] } };
     window.StagePlotEditor.loadSnapshot(next, { rememberPrevious: false, source: 'core-ux-audit-fixture' });
   }, objects);
 };
@@ -81,6 +81,7 @@ const dragScreen = async (from, to, modifiers = {}) => {
 };
 
 const dragLocatorByLogical = async (locator, dx, dy, modifiers = {}) => {
+  await locator.scrollIntoViewIfNeeded();
   const handle = await locator.boundingBox();
   const stageBox = await page.locator('.stage').boundingBox();
   await dragScreen(
@@ -104,9 +105,8 @@ record(5, 'selected always visible', await page.locator('#selectedTitle').isVisi
 record(6, 'label always visible', await page.locator('#objectLabelInput').isVisible());
 await page.locator('.engine-object').filter({ hasText: 'Gt Head' }).first().click();
 await screenshot('03_selected_inspector_position_size.png');
-await page.getByRole('button', { name: '機材区分・表示' }).click();
-const openSections = await page.locator('.inspector-toggle[aria-expanded="true"]').count();
-record(7, 'single-open accordion', openSections === 1 && await page.locator('#objectCategorySelect').isVisible());
+const provisionButtons = page.locator('.provision-segments [data-object-category]');
+record(7, 'four-state provision control always visible', await provisionButtons.count() === 4 && await provisionButtons.first().isVisible());
 await screenshot('04_selected_inspector_category.png');
 await page.getByRole('button', { name: 'ショートカット' }).click();
 await screenshot('05_shortcuts_accordion.png');
@@ -271,7 +271,7 @@ record(58, 'Clear All', cleared.objects.length === 0 && cleared.metadata.eventNa
 await page.locator('#undoBtn').click(); const clearUndone = await snapshot();
 record(59, 'Clear All Undo', clearUndone.objects.length === beforeClear.objects.length && await historyCount() === clearHistory);
 await page.locator('#resetAllBtn').click(); await page.locator('#confirmReset').click(); const resetState = await snapshot();
-record(60, 'Reset remains distinct', resetState.objects.length > 0 && resetState.metadata.performerName === 'THE ABC');
+record(60, 'Reset remains distinct with blank generic metadata', resetState.objects.length > 0 && resetState.metadata.performerName === '' && resetState.metadata.performanceOrder === '');
 await page.getByRole('button', { name: 'ショートカット' }).click();
 record(61, 'shortcuts accordion', await page.locator('.shortcut-list').isVisible() && (await page.locator('.shortcut-list').innerText()).includes('Ctrl/Cmd+C'));
 
@@ -298,8 +298,8 @@ await page.locator(`[data-place-preset="${jcId}"]`).last().click(); await page.l
 record(69, 'Equipment Recent', recentStored.recent[0] === jcId && (await page.locator('.library-section').filter({ hasText: 'Recent' }).count()) >= 1);
 await screenshot('08_equipment_library.png');
 
-await page.locator('#equipmentLibraryClose').click(); await loadFixture([fixtureObjects()[0]]); await selectIds(['a']); await page.locator('#equipmentLibraryLauncher').click(); page.once('dialog', dialog => dialog.accept('LOCAL DELETE TEST')); await page.locator('#createCustomPreset').click(); await page.locator('#customPresetSelect').selectOption({ label: 'LOCAL DELETE TEST' }); page.once('dialog', dialog => dialog.accept()); await page.locator('#deleteCustomPreset').click(); const customAfterDelete = await page.evaluate(() => JSON.parse(localStorage.getItem('ara-tech-stage-plot-user-presets:v1')));
-record(70, 'custom preset delete', !customAfterDelete.presets.some(preset => preset.name === 'LOCAL DELETE TEST') && await page.locator('#customPresetSelect option', { hasText: 'LOCAL DELETE TEST' }).count() === 0);
+await page.locator('#equipmentLibraryClose').click(); await loadFixture([fixtureObjects()[0]]); await selectIds(['a']); await page.locator('#equipmentLibraryLauncher').click(); await page.locator('#presetEditToggle').click(); await page.locator('#presetNameInput').fill('LOCAL DELETE TEST'); await page.locator('#createCustomPreset').click(); const deletePresetId = await page.locator('#customPresetSelect option', { hasText: 'LOCAL DELETE TEST' }).getAttribute('value'); await page.locator('#customPresetSelect').selectOption(deletePresetId); page.once('dialog', dialog => dialog.accept()); await page.locator('#deleteCustomPreset').click(); const customAfterDelete = await page.evaluate(() => JSON.parse(localStorage.getItem('ara-tech-stage-plot-user-presets:v1')));
+record(70, 'custom preset delete', !customAfterDelete.custom.some(preset => preset.name === 'LOCAL DELETE TEST') && await page.locator('#customPresetSelect option', { hasText: 'LOCAL DELETE TEST' }).count() === 0);
 await page.locator('#equipmentLibraryClose').click();
 
 await page.evaluate(() => {
@@ -321,7 +321,7 @@ record(75, 'Equipment Sync regression', broughtRows.some(row => row.name === 'A'
 await selectIds(['a']); const refreshA = await page.locator('#objectLabelInput').inputValue(); await selectIds(['b']); const refreshB = await page.locator('#objectLabelInput').inputValue();
 record(76, 'Selection Refresh regression', refreshA === 'A' && refreshB === 'B');
 
-const boundaryObject = (id, x, y, width = 80, height = 40, scale = 100, groupId = '') => ({ id, type: 'rect', x, y, width, height, rotation: 0, scale, label: id, fontSize: 11, category: 'requested', strokeWidth: 2, groupId, labelEdited: true, className: '', html: `<div class="rect">${id}</div>` });
+const boundaryObject = (id, x, y, width = 80, height = 40, scale = 100, groupId = '') => ({ id, type: 'rect', x, y, width, height, rotation: 0, scale, label: id, fontSize: 11, category: 'venue_borrow', strokeWidth: 2, groupId, labelEdited: true, className: '', html: `<div class="rect">${id}</div>` });
 await loadFixture([boundaryObject('edge', 20, 0)]); await selectIds(['edge']); await page.keyboard.press('ArrowUp'); record(77, 'top boundary', (await bounds()).top >= -0.01);
 await loadFixture([boundaryObject('edge', 20, 460)]); await selectIds(['edge']); await page.keyboard.press('ArrowDown'); record(78, 'bottom boundary', (await bounds()).bottom <= 500.01);
 await loadFixture([boundaryObject('edge', 0, 100)]); await selectIds(['edge']); await page.keyboard.press('ArrowLeft'); record(79, 'left boundary', (await bounds()).left >= -0.01);

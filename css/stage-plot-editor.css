@@ -1037,7 +1037,7 @@ body.stage-plot-preview-mode .equipment-dragcell { display: none !important; }
     line-height: 1;
     white-space: nowrap;
   }
-  body.print-setlist-only .print-document-meta strong {
+body.print-setlist-only .print-document-meta strong {
     display: block;
     overflow-wrap: anywhere;
     color: #111;
@@ -1045,4 +1045,64 @@ body.stage-plot-preview-mode .equipment-dragcell { display: none !important; }
     font-weight: 900;
     line-height: 1.16;
   }
+}
+
+/* Production review fixes: document-flow inspector and four-state provisioning. */
+.panel.left { max-height: none !important; height: auto !important; overflow: visible !important; position: static !important; }
+.selected-title { position: static; }
+.stage { box-sizing: content-box; }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
+.provision-field { padding: 8px; border: 1px solid #d7e0e7; border-radius: 8px; background: #f8fafc; }
+.provision-segments { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.provision-segments button { min-width: 0; border: 1.5px solid #c9d1d8; border-radius: 6px; padding: 6px 3px; background: #fff; color: #263442; font-size: 8.5px; font-weight: 900; }
+.provision-segments [data-object-category="brought"] { background: #f9dfe1; border-color: #c83b45; color: #6f151a; }
+.provision-segments [data-object-category="venue_borrow"] { background: #fff; border-color: #111; color: #111; }
+.provision-segments [data-object-category="rental"] { background: #dff4fb; border-color: #2382b8; color: #07577f; }
+.provision-segments button[aria-pressed="true"] { box-shadow: 0 0 0 3px rgba(0,123,255,.25); transform: translateY(-1px); }
+.provision-help { display: block; margin-top: 6px; color: #66727d; font-size: 7.8px; line-height: 1.45; }
+
+.engine-object .rect, .engine-object .circle, .engine-object .power-mark { background: var(--object-fill); border-color: var(--object-stroke); color: var(--object-text); }
+.engine-object.has-custom-stroke > .rect, .engine-object.has-custom-stroke > .circle, .engine-object.has-custom-stroke > .power-mark { border: 0 !important; box-shadow: inset 0 0 0 var(--object-stroke-width) var(--object-stroke); }
+.engine-object.has-custom-stroke > .engine-line, .engine-object.has-custom-stroke > .engine-arrow { background: var(--object-stroke); }
+.engine-object .engine-arrow::after { border-left-color: var(--object-stroke); }
+.engine-object .mic-svg line, .engine-object .mic-svg circle { stroke: var(--object-stroke); }
+.engine-object .mic-svg polygon { fill: var(--object-stroke); }
+.engine-object .mon-svg rect { fill: var(--object-fill); stroke: var(--object-stroke); }
+.engine-object .mon-svg polygon { fill: var(--object-stroke); }
+.topview-symbol.is-split::after { z-index: 0; height: var(--object-stroke-width); border: 0; background: var(--object-stroke); transform: translateY(-50%); }
+.topview-symbol.is-split span { z-index: 1; left: 4px; right: 4px; background: var(--object-fill); line-height: 1.05; }
+.engine-object.key-object::after { border-width: 3px; }
+.engine-object.key-object::before { content: "基準"; position: absolute; z-index: 6; left: 50%; top: -24px; transform: translateX(-50%); padding: 2px 5px; border-radius: 999px; background: #007bff; color: #fff; font-size: 8px; font-weight: 900; pointer-events: none; }
+.engine-object.locked::before { content: none; }
+.selection-lock-indicator { position: absolute; z-index: 46; padding: 2px 4px; border-radius: 5px; background: #ffe58a; font-size: 10px; pointer-events: none; }
+.selection-toolbar .group-toggle.is-active { border-color: #007bff; background: #007bff; color: #fff; }
+.selection-toolbar .lock-toggle.is-active { border-color: #c58a00; background: #ffd54f; color: #332300; }
+.selection-menu-wrap { position: relative; display: inline-flex; }
+.selection-submenu { position: absolute; z-index: 50; left: 0; top: calc(100% + 5px); display: grid; grid-template-columns: repeat(3,28px); gap: 3px; padding: 4px; border: 1px solid #b8c7d3; border-radius: 7px; background: #fff; box-shadow: 0 5px 18px rgba(20,35,50,.18); }
+.selection-submenu[hidden] { display: none; }
+.selection-submenu.distribute-menu { grid-template-columns: repeat(2,28px); }
+.selection-submenu button { width: 28px; height: 27px; padding: 0; font-size: 13px; }
+.editor-toast { position: absolute; z-index: 60; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 7px 11px; border-radius: 999px; background: rgba(24,34,44,.94); color: #fff; font-size: 9px; font-weight: 800; white-space: nowrap; }
+
+.library-head-actions { display: flex; align-items: center; gap: 6px; }
+.equipment-library-flyout header .preset-edit-toggle { width: auto; height: 28px; border-radius: 7px; padding: 0 9px; font-size: 9px; font-weight: 900; }
+.preset-edit-toggle[aria-pressed="true"] { border-color: #007bff !important; background: #007bff !important; color: #fff; }
+.preset-edit-panel { display: grid; gap: 7px; padding: 9px; border: 1px solid #cfe0ee; border-radius: 8px; background: #f7fbff; }
+.preset-edit-panel[hidden] { display: none; }
+.preset-selection-label input, .preset-selection-label textarea { width: 100%; border: 1px solid #ccd5dc; border-radius: 7px; padding: 7px 8px; background: #fff; font: inherit; box-sizing: border-box; resize: vertical; }
+.equip-section.is-empty { min-height: 31px; }
+.equip-section.is-empty .equip-list { display: none; }
+.equip-row.provision-rental, .equip-row.provision-rental input { background: #dff4fb; color: #07577f; }
+.equip-row.provision-brought, .equip-row.provision-brought input { background: #f9dfe1; color: #6f151a; }
+.equip-row.provision-unspecified, .equip-row.provision-unspecified input { background: #f7f8f9; color: #4f5d68; }
+
+body.stage-plot-preview-mode .editor-overlay,
+body.stage-plot-preview-mode .engine-object.selected::after,
+body.stage-plot-preview-mode .engine-object.key-object::before,
+body.stage-plot-preview-mode .stage-context-menu,
+body.stage-plot-preview-mode .panel.left .tool::after { display: none !important; }
+
+@media print {
+  .selection-lock-indicator, .editor-toast, .engine-object.key-object::before { display: none !important; }
+  .engine-object.has-custom-stroke > .rect, .engine-object.has-custom-stroke > .circle, .engine-object.has-custom-stroke > .power-mark { box-shadow: inset 0 0 0 var(--object-stroke-width) var(--object-stroke) !important; }
 }

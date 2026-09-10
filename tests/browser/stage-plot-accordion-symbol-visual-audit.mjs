@@ -37,7 +37,6 @@ const record = (number, name, value) => { checks[`${String(number).padStart(2, '
 const sectionCases = [
   { name: 'position', toggle: '#inspectorPositionToggle', panel: '#inspectorPositionPanel', own: '#objectXInput', foreign: '#objectFontSizeInput' },
   { name: 'text', toggle: '#inspectorTextToggle', panel: '#inspectorTextPanel', own: '#objectFontSizeInput', foreign: '#objectXInput' },
-  { name: 'category', toggle: '#inspectorCategoryToggle', panel: '#inspectorCategoryPanel', own: '#objectCategorySelect', foreign: '#objectFontSizeInput' },
   { name: 'label', toggle: '#inspectorLabelToggle', panel: '#inspectorLabelPanel', own: '#labelOffsetXInput', foreign: '#objectXInput' },
   { name: 'group', toggle: '#inspectorGroupToggle', panel: '#inspectorGroupPanel', own: '[data-editor-action="group"]', foreign: '#objectFontSizeInput' },
   { name: 'shortcuts', toggle: '#inspectorShortcutToggle', panel: '#inspectorShortcutPanel', own: '.shortcut-list', foreign: '#objectXInput' },
@@ -60,14 +59,14 @@ for (let index = 0; index < sectionCases.length; index += 1) {
     };
   }));
   const strict = state.filter(item => item.open && item.expanded === 'true' && !item.hidden && item.display !== 'none').length === 1
-    && state.filter(item => !item.open && item.expanded === 'false' && item.hidden && item.inert && item.display === 'none').length === 5
+    && state.filter(item => !item.open && item.expanded === 'false' && item.hidden && item.inert && item.display === 'none').length === sectionCases.length - 1
     && await page.locator(current.own).first().isVisible()
     && !(await page.locator(current.foreign).first().isVisible());
   allStrict &&= strict;
   alwaysVisible &&= await page.locator('#selectedTitle').isVisible() && await page.locator('#objectLabelInput').isVisible();
   record(index + 1, `strict accordion ${current.name}`, strict);
 }
-record(7, 'maximum one open body and no leaked controls', allStrict);
+record(7, 'maximum one open accordion body and four-state category always visible', allStrict && await page.locator('.provision-segments [data-object-category]').count() === 4 && await page.locator('.provision-segments').isVisible());
 record(8, 'selected title and label always visible', alwaysVisible);
 
 await page.evaluate(() => {
@@ -93,8 +92,8 @@ const defaultSymbols = await page.evaluate(() => {
     monitor: monitor ? { width: parseFloat(getComputedStyle(monitor).width), height: parseFloat(getComputedStyle(monitor).height), vector: getComputedStyle(monitorRect).vectorEffect, fill: getComputedStyle(monitorRect).fill, stroke: getComputedStyle(monitorRect).stroke, wedge: getComputedStyle(monitorPolygon).fill } : null,
   };
 });
-record(9, 'Mic default visual DOM', defaultSymbols.mic && Math.abs(defaultSymbols.mic.width - 38) < 1 && Math.abs(defaultSymbols.mic.height - 43) < 1 && defaultSymbols.mic.vector === 'none' && defaultSymbols.mic.stroke === 'rgb(0, 0, 0)' && defaultSymbols.mic.circleFill === 'rgb(255, 255, 255)' && defaultSymbols.redMic.stroke === 'rgb(215, 25, 32)' && defaultSymbols.redMic.fill === 'rgb(215, 25, 32)');
-record(10, 'Monitor default visual DOM', defaultSymbols.monitor && Math.abs(defaultSymbols.monitor.width - 56) < 1 && Math.abs(defaultSymbols.monitor.height - 46) < 1 && defaultSymbols.monitor.vector === 'none' && defaultSymbols.monitor.fill === 'rgb(255, 255, 255)' && defaultSymbols.monitor.stroke === 'rgb(0, 0, 0)' && defaultSymbols.monitor.wedge === 'rgb(0, 0, 0)');
+record(9, 'Mic default visual DOM', defaultSymbols.mic && Math.abs(defaultSymbols.mic.width - 38) < 1 && Math.abs(defaultSymbols.mic.height - 43) < 1 && defaultSymbols.mic.vector === 'none' && defaultSymbols.mic.stroke === 'rgb(201, 209, 216)' && defaultSymbols.mic.circleFill === 'rgb(255, 255, 255)' && defaultSymbols.redMic.stroke === 'rgb(215, 25, 32)' && defaultSymbols.redMic.fill === 'rgb(215, 25, 32)');
+record(10, 'Monitor default visual DOM', defaultSymbols.monitor && Math.abs(defaultSymbols.monitor.width - 56) < 1 && Math.abs(defaultSymbols.monitor.height - 46) < 1 && defaultSymbols.monitor.vector === 'none' && defaultSymbols.monitor.fill === 'rgb(255, 255, 255)' && defaultSymbols.monitor.stroke === 'rgb(201, 209, 216)' && defaultSymbols.monitor.wedge === 'rgb(201, 209, 216)');
 
 const closeupTargets = await Promise.all(['.engine-object.mon2', '.engine-object.micVo'].map(selector => page.locator(selector).boundingBox()));
 const closeup = {
@@ -112,9 +111,9 @@ await page.evaluate(([micHtml, monitorHtml]) => {
   next.metadata = { ...next.metadata, eventName: 'LOCAL SYMBOL AUDIT', performerName: 'SYNTHETIC BAND' };
   next.objects = [
     { id: 'mic-audit', type: 'microphone', x: 280, y: 180, width: 38, height: 43, rotation: 0, scale: 100, label: 'Mic', fontSize: 11, category: 'brought', labelEdited: true, className: '', html: micHtml },
-    { id: 'monitor-audit', type: 'monitor', x: 440, y: 180, width: 56, height: 46, rotation: 0, scale: 100, label: 'Monitor', fontSize: 11, category: 'requested', labelEdited: true, className: '', html: monitorHtml },
+    { id: 'monitor-audit', type: 'monitor', x: 440, y: 180, width: 56, height: 46, rotation: 0, scale: 100, label: 'Monitor', fontSize: 11, category: 'venue_borrow', labelEdited: true, className: '', html: monitorHtml },
   ];
-  next.equipment = { brought: [], requested: [], order: { brought: [], requested: [] } };
+  next.equipment = { brought: [], venue_borrow: [], rental: [], unspecified: [], order: { brought: [], venue_borrow: [], rental: [], unspecified: [] } };
   window.StagePlotEditor.loadSnapshot(next, { rememberPrevious: false, source: 'accordion-symbol-audit' });
 }, [micSvg, monitorSvg]);
 

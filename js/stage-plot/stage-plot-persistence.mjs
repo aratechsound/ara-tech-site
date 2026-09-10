@@ -2,6 +2,15 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const MAX_STATE_BYTES = 3 * 1024 * 1024;
 const OUTPUT_MODES = new Set(['normal', 'single_mix', 'none']);
 const PLAYBACK_CUES = new Set(['none', 'show_start', 'on_stage', 'title_call', 'mc_end', 'signal', 'blackout', 'continuous', 'custom']);
+const PROVISION_STATES = new Set(['unspecified', 'brought', 'venue_borrow', 'rental']);
+
+function normalizeProvision(value) {
+  const raw = String(value || '').normalize('NFKC').trim().toLowerCase();
+  if (raw === 'brought' || raw === '持込' || raw === '出演者持込') return 'brought';
+  if (raw === 'venue_borrow' || raw === '会場借用' || raw === '会場常設機材') return 'venue_borrow';
+  if (raw === 'rental' || raw === 'レンタル') return 'rental';
+  return 'unspecified';
+}
 
 export class StagePlotApiError extends Error {
   constructor(code, status = 0) {
@@ -35,7 +44,19 @@ export function normalizeCanonicalState(input) {
   state.schemaVersion = 2;
   state.metadata = state.metadata && typeof state.metadata === 'object' && !Array.isArray(state.metadata) ? state.metadata : {};
   state.metadata.eventDate = String(state.metadata.eventDate || state.metadata.event_date || '');
+  state.metadata.performanceOrder = String(state.metadata.performanceOrder || '').match(/[1-6]/u)?.[0] || '';
   delete state.metadata.event_date;
+  state.objects = Array.isArray(state.objects) ? state.objects.map(item => ({ ...item, category: normalizeProvision(item?.category) })) : [];
+  const equipment = state.equipment && typeof state.equipment === 'object' ? state.equipment : {};
+  const normalizeRows = rows => Array.isArray(rows) ? rows : [];
+  const ambiguous = [...normalizeRows(equipment.requested), ...normalizeRows(equipment.borrowed)].map(item => ({ ...item, legacyProvision: String(item?.legacyProvision || item?.category || 'requested') }));
+  state.equipment = {
+    brought: normalizeRows(equipment.brought),
+    venue_borrow: normalizeRows(equipment.venue_borrow),
+    rental: normalizeRows(equipment.rental),
+    unspecified: [...normalizeRows(equipment.unspecified), ...ambiguous],
+    order: Object.fromEntries([...PROVISION_STATES].map(kind => [kind, Array.isArray(equipment.order?.[kind]) ? equipment.order[kind] : []])),
+  };
   state.setlistOutputMode = OUTPUT_MODES.has(state.setlistOutputMode) ? state.setlistOutputMode : 'normal';
   state.otherRequests = String(state.otherRequests ?? state.otherRequest ?? '');
   delete state.otherRequest;

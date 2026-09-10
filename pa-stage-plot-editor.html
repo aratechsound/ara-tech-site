@@ -25,7 +25,7 @@ button{cursor:pointer}
 .brand{display:flex;align-items:baseline;gap:14px}.brand strong{font-size:18px;letter-spacing:.02em}.brand span{font-size:11px;opacity:.75}
 .top-actions{display:flex;gap:7px;flex-wrap:wrap}.top-actions button{border:1px solid #314258;background:#17283d;color:#fff;border-radius:8px;padding:7px 10px;font-weight:800;font-size:11px}.top-actions .primary{background:var(--brand);border-color:var(--brand)}
 .app{display:grid;grid-template-columns:210px minmax(0,1fr);gap:10px;padding:10px;min-height:calc(100vh - 62px)}
-.panel,.workspace{min-width:0;background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden}.left{max-height:calc(100vh - 82px);overflow-y:auto;align-self:start;position:sticky;top:10px}
+.panel,.workspace{min-width:0;background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden}.left{align-self:start;overflow:visible;position:static}
 .panel-title{padding:11px 12px;border-bottom:1px solid var(--line);background:#fafbfc;font-size:12px;font-weight:900}
 .tools{padding:8px}.tool{display:grid;grid-template-columns:42px 1fr;gap:8px;align-items:center;min-height:50px;border:1px solid #dce3e8;border-radius:8px;padding:6px 8px;margin-bottom:7px;background:#fff}.tool strong{font-size:11px}.tool small{display:block;color:#7b858e;font-size:9.5px;margin-top:1px}.tool-icon{height:34px;display:flex;align-items:center;justify-content:center}.ico-rect{width:31px;height:20px;border:2px solid #111}.ico-circle{width:25px;height:25px;border:2px solid #111;border-radius:50%}.ico-line{width:31px;border-top:2px solid #111}.ico-arrow{width:31px;border-top:2px solid #111;position:relative}.ico-arrow:after{content:"";position:absolute;right:-1px;top:-5px;border-left:8px solid #111;border-top:4px solid transparent;border-bottom:4px solid transparent}.ico-text{font-size:16px;font-weight:900}
 .workspace{padding:10px;min-width:0}.workspace-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.workspace-head strong{font-size:13px}.workspace-head span{font-size:10px;color:var(--muted)}
@@ -607,7 +607,7 @@ button{cursor:pointer}
 }
 
 </style>
-<link rel="stylesheet" href="/css/stage-plot-editor.css?v=7">
+<link rel="stylesheet" href="/css/stage-plot-editor.css?v=8">
 </head>
 <body class="stage-plot-auth-pending">
 <section class="stage-plot-access-shell" id="stagePlotAccessShell" aria-live="polite">
@@ -648,17 +648,22 @@ button{cursor:pointer}
       <button id="equipmentLibraryLauncher" class="tool library-tool" type="button" data-tooltip="機材ライブラリ" aria-label="機材ライブラリ" aria-controls="equipmentLibraryFlyout" aria-expanded="false"><span class="tool-icon library-icon" aria-hidden="true">▦</span></button>
     </div>
     <section id="equipmentLibraryFlyout" class="equipment-library-flyout" aria-label="機材ライブラリ" hidden>
-      <header><strong>機材ライブラリ</strong><button id="equipmentLibraryClose" type="button" aria-label="閉じる">×</button></header>
+      <header><strong>機材ライブラリ</strong><div class="library-head-actions"><button id="presetEditToggle" class="preset-edit-toggle" type="button" aria-pressed="false">編集</button><button id="equipmentLibraryClose" type="button" aria-label="閉じる">×</button></div></header>
       <input id="equipmentLibrarySearch" type="search" placeholder="機材・プリセットを検索" aria-label="機材・プリセットを検索">
       <div id="equipmentLibraryItems" class="equipment-library-items"></div>
-      <label class="preset-selection-label">更新するプリセット<select id="customPresetSelect"><option value="">選択してください</option></select></label>
-      <div class="preset-actions"><button id="createCustomPreset" type="button">新規プリセット</button><button id="updateCustomPreset" type="button" disabled>プリセットに保存</button><button id="deleteCustomPreset" type="button" disabled>削除</button></div>
+      <div id="presetEditPanel" class="preset-edit-panel" hidden>
+        <label class="preset-selection-label">編集するプリセット<select id="customPresetSelect"><option value="">選択してください</option></select></label>
+        <label class="preset-selection-label">名前<input id="presetNameInput" type="text" maxlength="120"></label>
+        <label class="preset-selection-label">説明<textarea id="presetDescriptionInput" rows="2" maxlength="300"></textarea></label>
+        <div class="preset-actions"><button id="createCustomPreset" type="button">新規プリセット</button><button id="renamePreset" type="button" disabled>名前・説明を保存</button><button id="updateCustomPreset" type="button" disabled>選択内容で上書き</button><button id="deleteCustomPreset" type="button" disabled>削除</button></div>
+      </div>
       <small>お気に入り・最近使った機材・カスタムプリセットはこのブラウザに保存</small>
     </section>
 
     <div class="panel-title selected-title" id="selectedTitle" style="border-top:1px solid var(--line)">選択中：Gt Head</div>
     <div class="props">
       <div class="field always-label"><label for="objectLabelInput">ラベル</label><input id="objectLabelInput" value="Gt Head"></div>
+      <div class="field provision-field"><label>機材区分</label><div class="provision-segments" role="group" aria-label="機材区分"><button type="button" data-object-category="unspecified">未指定</button><button type="button" data-object-category="brought">持込</button><button type="button" data-object-category="venue_borrow">会場借用</button><button type="button" data-object-category="rental">レンタル</button></div><small class="provision-help">未指定＝手配区分未決定 / 持込＝出演者が持参 / 会場借用＝会場常設機材 / レンタル＝別途手配</small><select id="objectCategorySelect" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="unspecified">未指定</option><option value="brought">持込</option><option value="venue_borrow">会場借用</option><option value="rental">レンタル</option></select></div>
       <div class="inspector-accordion" id="inspectorAccordion">
         <section class="inspector-section open"><button id="inspectorPositionToggle" class="inspector-toggle" type="button" aria-expanded="true" aria-controls="inspectorPositionPanel">位置・サイズ</button><div id="inspectorPositionPanel" class="inspector-panel" role="region" aria-labelledby="inspectorPositionToggle">
           <div class="geometry-grid"><label>X<input id="objectXInput" type="number" step="1"></label><label>Y<input id="objectYInput" type="number" step="1"></label><label>Width<input id="objectWidthInput" type="number" min="6" max="830" step="1"></label><label>Height<input id="objectHeightInput" type="number" min="6" max="500" step="1"></label></div>
@@ -669,10 +674,6 @@ button{cursor:pointer}
         </div></section>
         <section class="inspector-section"><button id="inspectorTextToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorTextPanel">文字</button><div id="inspectorTextPanel" class="inspector-panel" role="region" aria-labelledby="inspectorTextToggle" hidden inert>
           <div class="field"><label for="objectFontSizeInput">文字サイズ</label><input id="objectFontSizeInput" value="16" type="number" min="8" max="72" step="1"><div class="btnrow compact"><button id="fontMinusBtn" type="button">−</button><button id="fontDefaultBtn" type="button">16px</button><button id="fontPlusBtn" type="button">＋</button></div></div>
-        </div></section>
-        <section class="inspector-section"><button id="inspectorCategoryToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorCategoryPanel">機材区分・表示</button><div id="inspectorCategoryPanel" class="inspector-panel" role="region" aria-labelledby="inspectorCategoryToggle" hidden inert>
-          <div class="field"><label for="objectCategorySelect">機材区分</label><select id="objectCategorySelect"><option>出演者持込</option><option>借用・手配希望</option><option>未指定</option></select></div>
-          <div class="style-box">画面表示<div class="swatches"><button type="button" class="sw red" data-object-category="brought" aria-label="出演者持込（赤表示）"></button><button type="button" class="sw black white" data-object-category="requested" aria-label="借用・手配希望（白地・黒枠）"></button></div><small>持込＝薄い赤 / 借用・手配希望＝白地＋黒枠</small></div>
         </div></section>
         <section class="inspector-section"><button id="inspectorLabelToggle" class="inspector-toggle" type="button" aria-expanded="false" aria-controls="inspectorLabelPanel">ラベル位置</button><div id="inspectorLabelPanel" class="inspector-panel" role="region" aria-labelledby="inspectorLabelToggle" hidden inert>
           <div class="geometry-grid"><label>X offset<input id="labelOffsetXInput" type="number" step="1"></label><label>Y offset<input id="labelOffsetYInput" type="number" step="1"></label></div><button id="labelOffsetResetBtn" class="wide-action" type="button">既定位置へ戻す</button>
@@ -693,23 +694,23 @@ button{cursor:pointer}
     <div class="meta-form">
       <div class="meta-field">
         <label>イベント名</label>
-        <input value="2026 龍姫湖まつり" placeholder="イベント名を入力">
+        <input value="" placeholder="案件のイベント名" readonly aria-readonly="true">
       </div>
       <div class="meta-field">
         <label>出演者名 / バンド名</label>
-        <input value="THE ABC" placeholder="出演者名・バンド名を入力">
+        <input value="" placeholder="出演者名・バンド名を入力">
       </div>
       <div class="meta-field">
         <label>出演順</label>
-        <input value="3番目" placeholder="例：3番目 / 1組目">
+        <select><option value="">未指定</option><option value="1">1番目</option><option value="2">2番目</option><option value="3">3番目</option><option value="4">4番目</option><option value="5">5番目</option><option value="6">6番目</option></select>
       </div>
       <div class="meta-field">
         <label>出演時間</label>
-        <input value="14:15〜14:50" placeholder="例：14:15〜14:50">
+        <input value="" placeholder="例：14:15〜14:50">
       </div>
       <div class="meta-field">
         <label>持ち時間</label>
-        <input value="35分" placeholder="例：35分">
+        <input value="" placeholder="例：35分">
       </div>
       <div class="meta-field">
         <label>開催日</label>
@@ -726,11 +727,11 @@ button{cursor:pointer}
             <div class="sheet-date"><span class="sheet-event-date"></span><img src="/img/ara-tech-logo-horizontal-black.png" alt="ARA-TECH"></div>
           </div>
           <div class="sheet-meta">
-            <div class="sheet-meta-item event"><span>イベント名</span><strong>2026 龍姫湖まつり</strong></div>
-            <div class="sheet-meta-item artist"><span>出演者名 / バンド名</span><strong>THE ABC</strong></div>
-            <div class="sheet-meta-item"><span>出演順</span><strong>3番目</strong></div>
-            <div class="sheet-meta-item"><span>出演時間</span><strong>14:15〜14:50</strong></div>
-            <div class="sheet-meta-item"><span>持ち時間</span><strong>35分</strong></div>
+            <div class="sheet-meta-item event"><span>イベント名</span><strong>イベント名</strong></div>
+            <div class="sheet-meta-item artist"><span>出演者名 / バンド名</span><strong>出演者名</strong></div>
+            <div class="sheet-meta-item"><span>出演順</span><strong>—</strong></div>
+            <div class="sheet-meta-item"><span>出演時間</span><strong>—</strong></div>
+            <div class="sheet-meta-item"><span>持ち時間</span><strong>—</strong></div>
           </div>
         </div>
         <div class="stage">
@@ -776,7 +777,7 @@ button{cursor:pointer}
           <div class="carry-main-title">機材・手配リスト</div>
           <div style="padding:5px 7px;border-bottom:1px solid #ccc;font-size:8.5px;color:#68737d;background:#fafbfc">※ 誰が手配するかは提出後にARA-TECH側で管理</div>
 
-          <section class="equip-section">
+          <section class="equip-section" data-equipment-section="brought">
             <div class="equip-title">
               <span>出演者持込</span>
               <button type="button" class="add-equip" data-target="carryList">＋追加</button>
@@ -795,12 +796,20 @@ button{cursor:pointer}
             </div>
           </section>
 
-          <section class="equip-section">
+          <section class="equip-section" data-equipment-section="venue_borrow">
             <div class="equip-title">
-              <span>借りたい・用意してほしい機材</span>
-              <button type="button" class="add-request" data-target="requestList">＋追加</button>
+              <span>会場借用</span>
+              <button type="button" class="add-request" data-equipment-add="venue_borrow">＋追加</button>
             </div>
-            <div class="equip-list" id="requestList">
+            <div class="equip-list" id="venueBorrowList"></div>
+          </section>
+
+          <section class="equip-section" data-equipment-section="rental">
+            <div class="equip-title">
+              <span>レンタル</span>
+              <button type="button" class="add-request" data-equipment-add="rental">＋追加</button>
+            </div>
+            <div class="equip-list" id="rentalList">
               <div class="request-row">
                 <input value="ワイヤレスマイク">
                 <input class="qty" value="2">
@@ -822,6 +831,14 @@ button{cursor:pointer}
                 <button type="button" class="remove-equip">×</button>
               </div>
             </div>
+          </section>
+
+          <section class="equip-section" data-equipment-section="unspecified">
+            <div class="equip-title">
+              <span>未指定・要確認</span>
+              <button type="button" class="add-request" data-equipment-add="unspecified">＋追加</button>
+            </div>
+            <div class="equip-list" id="unspecifiedList"></div>
           </section>
 
           <section class="equip-section">

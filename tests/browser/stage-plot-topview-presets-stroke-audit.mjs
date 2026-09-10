@@ -28,7 +28,7 @@ await page.waitForFunction(() => window.StagePlotEditor && window.StagePlotPage?
 const blank = await page.evaluate(() => {
   const value = window.StagePlotEditor.snapshot();
   value.objects = [];
-  value.equipment = { brought: [], requested: [], order: { brought: [], requested: [] } };
+  value.equipment = { brought: [], venue_borrow: [], rental: [], unspecified: [], order: { brought: [], venue_borrow: [], rental: [], unspecified: [] } };
   return value;
 });
 await page.evaluate(value => window.StagePlotEditor.loadSnapshot(value, { rememberPrevious: false, source: 'topview-audit' }), blank);
@@ -50,7 +50,11 @@ const renderedThickness = await page.evaluate(() => [...document.querySelectorAl
   const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
   const scale = Math.hypot(matrix.a, matrix.b);
   const style = getComputedStyle(object);
-  const width = object.classList.contains('engine-line') ? parseFloat(style.height) : parseFloat(style.borderTopWidth);
+  const width = object.classList.contains('engine-line')
+    ? parseFloat(style.height)
+    : node.classList.contains('has-custom-stroke')
+      ? parseFloat(getComputedStyle(node).getPropertyValue('--object-stroke-width'))
+      : parseFloat(style.borderTopWidth);
   return { id: node.dataset.id, width, scale, effective: width * scale, custom: node.classList.contains('has-custom-stroke') };
 }));
 const byId = id => renderedThickness.find(item => item.id === id);
@@ -119,6 +123,13 @@ await launcher.click();
 await page.locator('.library-preset').filter({ hasText: 'SVT + 810' }).getByRole('button', { name: '配置' }).click();
 const svt = await page.evaluate(() => window.StagePlotEditor.snapshot().objects.at(-1));
 const svtRenderedText = await page.locator(`[data-id="${svt.id}"]`).innerText();
+const splitLabelsReadable = await page.evaluate(ids => ids.every(id => {
+  const symbol = document.querySelector(`[data-id="${id}"] .topview-symbol.is-split`);
+  const labels = [...(symbol?.querySelectorAll('span') || [])];
+  return symbol && getComputedStyle(symbol, '::after').zIndex === '0'
+    && labels.length === 2
+    && labels.every(label => getComputedStyle(label).zIndex === '1' && getComputedStyle(label).backgroundColor !== 'rgba(0, 0, 0, 0)');
+}), [jcm.id, svt.id]);
 await launcher.click();
 await page.locator('.library-preset').filter({ hasText: 'Roland RD-300' }).getByRole('button', { name: '配置' }).click();
 const rd = await page.evaluate(() => window.StagePlotEditor.snapshot().objects.at(-1));
@@ -134,14 +145,15 @@ const afterUndoCount = await page.evaluate(() => window.StagePlotEditor.snapshot
 
 const beforeCustom = await page.evaluate(() => window.StagePlotEditor.snapshot());
 const customFixture = [
-  { id: 'custom-a', type: 'rect', x: 100, y: 100, width: 80, height: 40, rotation: 0, scale: 100, strokeWidth: 1, label: 'A', fontSize: 11, category: 'requested', fillStyle: 'white', equipmentModel: 'Synthetic A', labelEdited: true, className: '', html: '<div class="rect">A</div>' },
+  { id: 'custom-a', type: 'rect', x: 100, y: 100, width: 80, height: 40, rotation: 0, scale: 100, strokeWidth: 1, label: 'A', fontSize: 11, category: 'rental', fillStyle: 'white', equipmentModel: 'Synthetic A', labelEdited: true, className: '', html: '<div class="rect">A</div>' },
   { id: 'custom-b', type: 'circle', x: 220, y: 160, width: 50, height: 50, rotation: 15, scale: 80, strokeWidth: 4, label: 'B', fontSize: 12, category: 'brought', fillStyle: 'white', equipmentModel: 'Synthetic B', labelEdited: true, className: '', html: '<div class="circle">B</div>' },
 ];
 await page.evaluate(({ before, objects }) => { before.objects = objects; window.StagePlotEditor.loadSnapshot(before, { rememberPrevious: false, source: 'custom-preset-fixture' }); }, { before: beforeCustom, objects: customFixture });
 await page.locator('[data-id="custom-a"]').click();
 await page.locator('[data-id="custom-b"]').click({ modifiers: ['Control'] });
 await launcher.click();
-page.once('dialog', dialog => dialog.accept('My Local Rig'));
+await page.locator('#presetEditToggle').click();
+await page.locator('#presetNameInput').fill('My Local Rig');
 await page.locator('#createCustomPreset').click();
 const storedBeforeReload = await page.evaluate(() => JSON.parse(localStorage.getItem('ara-tech-stage-plot-user-presets:v1')));
 
@@ -149,16 +161,20 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.StagePlotEditor && window.StagePlotPage?.mode === 'new');
 const reloadHasPreset = await page.evaluate(() => window.StagePlotEditor.presets().some(item => item.name === 'My Local Rig'));
 await page.locator('#equipmentLibraryLauncher').click();
-await page.locator('#customPresetSelect').selectOption({ label: 'My Local Rig' });
-const builtinAbsentFromUpdateSelect = await page.locator('#customPresetSelect option').evaluateAll(options => options.every(option => !option.textContent.includes('Roland JC-120')));
+const myLocalRigId = await page.locator('#customPresetSelect option', { hasText: 'My Local Rig' }).getAttribute('value');
+await page.locator('#presetEditToggle').click();
+await page.locator('#customPresetSelect').selectOption(myLocalRigId);
+const builtinAvailableForEdit = await page.locator('#customPresetSelect option', { hasText: 'Roland JC-120' }).count() === 1;
+await page.locator('#presetEditToggle').click();
 await page.locator('.library-preset').filter({ hasText: 'My Local Rig' }).getByRole('button', { name: '配置' }).click();
 const placedCustom = await page.evaluate(() => ({ objects: window.StagePlotEditor.snapshot().objects.slice(-2), selected: window.StagePlotEditor.selectedIds() }));
 
 await page.locator('#equipmentLibraryLauncher').click();
-await page.locator('#customPresetSelect').selectOption({ label: 'My Local Rig' });
+await page.locator('#presetEditToggle').click();
+await page.locator('#customPresetSelect').selectOption(myLocalRigId);
 page.once('dialog', dialog => dialog.accept());
 await page.locator('#updateCustomPreset').click();
-const overwritten = await page.evaluate(() => JSON.parse(localStorage.getItem('ara-tech-stage-plot-user-presets:v1')).presets.find(item => item.name === 'My Local Rig'));
+const overwritten = await page.evaluate(() => JSON.parse(localStorage.getItem('ara-tech-stage-plot-user-presets:v1')).custom.find(item => item.name === 'My Local Rig'));
 
 const flyout = page.locator('#equipmentLibraryFlyout');
 await page.locator('#equipmentLibraryClose').click();
@@ -172,7 +188,7 @@ const closeEsc = await flyout.isHidden();
 await page.locator('#equipmentLibraryLauncher').click();
 await page.locator('.workspace-head').click();
 const closeOutside = await flyout.isHidden();
-const requestedSwatchWhite = await page.locator('.sw.black').evaluate(node => getComputedStyle(node).backgroundColor === 'rgb(255, 255, 255)');
+const venueBorrowSwatchWhite = await page.locator('[data-object-category="venue_borrow"]').evaluate(node => getComputedStyle(node).backgroundColor === 'rgb(255, 255, 255)');
 
 const ratio = (object, w, d) => Math.abs(object.width / object.height - w / d) < 0.0001;
 const drum = drumBeforeUndo.objects;
@@ -190,13 +206,14 @@ const checks = {
   K_rd300_ratio_identity: rd.label === 'RD300' && rd.equipmentModel === 'Roland RD-300' && ratio(rd, 1405, 461),
   L_drum_composition: drum.length === 10 && drum.find(item => item.symbolKind === 'drum-kick')?.type === 'rect' && drum.filter(item => ['drum-shell', 'cymbal'].includes(item.symbolKind)).every(item => item.type === 'circle') && drum.find(item => item.symbolKind === 'drum-pedal')?.category === 'brought',
   M_preset_ids_layout_z_undo: new Set(drum.map(item => item.id)).size === 10 && drumBeforeUndo.selected.length === 10 && afterUndoCount === 0,
-  N_custom_multiselect_saved: storedBeforeReload.schemaVersion === 1 && storedBeforeReload.presets[0].components.length === 2 && storedBeforeReload.presets[0].components.every(item => !('id' in item)),
+  N_custom_multiselect_saved: storedBeforeReload.schemaVersion === 2 && storedBeforeReload.custom[0].components.length === 2 && storedBeforeReload.custom[0].components.every(item => !('id' in item)),
   O_custom_reload_persisted: reloadHasPreset,
   P_custom_overwrite: Boolean(overwritten.components.length === 2 && overwritten.updatedAt),
-  Q_builtin_overwrite_blocked: builtinAbsentFromUpdateSelect,
+  Q_builtin_edit_available: builtinAvailableForEdit,
   R_flyout_close_contract: initiallyOpenedFromClosed && closeX && closeToggle && closeEsc && closeOutside,
   S_selection_refresh_regression_hook: strokeA === '0.5' && strokeB === '4',
-  T_equipment_sync_semantics: requestedSwatchWhite && jc.category === 'unspecified' && drum.find(item => item.symbolKind === 'drum-pedal')?.category === 'brought',
+  T_equipment_sync_semantics: venueBorrowSwatchWhite && jc.category === 'unspecified' && drum.find(item => item.symbolKind === 'drum-pedal')?.category === 'brought',
+  U_topview_labels_readable: splitLabelsReadable,
 };
 
 const relativeLayoutPreserved = placedCustom.objects.length === 2

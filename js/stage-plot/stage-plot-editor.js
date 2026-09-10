@@ -24,9 +24,10 @@
   const CUE_LABELS = { none: '未指定', show_start: '開演GO', on_stage: '板付き後GO', title_call: 'タイトルコールでGO', mc_end: 'MC終わりGO', signal: '合図でGO', blackout: '暗転後GO', continuous: '前曲から連続', custom: '任意入力' };
   const TOOLS = ['rect', 'circle', 'line', 'arrow', 'text', 'microphone', 'monitor', 'power'];
   const TYPE_LABELS = { rect: '四角形', circle: '円', line: '線', arrow: '矢印', text: 'テキスト', microphone: 'マイク', monitor: 'モニター', power: '100V' };
-  const CATEGORY_LABELS = { brought: '出演者持込', requested: '借用・手配希望', unspecified: '未指定' };
-  const EQUIPMENT_KINDS = ['brought', 'requested'];
-  const EQUIPMENT_OBJECT_TYPES = new Set(['rect', 'circle', 'microphone', 'monitor', 'power']);
+  const CATEGORY_LABELS = { unspecified: '未指定・要確認', brought: '出演者持込', venue_borrow: '会場借用', rental: 'レンタル' };
+  const EQUIPMENT_KINDS = ['brought', 'venue_borrow', 'rental', 'unspecified'];
+  const EQUIPMENT_LIST_IDS = { brought: 'carryList', venue_borrow: 'venueBorrowList', rental: 'rentalList', unspecified: 'unspecifiedList' };
+  const EQUIPMENT_OBJECT_TYPES = new Set(['rect', 'circle', 'line', 'arrow', 'microphone', 'monitor', 'power']);
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const deep = value => JSON.parse(JSON.stringify(value));
@@ -47,6 +48,9 @@
   let nudgeAction = null;
   let contextMenuOpen = false;
   let magnetEnabled = false;
+  let keyObjectId = '';
+  let openSelectionMenu = '';
+  let presetEditMode = false;
   let libraryUi = { favorites: [], recent: [] };
   let draggedEquipment = null;
   let equipmentPointerAction = null;
@@ -55,7 +59,8 @@
   let audioPlaybackStarted = false;
   let equipmentLayout = { mode: 'normal', overflow: 0, carryVisible: 0, requestVisible: 0 };
   const presetStorage = createPresetStorage?.();
-  let userPresets = presetStorage?.load?.() || [];
+  let presetLibraryState = presetStorage?.loadLibrary?.() || { custom: presetStorage?.load?.() || [], overrides: {}, tombstones: [] };
+  let userPresets = presetLibraryState.custom || [];
   let activeCustomPresetId = '';
 
   try {
@@ -99,6 +104,19 @@
     const stroke = $('.mic-svg line', node)?.getAttribute('stroke')?.toLowerCase();
     if (stroke === '#d71920') return 'brought';
     return 'unspecified';
+  }
+
+  function normalizeCategory(value) {
+    const raw = String(value || '').normalize('NFKC').trim().toLowerCase();
+    if (raw === 'brought' || raw === '持込' || raw === '出演者持込') return 'brought';
+    if (raw === 'venue_borrow' || raw === '会場借用' || raw === '会場常設機材') return 'venue_borrow';
+    if (raw === 'rental' || raw === 'レンタル') return 'rental';
+    return 'unspecified';
+  }
+
+  function normalizePerformanceOrder(value) {
+    const match = String(value || '').normalize('NFKC').trim().match(/^(?:[^1-6]*)([1-6])(?:番目)?(?:[^1-6]*)$/u);
+    return match ? match[1] : '';
   }
 
   function normalizedEquipmentLabel(value) {
@@ -162,7 +180,7 @@
   }
 
   function parseInitialState() {
-    const metadataInputs = $$('.meta-field input');
+    const metadataInputs = $$('.meta-field input,.meta-field select');
     const objects = $$('.stage > .obj').map(node => {
       const computed = getComputedStyle(node);
       const child = node.firstElementChild;
@@ -208,8 +226,10 @@
       objects,
       equipment: {
         brought: $$('#carryList .equip-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
-        requested: $$('#requestList .request-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
-        order: { brought: [], requested: [] },
+        venue_borrow: $$('#venueBorrowList .request-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        rental: $$('#rentalList .request-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        unspecified: $$('#unspecifiedList .request-row').map(row => ({ id: uid(), source: 'manual', name: $('input', row)?.value || '', qty: $('.qty', row)?.value || '', detail: '' })),
+        order: { brought: [], venue_borrow: [], rental: [], unspecified: [] },
       },
       notes: $('.notes textarea')?.value || '',
       otherRequests: $('.other-request textarea')?.value || '',
@@ -245,6 +265,7 @@
     const source = raw && typeof raw === 'object' ? raw : fallback;
     const metadata = { ...fallback.metadata, ...(source.metadata || {}) };
     metadata.eventDate = String(metadata.eventDate || metadata.event_date || '');
+    metadata.performanceOrder = normalizePerformanceOrder(metadata.performanceOrder);
     delete metadata.event_date;
     const number = (value, fallbackValue, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallbackValue;
     const objects = Array.isArray(source.objects) ? source.objects.map(item => {
@@ -259,7 +280,7 @@
         scale: number(item.scale, 100, 30, 300),
         label: String(item.label ?? TYPE_LABELS[item.type] ?? ''),
         fontSize: number(item.fontSize, defaultFontSize(item.type), 8, 72),
-        category: CATEGORY_LABELS[item.category] ? item.category : 'unspecified',
+        category: normalizeCategory(item.category),
         labelEdited: Boolean(item.labelEdited || !item.html),
         className: String(item.className || ''),
         html: String(item.html || ''),
@@ -279,7 +300,13 @@
     }) : deep(fallback.objects);
     const row = item => ({ id: String(item.id || uid()), source: 'manual', name: String(item.name || ''), qty: String(item.qty || ''), detail: String(item.detail || '') });
     const brought = Array.isArray(source.equipment?.brought) ? source.equipment.brought.map(row) : [];
-    const requested = Array.isArray(source.equipment?.requested) ? source.equipment.requested.map(row) : [];
+    const venueBorrow = Array.isArray(source.equipment?.venue_borrow) ? source.equipment.venue_borrow.map(row) : [];
+    const rental = Array.isArray(source.equipment?.rental) ? source.equipment.rental.map(row) : [];
+    const ambiguous = [
+      ...(Array.isArray(source.equipment?.requested) ? source.equipment.requested : []),
+      ...(Array.isArray(source.equipment?.borrowed) ? source.equipment.borrowed : []),
+    ].map(item => ({ ...row(item), legacyProvision: String(item?.legacyProvision || item?.category || 'requested') }));
+    const unspecified = [...(Array.isArray(source.equipment?.unspecified) ? source.equipment.unspecified.map(row) : []), ...ambiguous];
     const audio = item => {
       const id = String(item.audioId || item.id || uid());
       return { id, audioId: id, fileName: String(item.fileName || item.name || '音源'), name: String(item.name || item.fileName || '音源'), mimeType: String(item.mimeType || item.type || ''), type: String(item.type || item.mimeType || ''), size: Number(item.size || 0) };
@@ -301,10 +328,14 @@
       objects,
       equipment: {
         brought,
-        requested,
+        venue_borrow: venueBorrow,
+        rental,
+        unspecified,
         order: {
           brought: equipmentOrderFor(source.equipment?.order?.brought, brought, objects, 'brought'),
-          requested: equipmentOrderFor(source.equipment?.order?.requested, requested, objects, 'requested'),
+          venue_borrow: equipmentOrderFor(source.equipment?.order?.venue_borrow, venueBorrow, objects, 'venue_borrow'),
+          rental: equipmentOrderFor(source.equipment?.order?.rental, rental, objects, 'rental'),
+          unspecified: equipmentOrderFor(source.equipment?.order?.unspecified, unspecified, objects, 'unspecified'),
         },
       },
       notes: String(source.notes || ''),
@@ -431,7 +462,7 @@
   function objectNode(object) {
     const node = document.createElement('div');
     const isSelected = selectedIds.has(object.id);
-    node.className = `obj engine-object ${object.className || ''} category-${object.category}${isSelected ? ' selected' : ''}${Number.isFinite(object.strokeWidth) ? ' has-custom-stroke' : ''}${object.geometrySized ? ' geometry-sized' : ''}${object.locked ? ' locked' : ''}`.replace(/\s+/g, ' ').trim();
+    node.className = `obj engine-object ${object.className || ''} category-${object.category}${isSelected ? ' selected' : ''}${keyObjectId === object.id ? ' key-object' : ''}${Number.isFinite(object.strokeWidth) ? ' has-custom-stroke' : ''}${object.geometrySized ? ' geometry-sized' : ''}${object.locked ? ' locked' : ''}`.replace(/\s+/g, ' ').trim();
     node.dataset.id = object.id;
     node.tabIndex = 0;
     node.setAttribute('role', 'button');
@@ -456,6 +487,15 @@
     }
     node.style.transform = `rotate(${object.rotation}deg) scale(${object.scale / 100})`;
     node.style.transformOrigin = 'center';
+    const colors = {
+      unspecified: { fill: '#fff', stroke: '#c9d1d8', text: '#263442' },
+      brought: { fill: '#f9dfe1', stroke: '#c83b45', text: '#6f151a' },
+      venue_borrow: { fill: '#fff', stroke: '#111', text: '#111' },
+      rental: { fill: '#dff4fb', stroke: '#2382b8', text: '#07577f' },
+    }[object.category] || { fill: '#fff', stroke: '#c9d1d8', text: '#263442' };
+    node.style.setProperty('--object-fill', colors.fill);
+    node.style.setProperty('--object-stroke', colors.stroke);
+    node.style.setProperty('--object-text', colors.text);
     if (Number.isFinite(object.strokeWidth)) {
       const effectiveScale = Math.max(.01, object.scale / 100);
       node.style.setProperty('--object-stroke-width', `${object.strokeWidth / effectiveScale}px`);
@@ -490,17 +530,22 @@
 
   function effectiveBounds(object) {
     const scale = object.scale / 100;
-    const width = object.width * scale;
-    const height = object.height * scale;
+    const baseWidth = object.width * scale;
+    const baseHeight = object.height * scale;
+    const radians = Number(object.rotation || 0) * Math.PI / 180;
+    const width = Math.abs(baseWidth * Math.cos(radians)) + Math.abs(baseHeight * Math.sin(radians));
+    const height = Math.abs(baseWidth * Math.sin(radians)) + Math.abs(baseHeight * Math.cos(radians));
+    const centerX = object.x + object.width / 2;
+    const centerY = object.y + object.height / 2;
     return {
-      left: object.x + (object.width - width) / 2,
-      top: object.y + (object.height - height) / 2,
-      right: object.x + (object.width + width) / 2,
-      bottom: object.y + (object.height + height) / 2,
+      left: centerX - width / 2,
+      top: centerY - height / 2,
+      right: centerX + width / 2,
+      bottom: centerY + height / 2,
       width,
       height,
-      centerX: object.x + object.width / 2,
-      centerY: object.y + object.height / 2,
+      centerX,
+      centerY,
     };
   }
 
@@ -538,26 +583,48 @@
     magnet.textContent = `Magnet ${magnetEnabled ? 'ON' : 'OFF'}`;
     stage.append(magnet);
     const objects = selectedObjects();
-    if (objects.length < 2) return;
+    if (!objects.length) return;
     const box = boundsFor(objects);
-    const overlay = document.createElement('div');
-    overlay.className = 'selection-box editor-overlay';
-    overlay.dataset.selectionOverlay = 'true';
-    overlay.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
-    if (!objects.every(object => object.locked)) overlay.innerHTML = '<button class="transform-handle rotate-handle" data-transform="multi-rotate" type="button" aria-label="選択範囲を回転"></button><button class="transform-handle resize-handle nw" data-transform="multi-resize-nw" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle ne" data-transform="multi-resize-ne" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle se" data-transform="multi-resize-se" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle sw" data-transform="multi-resize-sw" type="button" aria-label="選択範囲をサイズ変更"></button>';
-    stage.append(overlay);
+    if (objects.length > 1) {
+      const overlay = document.createElement('div');
+      overlay.className = 'selection-box editor-overlay';
+      overlay.dataset.selectionOverlay = 'true';
+      overlay.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
+      if (!objects.every(object => object.locked)) overlay.innerHTML = '<button class="transform-handle rotate-handle" data-transform="multi-rotate" type="button" aria-label="選択範囲を回転"></button><button class="transform-handle resize-handle nw" data-transform="multi-resize-nw" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle ne" data-transform="multi-resize-ne" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle se" data-transform="multi-resize-se" type="button" aria-label="選択範囲をサイズ変更"></button><button class="transform-handle resize-handle sw" data-transform="multi-resize-sw" type="button" aria-label="選択範囲をサイズ変更"></button>';
+      stage.append(overlay);
+    }
+    if (objects.some(object => object.locked)) {
+      const indicator = document.createElement('span');
+      indicator.className = 'selection-lock-indicator editor-overlay';
+      indicator.textContent = '🔒';
+      indicator.style.cssText = `left:${clamp(box.right - 8, 2, STAGE_W - 20)}px;top:${clamp(box.top - 17, 2, STAGE_H - 20)}px`;
+      stage.append(indicator);
+    }
+    const entities = selectionEntities(objects);
+    const entityCount = entities.length;
+    const singleGroup = entityCount === 1 && entities[0].some(object => object.groupId);
     const toolbar = document.createElement('div');
     toolbar.className = 'selection-toolbar editor-overlay';
     toolbar.dataset.selectionToolbar = 'true';
     toolbar.style.left = `${clamp(box.left, 4, STAGE_W - 385)}px`;
     toolbar.style.top = `${clamp(box.top - 70, 4, STAGE_H - 34)}px`;
-    toolbar.innerHTML = '<button data-editor-action="group" type="button">Group</button><button data-editor-action="lock" type="button">Lock</button><button data-editor-action="align-center" type="button">Align</button><button data-editor-action="distribute-horizontal" type="button">Distribute</button><button data-editor-action="center-equidistance" type="button">Center</button><button data-editor-action="mirror" type="button">Mirror</button><button data-editor-action="mirror-duplicate" type="button">Mirror＋</button>';
+    const group = entityCount >= 2 || singleGroup ? `<button class="group-toggle${singleGroup ? ' is-active' : ''}" aria-pressed="${singleGroup}" data-editor-action="group-toggle" type="button">Group</button>` : '';
+    const locked = objects.every(object => object.locked);
+    const lock = `<button class="lock-toggle${locked ? ' is-active' : ''}" aria-pressed="${locked}" data-editor-action="lock" type="button">Lock</button>`;
+    const align = entityCount >= 2 ? '<span class="selection-menu-wrap"><button data-editor-action="align-menu" type="button" aria-expanded="false">整列</button><span class="selection-submenu align-menu" hidden><button data-editor-action="align-left" title="左揃え" aria-label="左揃え">↤</button><button data-editor-action="align-center" title="横中央揃え" aria-label="横中央揃え">↔</button><button data-editor-action="align-right" title="右揃え" aria-label="右揃え">↦</button><button data-editor-action="align-top" title="上揃え" aria-label="上揃え">↥</button><button data-editor-action="align-middle" title="縦中央揃え" aria-label="縦中央揃え">↕</button><button data-editor-action="align-bottom" title="下揃え" aria-label="下揃え">↧</button></span></span>' : '';
+    const distribute = entityCount >= 3 ? '<span class="selection-menu-wrap"><button data-editor-action="distribute-menu" type="button" aria-expanded="false">等間隔配置</button><span class="selection-submenu distribute-menu" hidden><button data-editor-action="distribute-horizontal" title="横方向に等間隔" aria-label="横方向に等間隔">↔</button><button data-editor-action="distribute-vertical" title="縦方向に等間隔" aria-label="縦方向に等間隔">↕</button></span></span>' : '';
+    const center = entityCount === 2 ? '<button data-editor-action="center-equidistance" type="button">Center</button>' : '';
+    toolbar.innerHTML = `${group}${lock}${align}${distribute}${center}<button data-editor-action="mirror" type="button">Mirror</button><button data-editor-action="mirror-duplicate" type="button">Mirror＋</button>`;
+    const submenu = $(`.${openSelectionMenu}-menu`, toolbar);
+    if (submenu) { submenu.hidden = false; submenu.previousElementSibling?.setAttribute('aria-expanded', 'true'); }
     stage.append(toolbar);
   }
 
   function selectOnly(id) {
     selected = id || null;
     selectedIds = id ? new Set([id]) : new Set();
+    keyObjectId = '';
+    openSelectionMenu = '';
     showHandles = Boolean(id);
   }
 
@@ -572,7 +639,7 @@
       category: $('#objectCategorySelect'),
       strokeWidth: $('#strokeWidthInput'), strokeMinus: $('#strokeMinusBtn'), strokePlus: $('#strokePlusBtn'),
       labelOffsetX: $('#labelOffsetXInput'), labelOffsetY: $('#labelOffsetYInput'), labelOffsetReset: $('#labelOffsetResetBtn'),
-      swatches: $$('.sw[data-object-category]', $('.left .props')),
+      swatches: $$('[data-object-category]', $('.left .props')),
       actions: $$('[data-editor-action]', $('.left .props')),
     };
   }
@@ -616,16 +683,17 @@
       parts.ratioLock.checked = ratioValues.size === 1 && Boolean(object.ratioLocked);
     }
     if (parts.fontDefault) parts.fontDefault.textContent = '16px';
-    if (parts.category) parts.category.value = CATEGORY_LABELS[object.category];
+    if (parts.category) parts.category.value = object.category;
     parts.swatches.forEach(swatch => swatch.setAttribute('aria-pressed', String(swatch.dataset.objectCategory === object.category)));
     const lockButton = parts.actions.find(button => button.dataset.editorAction === 'lock');
     if (lockButton) lockButton.textContent = objects.every(item => item.locked) ? 'Unlock' : 'Lock / Unlock';
   }
 
   function renderMetadata() {
-    const values = [state.metadata.eventName, state.metadata.performerName, state.metadata.performanceOrder, state.metadata.performanceTime, state.metadata.allottedTime];
-    const editorValues = [...values, state.metadata.eventDate];
-    $$('.meta-field input').forEach((input, index) => { if (document.activeElement !== input) input.value = editorValues[index] || ''; });
+    const orderLabel = state.metadata.performanceOrder ? `${state.metadata.performanceOrder}番目` : '';
+    const values = [state.metadata.eventName, state.metadata.performerName, orderLabel, state.metadata.performanceTime, state.metadata.allottedTime];
+    const editorValues = [state.metadata.eventName, state.metadata.performerName, state.metadata.performanceOrder, state.metadata.performanceTime, state.metadata.allottedTime, state.metadata.eventDate];
+    $$('.meta-field input,.meta-field select').forEach((input, index) => { if (document.activeElement !== input) input.value = editorValues[index] || ''; });
     const artist = $('.page-title .artist');
     if (artist) artist.textContent = state.metadata.performerName || '出演者名';
     const center = $('.page-title .center');
@@ -634,7 +702,7 @@
       center.append(document.createTextNode(state.metadata.eventName || 'イベント名'), document.createElement('br'));
       const detail = document.createElement('span');
       detail.style.cssText = 'font-size:16px;font-weight:700;letter-spacing:.03em';
-      detail.textContent = `STAGE PLOT / 出演順 ${state.metadata.performanceOrder || '—'} / ${state.metadata.performanceTime || '—'}`;
+      detail.textContent = `STAGE PLOT / 出演順 ${orderLabel || '—'} / ${state.metadata.performanceTime || '—'}`;
       center.append(detail);
     }
     $$('.sheet-meta-item strong').forEach((node, index) => {
@@ -658,7 +726,7 @@
     const fields = [
       ['イベント名', state.metadata.eventName || 'イベント名'],
       ['出演者名 / バンド名', state.metadata.performerName || '出演者名'],
-      ['出演順', state.metadata.performanceOrder || '—'],
+      ['出演順', state.metadata.performanceOrder ? `${state.metadata.performanceOrder}番目` : '—'],
       ['出演時間', state.metadata.performanceTime || '—'],
       ['持ち時間', state.metadata.allottedTime || '—'],
     ];
@@ -732,20 +800,21 @@
 
   function equipmentRow(item, kind) {
     const row = document.createElement('div');
-    row.className = kind === 'brought' ? 'equip-row borrowed' : 'request-row';
+    row.className = `equip-row provision-${kind}${kind === 'brought' ? ' borrowed' : ''}`;
     row.draggable = true;
     row.dataset.equipmentKind = kind;
     row.dataset.equipmentKey = item.key;
     row.dataset.source = item.source;
     const manual = item.source === 'manual';
-    row.innerHTML = `<div class="equipment-dragcell"><button class="draghandle equipment-drag-handle" type="button" title="ドラッグして並び替え" aria-label="ドラッグして並び替え">⠿</button></div><input ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="name"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.name)}" placeholder="${kind === 'brought' ? '持込機材' : '借りたい・用意してほしい機材'}"><input class="qty" ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="qty"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.qty)}"><button type="button" class="remove-equip" ${manual ? `data-remove-eq="${kind}" data-manual-id="${escapeHtml(item.id)}"` : 'disabled aria-hidden="true"'}>×</button>`;
+    row.innerHTML = `<div class="equipment-dragcell"><button class="draghandle equipment-drag-handle" type="button" title="ドラッグして並び替え" aria-label="ドラッグして並び替え">⠿</button></div><input ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="name"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.name)}" placeholder="${CATEGORY_LABELS[kind]}"><input class="qty" ${manual ? `data-eq="${kind}" data-manual-id="${escapeHtml(item.id)}" data-key="qty"` : 'readonly aria-readonly="true"'} value="${escapeHtml(item.qty)}"><button type="button" class="remove-equip" ${manual ? `data-remove-eq="${kind}" data-manual-id="${escapeHtml(item.id)}"` : 'disabled aria-hidden="true"'}>×</button>`;
     return row;
   }
 
   function renderEquipment() {
     for (const kind of EQUIPMENT_KINDS) {
-      const root = kind === 'brought' ? $('#carryList') : $('#requestList');
-      root.replaceChildren(...equipmentItems(kind).map(item => equipmentRow(item, kind)));
+      const root = $(`#${EQUIPMENT_LIST_IDS[kind]}`);
+      root?.replaceChildren(...equipmentItems(kind).map(item => equipmentRow(item, kind)));
+      root?.closest('.equip-section')?.classList.toggle('is-empty', equipmentItems(kind).length === 0);
     }
     const notes = $('.notes textarea');
     const requests = $('.other-request textarea');
@@ -768,8 +837,7 @@
     const node = continuationNode();
     node.classList.toggle('has-overflow', hasOverflow);
     if (!hasOverflow) { node.replaceChildren(); return; }
-    const brought = equipmentItems('brought');
-    const requested = equipmentItems('requested');
+    const byKind = Object.fromEntries(EQUIPMENT_KINDS.map(kind => [kind, equipmentItems(kind)]));
     const perColumn = 12;
     const other = String(state.otherRequests || '').trim();
     const otherChunks = [];
@@ -781,18 +849,16 @@
     });
     if (otherChunk) otherChunks.push(otherChunk);
     if (!otherChunks.length) otherChunks.push('なし');
-    const itemPageCount = Math.max(1, Math.ceil(brought.length / perColumn), Math.ceil(requested.length / perColumn));
+    const itemPageCount = Math.max(1, ...EQUIPMENT_KINDS.map(kind => Math.ceil(byKind[kind].length / perColumn)));
     const pageCount = itemPageCount + Math.max(0, otherChunks.length - 1);
     const rows = items => `<table><tbody>${items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.qty)}</td></tr>`).join('')}</tbody></table>`;
     node.innerHTML = Array.from({ length: pageCount }, (_, pageIndex) => {
-      const left = brought.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
-      const right = requested.slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
       const otherIndex = pageIndex - itemPageCount + 1;
       const otherChunk = otherIndex >= 0 ? otherChunks[otherIndex] : '';
-      const equipmentSections = [
-        left.length ? `<section class="equipment-panel is-carry"><h3>出演者持込</h3>${rows(left)}</section>` : '',
-        right.length ? `<section class="equipment-panel"><h3>借りたい・用意してほしい機材</h3>${rows(right)}</section>` : '',
-      ].filter(Boolean);
+      const equipmentSections = EQUIPMENT_KINDS.map(kind => {
+        const items = byKind[kind].slice(pageIndex * perColumn, (pageIndex + 1) * perColumn);
+        return items.length ? `<section class="equipment-panel provision-${kind}"><h3>${escapeHtml(CATEGORY_LABELS[kind])}</h3>${rows(items)}</section>` : '';
+      }).filter(Boolean);
       const onlyOther = !equipmentSections.length && Boolean(otherChunk);
       return `<article class="print-equipment-page${onlyOther ? ' other-only' : ''}">${printBrandMarkup()}${printMetadataMarkup()}<div class="print-page-title"><div class="print-page-title-main"><strong>機材・手配リスト${pageIndex ? ' 続き' : ''}</strong><small>${pageIndex + 1} of ${pageCount}</small></div></div>${equipmentSections.length ? `<div class="equipment-columns${equipmentSections.length === 1 ? ' single-section' : ''}">${equipmentSections.join('')}</div>` : ''}${otherChunk ? `<section class="equipment-other"><h3>その他要望${otherChunks.length > 1 ? ` ${otherIndex + 1} / ${otherChunks.length}` : ''}</h3><p>${escapeHtml(otherChunk)}</p></section>` : ''}</article>`;
     }).join('');
@@ -804,17 +870,15 @@
     // incorrectly make an overflowing list appear to fit and remove those pages.
     if (window.matchMedia?.('print').matches) return;
     const panel = $('.carry');
-    const carryList = $('#carryList');
-    const requestList = $('#requestList');
-    if (!panel || !carryList || !requestList) return;
+    const lists = EQUIPMENT_KINDS.map(kind => $(`#${EQUIPMENT_LIST_IDS[kind]}`)).filter(Boolean);
+    if (!panel || lists.length !== EQUIPMENT_KINDS.length) return;
     const sections = $$('.carry > .equip-section');
-    if (sections.length < 3) return;
+    if (sections.length < 5) return;
     panel.classList.add('adaptive-equipment');
     ['density-normal', 'density-compact', 'density-dense'].forEach(name => panel.classList.remove(name));
     $$('.equipment-overflow-note', panel).forEach(node => node.remove());
-    const carryRows = $$('.equip-row', carryList);
-    const requestRows = $$('.request-row', requestList);
-    [...carryRows, ...requestRows].forEach(row => { row.hidden = false; });
+    const rows = lists.flatMap(list => $$('.equip-row', list));
+    rows.forEach(row => { row.hidden = false; });
     const fixed = $('.carry-main-title', panel).offsetHeight
       + (panel.children[1]?.offsetHeight || 0)
       + $$('.equip-title', panel).reduce((sum, node) => sum + node.offsetHeight, 0);
@@ -822,17 +886,16 @@
     const otherLines = Math.max(1, otherText.split(/\r?\n/u).length, Math.ceil(otherText.length / 38));
     const minimumOther = clamp(58 + otherLines * 13, 108, 250);
     const capacity = Math.max(0, Math.floor(panel.clientHeight - fixed - minimumOther - 4));
-    const total = carryRows.length + requestRows.length;
+    const total = rows.length;
     let mode = 'normal';
     let rowHeight = 38;
     if (total * rowHeight > capacity) { mode = 'compact'; rowHeight = 27; }
     if (total * rowHeight > capacity) { mode = 'dense'; rowHeight = 22; }
     const needsOverflow = total * rowHeight > capacity;
-    const carryVisible = needsOverflow ? 0 : carryRows.length;
-    const requestVisible = needsOverflow ? 0 : requestRows.length;
+    const carryVisible = needsOverflow ? 0 : $$('.equip-row', $('#carryList')).length;
+    const requestVisible = needsOverflow ? 0 : rows.length - carryVisible;
     const overflow = needsOverflow ? total : 0;
-    carryRows.forEach(row => { row.hidden = needsOverflow; });
-    requestRows.forEach(row => { row.hidden = needsOverflow; });
+    rows.forEach(row => { row.hidden = needsOverflow; });
     panel.classList.toggle('equipment-deferred', needsOverflow);
     if (needsOverflow) {
       const note = document.createElement('div');
@@ -840,10 +903,9 @@
       note.textContent = '機材・手配リストは次ページに全件掲載';
       panel.append(note);
     }
-    carryList.style.setProperty('--equipment-list-height', `${carryVisible * rowHeight}px`);
-    requestList.style.setProperty('--equipment-list-height', `${requestVisible * rowHeight}px`);
+    lists.forEach(list => list.style.setProperty('--equipment-list-height', `${(needsOverflow ? 0 : $$('.equip-row', list).length) * rowHeight}px`));
     panel.classList.add(`density-${mode}`);
-    equipmentLayout = { mode, rowHeight, capacity, overflow, carryVisible, requestVisible, otherHeight: sections[2].offsetHeight };
+    equipmentLayout = { mode, rowHeight, capacity, overflow, carryVisible, requestVisible, otherHeight: sections.at(-1).offsetHeight };
     renderEquipmentContinuation(needsOverflow);
   }
 
@@ -951,7 +1013,19 @@
   }
 
   function allPresets() {
-    return [...BUILT_IN_PRESETS, ...userPresets];
+    const deleted = new Set(presetLibraryState.tombstones || []);
+    const builtins = BUILT_IN_PRESETS.filter(preset => !deleted.has(preset.id)).map(preset => ({ ...deep(preset), ...(presetLibraryState.overrides?.[preset.id] || {}), id: preset.id, kind: 'built-in', origin: 'builtin', readOnly: false }));
+    return [...builtins, ...userPresets.map(preset => ({ ...preset, origin: 'custom', readOnly: false }))];
+  }
+
+  function savePresetLibrary() {
+    presetLibraryState.custom = userPresets;
+    presetLibraryState = presetStorage?.saveLibrary?.(presetLibraryState) || presetLibraryState;
+    userPresets = presetLibraryState.custom || userPresets;
+  }
+
+  function activePreset() {
+    return allPresets().find(preset => preset.id === activeCustomPresetId) || null;
   }
 
   function presetCategory(preset) {
@@ -981,7 +1055,9 @@
 
   function presetRow(preset) {
     const favorite = libraryUi.favorites.includes(preset.id);
-    return `<div class="library-preset" data-preset-kind="${preset.kind}" data-preset-id="${escapeHtml(preset.id)}"><button class="library-favorite" type="button" data-favorite-preset="${escapeHtml(preset.id)}" aria-pressed="${favorite}" aria-label="${favorite ? 'お気に入りから外す' : 'お気に入りに追加'}">${favorite ? '★' : '☆'}</button><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.kind === 'built-in' ? `${presetCategory(preset)} · 内蔵・読取専用` : `${preset.components.length} components`}</small></div><button type="button" data-place-preset="${escapeHtml(preset.id)}">配置</button></div>`;
+    const description = String(preset.description || '').trim();
+    const action = presetEditMode ? `<button type="button" data-edit-preset="${escapeHtml(preset.id)}">編集</button>` : `<button type="button" data-place-preset="${escapeHtml(preset.id)}">配置</button>`;
+    return `<div class="library-preset" data-preset-kind="${preset.kind}" data-preset-origin="${preset.origin || (preset.kind === 'built-in' ? 'builtin' : 'custom')}" data-preset-id="${escapeHtml(preset.id)}"><button class="library-favorite" type="button" data-favorite-preset="${escapeHtml(preset.id)}" aria-pressed="${favorite}" aria-label="${favorite ? 'お気に入りから外す' : 'お気に入りに追加'}">${favorite ? '★' : '☆'}</button><div><strong>${escapeHtml(preset.name)}</strong>${description ? `<small>${escapeHtml(description)}</small>` : ''}</div>${action}</div>`;
   }
 
   function renderPresetLibrary() {
@@ -997,8 +1073,14 @@
     addSection('Recent', libraryUi.recent.map(id => byId.get(id)).filter(Boolean));
     ['Guitar', 'Bass', 'Keyboard', 'Drum', 'Custom', 'Other'].forEach(category => addSection(category, presets.filter(preset => presetCategory(preset) === category)));
     root.innerHTML = sections.join('') || '<small>一致する機材はありません。</small>';
-    select.innerHTML = `<option value="">選択してください</option>${userPresets.map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === activeCustomPresetId ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`).join('')}`;
-    const hasActive = userPresets.some(preset => preset.id === activeCustomPresetId);
+    select.innerHTML = `<option value="">選択してください</option>${allPresets().map(preset => `<option value="${escapeHtml(preset.id)}" ${preset.id === activeCustomPresetId ? 'selected' : ''}>${escapeHtml(preset.name)} (${preset.origin === 'builtin' ? '内蔵' : 'カスタム'})</option>`).join('')}`;
+    const current = activePreset();
+    const hasActive = Boolean(current);
+    $('#presetEditPanel').hidden = !presetEditMode;
+    $('#presetEditToggle').setAttribute('aria-pressed', String(presetEditMode));
+    if (document.activeElement !== $('#presetNameInput')) $('#presetNameInput').value = current?.name || '';
+    if (document.activeElement !== $('#presetDescriptionInput')) $('#presetDescriptionInput').value = current?.description || '';
+    $('#renamePreset').disabled = !hasActive;
     $('#updateCustomPreset').disabled = !hasActive;
     $('#deleteCustomPreset').disabled = !hasActive;
   }
@@ -1028,33 +1110,55 @@
   function createCustomPreset() {
     const objects = selectedObjects();
     if (!objects.length) { alert('プリセットに保存する図形を1個以上選択してください。'); return; }
-    const name = prompt('新しいプリセット名');
+    const name = presetEditMode ? $('#presetNameInput')?.value : prompt('新しいプリセット名');
     if (!String(name || '').trim() || !presetFromSelection) return;
-    const preset = presetFromSelection(name, objects);
+    const preset = presetFromSelection(name, objects, $('#presetDescriptionInput')?.value || '');
     userPresets.push(preset);
     activeCustomPresetId = preset.id;
-    presetStorage?.save?.(userPresets);
+    savePresetLibrary();
+    renderPresetLibrary();
+  }
+
+  function savePresetMetadata() {
+    const preset = activePreset();
+    const name = String($('#presetNameInput')?.value || '').trim();
+    if (!preset || !name) return;
+    const changes = { name, description: String($('#presetDescriptionInput')?.value || '') };
+    if (preset.origin === 'builtin') presetLibraryState.overrides[preset.id] = { ...(presetLibraryState.overrides[preset.id] || {}), ...changes };
+    else {
+      const index = userPresets.findIndex(item => item.id === preset.id);
+      if (index >= 0) userPresets[index] = { ...userPresets[index], ...changes, id: preset.id, updatedAt: new Date().toISOString() };
+    }
+    savePresetLibrary();
     renderPresetLibrary();
   }
 
   function updateCustomPreset() {
-    const index = userPresets.findIndex(preset => preset.id === activeCustomPresetId);
+    const preset = activePreset();
     const objects = selectedObjects();
-    if (index < 0 || !objects.length || !presetFromSelection) return;
-    if (!confirm(`「${userPresets[index].name}」を現在の選択内容で上書きしますか？`)) return;
-    const replacement = presetFromSelection(userPresets[index].name, objects);
-    replacement.id = userPresets[index].id;
-    userPresets[index] = replacement;
-    presetStorage?.save?.(userPresets);
+    if (!preset || !objects.length || !presetFromSelection) return;
+    if (!confirm(`「${preset.name}」を現在の選択内容で上書きしますか？`)) return;
+    const replacement = presetFromSelection(preset.name, objects, preset.description);
+    replacement.id = preset.id;
+    if (preset.origin === 'builtin') presetLibraryState.overrides[preset.id] = { ...(presetLibraryState.overrides[preset.id] || {}), components: replacement.components, updatedAt: replacement.updatedAt };
+    else {
+      const index = userPresets.findIndex(item => item.id === preset.id);
+      if (index >= 0) userPresets[index] = replacement;
+    }
+    savePresetLibrary();
     renderPresetLibrary();
   }
 
   function deleteCustomPreset() {
-    const preset = userPresets.find(item => item.id === activeCustomPresetId);
+    const preset = activePreset();
     if (!preset || !confirm(`「${preset.name}」を削除しますか？`)) return;
-    userPresets = userPresets.filter(item => item.id !== activeCustomPresetId);
+    if (preset.origin === 'builtin') presetLibraryState.tombstones = [...new Set([...(presetLibraryState.tombstones || []), preset.id])];
+    else userPresets = userPresets.filter(item => item.id !== activeCustomPresetId);
+    libraryUi.favorites = libraryUi.favorites.filter(id => id !== preset.id);
+    libraryUi.recent = libraryUi.recent.filter(id => id !== preset.id);
     activeCustomPresetId = '';
-    presetStorage?.save?.(userPresets);
+    savePresetLibrary();
+    saveLibraryUi();
     renderPresetLibrary();
   }
 
@@ -1298,6 +1402,12 @@
     commit(() => objects.forEach(object => { object.groupId = groupId; }), { source: 'group' });
   }
 
+  function toggleGroupSelection() {
+    const entities = selectionEntities();
+    if (entities.length === 1 && entities[0].some(object => object.groupId)) ungroupSelection();
+    else groupSelection();
+  }
+
   function ungroupSelection() {
     const objects = unlockedSelection().filter(object => object.groupId);
     if (!objects.length) return;
@@ -1329,25 +1439,27 @@
   }
 
   function alignSelection(mode) {
-    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    const entities = selectionEntities();
     if (entities.length < 2) return;
     const boxes = entities.map(boundsFor);
-    const outer = boundsFor(entities.flat());
+    const keyIndex = entities.findIndex(entity => entity.some(object => object.id === keyObjectId));
+    const anchor = keyIndex >= 0 ? boxes[keyIndex] : boundsFor(entities.flat());
     commit(() => entities.forEach((entity, index) => {
+      if (index === keyIndex) return;
       const box = boxes[index];
       let dx = 0; let dy = 0;
-      if (mode === 'left') dx = outer.left - box.left;
-      if (mode === 'center') dx = outer.centerX - box.centerX;
-      if (mode === 'right') dx = outer.right - box.right;
-      if (mode === 'top') dy = outer.top - box.top;
-      if (mode === 'middle') dy = outer.centerY - box.centerY;
-      if (mode === 'bottom') dy = outer.bottom - box.bottom;
+      if (mode === 'left') dx = anchor.left - box.left;
+      if (mode === 'center') dx = anchor.centerX - box.centerX;
+      if (mode === 'right') dx = anchor.right - box.right;
+      if (mode === 'top') dy = anchor.top - box.top;
+      if (mode === 'middle') dy = anchor.centerY - box.centerY;
+      if (mode === 'bottom') dy = anchor.bottom - box.bottom;
       moveObjects(entity.filter(object => !object.locked), dx, dy);
     }), { source: `align-${mode}` });
   }
 
   function distributeSelection(axis) {
-    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    const entities = selectionEntities();
     if (entities.length < 3) return;
     const records = entities.map(entity => ({ entity, box: boundsFor(entity) })).sort((a, b) => axis === 'horizontal' ? a.box.centerX - b.box.centerX : a.box.centerY - b.box.centerY);
     const first = records[0].box;
@@ -1360,15 +1472,29 @@
   }
 
   function centerEquidistance() {
-    const entities = selectionEntities().filter(entity => entity.some(object => !object.locked));
+    const entities = selectionEntities();
     if (entities.length !== 2) return;
-    const first = boundsFor(entities[0]);
-    const second = boundsFor(entities[1]);
-    const distance = Math.min(CENTER_X - first.width / 2, CENTER_X - second.width / 2, Math.max(Math.abs(first.centerX - CENTER_X), Math.abs(second.centerX - CENTER_X)));
-    commit(() => {
-      moveObjects(entities[0].filter(object => !object.locked), CENTER_X - distance - first.centerX, 0);
-      moveObjects(entities[1].filter(object => !object.locked), CENTER_X + distance - second.centerX, 0);
-    }, { source: 'center-equidistance' });
+    const keyIndex = Math.max(0, entities.findIndex(entity => entity.some(object => object.id === keyObjectId || object.id === selected)));
+    const otherIndex = keyIndex === 0 ? 1 : 0;
+    const keyBox = boundsFor(entities[keyIndex]);
+    const otherBox = boundsFor(entities[otherIndex]);
+    const keySide = Math.sign(keyBox.centerX - CENTER_X);
+    const otherSide = Math.sign(otherBox.centerX - CENTER_X);
+    if (!keySide || !otherSide || keySide === otherSide) {
+      showEditorToast('中央線を挟んで左右に1つずつ選択してください');
+      return;
+    }
+    const targetCenter = CENTER_X - (keyBox.centerX - CENTER_X);
+    commit(() => moveObjects(entities[otherIndex].filter(object => !object.locked), targetCenter - otherBox.centerX, 0), { source: 'center-equidistance' });
+  }
+
+  function showEditorToast(message) {
+    $('.editor-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.className = 'editor-toast editor-overlay';
+    toast.textContent = message;
+    $('.stage')?.append(toast);
+    setTimeout(() => toast.remove(), 2400);
   }
 
   function mirrorObjects(objects) {
@@ -1396,10 +1522,16 @@
   function runEditorAction(action) {
     if (action === 'duplicate') duplicateSelection();
     else if (action === 'delete') deleteSelection();
-    else if (action === 'group') groupSelection();
+    else if (action === 'group' || action === 'group-toggle') toggleGroupSelection();
     else if (action === 'ungroup') ungroupSelection();
     else if (action === 'lock') toggleSelectionLock();
     else if (['front', 'forward', 'backward', 'back'].includes(action)) changeLayer(action);
+    else if (action === 'align-menu' || action === 'distribute-menu') {
+      const menu = action === 'align-menu' ? 'align' : 'distribute';
+      openSelectionMenu = openSelectionMenu === menu ? '' : menu;
+      renderStage();
+      return;
+    }
     else if (action.startsWith('align-')) alignSelection(action.slice(6));
     else if (action.startsWith('distribute-')) distributeSelection(action.slice(11));
     else if (action === 'center-equidistance') centerEquidistance();
@@ -1410,6 +1542,7 @@
       try { localStorage.setItem(EDITOR_UI_STORE, JSON.stringify({ magnetEnabled })); } catch (_) {}
       renderStage();
     }
+    if (!action.endsWith('-menu')) openSelectionMenu = '';
     closeContextMenu();
   }
 
@@ -1462,7 +1595,7 @@
       altPending: mode === 'move' && event.altKey,
       altCreated: false,
       clickToggleIds: event.shiftKey && mode === 'move' ? groupIdsFor(object) : null,
-      collapseOnClick: !event.shiftKey && !event.ctrlKey && !event.metaKey && mode === 'move' && selectedIds.size > 1 && !object.groupId ? object.id : null,
+      keyOnClick: !event.shiftKey && !event.ctrlKey && !event.metaKey && mode === 'move' && selectionEntities().length > 1 && selectedIds.has(object.id) ? object.id : null,
     };
     $('.stage').setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -1594,6 +1727,8 @@
     });
     selectedIds = expandSelectionGroups(next);
     selected = [...selectedIds].at(-1) || null;
+    keyObjectId = '';
+    openSelectionMenu = '';
     showHandles = Boolean(selected);
   }
 
@@ -1625,9 +1760,10 @@
       renderStage(); renderInspector({ hydrateSelection: true });
       return;
     }
-    if (!action.moved && action.collapseOnClick) {
+    if (!action.moved && action.keyOnClick) {
       state = sanitise(before);
-      selectOnly(action.collapseOnClick);
+      keyObjectId = action.keyOnClick;
+      selected = action.keyOnClick;
       renderStage(); renderInspector({ hydrateSelection: true });
       return;
     }
@@ -1772,24 +1908,29 @@
     context.translate(object.x + width / 2, object.y + height / 2);
     context.rotate(object.rotation * Math.PI / 180);
     context.scale(scale, scale);
-    const brought = object.category === 'brought';
+    const colors = {
+      unspecified: { fill: '#fff', stroke: '#c9d1d8', text: '#263442' },
+      brought: { fill: '#f9dfe1', stroke: '#c83b45', text: '#6f151a' },
+      venue_borrow: { fill: '#fff', stroke: '#111', text: '#111' },
+      rental: { fill: '#dff4fb', stroke: '#2382b8', text: '#07577f' },
+    }[object.category] || { fill: '#fff', stroke: '#c9d1d8', text: '#263442' };
     const legacyStroke = object.type === 'microphone' ? 3 : 2;
     context.lineWidth = (Number.isFinite(object.strokeWidth) ? object.strokeWidth : legacyStroke) / Math.max(.01, scale);
-    context.strokeStyle = brought ? '#b84b51' : '#111';
-    context.fillStyle = brought ? '#f3cfd2' : '#fff';
+    context.strokeStyle = colors.stroke;
+    context.fillStyle = colors.fill;
     if (object.type === 'circle') { context.beginPath(); context.ellipse(0, 0, width / 2, height / 2, 0, 0, Math.PI * 2); context.fill(); context.stroke(); }
-    else if (object.type === 'line' || object.type === 'arrow') { context.beginPath(); context.moveTo(-width / 2, 0); context.lineTo(width / 2 - (object.type === 'arrow' ? 12 : 0), 0); context.stroke(); if (object.type === 'arrow') { context.fillStyle = '#111'; context.beginPath(); context.moveTo(width / 2, 0); context.lineTo(width / 2 - 14, -7); context.lineTo(width / 2 - 14, 7); context.closePath(); context.fill(); } }
-    else if (object.type === 'microphone') { context.strokeStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
-    else if (object.type === 'monitor') { context.fillStyle = brought ? '#f3cfd2' : '#fff'; context.strokeStyle = brought ? '#d71920' : '#111'; context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); context.fillStyle = brought ? '#d71920' : '#111'; context.beginPath(); context.moveTo(-width / 2 + 3, -height / 2 + 3); context.lineTo(width / 2 - 3, -height / 2 + 3); context.lineTo(0, height / 4); context.closePath(); context.fill(); }
+    else if (object.type === 'line' || object.type === 'arrow') { context.beginPath(); context.moveTo(-width / 2, 0); context.lineTo(width / 2 - (object.type === 'arrow' ? 12 : 0), 0); context.stroke(); if (object.type === 'arrow') { context.fillStyle = colors.stroke; context.beginPath(); context.moveTo(width / 2, 0); context.lineTo(width / 2 - 14, -7); context.lineTo(width / 2 - 14, 7); context.closePath(); context.fill(); } }
+    else if (object.type === 'microphone') { context.strokeStyle = colors.stroke; context.beginPath(); context.moveTo(0, -20); context.lineTo(0, 20); context.stroke(); context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 1, 8, 0, Math.PI * 2); context.fill(); context.stroke(); context.beginPath(); context.moveTo(0, -12); context.lineTo(0, 13); context.stroke(); context.fillStyle = colors.stroke; context.beginPath(); context.moveTo(0, -27); context.lineTo(-7, -18); context.lineTo(7, -18); context.closePath(); context.fill(); }
+    else if (object.type === 'monitor') { context.fillStyle = colors.fill; context.strokeStyle = colors.stroke; context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); context.fillStyle = colors.stroke; context.beginPath(); context.moveTo(-width / 2 + 3, -height / 2 + 3); context.lineTo(width / 2 - 3, -height / 2 + 3); context.lineTo(0, height / 4); context.closePath(); context.fill(); }
     else if (object.type !== 'text') { context.fillRect(-width / 2, -height / 2, width, height); context.strokeRect(-width / 2, -height / 2, width, height); }
     if (object.symbolKind === 'topview-equipment-split') {
       context.beginPath(); context.moveTo(-width / 2 + 4, 0); context.lineTo(width / 2 - 4, 0); context.stroke();
-      context.fillStyle = brought ? '#5f1013' : '#111';
+      context.fillStyle = colors.text;
       context.font = `900 ${object.fontSize}px sans-serif`; context.textAlign = 'center'; context.textBaseline = 'middle';
       context.fillText(object.label, object.labelOffsetX / Math.max(.01, scale), -height / 4 + object.labelOffsetY / Math.max(.01, scale), Math.max(20, width - 6));
       context.fillText(object.splitLabel || '', object.labelOffsetX / Math.max(.01, scale), height / 4 + object.labelOffsetY / Math.max(.01, scale), Math.max(20, width - 6));
     } else if (!['line', 'arrow', 'microphone', 'monitor'].includes(object.type)) {
-      context.fillStyle = brought ? '#5f1013' : '#111';
+      context.fillStyle = colors.text;
       context.font = `900 ${object.fontSize}px sans-serif`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
@@ -1987,16 +2128,18 @@
     });
     $('#equipmentLibraryClose')?.addEventListener('click', () => setFlyoutOpen(false));
     $('#equipmentLibrarySearch')?.addEventListener('input', renderPresetLibrary);
+    $('#presetEditToggle')?.addEventListener('click', () => { presetEditMode = !presetEditMode; renderPresetLibrary(); });
     $('#customPresetSelect')?.addEventListener('change', event => {
       activeCustomPresetId = event.target.value;
       renderPresetLibrary();
     });
     $('#createCustomPreset')?.addEventListener('click', createCustomPreset);
+    $('#renamePreset')?.addEventListener('click', savePresetMetadata);
     $('#updateCustomPreset')?.addEventListener('click', updateCustomPreset);
     $('#deleteCustomPreset')?.addEventListener('click', deleteCustomPreset);
 
     const metadataKeys = ['eventName', 'performerName', 'performanceOrder', 'performanceTime', 'allottedTime', 'eventDate'];
-    $$('.meta-field input').forEach((input, index) => input.addEventListener('change', () => commit(() => state.metadata[metadataKeys[index]] = input.value)));
+    $$('.meta-field input,.meta-field select').forEach((input, index) => input.addEventListener('change', () => commit(() => state.metadata[metadataKeys[index]] = metadataKeys[index] === 'performanceOrder' ? normalizePerformanceOrder(input.value) : input.value)));
     $('.notes textarea')?.addEventListener('change', event => commit(() => state.notes = event.target.value));
     $('.other-request textarea')?.addEventListener('change', event => commit(() => state.otherRequests = event.target.value));
 
@@ -2027,6 +2170,8 @@
       if (favorite) { event.stopPropagation(); toggleFavoritePreset(favorite.dataset.favoritePreset); return; }
       const place = event.target.closest('[data-place-preset]');
       if (place) placePreset(place.dataset.placePreset);
+      const editPreset = event.target.closest('[data-edit-preset]');
+      if (editPreset) { activeCustomPresetId = editPreset.dataset.editPreset; renderPresetLibrary(); }
       const flyout = $('#equipmentLibraryFlyout');
       if (flyout && !flyout.hidden && !flyout.contains(event.target) && !event.target.closest('#equipmentLibraryLauncher')) setFlyoutOpen(false);
       if (event.target.matches('.output-menu,.json-menu')) event.target.classList.remove('open');
@@ -2036,7 +2181,7 @@
       if (event.target.dataset.json === 'load') $('#jsonLoadInput').click();
       if (event.target.classList.contains('mobile-edit-close')) exitMobileEdit();
       const add = event.target.closest('.add-equip,.add-request');
-      if (add) addEquipment(add.classList.contains('add-equip') ? 'brought' : 'requested');
+      if (add) addEquipment(add.dataset.equipmentAdd || (add.classList.contains('add-equip') ? 'brought' : 'unspecified'));
       const remove = event.target.closest('[data-remove-eq]');
       if (remove) commit(() => {
         const rows = state.equipment[remove.dataset.removeEq];
@@ -2125,6 +2270,8 @@
       const object = state.objects.find(item => item.id === node.dataset.id);
       if (!object) return;
       if (event.ctrlKey || event.metaKey || (event.shiftKey && !selectedIds.has(object.id))) {
+        keyObjectId = '';
+        openSelectionMenu = '';
         const ids = groupIdsFor(object);
         const remove = ids.every(id => selectedIds.has(id));
         ids.forEach(id => remove ? selectedIds.delete(id) : selectedIds.add(id));
@@ -2139,6 +2286,8 @@
       const retainSelection = groupIds.every(id => selectedIds.has(id));
       const selectionChanged = !retainSelection;
       if (!retainSelection) {
+        keyObjectId = '';
+        openSelectionMenu = '';
         selectedIds = new Set(groupIds);
         selected = object.id;
         showHandles = true;
@@ -2165,8 +2314,7 @@
     $('#setlistBody').addEventListener('dragstart', event => { draggedSetId = event.target.closest('[data-set-id]')?.dataset.setId || null; });
     $('#setlistBody').addEventListener('dragover', event => event.preventDefault());
     $('#setlistBody').addEventListener('drop', event => { event.preventDefault(); reorderSetlist(draggedSetId, event.target.closest('[data-set-id]')?.dataset.setId); draggedSetId = null; });
-    bindEquipmentReorder($('#carryList'), 'brought');
-    bindEquipmentReorder($('#requestList'), 'requested');
+    EQUIPMENT_KINDS.forEach(kind => bindEquipmentReorder($(`#${EQUIPMENT_LIST_IDS[kind]}`), kind));
   }
 
   function exposeApi() {
@@ -2183,14 +2331,15 @@
       selectedIds: () => [...selectedIds],
       selectIds: ids => {
         selectedIds = expandSelectionGroups(new Set((ids || []).map(String).filter(id => state.objects.some(object => object.id === id))));
-        selected = [...selectedIds].at(-1) || null; showHandles = Boolean(selected); renderStage(); renderInspector({ hydrateSelection: true });
+        selected = [...selectedIds].at(-1) || null; keyObjectId = ''; openSelectionMenu = ''; showHandles = Boolean(selected); renderStage(); renderInspector({ hydrateSelection: true });
       },
+      setKeyObject: id => { if (selectedIds.has(String(id || ''))) { keyObjectId = String(id); selected = keyObjectId; renderStage(); } },
       selectionBounds: () => deep(boundsFor(selectedObjects())),
       runAction: runEditorAction,
       setGeometry: setSelectedGeometry,
       setField: setObjectField,
       gridAuthority: () => ({ spacing: GRID_SPACING, originX: GRID_ORIGIN_X, originY: GRID_ORIGIN_Y, centerX: CENTER_X, threshold: SNAP_THRESHOLD }),
-      editorUi: () => ({ magnetEnabled, contextMenuOpen, clipboardSize: stageClipboard.length, historyCount: undoStack.length }),
+      editorUi: () => ({ magnetEnabled, contextMenuOpen, clipboardSize: stageClipboard.length, historyCount: undoStack.length, keyObjectId, openSelectionMenu, presetEditMode }),
       audioPlayback: () => audioPlayer ? { paused: audioPlayer.paused, currentTime: audioPlayer.currentTime, src: audioPlayer.currentSrc, started: audioPlaybackStarted } : null,
       enterMobileEdit,
       exitMobileEdit,

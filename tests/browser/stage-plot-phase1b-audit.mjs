@@ -131,7 +131,7 @@ const desktop = await page.evaluate(() => ({
 await page.evaluate(() => {
   const next = window.StagePlotEditor.snapshot();
   next.equipment.brought = Array.from({ length: 11 }, (_, index) => ({ id: `b-${index}`, name: `持込機材${index + 1}`, qty: '1', detail: '' }));
-  next.equipment.requested = Array.from({ length: 11 }, (_, index) => ({ id: `r-${index}`, name: `借用機材${index + 1}`, qty: '1', detail: '' }));
+  next.equipment.venue_borrow = Array.from({ length: 11 }, (_, index) => ({ id: `r-${index}`, name: `会場借用機材${index + 1}`, qty: '1', detail: '' }));
   next.setlist = Array.from({ length: 34 }, (_, index) => ({
     id: `set-${index}`, setlistRowId: `set-${index}`, type: index % 3 === 0 ? 'SE' : '曲',
     title: `進行 ${index + 1}`, duration: '1:00', audioRef: index % 2 ? 'song.wav' : '音源なし',
@@ -154,7 +154,7 @@ await page.evaluate(() => {
   document.body.classList.add('print-setlist-only');
   const next = window.StagePlotEditor.snapshot();
   next.equipment.brought = next.equipment.brought.slice(0, 2);
-  next.equipment.requested = next.equipment.requested.slice(0, 2);
+  next.equipment.venue_borrow = next.equipment.venue_borrow.slice(0, 2);
   window.StagePlotEditor.loadSnapshot(next, { source: 'audit-print' });
 });
 await page.waitForTimeout(100);
