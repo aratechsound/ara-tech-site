@@ -1102,6 +1102,14 @@ body.stage-plot-preview-mode .engine-object.key-object::before,
 body.stage-plot-preview-mode .stage-context-menu,
 body.stage-plot-preview-mode .panel.left .tool::after { display: none !important; }
 
+/* Portal read-only preview keeps equipment labels readable while editor controls stay absent. */
+body.stage-plot-preview-mode .carry.adaptive-equipment .equip-row,
+body.stage-plot-preview-mode .carry.adaptive-equipment .request-row { grid-template-columns: minmax(0,1fr) 34px !important; }
+body.stage-plot-preview-mode .carry.adaptive-equipment .equipment-dragcell,
+body.stage-plot-preview-mode .carry.adaptive-equipment .remove-equip { display: none !important; }
+body.stage-plot-preview-mode .carry.adaptive-equipment .equip-row input:not(.qty),
+body.stage-plot-preview-mode .carry.adaptive-equipment .request-row input:not(.qty) { min-width: 0; padding-left: 5px; padding-right: 3px; font-size: 9px; text-overflow: clip; }
+
 @media print {
   .selection-lock-indicator, .editor-toast, .engine-object.key-object::before { display: none !important; }
   .engine-object.has-custom-stroke > .rect, .engine-object.has-custom-stroke > .circle, .engine-object.has-custom-stroke > .power-mark { box-shadow: inset 0 0 0 var(--object-stroke-width) var(--object-stroke) !important; }

@@ -32,6 +32,7 @@ let issuedShareUrl = "";
 let stagePlotObserver = null;
 let stagePlotRefreshPromise = null;
 let stagePlotEventDate = "";
+let stagePlotAssignments = new Map();
 const stagePlotPreviewCache = new Map();
 const organizerMode = /^\/event-portal\/?$/u.test(location.pathname);
 if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); document.querySelector("#stage-plot-admin-area")?.remove(); }
@@ -439,39 +440,69 @@ const samplePerformer = (index, name, description) => {
     card.append(order, thumb, info);
     return card;
 };
-const renderPerformers = (documents) => {
+const renderPerformers = (cards, assignments = stagePlotAssignments) => {
     const target = $("#performer-content");
     target.replaceChildren();
-    if (documents.length) {
-        $("#performer-note").textContent = "登録済みの出演者資料を出演順に表示しています。";
-        documents.sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).forEach((item, index) => {
-            const card = document.createElement("button");
-            card.type = "button";
-            card.className = "performer-item";
+    const previews = [];
+    if (cards.length) {
+        $("#performer-note").textContent = "出演者ごとに提出資料とステージプロットをまとめています。";
+        cards.map(performerDescriptor).sort((a, b) => a.order - b.order || a.index - b.index).forEach((performer) => {
+            const card = document.createElement("article");
+            card.className = "performer-item performer-item--integrated";
+            card.dataset.performerId = performer.id;
             const order = document.createElement("span");
             order.className = "performer-order";
-            order.textContent = index + 1;
-            const thumb = document.createElement("div");
-            thumb.className = "performer-thumb";
-            thumb.append(makeHistoryThumbnail(item));
+            order.textContent = performer.order;
             const info = document.createElement("div");
             info.className = "performer-info";
             const heading = document.createElement("h3");
-            heading.textContent = item.filename;
+            heading.textContent = performer.name;
             const copy = document.createElement("p");
-            copy.textContent = `${sourceLabel(item)} ／ クリックで資料を確認`;
+            copy.textContent = performer.documents.length ? `提出資料 ${performer.documents.length}件` : "提出資料は未登録";
             info.append(heading, copy);
-            card.append(order, thumb, info);
-            card.addEventListener("click", () => showPreview(item));
+            const documents = document.createElement("div");
+            documents.className = "performer-documents";
+            performer.documents.forEach((item) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "performer-document";
+                const thumb = document.createElement("span");
+                thumb.className = "performer-thumb";
+                thumb.append(makeHistoryThumbnail(item));
+                const label = document.createElement("span");
+                label.className = "performer-document__label";
+                label.textContent = item.filename;
+                button.append(thumb, label);
+                button.addEventListener("click", () => showPreview(item));
+                documents.append(button);
+            });
+            const plotArea = document.createElement("div");
+            plotArea.className = "performer-stage-plots";
+            const plots = assignments.get(performer.id) || [];
+            if (plots.length) {
+                plots.forEach((plot) => {
+                    const { card: plotCard, preview } = makeStagePlotCard(plot, { nested: true });
+                    plotArea.append(plotCard);
+                    previews.push({ plot, preview });
+                });
+            } else {
+                const create = document.createElement("a");
+                create.className = "stage-plot-action stage-plot-action--primary performer-stage-plot-create";
+                create.href = stagePlotUrls("", performer).create;
+                create.textContent = "＋ ステージプロットを作成";
+                plotArea.append(create);
+            }
+            card.append(order, info, documents, plotArea);
             target.append(card);
         });
-        return;
+        return previews;
     }
     target.append(
         samplePerformer(1, "○○BAND", "ステージプロット / AC100V ×1 / 音源なし"),
         samplePerformer(2, "△△ Dance Team", "再生音源あり / 16名 / 電源不要"),
         samplePerformer(3, "□□神楽団", "マイク希望あり / 12名 / 電源要確認")
     );
+    return previews;
 };
 const portalRequest = async (action, extra = {}) => {
     const endpoint = organizerMode ? "/api/event-portal" : "/api/pa-portal";
@@ -485,6 +516,22 @@ const stagePlotOrderNumber = (value) => {
     const match = String(value || "").match(/\d+/u);
     return match ? Number(match[0]) : null;
 };
+const normalizedPerformerName = (value) => String(value || "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("ja-JP");
+const performerDescriptor = (card, index) => {
+    const versions = Array.isArray(card.versions) ? card.versions.map((version) => asDocument(version, card)) : [];
+    const explicitOrder = stagePlotOrderNumber(card.performer_order ?? card.performance_order ?? card.slot_order ?? card.order);
+    return {
+        id: String(card.performer_id || card.submission_id || card.slot_id || card.id || card.ref || `performer-${index + 1}`),
+        name: text(card.performer_name || card.artist_name || card.title, "出演者名未設定"),
+        order: explicitOrder || index + 1,
+        index,
+        documents: versions,
+    };
+};
+const stagePlotStableId = (plot, state = null) => String(
+    plot.performer_id || plot.performerId || plot.submission_id || plot.submissionId || plot.slot_id || plot.slotId
+    || state?.metadata?.performerId || state?.metadata?.submissionId || state?.metadata?.slotId || ""
+).trim();
 const sortStagePlots = (plots) => plots.map((plot, index) => ({ plot, index })).sort((a, b) => {
     const left = stagePlotOrderNumber(a.plot.performer_order);
     const right = stagePlotOrderNumber(b.plot.performer_order);
@@ -493,9 +540,14 @@ const sortStagePlots = (plots) => plots.map((plot, index) => ({ plot, index })).
     if (left !== null && right !== null && left !== right) return left - right;
     return a.index - b.index;
 }).map(({ plot }) => plot);
-const stagePlotUrls = (plotId = "") => {
+const stagePlotUrls = (plotId = "", performer = null) => {
     const query = new URLSearchParams({ caseId });
     if (plotId) query.set("plotId", plotId);
+    if (!plotId && performer?.id) {
+        query.set("performerId", performer.id);
+        query.set("performerName", performer.name || "");
+        query.set("performerOrder", String(performer.order || ""));
+    }
     const editor = `/pa-stage-plot-editor.html?${query}`;
     return {
         create: editor,
@@ -513,7 +565,8 @@ const stagePlotDuration = (plot) => {
 const stagePlotState = (plot) => {
     const plotId = String(plot.id || "");
     if (!stagePlotPreviewCache.has(plotId)) {
-        const request = portalRequest("stage_plot_get", { stage_plot_id: plotId }).then((record) => {
+        const source = plot.state ? Promise.resolve(plot) : portalRequest("stage_plot_get", { stage_plot_id: plotId });
+        const request = source.then((record) => {
             if (!record || record.id !== plotId || record.case_id !== caseId || !record.state) throw new Error("stage_plot_case_mismatch");
             const state = typeof structuredClone === "function" ? structuredClone(record.state) : JSON.parse(JSON.stringify(record.state));
             state.metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
@@ -523,6 +576,30 @@ const stagePlotState = (plot) => {
         stagePlotPreviewCache.set(plotId, request);
     }
     return stagePlotPreviewCache.get(plotId);
+};
+const assignStagePlots = async (plots, performerCards) => {
+    const performers = performerCards.map(performerDescriptor);
+    const assignments = new Map(performers.map((performer) => [performer.id, []]));
+    const byStableId = new Map(performers.map((performer) => [performer.id, performer]));
+    const unassigned = [];
+    for (const plot of plots) {
+        let state = plot.state || null;
+        let stableId = stagePlotStableId(plot, state);
+        if (!stableId && performers.length) {
+            try { state = await stagePlotState(plot); stableId = stagePlotStableId(plot, state); }
+            catch { state = null; }
+        }
+        let match = stableId ? byStableId.get(stableId) : null;
+        if (!stableId) {
+            const name = normalizedPerformerName(plot.performer_name || state?.metadata?.performerName);
+            const order = stagePlotOrderNumber(plot.performer_order || state?.metadata?.performanceOrder);
+            const exact = name && order !== null ? performers.filter((performer) => normalizedPerformerName(performer.name) === name && performer.order === order) : [];
+            if (exact.length === 1) match = exact[0];
+        }
+        if (match) assignments.get(match.id).push(plot);
+        else unassigned.push(plot);
+    }
+    return { assignments, unassigned };
 };
 const previewFallback = (host, message = "プレビューを表示できません") => {
     host.querySelector("iframe")?.remove();
@@ -590,9 +667,9 @@ const showStagePlotLarge = async (plot) => {
         if (requestId === previewRequest) previewFallback(body);
     }
 };
-const makeStagePlotCard = (plot) => {
+const makeStagePlotCard = (plot, { nested = false } = {}) => {
     const card = document.createElement("article");
-    card.className = "stage-plot-card";
+    card.className = `stage-plot-card${nested ? " stage-plot-card--nested" : ""}`;
     card.dataset.plotId = plot.id;
     const preview = document.createElement("button");
     preview.type = "button";
@@ -653,12 +730,21 @@ const makeStagePlotCard = (plot) => {
     card.append(preview, body);
     return { card, preview };
 };
-const renderStagePlots = (plots) => {
+const renderStagePlots = async (plots) => {
     const target = $("#stage-plot-content");
+    const area = $("#stage-plot-admin-area");
+    const performerCards = (Array.isArray(portalModel?.cards) ? portalModel.cards : []).filter((card) => card.category === "performer");
     stagePlotObserver?.disconnect();
     stagePlotObserver = null;
     target.replaceChildren();
-    if (!plots.length) {
+    const resolved = performerCards.length ? await assignStagePlots(plots, performerCards) : { assignments: new Map(), unassigned: plots };
+    stagePlotAssignments = resolved.assignments;
+    const previews = renderPerformers(performerCards, stagePlotAssignments);
+    const independentPlots = resolved.unassigned;
+    area.hidden = performerCards.length > 0 && independentPlots.length === 0;
+    $("#stage-plot-title").textContent = performerCards.length ? "未割当Stage Plot" : "ステージプロット";
+    area.querySelector(".stage-plot-subarea__head p").textContent = performerCards.length ? "出演者へ安全に紐付けできない既存Plotを保持しています。" : "保存済みStage Plotを出演順に表示します。";
+    if (!plots.length && !performerCards.length) {
         const empty = document.createElement("div");
         empty.className = "stage-plot-empty";
         const heading = document.createElement("strong");
@@ -673,8 +759,7 @@ const renderStagePlots = (plots) => {
         target.append(empty);
         return;
     }
-    const previews = [];
-    sortStagePlots(plots).forEach((plot) => {
+    sortStagePlots(independentPlots).forEach((plot) => {
         const { card, preview } = makeStagePlotCard(plot);
         previews.push({ plot, preview });
         target.append(card);
@@ -715,7 +800,7 @@ const refreshStagePlots = async () => {
         stagePlotPreviewCache.clear();
         try {
             const plots = await portalRequest("stage_plot_list");
-            renderStagePlots(Array.isArray(plots) ? plots : []);
+            await renderStagePlots(Array.isArray(plots) ? plots : []);
             return plots;
         } catch {
             renderStagePlotListFailure();
@@ -872,7 +957,7 @@ const renderPortalDocuments = () => {
     renderVersioned($("#script-content"), versions("script"), { fixed: true, multiple: false, empty: { title: "台本", message: "進行台本が登録されると、ここに最新版が表示されます。", icon: "📘", fixed: true, cardId: fixed("script")?.id || fixed("script")?.ref, canEdit: fixed("script")?.can_edit !== false } });
     renderVersioned($("#layout-content"), versions("layout"), { collection: true, multiple: true, empty: { title: "会場図・配置図", message: "資料カードが追加されると、ここにプレビューと履歴が表示されます。", icon: "📐", collection: true } });
     renderPhotos((portalModel?.photos || []).map(asPhoto));
-    renderPerformers(versions("performer"));
+    renderPerformers(cards.filter((card) => card.category === "performer"));
     renderVersioned($("#other-content"), versions("other"), { collection: true, multiple: true, empty: { title: "その他の共通資料", message: "運営資料や注意事項などが登録されると、ここに表示されます。", icon: "📄", collection: true } });
 };
 const populate = async (item, progress) => {
