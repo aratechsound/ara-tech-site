@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WORKS_BUCKET, isSupabaseConfigured } from './supabase-config.js';
 import { getServiceTypeLabels, normalizeServiceTypes } from './work-taxonomy.mjs';
 import { filterForEventType, filterForServiceType, filterFromSearch, filterHref, workMatchesFilter } from './work-filters.mjs';
+import { compareUpcomingWorks } from './work-sort.mjs?v=ara-20260913-001';
 
 const grid = document.querySelector('#latest-works');
 const emptyState = document.querySelector('#latest-empty');
@@ -305,13 +306,7 @@ if (grid && emptyState && isSupabaseConfigured) {
         if (missingOptionalColumn) ({ data, error } = await queryWorks(legacyFields));
         if (error || !data?.length) return;
         const { upcoming: upcomingPosts, completed: completedPosts } = partitionWorksByLifecycle(data);
-        upcomingPosts.sort((left, right) => {
-            const dateOrder = String(left.event_date || '').localeCompare(String(right.event_date || ''));
-            if (dateOrder) return dateOrder;
-            const timeOrder = String(left.open_time || left.start_time || '99:99').localeCompare(String(right.open_time || right.start_time || '99:99'));
-            if (timeOrder) return timeOrder;
-            return Number(left.id || 0) - Number(right.id || 0);
-        });
+        upcomingPosts.sort(compareUpcomingWorks);
         renderFilterStatus();
         renderUpcomingWorks(upcomingPosts.filter((post) => workMatchesFilter(post, activeFilter)));
         renderYearTabs(completedPosts.filter((post) => workMatchesFilter(post, activeFilter)));
