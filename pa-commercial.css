@@ -59,9 +59,13 @@
 .pa-estimate-history summary { color: var(--pa-v5-blue); cursor: pointer; font-weight: 800; }
 .pa-estimate-history__item { display: grid; gap: 4px; padding-top: 7px; }
 .pa-estimate-history__item + .pa-estimate-history__item { border-top: 1px solid var(--pa-v5-line); margin-top: 7px; }
-.pa-commercial__legacy-contract { border-top: 1px solid var(--pa-v5-line); margin-top: 10px; padding-top: 10px; }
+.pa-commercial__legacy-contract { border-top: 1px solid var(--pa-v5-line); margin-top: 5px; padding-top: 6px; }
 .pa-commercial__legacy-contract > h3 { display: none; }
 .pa-commercial__legacy-contract .action-panel { padding: 8px; }
+.pa-commercial__legacy-contract .pa-contract-history-latest { background: transparent; border: 0; box-shadow: none; padding: 0; }
+.pa-commercial-card--contract #formal-contract-panel .pa-contract-history-latest { margin-top: 0; }
+.pa-commercial__legacy-contract .pa-contract-history-latest p { margin: 0; }
+.pa-commercial__legacy-contract [data-c="message"]:empty { display: none; }
 .pa-contract-history-toggle { margin-top: 7px; width: 100%; }
 .pa-contract-history-older { display: grid; gap: 7px; margin-top: 7px; }
 .pa-contract-history-older[hidden] { display: none; }
@@ -71,11 +75,21 @@
 .pa-commercial__file-strip { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-inline: contain; padding: 1px 14px 6px 1px; scroll-snap-type: x proximity; }
 .pa-commercial-file { background: #fff; border: 1px solid var(--pa-v5-line); border-radius: 9px; flex: 0 0 156px; min-width: 0; overflow: hidden; scroll-snap-align: start; }
 .pa-commercial-file__preview { align-items: center; background: var(--pa-v5-soft); border-bottom: 1px solid var(--pa-v5-line); display: flex; height: 86px; justify-content: center; overflow: hidden; }
-.pa-commercial-file__preview iframe, .pa-commercial-file__preview img { border: 0; height: 100%; object-fit: cover; pointer-events: none; width: 100%; }
-.pa-commercial-file__fallback { color: var(--muted); font-size: .75rem; font-weight: 800; }
+.pa-commercial-file__preview canvas { display: block; max-height: 100%; max-width: 100%; pointer-events: none; }
+.pa-commercial-file__fallback { color: var(--muted); font-size: .7rem; font-weight: 800; padding: 4px; text-align: center; }
+.pa-commercial-file__file-icon { align-items: center; background: #fff; border: 1px solid var(--pa-v5-line); border-radius: 5px; color: var(--muted); display: flex; font-size: .62rem; font-weight: 900; height: 34px; justify-content: center; width: 29px; }
 .pa-commercial-file__meta { display: grid; gap: 2px; padding: 7px; }
 .pa-commercial-file__meta strong { font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pa-commercial-file__meta span { color: var(--muted); font-size: .7rem; }
+.pa-material-preview-dialog { border: 0; border-radius: 12px; box-shadow: 0 20px 65px rgba(15, 25, 40, .3); height: min(90vh, 940px); max-width: 1180px; padding: 0; width: min(94vw, 1180px); }
+.pa-material-preview-dialog::backdrop { background: rgba(16, 25, 38, .56); }
+.pa-material-preview-dialog__head { align-items: center; background: #fff; border-bottom: 1px solid var(--pa-v5-line); display: flex; gap: 12px; justify-content: space-between; padding: 10px 14px; position: sticky; top: 0; z-index: 1; }
+.pa-material-preview-dialog__head h3 { font-size: .95rem; margin: 0; overflow-wrap: anywhere; }
+.pa-material-preview-dialog__body { align-items: center; background: var(--pa-v5-soft); display: flex; justify-content: center; min-height: 250px; overflow: auto; padding: 16px; }
+.pa-material-preview-dialog__pages { display: grid; gap: 16px; justify-items: center; width: 100%; }
+.pa-material-preview-dialog__pages canvas, .pa-material-preview-dialog__body > canvas { background: #fff; box-shadow: 0 2px 12px rgba(25, 40, 60, .12); max-width: 100%; }
+.pa-material-preview-dialog__loading, .pa-material-preview-dialog__error { color: var(--muted); font-weight: 800; text-align: center; }
+.pa-material-preview-dialog__error { color: var(--pa-v5-red); }
 .pa-commercial__next { border-left: 3px solid var(--pa-v5-blue); padding-left: 9px; }
 .pa-commercial__warning { background: #fff8e6; border: 1px solid #ead9a7; border-radius: 8px; color: #6f510c; padding: 8px; }
 .pa-commercial__error { background: #fff1f1; border: 1px solid #ecc3c3; border-radius: 8px; color: #8f2e2e; padding: 8px; }

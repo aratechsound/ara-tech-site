@@ -5,6 +5,10 @@
   },
   "rewrites": [
     {
+      "source": "/pdfjs/pdf.min.mjs",
+      "destination": "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs"
+    },
+    {
       "source": "/pdfjs/pdf.worker.min.mjs",
       "destination": "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs"
     },

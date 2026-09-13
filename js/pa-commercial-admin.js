@@ -1,10 +1,11 @@
+import { createMaterialPreview } from "./pa-material-preview.js";
+
 let activeCaseId = null;
 let refreshEpoch = 0;
 let activeCommercialDraftContext = null;
 let activeEstimateEntry = null;
 let activeEstimateActionStatus = null;
 let estimateEntryOpening = false;
-const previewUrls = new Map();
 
 const byId = (id) => document.getElementById(id);
 const element = (tag, className, text) => {
@@ -373,13 +374,13 @@ const materialBlob = async (context, item) => {
     if (!response.ok) throw Error("material_unavailable");
     return response.blob();
 };
-const renderDocument = async (context, item, root, currentEpoch) => {
+const renderDocument = (context, item, root, currentEpoch) => {
     const card = element("button", "pa-commercial-file");
     card.type = "button";
     const filename = item.original_filename || item.display_title || "関連資料";
     card.title = `${filename}を開く`;
     const preview = element("span", "pa-commercial-file__preview");
-    preview.append(element("span", "pa-commercial-file__fallback", item.mime_type === "application/pdf" ? "PDFを読込中" : "資料"));
+    preview.append(element("span", "pa-commercial-file__fallback", item.mime_type === "application/pdf" ? "PDFを準備中" : "資料を準備中"));
     const meta = element("span", "pa-commercial-file__meta");
     const category = { estimate: "見積", invoice: "請求", timetable: "タイムテーブル", layout: "配置図", photo: "写真", performer: "出演資料", supporting: "参考資料", other: "関連資料" }[item.category || item.document_kind] || "関連資料";
     const source = { commercial: "案件原本", portal: "PAポータル", gmail: "顧客コミュニケーション" }[item.source_type] || "案件原本";
@@ -387,31 +388,11 @@ const renderDocument = async (context, item, root, currentEpoch) => {
     meta.append(element("strong", "", item.display_title || filename), element("span", "", `${category}・${source}・${state}`));
     card.append(preview, meta);
     root.append(card);
-    try {
-        const blob = await materialBlob(context, item);
-        if (currentEpoch !== refreshEpoch || activeCaseId !== (item.case_id || item.inquiry_id)) return;
-        const materialId = item.material_id || item.id;
-        const prior = previewUrls.get(materialId);
-        if (prior) URL.revokeObjectURL(prior);
-        const url = URL.createObjectURL(blob);
-        previewUrls.set(materialId, url);
-        preview.replaceChildren();
-        if (item.mime_type.startsWith("image/")) {
-            const image = document.createElement("img");
-            image.src = url;
-            image.alt = "";
-            preview.append(image);
-        } else if (item.mime_type === "application/pdf") {
-            const frame = document.createElement("iframe");
-            frame.src = `${url}#page=1&view=FitH&toolbar=0&navpanes=0`;
-            frame.title = `${filename}の先頭ページ`;
-            frame.setAttribute("sandbox", "");
-            preview.append(frame);
-        } else preview.append(element("span", "pa-commercial-file__fallback", "ダウンロードして確認"));
-        card.addEventListener("click", () => window.open(url, "_blank", "noopener,noreferrer"));
-    } catch {
-        preview.replaceChildren(element("span", "pa-commercial-file__fallback", "プレビュー未取得"));
-    }
+    createMaterialPreview({
+        item, filename, previewRoot: preview, card, strip: root,
+        getBlob: () => materialBlob(context, item),
+        isCurrent: () => currentEpoch === refreshEpoch && activeCaseId === (item.case_id || item.inquiry_id) && card.isConnected
+    });
 };
 
 const render = async (context, data, epoch) => {
@@ -597,9 +578,10 @@ const render = async (context, data, epoch) => {
 
     const contractRoot = byId("pa-contract-v5-summary");
     contractRoot.replaceChildren();
-    const status = accepted ? "成立" : active ? "回答待ち" : "未発行";
-    contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${accepted ? "ok" : "wait"}`, status));
+    const status = accepted ? "成立済み" : active ? "回答待ち" : "未発行";
+    contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${accepted ? "ok" : "wait"}`, `現在：${status}`));
     appendLine(contractRoot, "対象", accepted ? `見積 第${accepted.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${accepted.version}` : active ? `見積 第${active.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${active.version}` : current ? `見積 第${current.revision_number}版` : "見積なし");
+    if (accepted) appendLine(contractRoot, "成立", dateTime(accepted.confirmed_at));
     if (active) {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
@@ -619,7 +601,6 @@ const render = async (context, data, epoch) => {
         contractRoot.append(actions);
     }
     if (!active && !accepted && current) {
-        contractRoot.append(element("p", "pa-commercial__label", "案内作成中はtokenを作らず、最終の発行・送信操作でだけ固定します。"));
         contractRoot.append(button("正式受注確認を送る", () => context.openComposer("confirmation"), "button button--small"));
     }
     if (accepted) {

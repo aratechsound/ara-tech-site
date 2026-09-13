@@ -13,7 +13,7 @@ const root = path.resolve(__dirname, '..');
 const port = Number(process.env.PA_EST_004_REAL_PORT || 8766);
 const staticFiles = new Set([
   'admin-navigation.css', 'pa-admin.css', 'pa-commercial.css',
-  'js/pa-est-004-real-admin-preview.js', 'js/pa-commercial-admin.js',
+  'js/pa-est-004-real-admin-preview.js', 'js/pa-commercial-admin.js', 'js/pa-material-preview.js',
   'img/favicon.ico', 'img/ARA-TECH ロゴ横 白.png'
 ]);
 process.env.PA_COMMERCIAL_OUTBOX_KEY = '44'.repeat(32);
@@ -23,6 +23,8 @@ let service;
 let handler;
 let scenario = 'pending';
 let mailMode = 'success';
+const allowedPortalAssets = new Set();
+const allowedGmailAssets = new Set();
 
 const rpc = async (db, name, args) => (await db.query(
   `select public.${name}(${Object.keys(args).map((key, index) => `${key} => $${index + 1}`).join(',')}) result`, Object.values(args)
@@ -70,6 +72,13 @@ async function initialize(nextScenario = 'pending') {
       open_capability: index < 5 ? { kind: 'portal_asset', asset_kind: index % 4 === 0 ? 'photo' : 'version', asset_id: crypto.randomUUID() }
         : { kind: 'gmail_attachment', gmail_message_id: 'direct_sent_001', gmail_attachment_id: `fixture-${index + 1}` }
     }));
+    allowedPortalAssets.clear();
+    allowedGmailAssets.clear();
+    for (const item of extras) {
+      const capability = item.open_capability;
+      if (capability.kind === 'portal_asset') allowedPortalAssets.add(`${capability.asset_kind}:${capability.asset_id}`);
+      if (capability.kind === 'gmail_attachment') allowedGmailAssets.add(`${capability.gmail_message_id}:${capability.gmail_attachment_id}`);
+    }
     return { ...data, related_materials: [...commercial, ...extras].slice(0, 20) };
   };
   handler = createHandler({ service, admin: async token => {
@@ -118,7 +127,7 @@ async function initialize(nextScenario = 'pending') {
       }
     }
   }
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAQWZVJ8AAAAASUVORK5CYII=', 'base64');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
   await fixture.db.query("insert into public.pa_commercial_documents(id,inquiry_id,document_kind,source_kind,original_filename,mime_type,content,sha256,metadata,created_by) values($1,$2,'supporting','private_upload','会場配置-fixture.png','image/png',$3,$4,$5,$6)", [crypto.randomUUID(), fixture.inquiryId, png, sha(png), { local_fixture: true }, fixture.actorId]);
   scenario = nextScenario;
 }
@@ -148,6 +157,13 @@ function previewHtml() {
 
 async function route(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
+  if (url.pathname === '/pdfjs/pdf.min.mjs' || url.pathname === '/pdfjs/pdf.worker.min.mjs') {
+    const filename = url.pathname.endsWith('worker.min.mjs') ? 'pdf.worker.min.mjs' : 'pdf.min.mjs';
+    const target = path.join(root, 'node_modules', 'pdfjs-dist', 'build', filename);
+    if (!fs.existsSync(target)) { response.statusCode = 404; return response.end('Not Found'); }
+    response.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+    return fs.createReadStream(target).pipe(response);
+  }
   if (url.pathname === '/api/pa-mail' && url.searchParams.get('surface') === 'commercial') {
     let body = {};
     try { body = JSON.parse(await readBody(request)); } catch { body = {}; }
@@ -156,9 +172,15 @@ async function route(request, response) {
   }
   if (['/api/pa-portal', '/api/pa-gmail'].includes(url.pathname) && request.method === 'POST') {
     const input = JSON.parse(await readBody(request));
+    if (request.headers.authorization !== 'Bearer fixture-admin') { response.statusCode = 401; return response.end('not_authorized'); }
     if (input.inquiry_id !== fixture.inquiryId || !['download', 'attachment_download'].includes(input.action)) { response.statusCode = 400; return response.end('invalid'); }
+    const allowed = url.pathname === '/api/pa-portal'
+      ? allowedPortalAssets.has(`${input.asset_kind}:${input.asset_id}`)
+      : allowedGmailAssets.has(`${input.gmail_message_id}:${input.gmail_attachment_id}`);
+    if (!allowed) { response.statusCode = 400; return response.end('asset_case_mismatch'); }
+    if (String(input.gmail_attachment_id || '') === 'fixture-18') { response.statusCode = 503; return response.end('fixture unavailable'); }
     const image = url.pathname === '/api/pa-portal' && input.asset_kind === 'photo' || String(input.gmail_attachment_id || '').match(/fixture-(?:1|5|9|13|17)$/u);
-    const bytes = image ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAQWZVJ8AAAAASUVORK5CYII=', 'base64') : fixture.quote;
+    const bytes = image ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') : fixture.quote;
     response.setHeader('Content-Type', image ? 'image/png' : 'application/pdf'); return response.end(bytes);
   }
   if (url.pathname === '/__fixture/scenario' && request.method === 'POST') {

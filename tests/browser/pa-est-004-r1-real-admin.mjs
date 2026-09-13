@@ -37,11 +37,12 @@ assert.equal(await page.locator('#gmail-reply-body').inputValue(), '実管理画
 await page.locator('#preview-gmail-reply').click();
 await page.locator('#gmail-reply-preview:not(.hidden)').waitFor();
 assert.equal(await page.locator('#gmail-reply-preview-cc').textContent(), 'venue@example.invalid');
-await page.locator('.pa-commercial-file img').first().waitFor();
-assert.equal(await page.locator('.pa-commercial-file img').first().evaluate(image => image.naturalWidth > 0), true, 'real raster fixture rendered');
-const popupPromise = page.waitForEvent('popup');
+await page.locator('.pa-commercial-file canvas').first().waitFor();
+assert.equal(await page.locator('.pa-commercial-file canvas').first().evaluate(canvas => canvas.width > 0), true, 'real raster fixture rendered');
 await page.locator('.pa-commercial-file').first().click();
-const popup = await popupPromise; await popup.close();
+const materialDialog = page.locator('#pa-material-preview-dialog[open]');
+await materialDialog.locator('canvas').waitFor();
+await materialDialog.getByRole('button', { name: '閉じる' }).click();
 
 await page.getByRole('button', { name: '同じ確認を再案内' }).click();
 await page.waitForTimeout(300);

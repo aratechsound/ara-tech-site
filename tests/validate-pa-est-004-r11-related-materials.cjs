@@ -22,6 +22,14 @@ assert.equal(result.filter((item) => item.original_filename === '会場図.pdf')
 assert.equal(result.some((item) => /signature/iu.test(item.original_filename)), false);
 assert.equal(businessAttachment({ filename: 'inline-logo.png', mime_type: 'image/png', inline: true }), false);
 
+const variantDocuments = [{ ...documents[0], gmail_attachment_id: 'historical-a1' }];
+const variantMessages = [{ ...gmailMessages[0], attachment_metadata: [{ id: 'current-a1', part_id: '1', filename: '見積書.pdf', mime_type: 'application/pdf' }] }];
+const variant = buildRelatedMaterials({ caseId, state: {}, estimates: [], documents: variantDocuments, gmailMessages: variantMessages });
+assert.equal(variant.length, 1, 'a recovered commercial document suppresses the current Gmail attachment-id variant from the same message');
+
+const differentMessage = buildRelatedMaterials({ caseId, state: {}, estimates: [], documents: variantDocuments, gmailMessages: [...variantMessages, { ...variantMessages[0], gmail_message_id: 'm-other' }] });
+assert.equal(differentMessage.length, 2, 'same filename in a different Gmail message remains a distinct material');
+
 const source = fs.readFileSync(path.join(__dirname, '..', 'api', '_pa-commercial.cjs'), 'utf8');
 assert.match(source, /pa_portal_document_cards[^\n]+portal_id:\s*'eq\.'\s*\+\s*portal\.id/u);
 assert.match(source, /pa_portal_photo_items[^\n]+portal_id:\s*'eq\.'\s*\+\s*portal\.id/u);

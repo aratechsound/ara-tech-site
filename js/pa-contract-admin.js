@@ -61,8 +61,8 @@ export function renderContractPanel(context){
   $('history').replaceChildren();
   const older=document.createElement('div');older.className='pa-contract-history-older';older.hidden=true;
   for(const [historyIndex,h] of data.history.entries()){
-   const card=document.createElement('div');card.className='action-panel';
-   const p=document.createElement('p');p.textContent=`v${h.version} / ${{active:'回答待ち',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
+   const card=document.createElement('div');card.className=`action-panel ${historyIndex===0?'pa-contract-history-latest':''}`;
+   const p=document.createElement('p');p.textContent=`${historyIndex===0?'直近：':''}v${h.version} / ${{active:'回答待ち',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
    if(h.state==='accepted'){
     card.append(button(h.receipt?'契約控えPDFをダウンロード':'契約控えPDFを生成',async()=>{download(await api('receipt',{contract_id:h.id},true),`契約控え-v${h.version}.pdf`);await refresh();}));
     card.append(button('控え送信・再送のプレビュー',async()=>{clearMail();const revision=mailEpoch,preview=await api('mail_preview',{contract_id:h.id});if(!valid()||revision!==mailEpoch)return;if(!preview.html)throw Error('preview_unavailable');mailPreview={id:h.id,preview,attempt:crypto.randomUUID()};mailMeta.textContent=`To: ${preview.recipient} ／ 件名: ${preview.subject}`;mailAttachments.textContent=`添付PDF: ${preview.attachments.map(a=>a.filename).join(', ')}`;mailFrame.srcdoc=preview.html;mailFrame.hidden=false;$('preview').textContent=preview.body;plain.open=false;$('ack').checked=false;$('mail').hidden=false;}));

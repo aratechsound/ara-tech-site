@@ -34,7 +34,7 @@ for (const layout of [
   page.on('request', request => { if (!request.url().startsWith(base) && !request.url().startsWith('blob:') && !request.url().startsWith('data:')) errors.push(`${layout.name}: external ${request.url()}`); });
   await page.goto(`${base}/pa-est-004-real-admin-preview.html`, { waitUntil: 'networkidle' });
   await page.locator('#pa-commercial-workspace:not(.hidden)').waitFor();
-  await page.locator('.pa-commercial-file img').first().waitFor();
+  await page.locator('.pa-commercial-file canvas').first().waitFor();
 
   assert.equal(await page.locator('.pa-commercial-card').count(), 3);
   assert.match(await page.locator('#pa-related-files-count').textContent(), /^20件/u);
@@ -52,10 +52,10 @@ for (const layout of [
     const files = document.querySelector('.pa-commercial__files').getBoundingClientRect();
     const communication = document.querySelector('#communication-section').getBoundingClientRect();
     const strip = document.querySelector('#pa-related-files');
-    const image = document.querySelector('.pa-commercial-file img');
+    const image = document.querySelector('.pa-commercial-file canvas');
     return { cardTops: cards.map(box => Math.round(box.top)), cardBottom: Math.round(Math.max(...cards.map(box => box.bottom))), filesTop: Math.round(files.top), communicationTop: Math.round(communication.top),
       documentOverflow: document.documentElement.scrollWidth - window.innerWidth, stripScrollable: strip.scrollWidth > strip.clientWidth,
-      imageReady: Boolean(image?.naturalWidth), formalCardHeight: Math.round(cards[1]?.height || 0) };
+      imageReady: Boolean(image?.width), formalCardHeight: Math.round(cards[1]?.height || 0) };
   });
   assert.equal(metrics.documentOverflow <= 1, true, `${layout.name} has no page-level horizontal overflow`);
   assert.equal(metrics.stripScrollable, true, `${layout.name} keeps the 20-item strip scrollable`);

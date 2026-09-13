@@ -107,6 +107,25 @@ const materialCategory = (filename, fallback = 'other') => {
 };
 const gmailIdentity = (messageId, attachmentId) => messageId && attachmentId ? `gmail:${messageId}:${attachmentId}` : null;
 const sourceIdentities = (item) => [item?.canonical_attachment_key, gmailIdentity(item?.source_ref?.gmail_message_id, item?.source_ref?.gmail_attachment_id)].filter(Boolean);
+const commercialGmailIdentities = (item, gmailMessages) => {
+  const messageId = String(item?.gmail_message_id || '');
+  const storedAttachmentId = String(item?.gmail_attachment_id || '');
+  if (!messageId || !storedAttachmentId) return [];
+  const message = gmailMessages.find((candidate) => candidate.gmail_message_id === messageId);
+  const attachments = (Array.isArray(message?.attachment_metadata) ? message.attachment_metadata : []).filter(businessAttachment);
+  const exact = attachments.filter((attachment) => [attachment.id, attachment.gmail_attachment_id, attachment.part_id, attachment.gmail_part_id]
+    .filter(Boolean).map(String).includes(storedAttachmentId));
+  const filename = String(item.original_filename || '').trim();
+  const mime = String(item.mime_type || '').toLowerCase().split(';')[0];
+  const sameFile = attachments.filter((attachment) => String(attachment.filename || '').trim() === filename
+    && String(attachment.mime_type || '').toLowerCase().split(';')[0] === mime);
+  const matched = exact.length === 1 ? exact[0] : exact.length === 0 && sameFile.length === 1 ? sameFile[0] : null;
+  if (!matched) return [];
+  return [
+    gmailIdentity(messageId, matched.id || matched.gmail_attachment_id),
+    canonicalAssetKey(messageId, matched.part_id || matched.gmail_part_id)
+  ].filter(Boolean);
+};
 const businessAttachment = (attachment) => {
   const filename = String(attachment?.filename || '').trim();
   const mime = String(attachment?.mime_type || '').toLowerCase().split(';')[0];
@@ -129,7 +148,7 @@ const buildRelatedMaterials = ({ caseId, state, estimates = [], documents = [], 
     materials.push(item);
   };
   for (const item of documents) {
-    const identities = [gmailIdentity(item.gmail_message_id, item.gmail_attachment_id), `commercial:${item.id}`];
+    const identities = [gmailIdentity(item.gmail_message_id, item.gmail_attachment_id), ...commercialGmailIdentities(item, gmailMessages), `commercial:${item.id}`];
     const current = item.id === currentDocumentId;
     push({ material_id: `commercial:${item.id}`, case_id: caseId, source_type: 'commercial', source_id: item.id,
       category: materialCategory(item.original_filename, item.document_kind), display_title: item.original_filename,
@@ -239,7 +258,8 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       state: effectiveState,
       estimates, documents, offers: offers.map((offer) => ({
         ...offer,
-        state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown'
+        state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
+        confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
       outbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
