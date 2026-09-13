@@ -6,7 +6,7 @@ const { applyOriginPolicy, checkRateLimit } = require('./_request-security.cjs')
 const ACTIONS = new Set([
   'snapshot', 'document', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
-  'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recover_estimate',
+  'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
   'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview'
 ]);
 
@@ -51,6 +51,7 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'reopen_case': result = await service.reopen(input, actor); break;
         case 'dispatch_outbox': result = await service.dispatch(input, actor); break;
         case 'recovery_candidates': result = await service.recoveryCandidates(input.case_id); break;
+        case 'recovery_preview': result = await service.recoveryPreview(input); break;
         case 'recover_estimate': result = await service.recoverEstimate(input, actor); break;
         case 'correct_estimate': result = await service.correctEstimate(input, actor); break;
         case 'remind_confirmation': result = await service.remindConfirmation(input, actor); break;

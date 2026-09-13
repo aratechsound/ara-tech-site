@@ -8,11 +8,13 @@ const out = process.env.PA_EST_004_SCREENSHOT_DIR || 'C:/Users/user/Documents/Co
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', args: ['--disable-extensions','--no-first-run'] });
 const errors = [];
+let recoveryCandidateRequests = 0;
 const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
 page.on('pageerror', error => errors.push(error.message));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 page.on('request', request => {
   const url = request.url();
+  if (url.includes('/api/pa-mail?surface=commercial') && request.postDataJSON()?.action === 'recovery_candidates') recoveryCandidateRequests += 1;
   if (!url.startsWith(base) && !url.startsWith('blob:') && !url.startsWith('data:')) errors.push(`external request: ${url}`);
 });
 
@@ -47,14 +49,24 @@ let snapshot = await (await page.request.get(`${base}/__fixture/snapshot`)).json
 assert.equal(snapshot.offers.filter(item => item.state === 'active').length, 1);
 assert.equal(snapshot.outbox.filter(item => item.job_kind === 'confirmation_reminder' && item.state === 'sent').length, 1);
 
-await page.getByRole('button', { name: '送信済みメールから登録' }).click();
-await page.locator('dialog[open] select[name="mode"]').selectOption('historical');
-await page.locator('dialog[open] input[name="amount"]').fill('110000');
-await page.locator('dialog[open] textarea[name="conditions"]').fill('送信済み原本を所有者が照合');
-await page.locator('dialog[open] button[type="submit"]').click();
-await page.waitForTimeout(300);
+await page.getByRole('button', { name: '送信済みメールから登録' }).evaluate(button => { button.click(); button.click(); });
+const recoveryDialog = page.locator('dialog[open]');
+await page.waitForFunction(() => document.querySelector('dialog[open]')?.textContent.includes('送信済みメールと添付を確認しています'));
+assert.equal(await page.getByRole('button', { name: '検索中…' }).isDisabled(), true, 'recovery search disables immediate double click');
+await recoveryDialog.locator('.pa-recovery-dialog__filename').getByText('見積書 2026.10.18 龍姫湖まつり.pdf', { exact: true }).waitFor();
+assert.match(await recoveryDialog.textContent(), /￥110,000/);
+assert.match(await recoveryDialog.textContent(), /PDFから自動取得/);
+assert.equal(await recoveryDialog.locator('textarea[name="conditions"]').count(), 0, 'ordinary recovery has no estimate-condition field');
+assert.equal(await recoveryDialog.locator('input[name="amount"]:visible').count(), 0, 'high-confidence PDF amount keeps manual input hidden');
+await recoveryDialog.getByLabel('過去の見積として取り込む').check();
+await recoveryDialog.locator('button[type="submit"]').click();
+await recoveryDialog.waitFor({ state: 'detached' });
+assert.equal(recoveryCandidateRequests, 1, 'double click starts one candidate search');
 snapshot = await (await page.request.get(`${base}/__fixture/snapshot`)).json();
 assert.equal(snapshot.estimate_delivery_evidence.length, 1);
+const recoveredEstimate = snapshot.estimates.find(item => item.source_kind === 'sent_recovery');
+assert.equal(recoveredEstimate.amount_minor, 110000);
+assert.deepEqual(recoveredEstimate.conditions_snapshot, {});
 assert.equal(snapshot.offers.filter(item => item.state === 'active').length, 1, 'historical recovery preserves active confirmation');
 await page.screenshot({ path: `${out}/PA-EST-004R1-real-admin-pending.png`, fullPage: true });
 

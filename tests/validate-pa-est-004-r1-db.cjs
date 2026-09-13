@@ -12,7 +12,8 @@ const call = async (db, name, args) => (await db.query(
 const apply = db => db.exec(
   read('20260913110000_pa_case_management_v5.sql') + '\n'
   + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
-  + read('20260913170000_pa_case_management_v5_payment_race.sql')
+  + read('20260913170000_pa_case_management_v5_payment_race.sql') + '\n'
+  + read('20260913190000_pa_estimate_recovery_ux.sql')
 );
 const finish = async (db, actor, job, message = crypto.randomUUID()) => {
   const lease = crypto.randomUUID();

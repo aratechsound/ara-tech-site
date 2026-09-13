@@ -12,8 +12,13 @@ const {
     normalizeReplyAttachments,
     normalizeCustomerBody,
     replyAttachmentsHash,
+    safeOriginalFilename,
     supabaseRequest
 } = require("./_pa-mail.cjs");
+const {
+    attachmentContentDisposition,
+    originalFilenameFromPart
+} = require("./_pa-filename.cjs");
 const { detectCandidates } = require("./_pa-portal-candidates.cjs");
 
 const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
@@ -88,19 +93,10 @@ const htmlToText = (value) => String(value || "")
     .replace(/&gt;/giu, ">")
     .replace(/\n{3,}/gu, "\n\n")
     .trim();
-const safeAttachmentFilename = (value) => {
-    const filename = String(value || "attachment").replace(/[\u0000-\u001f\\\\/]/gu, "_").trim().slice(0, 255);
-    return filename || "attachment";
-};
+const safeAttachmentFilename = safeOriginalFilename;
 const safeAttachmentMimeType = (value) => {
     const mime = String(value || "").trim().toLowerCase();
     return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(mime) ? mime : "application/octet-stream";
-};
-const attachmentContentDisposition = (value) => {
-    const filename = safeAttachmentFilename(value);
-    const fallback = filename.normalize("NFKD").replace(/[^\x20-\x7e]/gu, "_").replace(/["\\]/gu, "_").trim() || "attachment";
-    const encoded = encodeURIComponent(filename).replace(/[!'()]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 };
 const decodeAttachmentData = (value) => {
     const data = String(value || "");
@@ -114,7 +110,8 @@ const collectParts = (part, result = { plain: "", html: "", attachments: [] }) =
     const mime = String(part.mimeType || "").toLowerCase();
     const partHeaders = Object.fromEntries((part.headers || []).map((header) => [String(header.name || "").toLowerCase(), String(header.value || "")]));
     const reference = attachmentReference(part);
-    if (part.filename && part.body && validGmailAttachmentReference(reference)
+    const originalFilename = originalFilenameFromPart(part);
+    if (originalFilename && part.body && validGmailAttachmentReference(reference)
         && (part.body.attachmentId || part.body.data) && !result.attachments.some((attachment) => attachment.id === reference)) {
         const contentId = String(partHeaders["content-id"] || "").replace(/[\r\n]/gu, " ").trim().slice(0, 500);
         const contentDisposition = String(partHeaders["content-disposition"] || "").replace(/[\r\n]/gu, " ").trim().slice(0, 500);
@@ -123,7 +120,8 @@ const collectParts = (part, result = { plain: "", html: "", attachments: [] }) =
             id: reference,
             gmail_attachment_id: String(part.body.attachmentId || ""),
             part_id: String(part.partId || ""),
-            filename: safeAttachmentFilename(part.filename),
+            filename: originalFilename,
+            original_filename: originalFilename,
             mime_type: mime || "application/octet-stream",
             size: Number(part.body.size || 0),
             ...(inline ? { inline: true } : {}),
@@ -192,10 +190,31 @@ const getPrimaryLink = async (inquiryId, fetchImpl) => {
     const links = await getLinks(inquiryId, fetchImpl);
     return links.find((link) => link.conversation_role === "primary_conversation") || null;
 };
-const managedReplyMessageIds = async (inquiryId, fetchImpl) => {
+const managedReplyMetadata = async (inquiryId, fetchImpl) => {
     const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, action: "eq.gmail_case_reply_sent", select: "details", limit: "500" });
     const rows = await selectRows("pa_inquiry_audit", query, fetchImpl);
-    return new Set((Array.isArray(rows) ? rows : []).map((row) => String(row?.details?.gmail_message_id || "")).filter(validGmailId));
+    const metadata = new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+        const messageId = String(row?.details?.gmail_message_id || "");
+        const rawFilenames = row?.details?.attachment_filenames;
+        if (!validGmailId(messageId)) continue;
+        const filenames = Array.isArray(rawFilenames) && rawFilenames.every((filename) => typeof filename === "string" && filename)
+            ? rawFilenames.map(safeAttachmentFilename)
+            : null;
+        metadata.set(messageId, filenames);
+    }
+    return metadata;
+};
+const restoreManagedOriginalFilenames = (message, filenames) => {
+    if (!Array.isArray(filenames) || filenames.length !== message.attachments.length) return message;
+    return {
+        ...message,
+        attachments: message.attachments.map((attachment, index) => ({
+            ...attachment,
+            filename: filenames[index],
+            original_filename: filenames[index]
+        }))
+    };
 };
 const getGlobalThreadLink = async (threadId, fetchImpl) => {
     const query = new URLSearchParams({ gmail_thread_id: `eq.${threadId}`, select: "*", limit: "1" });
@@ -326,11 +345,14 @@ const resolveThread = async (inquiry, fetchImpl) => {
     return { links, primary: null, candidates };
 };
 
-const indexThread = async ({ inquiryId, threadId, managedMessageIds }, fetchImpl) => {
+const indexThread = async ({ inquiryId, threadId, managedMetadata }, fetchImpl) => {
     const thread = await gmailThread(threadId, fetchImpl);
     const messages = (thread.messages || []).map(normalizeMessage).filter((message) => validGmailId(message.id));
-    for (const message of messages) {
-        const source = message.direction === "inbound" ? "gmail_received" : managedMessageIds?.has(message.id) ? "pa_case_manager" : "gmail_direct";
+    for (let index = 0; index < messages.length; index += 1) {
+        let message = messages[index];
+        const source = message.direction === "inbound" ? "gmail_received" : managedMetadata?.has(message.id) ? "pa_case_manager" : "gmail_direct";
+        if (source === "pa_case_manager") message = restoreManagedOriginalFilenames(message, managedMetadata.get(message.id));
+        messages[index] = message;
         await writeRow("pa_gmail_message_index", {
             gmail_message_id: message.id,
             gmail_thread_id: threadId,
@@ -384,8 +406,8 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     const resolved = await resolveThread(inquiry, fetchImpl);
     if (!resolved.links.length) return { linked: false, ambiguous: resolved.candidates.length > 1, candidates: resolved.candidates, messages: [] };
-    const managedMessageIds = await managedReplyMessageIds(inquiryId, fetchImpl);
-    const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiryId, threadId: link.gmail_thread_id, managedMessageIds }, fetchImpl)));
+    const managedMetadata = await managedReplyMetadata(inquiryId, fetchImpl);
+    const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiryId, threadId: link.gmail_thread_id, managedMetadata }, fetchImpl)));
     const messages = [...new Map(indexed.flatMap((result) => result.messages).map((message) => [message.id, message])).values()];
     const portalCandidateDetection = await detectCandidatesFailIsolated({ inquiryId, actorId, messages }, fetchImpl);
     const summary = await recordSync({ inquiryId, actorId, links: resolved.links, messages }, fetchImpl);
@@ -403,7 +425,7 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
 
 const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId, gmailPartId = "" }, fetchImpl = fetch) => {
     if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailAttachmentReference(gmailAttachmentId)) throw new Error("invalid_gmail_attachment");
-    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id,attachment_metadata", limit: "1" });
+    const query = new URLSearchParams({ inquiry_id: `eq.${inquiryId}`, gmail_message_id: `eq.${gmailMessageId}`, select: "gmail_message_id,message_source,attachment_metadata", limit: "1" });
     const indexed = await selectRows("pa_gmail_message_index", query, fetchImpl);
     if (!Array.isArray(indexed) || !indexed[0]) throw new Error("gmail_attachment_not_indexed");
     const indexedAttachments = Array.isArray(indexed[0].attachment_metadata) ? indexed[0].attachment_metadata : [];
@@ -429,8 +451,19 @@ const getAttachment = async ({ inquiryId, gmailMessageId, gmailAttachmentId, gma
     const bytes = decodeAttachmentData(data);
     const byteLength = bytes?.length || 0;
     if (!bytes || byteLength > 10 * 1024 * 1024) throw new Error("gmail_attachment_unavailable");
+    const freshAttachments = normalizeMessage(message).attachments;
+    const selectedIndex = freshAttachments.findIndex((attachment) => attachment.id === indexedReference || attachment.part_id === gmailPartId);
+    const indexedIndex = indexedAttachments.indexOf(indexedAttachment);
+    let filename = originalFilenameFromPart(part)
+        || safeAttachmentFilename(indexedAttachment.original_filename || indexedAttachment.filename);
+    if (indexed[0].message_source === "pa_case_manager") {
+        const managed = await managedReplyMetadata(inquiryId, fetchImpl);
+        const originalNames = managed.get(gmailMessageId);
+        const filenameIndex = selectedIndex >= 0 ? selectedIndex : indexedIndex;
+        if (Array.isArray(originalNames) && filenameIndex >= 0 && filenameIndex < originalNames.length) filename = originalNames[filenameIndex];
+    }
     return {
-        filename: safeAttachmentFilename(part?.filename || indexedAttachment.filename),
+        filename,
         mime_type: safeAttachmentMimeType(part?.mimeType || indexedAttachment.mime_type),
         size: byteLength,
         data
@@ -672,4 +705,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

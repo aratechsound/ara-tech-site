@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const mail = require('./_pa-mail.cjs');
 const gmail = require('./_pa-gmail.cjs');
 const pdf = require('./_pa-contract-pdf.cjs');
+const estimateAmount = require('./_pa-estimate-amount.cjs');
 
 const SAFE = new Set([
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
@@ -19,7 +20,7 @@ const SAFE = new Set([
   'case_not_ready_to_close', 'invoice_not_sent', 'payment_balance_not_zero',
   'reopen_reason_required', 'mail_adapter_not_configured', 'fake_adapter_requires_local_db',
   'outbox_key_not_configured', 'outbox_secret_invalid', 'invalid_commercial_request',
-  'invalid_reply_cc', 'invalid_estimate_recovery', 'idempotency_payload_mismatch',
+  'invalid_reply_cc', 'invalid_estimate_recovery', 'amount_extraction_mismatch', 'idempotency_payload_mismatch',
   'estimate_correction_reason_required', 'estimate_not_recoverable', 'estimate_already_corrected',
   'invalid_confirmation_reminder', 'confirmation_not_remindable',
   'confirmation_reminder_secret_unavailable', 'invalid_change_proposal',
@@ -227,7 +228,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       p_filename: attachment.filename, p_mime: attachment.mime_type, p_content_base64: bytes.toString('base64'),
       p_sha256: pdf.sha(bytes), p_amount_minor: integer(input.amount_minor, 1, 9999999999),
       p_currency: text(input.currency || 'JPY', 3), p_tax_basis: text(input.tax_basis, 20),
-      p_conditions: object(input.conditions), p_source_kind: text(input.source_kind, 30),
+      p_conditions: object(input.conditions || {}), p_source_kind: text(input.source_kind, 30),
       p_source_sent_at: input.source_sent_at || null, p_recipient: preview.recipient,
       p_subject: preview.subject, p_body: preview.body,
       p_reply_binding: input.source_kind === 'sent_recovery' ? {} : replyBinding(preview)
@@ -327,21 +328,41 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     await mail.getInquiry(caseId, fetchImpl);
     const messages = await rows('pa_gmail_message_index', {
       inquiry_id: 'eq.' + caseId, direction: 'eq.outbound',
-      select: 'gmail_message_id,gmail_thread_id,subject,sent_at,indexed_at,to_addresses,attachment_metadata',
+      select: 'gmail_message_id,gmail_thread_id,message_source,subject,sent_at,indexed_at,to_addresses,attachment_metadata',
       order: 'sent_at.desc', limit: '100'
     });
     const evidence = await rows('pa_estimate_delivery_evidence', {
       inquiry_id: 'eq.' + caseId,
       select: 'estimate_revision_id,gmail_message_id,gmail_attachment_id,source_sent_at,recorded_at', limit: '200'
     });
+    const managed = await gmail.managedReplyMetadata(caseId, fetchImpl);
     return messages.flatMap((message) => (message.attachment_metadata || [])
       .filter((item) => String(item.mime_type || '').split(';')[0].toLowerCase() === 'application/pdf')
-      .map((item) => ({
+      .map((item, index) => ({
         gmail_message_id: message.gmail_message_id, gmail_thread_id: message.gmail_thread_id,
-        gmail_attachment_id: item.id, filename: item.filename, size: item.size || null,
+        gmail_attachment_id: item.id,
+        filename: message.message_source === 'pa_case_manager' && managed.get(message.gmail_message_id)?.[index]
+          ? managed.get(message.gmail_message_id)[index]
+          : item.original_filename || item.filename,
+        size: item.size || null,
         subject: message.subject, source_sent_at: message.sent_at || message.indexed_at,
         existing: evidence.find((row) => row.gmail_message_id === message.gmail_message_id && row.gmail_attachment_id === item.id) || null
       })));
+  }
+
+  async function recoveryPreview(input) {
+    const binary = await gmail.getAttachmentBinary({
+      inquiryId: uuid(input.case_id), gmailMessageId: text(input.gmail_message_id, 200),
+      gmailAttachmentId: text(input.gmail_attachment_id, 500)
+    }, fetchImpl);
+    if (binary.mime_type !== 'application/pdf') throw Error('invalid_estimate_recovery');
+    await pdf.validatePdf(binary.bytes, pdf.sha(binary.bytes));
+    return {
+      original_filename: binary.filename,
+      mime_type: binary.mime_type,
+      size: binary.size,
+      amount_extraction: await estimateAmount.extractEstimateAmount(binary.bytes)
+    };
   }
 
   async function recoverEstimate(input, actor) {
@@ -351,15 +372,19 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     }, fetchImpl);
     if (binary.mime_type !== 'application/pdf') throw Error('invalid_estimate_recovery');
     await pdf.validatePdf(binary.bytes, pdf.sha(binary.bytes));
-    return rpc('pa_v5_import_sent_estimate', {
+    const extraction = await estimateAmount.extractEstimateAmount(binary.bytes);
+    const amountMinor = integer(input.amount_minor, 1, 9999999999);
+    if (extraction.status === 'HIGH_CONFIDENCE' && extraction.amount_minor !== amountMinor) throw Error('amount_extraction_mismatch');
+    const result = await rpc('pa_v5_import_sent_estimate', {
       p_actor: actor.id, p_case: input.case_id, p_expected_revision: integer(input.expected_revision),
       p_expected_current: input.expected_current ? uuid(input.expected_current) : null,
       p_operation: uuid(input.operation_id), p_mode: text(input.mode, 20), p_document_id: uuid(input.document_id),
       p_filename: binary.filename, p_content_base64: binary.bytes.toString('base64'), p_sha256: pdf.sha(binary.bytes),
-      p_amount_minor: integer(input.amount_minor, 1, 9999999999), p_currency: text(input.currency || 'JPY', 3),
-      p_tax_basis: text(input.tax_basis, 20), p_conditions: object(input.conditions),
+      p_amount_minor: amountMinor, p_currency: text(input.currency || 'JPY', 3),
+      p_tax_basis: text(input.tax_basis, 20), p_conditions: object(input.conditions || {}),
       p_gmail_message_id: text(input.gmail_message_id, 200), p_gmail_attachment_id: text(input.gmail_attachment_id, 500)
     });
+    return { ...result, original_filename: binary.filename, amount_extraction: extraction };
   }
 
   const correctEstimate = (input, actor) => rpc('pa_v5_correct_estimate_import', {
@@ -476,7 +501,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
 
   return {
     snapshot, document, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
-    recoveryCandidates, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
+    recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     revoke: (input, actor) => rpc('pa_v5_revoke_confirmation', { p_actor: actor.id, p_case: uuid(input.case_id), p_offer: uuid(input.offer_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) }),
     settle: (input, actor) => rpc('pa_v5_confirm_fulfillment_and_settlement', { p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_amount_minor: integer(input.amount_minor), p_unresolved: input.unresolved_changes === true, p_evidence: object(input.evidence) }),
     recordPayment: (input, actor) => rpc('pa_v5_record_payment', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: uuid(input.billing_id), p_operation: uuid(input.operation_id), p_payment_date: text(input.payment_date, 10), p_amount_minor: integer(input.amount_minor, 1), p_method: text(input.payment_method, 30), p_memo: text(input.memo, 5000, true) }),

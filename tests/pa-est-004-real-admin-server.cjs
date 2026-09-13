@@ -34,7 +34,8 @@ async function initialize(nextScenario = 'pending') {
   await fixture.db.exec(
     read('20260913110000_pa_case_management_v5.sql') + '\n'
     + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
-    + read('20260913170000_pa_case_management_v5_payment_race.sql')
+    + read('20260913170000_pa_case_management_v5_payment_race.sql') + '\n'
+    + read('20260913190000_pa_estimate_recovery_ux.sql')
   );
   service = createService({
     fetchImpl: fixture.fetchImpl,
@@ -111,6 +112,7 @@ async function route(request, response) {
   if (url.pathname === '/api/pa-mail' && url.searchParams.get('surface') === 'commercial') {
     let body = {};
     try { body = JSON.parse(await readBody(request)); } catch { body = {}; }
+    if (body.action === 'recovery_candidates') await new Promise(resolve => setTimeout(resolve, 150));
     return handler({ method: request.method, headers: request.headers, body, query: { surface: 'commercial' }, socket: request.socket }, adapt(response));
   }
   if (url.pathname === '/__fixture/scenario' && request.method === 'POST') {

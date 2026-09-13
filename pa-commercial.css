@@ -71,6 +71,22 @@
 .pa-commercial__next { border-left: 3px solid var(--pa-v5-blue); padding-left: 9px; }
 .pa-commercial__warning { background: #fff8e6; border: 1px solid #ead9a7; border-radius: 8px; color: #6f510c; padding: 8px; }
 .pa-commercial__error { background: #fff1f1; border: 1px solid #ecc3c3; border-radius: 8px; color: #8f2e2e; padding: 8px; }
+.pa-recovery-dialog { width: min(92vw, 620px); }
+.pa-recovery-dialog form { display: grid; gap: 14px; }
+.pa-recovery-dialog__status { background: var(--pa-v5-soft); border-radius: 8px; padding: 14px; white-space: pre-line; }
+.pa-recovery-dialog__content { display: grid; gap: 14px; }
+.pa-recovery-dialog__summary { border: 1px solid var(--pa-v5-line); border-radius: 10px; display: grid; gap: 10px; padding: 14px; }
+.pa-recovery-dialog__summary p { margin: 0; }
+.pa-recovery-dialog__filename { overflow-wrap: anywhere; }
+.pa-recovery-dialog__amount-row { align-items: center; display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.pa-recovery-dialog__amount { font-size: 1.35rem; }
+.pa-recovery-dialog__badge { background: #edf8f2; border-radius: 999px; color: var(--pa-v5-green); font-size: .72rem; font-weight: 800; padding: 3px 8px; }
+.pa-recovery-dialog__manual-note { color: var(--pa-v5-red); display: block; margin-top: 5px; }
+.pa-recovery-dialog__mode { border: 1px solid var(--pa-v5-line); border-radius: 10px; display: grid; gap: 8px; margin: 0; padding: 12px 14px; }
+.pa-recovery-dialog__mode legend { font-weight: 800; padding: 0 5px; }
+.pa-recovery-dialog__radio { align-items: center; display: flex; gap: 8px; }
+.pa-recovery-dialog__radio input { margin: 0; width: auto; }
+.pa-recovery-dialog__resend { margin: 0; }
 
 @media (max-width: 1050px) {
     .pa-commercial__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }

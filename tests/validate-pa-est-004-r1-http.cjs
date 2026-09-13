@@ -13,7 +13,7 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
   const fixture = await createFixture();
   try {
     process.env.ALLOWED_ORIGINS = 'http://127.0.0.1:8766';
-    await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql'));
+    await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql') + '\n' + read('20260913190000_pa_estimate_recovery_ux.sql'));
     let mode = 'success'; let transportCalls = 0; let loseFinishResponseFor = null;
     const guardedFetch = async (url, options = {}) => {
       const response = await fixture.fetchImpl(url, options);
@@ -142,7 +142,7 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
     response = await request(recovery); assert.equal(response.statusCode, 200);
     response = await request(recovery); assert.equal(response.statusCode, 200); assert.equal(response.body.result.already_committed, true);
     response = await request({ ...recovery, amount_minor: 120000 });
-    assert.equal(response.statusCode, 400); assert.equal(response.body.code, 'idempotency_payload_mismatch');
+    assert.equal(response.statusCode, 400); assert.equal(response.body.code, 'amount_extraction_mismatch');
     console.log('PASS PA-EST-004R1 HTTP: handler idempotency, failure/retry, unknown suppression, lost finish response and expired-worker recovery');
   } finally { await fixture.db.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

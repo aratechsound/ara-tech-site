@@ -10,8 +10,9 @@ const OWNER = new Set(["organizer", "ara_tech", "shared", "performer"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const safeFilename = (value) => {
-    const name = String(value || "").normalize("NFKC").replace(/[\u0000-\u001f\u007f\\/]/gu, "_").replace(/\s+/gu, " ").trim().slice(0, 180);
-    if (!name || name === "." || name === ".." || /\.(?:exe|dll|bat|cmd|com|msi|ps1|js|mjs|html?|svg|jar|scr)$/iu.test(name)) throw new Error("invalid_upload_filename");
+    const cleaned = String(value || "").replace(/[\p{Cc}\\/]/gu, "_");
+    const name = [...cleaned].slice(0, 255).join("");
+    if (!name.trim() || name === "." || name === ".." || /\.(?:exe|dll|bat|cmd|com|msi|ps1|js|mjs|html?|svg|jar|scr)$/iu.test(name)) throw new Error("invalid_upload_filename");
     return name;
 };
 const canonicalMime = (value) => String(value || "").toLowerCase().split(";")[0].trim();
@@ -81,7 +82,7 @@ const mutate = async ({ caseId, accessToken, operation, payload, idempotencyKey 
     if (payload.upload) {
         const upload = decodeUpload(payload.upload);
         const assetId = String(idempotencyKey);
-        const storagePath = `cases/${caseId}/${assetId}/${upload.sha256.slice(0, 16)}-${upload.filename}`;
+        const storagePath = `cases/${caseId}/${assetId}/${upload.sha256}`;
         let uploaded = false;
         try {
             try {

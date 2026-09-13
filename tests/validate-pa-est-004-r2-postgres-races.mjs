@@ -49,7 +49,8 @@ const migrationNames = [
   '20260907130000_pa_formal_contract.sql',
   '20260913110000_pa_case_management_v5.sql',
   '20260913130000_pa_case_management_v5_r1.sql',
-  '20260913170000_pa_case_management_v5_payment_race.sql'
+  '20260913170000_pa_case_management_v5_payment_race.sql',
+  '20260913190000_pa_estimate_recovery_ux.sql'
 ];
 
 const lit = value => value === null ? 'null' : `'${String(value).replaceAll("'", "''")}'`;

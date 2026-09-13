@@ -59,7 +59,7 @@ const mutate = async ({ session, operation, payload, idempotencyKey }, fetchImpl
     if (!["add_version", "add_photo"].includes(operation)) throw new Error("invalid_upload");
     const upload = portal.decodeUpload(payload.upload);
     const permission = await authorize(session, operation, { ...payload, upload: undefined }, fetchImpl);
-    const storagePath = `organizer/${permission.portal_ref}/${idempotencyKey}/${upload.sha256.slice(0, 16)}-${upload.filename}`;
+    const storagePath = `organizer/${permission.portal_ref}/${idempotencyKey}/${upload.sha256}`;
     let uploaded = false;
     try {
         try {

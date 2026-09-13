@@ -67,6 +67,7 @@ assert.deepEqual(opaqueAttachmentMessage.attachments, [{
     gmail_attachment_id: "ANGjdJ9+opaque=",
     part_id: "0.3",
     filename: "legacy-gmail-id.pdf",
+    original_filename: "legacy-gmail-id.pdf",
     mime_type: "application/pdf",
     size: 173259
 }], "opaque Gmail attachment IDs must survive normalization and reach the frontend metadata field");

@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const read = file => fs.readFileSync(file,'utf8');
 const sql = read('supabase/migrations/20260913110000_pa_case_management_v5.sql')
   + read('supabase/migrations/20260913130000_pa_case_management_v5_r1.sql')
-  + read('supabase/migrations/20260913170000_pa_case_management_v5_payment_race.sql');
+  + read('supabase/migrations/20260913170000_pa_case_management_v5_payment_race.sql')
+  + read('supabase/migrations/20260913190000_pa_estimate_recovery_ux.sql');
 const api = read('api/_pa-commercial.cjs');
 const page = read('pa-admin.html');
 const admin = read('js/pa-commercial-admin.js');

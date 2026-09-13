@@ -1,4 +1,8 @@
 const crypto = require("node:crypto");
+const {
+    attachmentFilenameParameters,
+    safeOriginalFilename
+} = require("./_pa-filename.cjs");
 
 const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
@@ -460,19 +464,9 @@ const encodeBase64Lines = (value) => {
 
 const MAX_REPLY_ATTACHMENTS = 10;
 const MAX_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
-const safeMailAttachmentFilename = (value) => {
-    const filename = String(value || "attachment").replace(/[\u0000-\u001f\\\\/]/gu, "_").trim().slice(0, 255);
-    return filename || "attachment";
-};
 const safeMailAttachmentMimeType = (value) => {
     const mime = String(value || "").trim().toLowerCase();
     return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u.test(mime) ? mime : "application/octet-stream";
-};
-const attachmentContentDisposition = (value) => {
-    const filename = safeMailAttachmentFilename(value);
-    const fallback = filename.normalize("NFKD").replace(/[^\x20-\x7e]/gu, "_").replace(/["\\\\]/gu, "_").trim() || "attachment";
-    const encoded = encodeURIComponent(filename).replace(/[!'()]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 };
 const decodeReplyAttachmentData = (value) => {
     const encoded = String(value || "");
@@ -491,7 +485,7 @@ const normalizeReplyAttachments = (value) => {
         totalBytes += bytes.length;
         if (totalBytes > MAX_REPLY_ATTACHMENT_BYTES) throw new Error("reply_attachments_too_large");
         return {
-            filename: safeMailAttachmentFilename(attachment.filename),
+            filename: safeOriginalFilename(attachment.filename),
             mime_type: safeMailAttachmentMimeType(attachment.mime_type),
             data: bytes.toString("base64url"),
             size: bytes.length
@@ -562,9 +556,9 @@ const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders
         safeAttachments.forEach((attachment) => {
             lines.push(
                 `--${mixedBoundary}`,
-                `Content-Type: ${attachment.mime_type}; name="${safeMailAttachmentFilename(attachment.filename).replace(/["\\\\]/gu, "_")}"`,
+                `Content-Type: ${attachment.mime_type};\r\n ${attachmentFilenameParameters("name", attachment.filename)}`,
                 "Content-Transfer-Encoding: base64",
-                `Content-Disposition: ${attachmentContentDisposition(attachment.filename)}`,
+                `Content-Disposition: attachment;\r\n ${attachmentFilenameParameters("filename", attachment.filename)}`,
                 "",
                 encodeAttachmentDataLines(attachment.data)
             );
@@ -1326,6 +1320,7 @@ module.exports = {
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
+    safeOriginalFilename,
     sendContentHearingAndFinalize,
     sendAutomaticInquiryEmails,
     sendGmail,
