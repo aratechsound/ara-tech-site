@@ -26,6 +26,20 @@ const appendLine = (root, label, value, className = "") => {
     row.append(name, document.createTextNode(value));
     root.append(row);
 };
+const STATE_LABELS = Object.freeze({
+    fulfillment: { not_confirmed: "実施確認前", confirmed: "実施確認済み", postponed: "延期", cancelled: "中止" },
+    settlement: { unsettled: "精算確認前", confirmed: "精算確認済み", difference_review: "差額確認中" },
+    estimate_change: { ready: "見積確定", reconfirming: "条件再確認中", post_contract_change: "受注後変更" },
+    invoice: { not_required: "別途発行なし", registered: "発行準備済み", queued: "送信待ち", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認" },
+    outbox: { queued: "送信待ち", processing: "送信処理中", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認", cancelled: "送信取消" },
+    invoice: { not_required: "別途発行なし", registered: "請求書登録済み", queued: "送信待ち", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認" }
+});
+const stateLabel = (group, value) => {
+    const label = STATE_LABELS[group]?.[value];
+    if (label) return label;
+    console.warn("PA commercial unknown state", { group, value: String(value || "") });
+    return "状態未定義";
+};
 
 const formDialog = (title, fields, confirmLabel = "確認して実行") => new Promise((resolve) => {
     const dialog = element("dialog", "pa-commercial-dialog");
@@ -258,23 +272,43 @@ const api = async (context, action, input = {}, binary = false) => {
     return payload.result;
 };
 
+const materialBlob = async (context, item) => {
+    const capability = item.open_capability || { kind: "commercial_document", document_id: item.id };
+    if (capability.kind === "commercial_document") return api(context, "document", { document_id: capability.document_id }, true);
+    const token = await context.getAccessToken();
+    if (!token || context.getCurrentCase()?.id !== activeCaseId || item.case_id !== activeCaseId) throw Error("case_changed");
+    const portal = capability.kind === "portal_asset";
+    const response = await fetch(portal ? "/api/pa-portal" : "/api/pa-gmail", {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, cache: "no-store",
+        body: JSON.stringify(portal
+            ? { action: "download", inquiry_id: activeCaseId, asset_id: capability.asset_id, asset_kind: capability.asset_kind }
+            : { action: "attachment_download", inquiry_id: activeCaseId, gmail_message_id: capability.gmail_message_id, gmail_attachment_id: capability.gmail_attachment_id })
+    });
+    if (!response.ok) throw Error("material_unavailable");
+    return response.blob();
+};
 const renderDocument = async (context, item, root, currentEpoch) => {
     const card = element("button", "pa-commercial-file");
     card.type = "button";
-    card.title = `${item.original_filename}を開く`;
+    const filename = item.original_filename || item.display_title || "関連資料";
+    card.title = `${filename}を開く`;
     const preview = element("span", "pa-commercial-file__preview");
     preview.append(element("span", "pa-commercial-file__fallback", item.mime_type === "application/pdf" ? "PDFを読込中" : "資料"));
     const meta = element("span", "pa-commercial-file__meta");
-    meta.append(element("strong", "", item.original_filename), element("span", "", `${item.document_kind} / ${item.source_kind}`));
+    const category = { estimate: "見積", invoice: "請求", timetable: "タイムテーブル", layout: "配置図", photo: "写真", performer: "出演資料", supporting: "参考資料", other: "関連資料" }[item.category || item.document_kind] || "関連資料";
+    const source = { commercial: "案件原本", portal: "PAポータル", gmail: "顧客コミュニケーション" }[item.source_type] || "案件原本";
+    const state = item.is_current ? "現在" : item.portal_publication_state === "history" ? "旧版" : item.direction === "inbound" ? "受信" : item.direction === "outbound" ? "送信" : "保管";
+    meta.append(element("strong", "", item.display_title || filename), element("span", "", `${category}・${source}・${state}`));
     card.append(preview, meta);
     root.append(card);
     try {
-        const blob = await api(context, "document", { document_id: item.id }, true);
-        if (currentEpoch !== refreshEpoch || activeCaseId !== item.inquiry_id) return;
-        const prior = previewUrls.get(item.id);
+        const blob = await materialBlob(context, item);
+        if (currentEpoch !== refreshEpoch || activeCaseId !== (item.case_id || item.inquiry_id)) return;
+        const materialId = item.material_id || item.id;
+        const prior = previewUrls.get(materialId);
         if (prior) URL.revokeObjectURL(prior);
         const url = URL.createObjectURL(blob);
-        previewUrls.set(item.id, url);
+        previewUrls.set(materialId, url);
         preview.replaceChildren();
         if (item.mime_type.startsWith("image/")) {
             const image = document.createElement("img");
@@ -284,7 +318,7 @@ const renderDocument = async (context, item, root, currentEpoch) => {
         } else if (item.mime_type === "application/pdf") {
             const frame = document.createElement("iframe");
             frame.src = `${url}#page=1&view=FitH&toolbar=0&navpanes=0`;
-            frame.title = `${item.original_filename}の先頭ページ`;
+            frame.title = `${filename}の先頭ページ`;
             frame.setAttribute("sandbox", "");
             preview.append(frame);
         } else preview.append(element("span", "pa-commercial-file__fallback", "ダウンロードして確認"));
@@ -323,7 +357,8 @@ const render = async (context, data, epoch) => {
         estimateRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `見積 第${current.revision_number}版・現在`));
         estimateRoot.append(element("p", "pa-commercial__amount", money(current.amount_minor, current.currency)));
         appendLine(estimateRoot, "発行", dateTime(current.issued_at));
-        appendLine(estimateRoot, "送信状態", data.outbox.find((item) => item.job_kind === "estimate" && item.aggregate_id === current.id)?.state || "送信済みメールから復旧");
+        const estimateDelivery = data.outbox.find((item) => item.job_kind === "estimate" && item.aggregate_id === current.id)?.state;
+        appendLine(estimateRoot, "送信状態", estimateDelivery ? stateLabel("outbox", estimateDelivery) : "送信済みメールから復旧");
     }
     const estimateActions = element("div", "pa-commercial__compact-actions");
     estimateActions.append(button(current ? "改訂見積を準備" : "見積を添付して送る", () => context.openComposer("estimate_submission"), "button button--small"));
@@ -346,7 +381,7 @@ const render = async (context, data, epoch) => {
     } else {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `請求 #${billing.billing_number}`));
         billingRoot.append(element("p", "pa-commercial__amount", money(billing.amount_minor, billing.currency)));
-        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${billing.invoice_delivery_state}` : "既存書類を使用／別途発行なし");
+        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", billing.invoice_delivery_state)}` : "既存書類を使用／別途発行なし");
         appendLine(billingRoot, "支払期限", billing.due_date || "期日未確定");
         appendLine(billingRoot, "先方予定日", billing.customer_planned_payment_on || "連絡なし");
         appendLine(billingRoot, "確認済み入金", money(paid, billing.currency));
@@ -519,12 +554,12 @@ const render = async (context, data, epoch) => {
                                 : paid !== Number(billing.amount_minor) ? "銀行等で実入金を確認し、入金のみ記録または完了確認へ進んでください。"
                                     : "実施・精算・請求・全額入金を再確認して案件完了へ進めます。";
     nextRoot.append(element("p", "pa-commercial__next", next));
-    appendLine(nextRoot, "業務", state.fulfillment_state);
-    appendLine(nextRoot, "精算", state.settlement_state);
-    appendLine(nextRoot, "同期", `V5取得 ${dateTime(new Date().toISOString())}`);
+    appendLine(nextRoot, "業務", stateLabel("fulfillment", state.fulfillment_state));
+    appendLine(nextRoot, "精算", stateLabel("settlement", state.settlement_state));
+    appendLine(nextRoot, "最終更新", dateTime(state.updated_at));
     if (pendingJob) {
         const kind = { estimate: "見積", confirmation: "正式受注確認", invoice: "請求書", confirmation_reminder: "再案内" }[pendingJob.job_kind] || pendingJob.job_kind;
-        const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${pendingJob.state}`);
+        const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
         nextRoot.append(alert);
         if (["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
@@ -536,9 +571,10 @@ const render = async (context, data, epoch) => {
 
     const filesRoot = byId("pa-related-files");
     filesRoot.replaceChildren();
-    byId("pa-related-files-count").textContent = `${data.documents.length}件／横に続きます`;
-    for (const document of data.documents) renderDocument(context, document, filesRoot, epoch);
-    if (!data.documents.length) filesRoot.append(element("p", "pa-commercial__label", "関連資料はまだありません。"));
+    const materials = data.related_materials || data.documents || [];
+    byId("pa-related-files-count").textContent = `${materials.length}件／横に続きます`;
+    for (const document of materials) renderDocument(context, document, filesRoot, epoch);
+    if (!materials.length) filesRoot.append(element("p", "pa-commercial__label", "関連資料はまだありません。"));
     byId("pa-commercial-workspace").classList.remove("hidden");
 };
 

@@ -94,6 +94,88 @@ const decryptSecret = (envelope) => {
   }
 };
 
+const materialCategory = (filename, fallback = 'other') => {
+  const value = String(filename || '');
+  if (/(見積|estimate)/iu.test(value)) return 'estimate';
+  if (/(請求|invoice)/iu.test(value)) return 'invoice';
+  if (/(タイム|進行|timetable|schedule)/iu.test(value)) return 'timetable';
+  if (/(配置|会場|layout|stage|ステージ)/iu.test(value)) return 'layout';
+  if (/(出演|artist|performer)/iu.test(value)) return 'performer';
+  if (/^image\//iu.test(fallback) || /\.(?:jpe?g|png|webp)$/iu.test(value)) return 'photo';
+  return fallback;
+};
+const gmailIdentity = (messageId, attachmentId) => messageId && attachmentId ? `gmail:${messageId}:${attachmentId}` : null;
+const sourceIdentities = (item) => [item?.canonical_attachment_key, gmailIdentity(item?.source_ref?.gmail_message_id, item?.source_ref?.gmail_attachment_id)].filter(Boolean);
+const businessAttachment = (attachment) => {
+  const filename = String(attachment?.filename || '').trim();
+  const mime = String(attachment?.mime_type || '').toLowerCase().split(';')[0];
+  const size = Number(attachment?.size || 0);
+  if (!filename || attachment?.inline === true || /\binline\b/iu.test(String(attachment?.content_disposition || ''))) return false;
+  if (/(?:^|[-_.\s])(logo|signature|署名|smime|pixel|spacer)(?:[-_.\s]|$)/iu.test(filename)) return false;
+  if (mime.startsWith('image/') && size > 0 && size < 1024) return false;
+  return /^(?:application\/pdf|image\/(?:jpeg|png|webp)|application\/(?:vnd\.openxmlformats-officedocument\.(?:wordprocessingml\.document|spreadsheetml\.sheet)|msword|vnd\.ms-excel))$/iu.test(mime)
+    || /\.(?:pdf|jpe?g|png|webp|docx?|xlsx?)$/iu.test(filename);
+};
+const buildRelatedMaterials = ({ caseId, state, estimates = [], documents = [], gmailMessages = [], portalCards = [], portalVersions = [], portalPhotos = [] }) => {
+  const currentDocumentId = estimates.find((item) => item.id === state?.current_estimate_revision_id)?.document_id || null;
+  const cards = new Map(portalCards.map((card) => [card.id, card]));
+  const seen = new Set();
+  const materials = [];
+  const push = (item, identities) => {
+    const keys = (Array.isArray(identities) ? identities : [identities]).filter(Boolean);
+    if (keys.some((identity) => seen.has(identity))) return;
+    keys.forEach((identity) => seen.add(identity));
+    materials.push(item);
+  };
+  for (const item of documents) {
+    const identities = [gmailIdentity(item.gmail_message_id, item.gmail_attachment_id), `commercial:${item.id}`];
+    const current = item.id === currentDocumentId;
+    push({ material_id: `commercial:${item.id}`, case_id: caseId, source_type: 'commercial', source_id: item.id,
+      category: materialCategory(item.original_filename, item.document_kind), display_title: item.original_filename,
+      original_filename: item.original_filename, mime_type: item.mime_type, direction: item.source_kind === 'sent_recovery' ? 'outbound' : null,
+      source_date: item.created_at, visibility: 'internal', portal_publication_state: 'unchanged', is_current: current, is_pinned: current,
+      open_capability: { kind: 'commercial_document', document_id: item.id } }, identities);
+  }
+  for (const item of portalVersions) {
+    const card = cards.get(item.card_id);
+    if (!card || card.archived_at || item.archived_at) continue;
+    const identities = [...sourceIdentities(item), `portal-version:${item.id}`];
+    const current = card.current_version_id === item.id;
+    push({ material_id: `portal-version:${item.id}`, case_id: caseId, source_type: 'portal', source_id: item.id,
+      category: materialCategory(item.display_filename, card.category), display_title: card.title || item.display_filename,
+      original_filename: item.display_filename, mime_type: item.mime_type, direction: item.contributor_kind === 'ara_tech' ? 'outbound' : 'inbound',
+      source_date: item.source_created_at || item.created_at, visibility: card.owner_kind || item.contributor_kind || 'shared',
+      portal_publication_state: current ? 'current' : 'history', is_current: current, is_pinned: current,
+      open_capability: { kind: 'portal_asset', asset_kind: 'version', asset_id: item.id } }, identities);
+  }
+  for (const item of portalPhotos) {
+    if (item.archived_at) continue;
+    const identities = [...sourceIdentities(item), `portal-photo:${item.id}`];
+    push({ material_id: `portal-photo:${item.id}`, case_id: caseId, source_type: 'portal', source_id: item.id,
+      category: 'photo', display_title: item.caption || item.display_filename, original_filename: item.display_filename,
+      mime_type: item.mime_type, direction: item.contributor_kind === 'ara_tech' ? 'outbound' : 'inbound', source_date: item.source_created_at || item.created_at,
+      visibility: item.owner_kind || item.contributor_kind || 'shared', portal_publication_state: 'published', is_current: true, is_pinned: false,
+      open_capability: { kind: 'portal_asset', asset_kind: 'photo', asset_id: item.id } }, identities);
+  }
+  for (const message of gmailMessages) {
+    for (const attachment of Array.isArray(message.attachment_metadata) ? message.attachment_metadata : []) {
+      if (!businessAttachment(attachment)) continue;
+      const attachmentId = String(attachment.id || '');
+      const identity = gmailIdentity(message.gmail_message_id, attachmentId);
+      if (!identity) continue;
+      push({ material_id: identity, case_id: caseId, source_type: 'gmail', source_id: identity,
+        category: materialCategory(attachment.filename, attachment.mime_type), display_title: attachment.filename,
+        original_filename: attachment.filename, mime_type: String(attachment.mime_type || '').toLowerCase().split(';')[0], direction: message.direction,
+        source_date: message.received_at || message.sent_at || message.indexed_at, visibility: 'conversation', portal_publication_state: 'not_published',
+        is_current: false, is_pinned: false, open_capability: { kind: 'gmail_attachment', gmail_message_id: message.gmail_message_id, gmail_attachment_id: attachmentId } }, identity);
+    }
+  }
+  const order = { estimate: 0, timetable: 10, layout: 20, photo: 30, performer: 40, invoice: 50, supporting: 60, other: 70 };
+  return materials.sort((left, right) => Number(right.is_pinned) - Number(left.is_pinned)
+    || Number(right.is_current) - Number(left.is_current) || (order[left.category] ?? 99) - (order[right.category] ?? 99)
+    || String(right.source_date || '').localeCompare(String(left.source_date || '')) || left.material_id.localeCompare(right.material_id));
+};
+
 function createService({ fetchImpl = fetch, sendTransport } = {}) {
   const db = async (path, options = {}) => {
     const { url, serviceRoleKey } = mail.supabaseConfig();
@@ -122,7 +204,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
   async function snapshot(caseId) {
     uuid(caseId);
     const inquiry = await mail.getInquiry(caseId, fetchImpl);
-    const [state, estimates, documents, offers, tokens, contracts, outbox, billings, payments, adjustments, changeOrders, deliveryEvidence, importCorrections] = await Promise.all([
+    const [state, estimates, documents, offers, tokens, contracts, outbox, billings, payments, adjustments, changeOrders, deliveryEvidence, importCorrections, gmailMessages, portal] = await Promise.all([
       one('pa_case_commercial_state', { inquiry_id: 'eq.' + caseId, select: '*' }),
       rows('pa_estimate_revisions', { inquiry_id: 'eq.' + caseId, select: '*', order: 'issued_at.desc', limit: '100' }),
       rows('pa_commercial_documents', { inquiry_id: 'eq.' + caseId, select: 'id,inquiry_id,document_kind,source_kind,gmail_message_id,gmail_attachment_id,original_filename,mime_type,sha256,metadata,created_at', order: 'created_at.desc', limit: '200' }),
@@ -135,18 +217,28 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       rows('pa_payment_adjustments', { inquiry_id: 'eq.' + caseId, select: '*', order: 'adjusted_at.desc', limit: '200' }),
       rows('pa_change_orders', { inquiry_id: 'eq.' + caseId, select: '*', order: 'created_at.desc', limit: '100' }),
       rows('pa_estimate_delivery_evidence', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
-      rows('pa_estimate_import_corrections', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' })
+      rows('pa_estimate_import_corrections', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
+      rows('pa_gmail_message_index', { inquiry_id: 'eq.' + caseId, select: 'gmail_message_id,direction,sent_at,received_at,indexed_at,attachment_metadata', order: 'indexed_at.desc', limit: '200' }),
+      one('pa_portals', { case_id: 'eq.' + caseId, select: 'id' })
     ]);
+    const portalCards = portal ? await rows('pa_portal_document_cards', { portal_id: 'eq.' + portal.id, archived_at: 'is.null', select: 'id,category,title,owner_kind,sort_order,current_version_id,archived_at' }) : [];
+    const cardIds = new Set(portalCards.map((item) => item.id));
+    const [casePortalVersions, portalPhotos] = portal ? await Promise.all([
+      cardIds.size ? rows('pa_portal_document_versions', { card_id: `in.(${[...cardIds].join(',')})`, archived_at: 'is.null', select: 'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at,archived_at,canonical_attachment_key' }) : [],
+      rows('pa_portal_photo_items', { portal_id: 'eq.' + portal.id, archived_at: 'is.null', select: 'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at,archived_at,canonical_attachment_key' })
+    ]) : [[], []];
+    const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
     return {
       case_status: inquiry.status,
-      state: state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false },
+      state: effectiveState,
       estimates, documents, offers: offers.map((offer) => ({
         ...offer,
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown'
       })),
       outbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
-      estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections
+      estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
+      related_materials: buildRelatedMaterials({ caseId, state: effectiveState, estimates, documents, gmailMessages, portalCards, portalVersions: casePortalVersions, portalPhotos })
     };
   }
 
@@ -512,4 +604,4 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
   };
 }
 
-module.exports = { createService, SAFE, encryptSecret, decryptSecret };
+module.exports = { createService, SAFE, encryptSecret, decryptSecret, buildRelatedMaterials, businessAttachment, materialCategory };

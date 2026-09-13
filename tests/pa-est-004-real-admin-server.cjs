@@ -7,6 +7,7 @@ const { read } = require('./helpers/pa-estimate-fixture.cjs');
 const { createService } = require('../api/_pa-commercial.cjs');
 const { createHandler } = require('../api/_pa-commercial-handler.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
+const { PDFDocument, StandardFonts } = require('pdf-lib');
 
 const root = path.resolve(__dirname, '..');
 const port = Number(process.env.PA_EST_004_REAL_PORT || 8766);
@@ -37,6 +38,15 @@ async function initialize(nextScenario = 'pending') {
     + read('20260913170000_pa_case_management_v5_payment_race.sql') + '\n'
     + read('20260913190000_pa_estimate_recovery_ux.sql')
   );
+  await fixture.db.exec('create table if not exists public.pa_portals(id uuid primary key,case_id uuid not null unique);');
+  const revisedPdf = await PDFDocument.create();
+  const revisedFont = await revisedPdf.embedFont(StandardFonts.Helvetica);
+  const revisedPage = revisedPdf.addPage([595, 842]);
+  revisedPage.drawText('SUBTOTAL JPY 180,500', { x: 50, y: 760, size: 12, font: revisedFont });
+  revisedPage.drawText('TAX JPY 18,050', { x: 50, y: 730, size: 12, font: revisedFont });
+  revisedPage.drawText('GRAND TOTAL JPY 198,550', { x: 50, y: 690, size: 16, font: revisedFont });
+  fixture.state.revisedQuote = Buffer.from(await revisedPdf.save());
+  await fixture.db.query("insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,direction,from_address,message_source,sent_at,attachment_metadata) values('r11_revised','thread_123',$1,'outbound','aratechsound@gmail.com','gmail_direct','2026-09-11T12:00:00Z',$2)", [fixture.inquiryId, [{ id: 'r11_attachment', filename: '見積書 2026.09.11 龍姫湖まつり（改訂.pdf', mime_type: 'application/pdf', size: fixture.state.revisedQuote.length }]]);
   service = createService({
     fetchImpl: fixture.fetchImpl,
     sendTransport: async (job) => {
@@ -45,6 +55,23 @@ async function initialize(nextScenario = 'pending') {
       return { gmail_message_id: `fake-${job.id}`, gmail_thread_id: 'thread_123' };
     }
   });
+  const snapshot = service.snapshot.bind(service);
+  service.snapshot = async caseId => {
+    const data = await snapshot(caseId);
+    const commercial = data.documents.map(item => ({ material_id: `commercial:${item.id}`, case_id: caseId, source_type: 'commercial', source_id: item.id, category: item.document_kind, display_title: item.original_filename, original_filename: item.original_filename, mime_type: item.mime_type, source_date: item.created_at, visibility: 'internal', portal_publication_state: 'unchanged', is_current: item.document_kind === 'estimate', is_pinned: item.document_kind === 'estimate', open_capability: { kind: 'commercial_document', document_id: item.id } }));
+    const extras = Array.from({ length: Math.max(0, 20 - commercial.length) }, (_, index) => ({
+      material_id: `fixture-material-${index + 1}`, case_id: caseId, source_type: index < 5 ? 'portal' : 'gmail', source_id: `fixture-material-${index + 1}`,
+      category: index % 5 === 0 ? 'timetable' : index % 4 === 0 ? 'photo' : index % 3 === 0 ? 'layout' : 'other',
+      display_title: index === 0 ? 'タイムテーブル（現在）' : `関連資料 fixture ${String(index + 1).padStart(2, '0')}`,
+      original_filename: index % 4 === 0 ? `fixture-${index + 1}.png` : index === 7 ? '連絡表.xlsx' : `fixture-${index + 1}.pdf`,
+      mime_type: index % 4 === 0 ? 'image/png' : index === 7 ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf',
+      direction: index % 2 ? 'inbound' : 'outbound', source_date: `2026-09-${String(12 - (index % 9)).padStart(2, '0')}T01:00:00Z`, visibility: 'shared',
+      portal_publication_state: index < 5 ? 'current' : 'not_published', is_current: index === 0, is_pinned: index === 0,
+      open_capability: index < 5 ? { kind: 'portal_asset', asset_kind: index % 4 === 0 ? 'photo' : 'version', asset_id: crypto.randomUUID() }
+        : { kind: 'gmail_attachment', gmail_message_id: 'direct_sent_001', gmail_attachment_id: `fixture-${index + 1}` }
+    }));
+    return { ...data, related_materials: [...commercial, ...extras].slice(0, 20) };
+  };
   handler = createHandler({ service, admin: async token => {
     if (token !== 'fixture-admin') throw Error('not_authorized');
     return { id: fixture.actorId };
@@ -114,6 +141,13 @@ async function route(request, response) {
     try { body = JSON.parse(await readBody(request)); } catch { body = {}; }
     if (body.action === 'recovery_candidates') await new Promise(resolve => setTimeout(resolve, 150));
     return handler({ method: request.method, headers: request.headers, body, query: { surface: 'commercial' }, socket: request.socket }, adapt(response));
+  }
+  if (['/api/pa-portal', '/api/pa-gmail'].includes(url.pathname) && request.method === 'POST') {
+    const input = JSON.parse(await readBody(request));
+    if (input.inquiry_id !== fixture.inquiryId || !['download', 'attachment_download'].includes(input.action)) { response.statusCode = 400; return response.end('invalid'); }
+    const image = url.pathname === '/api/pa-portal' && input.asset_kind === 'photo' || String(input.gmail_attachment_id || '').match(/fixture-(?:1|5|9|13|17)$/u);
+    const bytes = image ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAQWZVJ8AAAAASUVORK5CYII=', 'base64') : fixture.quote;
+    response.setHeader('Content-Type', image ? 'image/png' : 'application/pdf'); return response.end(bytes);
   }
   if (url.pathname === '/__fixture/scenario' && request.method === 'POST') {
     const input = JSON.parse(await readBody(request));

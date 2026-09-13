@@ -37,7 +37,7 @@
 .pa-commercial__notice span { color: var(--muted); }
 .pa-commercial__notice button { margin-left: auto; }
 .pa-commercial__actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 8px; position: sticky; top: 5px; z-index: 8; }
-.pa-commercial__cards { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .95fr) minmax(0, 1fr); gap: 10px; }
+.pa-commercial__cards { align-items: start; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .95fr) minmax(0, 1fr); gap: 10px; }
 .pa-commercial-card { min-width: 0; padding: 12px; }
 .pa-commercial-card h3, .pa-commercial__files h3 { font-size: .92rem; margin: 0; }
 .pa-commercial-card__head, .pa-commercial__files-head { align-items: center; display: flex; justify-content: space-between; gap: 10px; }
@@ -57,6 +57,9 @@
 .pa-commercial__legacy-contract { border-top: 1px solid var(--pa-v5-line); margin-top: 10px; padding-top: 10px; }
 .pa-commercial__legacy-contract > h3 { display: none; }
 .pa-commercial__legacy-contract .action-panel { padding: 8px; }
+.pa-contract-history-toggle { margin-top: 7px; width: 100%; }
+.pa-contract-history-older { display: grid; gap: 7px; margin-top: 7px; }
+.pa-contract-history-older[hidden] { display: none; }
 .pa-commercial__files { min-width: 0; padding: 10px; }
 .pa-commercial__files-head { margin-bottom: 8px; }
 .pa-commercial__files-head p { margin: 2px 0 0; }
@@ -93,14 +96,11 @@
     .pa-commercial-card--status { grid-column: 1 / -1; }
 }
 @media (max-width: 720px) {
-    #pa-commercial-workspace { display: contents; }
+    #pa-commercial-workspace { display: grid; }
     #pa-commercial-workspace.hidden { display: none; }
-    .pa-commercial__notice { order: 0; }
-    .pa-commercial__actions { order: 1; position: static; }
-    .pa-commercial__cards { display: contents; }
-    .pa-commercial-card--status { order: 2; }
-    .pa-commercial__files { order: 3; }
-    .pa-commercial-card:not(.pa-commercial-card--status) { order: 4; }
+    .pa-commercial__actions { position: static; }
+    .pa-commercial__cards { grid-template-columns: minmax(0, 1fr); }
+    .pa-commercial-card--status { grid-column: auto; }
     .pa-commercial__notice { align-items: flex-start; flex-wrap: wrap; }
     .pa-commercial__notice button { margin-left: 0; }
     .pa-commercial-file { flex-basis: 142px; }

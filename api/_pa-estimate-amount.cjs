@@ -1,12 +1,19 @@
 const LABELS = [
-    { label: "御見積金額", priority: 120 },
-    { label: "見積金額", priority: 115 },
-    { label: "税込合計", priority: 110 },
-    { label: "合計金額", priority: 105 },
-    { label: "税込", priority: 100 },
-    { label: "合計", priority: 90 },
-    { label: "TOTAL", priority: 85 }
+    { label: "GRAND TOTAL", tier: "A", priority: 160 },
+    { label: "合計（税込）", tier: "A", priority: 155 },
+    { label: "御見積金額", tier: "A", priority: 150 },
+    { label: "御見積額", tier: "A", priority: 148 },
+    { label: "見積金額", tier: "A", priority: 147 },
+    { label: "見積総額", tier: "A", priority: 146 },
+    { label: "税込合計", tier: "A", priority: 144 },
+    { label: "税込総額", tier: "A", priority: 142 },
+    { label: "総合計", tier: "A", priority: 140 },
+    { label: "合計金額", tier: "B", priority: 120 },
+    { label: "税込", tier: "B", priority: 115 },
+    { label: "合計", tier: "B", priority: 110 },
+    { label: "TOTAL", tier: "B", priority: 105 }
 ];
+const EXCLUDED_LABELS = ["税抜小計", "明細金額", "SUBTOTAL", "消費税", "値引額", "DISCOUNT", "単価", "税額", "TAX", "小計"];
 const AMOUNT = /(?:[¥￥]\s*)?([0-9０-９]{1,3}(?:[,，][0-9０-９]{3})+|[0-9０-９]{1,10})(?:\s*(円|JPY))?/iu;
 
 const normalizeDigits = (value) => String(value || "").replace(/[０-９]/gu, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0));
@@ -16,27 +23,39 @@ const parseYen = (value) => {
     const amount = Number(normalized);
     return Number.isSafeInteger(amount) && amount > 0 && amount <= 9_999_999_999 ? amount : null;
 };
+const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const labelPattern = (label) => {
+    if (/^[A-Z ]+$/u.test(label)) return `(?<![A-Z])${escaped(label).replace(/ /gu, "\\s*")}(?![A-Z])`;
+    return [...label].map((glyph) => /\s/u.test(glyph) ? "\\s*" : escaped(glyph)).join("\\s*");
+};
+const hasExcludedLabel = (value) => EXCLUDED_LABELS.some((label) => new RegExp(labelPattern(label), "iu").test(value));
+
+const labelledAmount = (lines, labels) => {
+    for (const line of lines) {
+        for (const label of labels) {
+            const match = new RegExp(labelPattern(label), "iu").exec(line);
+            if (!match) continue;
+            const amount = line.slice(match.index + match[0].length, match.index + match[0].length + 48).match(AMOUNT);
+            const parsed = amount && parseYen(amount[1]);
+            if (parsed != null) return parsed;
+        }
+    }
+    return null;
+};
 
 const candidatesFromLines = (lines) => {
     const candidates = [];
     lines.forEach((line, lineIndex) => {
         const nextLine = lines[lineIndex + 1] || "";
         for (const definition of LABELS) {
-            const escaped = definition.label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-            // PDF text layers frequently split Japanese glyphs into separate
-            // text items. Allow whitespace introduced between label glyphs,
-            // while keeping ASCII labels on a strict word boundary.
-            const labelPattern = /^[A-Z]+$/u.test(definition.label)
-                ? `\\b${escaped}\\b`
-                : [...escaped].join("\\s*");
-            const expression = new RegExp(labelPattern, "giu");
+            const expression = new RegExp(labelPattern(definition.label), "giu");
             let labelMatch;
             while ((labelMatch = expression.exec(line))) {
                 const sameLineTail = line.slice(labelMatch.index + labelMatch[0].length, labelMatch.index + labelMatch[0].length + 64);
                 let amountMatch = sameLineTail.match(AMOUNT);
                 let sameLine = true;
                 let distance = amountMatch?.index ?? 999;
-                if (!amountMatch) {
+                if (!amountMatch && !hasExcludedLabel(nextLine.slice(0, 28))) {
                     amountMatch = nextLine.slice(0, 64).match(AMOUNT);
                     sameLine = false;
                     distance = amountMatch?.index ?? 999;
@@ -44,15 +63,13 @@ const candidatesFromLines = (lines) => {
                 if (!amountMatch || distance > 32) continue;
                 const amount = parseYen(amountMatch[1]);
                 if (amount == null) continue;
+                const between = sameLine ? sameLineTail.slice(0, distance) : nextLine.slice(0, distance);
+                if (hasExcludedLabel(between)) continue;
                 const currencyMarked = /^[¥￥]/u.test(amountMatch[0].trim()) || Boolean(amountMatch[2]);
                 const commaGrouped = /[,，]/u.test(amountMatch[1]);
                 if (!currencyMarked && !commaGrouped && distance > 8) continue;
-                candidates.push({
-                    amount_minor: amount,
-                    label: definition.label,
-                    line: lineIndex + 1,
-                    score: definition.priority + (sameLine ? 15 : 5) + (currencyMarked ? 8 : 0) + (commaGrouped ? 3 : 0) - Math.min(distance, 12)
-                });
+                candidates.push({ amount_minor: amount, label: definition.label, tier: definition.tier, line: lineIndex + 1,
+                    score: definition.priority + (sameLine ? 15 : 5) + (currencyMarked ? 8 : 0) + (commaGrouped ? 3 : 0) - Math.min(distance, 12) });
             }
         }
     });
@@ -62,20 +79,26 @@ const candidatesFromLines = (lines) => {
 const extractEstimateAmountFromText = (value) => {
     const lines = String(value || "").replace(/\r\n?/gu, "\n").split("\n").map((line) => line.replace(/\s+/gu, " ").trim()).filter(Boolean);
     const found = candidatesFromLines(lines);
-    if (!found.length) return { status: "NOT_FOUND", amount_minor: null, currency: "JPY", candidates: [] };
+    const subtotal = labelledAmount(lines, ["税抜小計", "SUBTOTAL", "小計"]);
+    const tax = labelledAmount(lines, ["消費税", "税額", "TAX"]);
+    const diagnostic = { subtotal_minor: subtotal, tax_minor: tax, total_tax_included_minor: null };
+    if (!found.length) return { status: "NOT_FOUND", amount_minor: null, currency: "JPY", candidates: [], ...diagnostic };
     const byAmount = new Map();
     for (const candidate of found) {
         const prior = byAmount.get(candidate.amount_minor);
-        if (!prior || candidate.score > prior.score) byAmount.set(candidate.amount_minor, candidate);
+        const arithmetic = subtotal != null && tax != null && subtotal + tax === candidate.amount_minor ? 12 : 0;
+        const corroboration = found.filter((item) => item.tier === "A" && item.amount_minor === candidate.amount_minor).length > 1 ? 6 : 0;
+        const scored = { ...candidate, score: candidate.score + arithmetic + corroboration };
+        if (!prior || scored.score > prior.score) byAmount.set(candidate.amount_minor, scored);
     }
+    const tierAAmounts = [...new Set(found.filter((candidate) => candidate.tier === "A").map((candidate) => candidate.amount_minor))];
     const ranked = [...byAmount.values()].sort((left, right) => right.score - left.score || left.line - right.line);
-    const top = ranked[0];
-    const competing = ranked[1];
-    const summary = ranked.slice(0, 5).map(({ amount_minor, label, line, score }) => ({ amount_minor, label, line, score }));
-    if (competing && competing.score >= top.score - 8) {
-        return { status: "AMBIGUOUS", amount_minor: null, currency: "JPY", candidates: summary };
-    }
-    return { status: "HIGH_CONFIDENCE", amount_minor: top.amount_minor, currency: "JPY", matched_label: top.label, candidates: summary };
+    const summary = ranked.slice(0, 5).map(({ amount_minor, label, tier, line, score }) => ({ amount_minor, label, tier, line, score }));
+    if (tierAAmounts.length > 1) return { status: "AMBIGUOUS", amount_minor: null, currency: "JPY", candidates: summary, ...diagnostic };
+    const top = tierAAmounts.length === 1 ? ranked.find((candidate) => candidate.amount_minor === tierAAmounts[0]) : ranked[0];
+    const competing = ranked.find((candidate) => candidate.amount_minor !== top.amount_minor);
+    if (!tierAAmounts.length && competing && competing.score >= top.score - 8) return { status: "AMBIGUOUS", amount_minor: null, currency: "JPY", candidates: summary, ...diagnostic };
+    return { status: "HIGH_CONFIDENCE", amount_minor: top.amount_minor, currency: "JPY", matched_label: top.label, candidates: summary, ...diagnostic, total_tax_included_minor: top.amount_minor };
 };
 
 let pdfJsPromise;
@@ -86,7 +109,6 @@ const pdfJs = async () => {
     });
     return pdfJsPromise;
 };
-
 const pdfTextLines = async (bytes) => {
     let task;
     try {
@@ -109,11 +131,8 @@ const pdfTextLines = async (bytes) => {
             for (const row of rows) lines.push(row.items.sort((left, right) => Number(left.transform?.[4] || 0) - Number(right.transform?.[4] || 0)).map((item) => item.str).join(" "));
         }
         return lines;
-    } finally {
-        if (task) await task.destroy();
-    }
+    } finally { if (task) await task.destroy(); }
 };
-
 const extractEstimateAmount = async (bytes) => {
     try {
         const lines = await pdfTextLines(bytes);
@@ -122,5 +141,4 @@ const extractEstimateAmount = async (bytes) => {
         return { status: "NOT_FOUND", amount_minor: null, currency: "JPY", candidates: [], page_text_available: false };
     }
 };
-
-module.exports = { LABELS, extractEstimateAmount, extractEstimateAmountFromText, parseYen, pdfTextLines };
+module.exports = { LABELS, EXCLUDED_LABELS, candidatesFromLines, extractEstimateAmount, extractEstimateAmountFromText, parseYen, pdfTextLines, labelPattern, hasExcludedLabel };

@@ -1,0 +1,25 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const commercial = fs.readFileSync(path.join(root, 'js', 'pa-commercial-admin.js'), 'utf8');
+const contract = fs.readFileSync(path.join(root, 'js', 'pa-contract-admin.js'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'pa-commercial.css'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
+
+assert.match(commercial, /実施確認前/u);
+assert.match(commercial, /精算確認前/u);
+assert.match(commercial, /状態未定義/u);
+assert.doesNotMatch(commercial, /appendLine\(nextRoot,\s*"(?:業務|精算)",\s*state\./u);
+assert.doesNotMatch(commercial, /請求書PDF・\$\{billing\.invoice_delivery_state\}/u);
+assert.match(commercial, /appendLine\(nextRoot,\s*"最終更新"/u);
+assert.match(commercial, /data\.related_materials\s*\|\|\s*data\.documents/u);
+assert.match(contract, /過去の正式受注確認/u);
+assert.match(contract, /older\.hidden=!expanded/u);
+assert.match(css, /\.pa-commercial__cards\s*\{[^}]*align-items:\s*start/us);
+assert.doesNotMatch(css, /\.pa-commercial-card[^\n{]*\{[^}]*height:\s*\d/us);
+const top = html.indexOf('pa-commercial__cards');
+const related = html.indexOf('pa-commercial__files');
+const communication = html.indexOf('communication-section');
+assert.ok(top >= 0 && related > top && communication > related, 'accepted top cards -> related materials -> communication order');
+console.log('PASS PA-EST-004R11 UI: accepted order, compact history, natural card height and Japanese state presentation');

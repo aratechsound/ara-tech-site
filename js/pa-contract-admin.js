@@ -9,7 +9,7 @@ export function renderContractPanel(context){
  active={id:context.case.id,caseRef:context.case,progressRef:context.progress,gmailRef:context.gmailRef};const current=++epoch,caseId=context.case.id;root.hidden=false;
  const valid=()=>current===epoch&&context.getCurrentCase()?.id===caseId;
  // Static markup only. Every case, PDF and server value below uses textContent.
- root.innerHTML=`<h3>正式受注・契約控え</h3><p data-c="state" role="status">読み込み中…</p><p data-c="next"></p><p data-c="meta"></p><p data-c="message" role="status"></p><div class="actions"><button type="button" data-c="reload" class="button button--secondary">状態を更新</button><button type="button" data-c="start" class="button">正式受注確認を開始</button></div>
+ root.innerHTML=`<h3>正式受注・契約控え</h3><div class="pa-contract-legacy-summary" hidden><p data-c="state" role="status">読み込み中…</p><p data-c="next"></p><p data-c="meta"></p><div class="actions"><button type="button" data-c="reload" class="button button--secondary">状態を更新</button><button type="button" data-c="start" class="button">正式受注確認を開始</button></div></div><p data-c="message" role="status"></p>
  <form data-c="form" hidden><p>お客様へ提示した最終見積PDFを明示的に指定してください。重要条件を変更する場合は新versionの確認URLを発行します。</p><div class="field"><label>最終見積PDF（案件の送付済み添付）<select data-c="quotes" required><option value="">選択してください</option></select></label></div><div class="actions"><button type="button" data-c="inspect" class="button button--secondary">選択したPDFを確認</button></div><p data-c="identity" class="small-note"></p>
  <div class="field"><label>契約上の顧客名<input data-c="customer" maxlength="400" required></label></div><div class="field"><label>税込契約金額（円）<input data-c="amount" type="number" min="1" max="999999999" step="1" required></label></div><div class="field"><label>依頼内容<textarea data-c="request" maxlength="10000" required></textarea></label></div><div class="field"><label>承認する別の支払条件（標準は終了後14日以内）<textarea data-c="payment" maxlength="2000"></textarea></label><label><input data-c="payment-approved" type="checkbox">別の支払条件をARA-TECHとして承認する</label></div><p>公開サイトの支払期間・キャンセル日程・雨天条件には今回の条件と差があります。今回の個別条件を確認して発行してください。</p><button data-c="issue" class="button" type="submit" disabled>この条件で確認URLを発行</button></form>
  <div data-c="issued" hidden><label>顧客向け確認URL<input data-c="url" readonly></label><p>URLはこの画面でのみ表示します。新規発行・再発行後の旧URLは利用できません。メールは自動送信されません。</p></div><div data-c="history"></div><div data-c="mail" hidden><h4>契約控えの送信前確認</h4><pre data-c="preview"></pre><label><input type="checkbox" data-c="ack">送信済みを確認し、再送による重複の可能性を了承する</label><button type="button" data-c="send" class="button">確認した宛先へ契約控えを送信</button></div>`;
@@ -59,7 +59,8 @@ export function renderContractPanel(context){
   const unfinished=[pending?'新versionの回答確認':'',last&&!last.receipt?'PDF生成':'',last&&!sent?'控え送信':'',!last?'正式受注確認':''].filter(Boolean);
   $('meta').textContent=`イベント日：${last?.snapshot.event_date||context.case.event_date||'未設定'} ／ 契約金額：${last?Number(last.snapshot.amount).toLocaleString('ja-JP')+'円（税込）':'未確定'} ／ 未完了：${unfinished.join('・')||'なし'}`;
   $('history').replaceChildren();
-  for(const h of data.history){
+  const older=document.createElement('div');older.className='pa-contract-history-older';older.hidden=true;
+  for(const [historyIndex,h] of data.history.entries()){
    const card=document.createElement('div');card.className='action-panel';
    const p=document.createElement('p');p.textContent=`v${h.version} / ${{active:'回答待ち',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
    if(h.state==='accepted'){
@@ -68,7 +69,11 @@ export function renderContractPanel(context){
     const mail=document.createElement('p');mail.textContent='控え送信：'+({sent:'送信済み',failed:'失敗（再送可能）',uncertain:'結果不明（Gmailの送信済みを確認）',sending:'処理中・結果確認中'}[h.delivery?.status]||'未送信');card.append(mail);
     if(h.delivery?.status==='sending'&&Date.now()-Date.parse(h.delivery.created_at)>600000)card.append(button('結果不明として再送確認へ進む',async()=>{await api('mark_uncertain',{contract_id:h.id});await refresh();}));
    }
-   $('history').append(card);
+   (historyIndex===0?$('history'):older).append(card);
+  }
+  if(data.history.length>1){
+   const count=data.history.length-1,toggle=button(`過去の正式受注確認 ${count}件を表示 ▸`,()=>{const expanded=older.hidden;older.hidden=!expanded;toggle.setAttribute('aria-expanded',String(expanded));toggle.textContent=expanded?'履歴を閉じる ▴':`過去の正式受注確認 ${count}件を表示 ▸`;});
+   toggle.classList.add('pa-contract-history-toggle');toggle.setAttribute('aria-expanded','false');$('history').append(toggle,older);
   }
  }
  $('customer').value=[context.case.organization_name,context.case.customer_name].filter(Boolean).join(' ');

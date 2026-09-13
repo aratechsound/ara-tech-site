@@ -30,6 +30,17 @@ document.getElementById('communication-section').classList.remove('hidden');
 document.getElementById('email-history').innerHTML = '<div id="gmail-timeline" class="mail-history"><article class="mail-history__item mail-history__item--sent"><strong>ARA-TECH → お客様</strong><span>正式受注確認のご案内（fake送信）</span></article></div>';
 renderCommercialWorkspace(context);
 
+const contractHistory = document.getElementById('formal-contract-panel');
+contractHistory.hidden = false;
+contractHistory.innerHTML = '<h3>正式受注・契約控え</h3><div class="action-panel"><p>v5 / 失効 / 見積書 第1版</p></div><button type="button" class="button button--secondary button--small pa-contract-history-toggle" aria-expanded="false">過去の正式受注確認 4件を表示 ▸</button><div class="pa-contract-history-older" hidden><div class="action-panel"><p>v4 / 失効</p></div><div class="action-panel"><p>v3 / 失効</p></div><div class="action-panel"><p>v2 / 失効</p></div><div class="action-panel"><p>v1 / 失効</p></div></div>';
+contractHistory.querySelector('.pa-contract-history-toggle').addEventListener('click', event => {
+    const older = contractHistory.querySelector('.pa-contract-history-older');
+    const expanded = older.hidden;
+    older.hidden = !expanded;
+    event.currentTarget.setAttribute('aria-expanded', String(expanded));
+    event.currentTarget.textContent = expanded ? '履歴を閉じる ▴' : '過去の正式受注確認 4件を表示 ▸';
+});
+
 let composerMode = 'normal';
 document.querySelectorAll('[data-gmail-composer-mode]').forEach((button) => button.addEventListener('click', () => {
     composerMode = button.dataset.gmailComposerMode;
