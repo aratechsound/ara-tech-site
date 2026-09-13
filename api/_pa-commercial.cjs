@@ -3,6 +3,7 @@ const mail = require('./_pa-mail.cjs');
 const gmail = require('./_pa-gmail.cjs');
 const pdf = require('./_pa-contract-pdf.cjs');
 const estimateAmount = require('./_pa-estimate-amount.cjs');
+const { canonicalAssetKey } = require('./_pa-portal-candidates.cjs');
 
 const SAFE = new Set([
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
@@ -160,14 +161,18 @@ const buildRelatedMaterials = ({ caseId, state, estimates = [], documents = [], 
   for (const message of gmailMessages) {
     for (const attachment of Array.isArray(message.attachment_metadata) ? message.attachment_metadata : []) {
       if (!businessAttachment(attachment)) continue;
-      const attachmentId = String(attachment.id || '');
+      const attachmentId = String(attachment.id || attachment.gmail_attachment_id || '');
       const identity = gmailIdentity(message.gmail_message_id, attachmentId);
       if (!identity) continue;
+      const identities = [
+        canonicalAssetKey(message.gmail_message_id, attachment.part_id || attachment.gmail_part_id),
+        identity
+      ];
       push({ material_id: identity, case_id: caseId, source_type: 'gmail', source_id: identity,
         category: materialCategory(attachment.filename, attachment.mime_type), display_title: attachment.filename,
         original_filename: attachment.filename, mime_type: String(attachment.mime_type || '').toLowerCase().split(';')[0], direction: message.direction,
         source_date: message.received_at || message.sent_at || message.indexed_at, visibility: 'conversation', portal_publication_state: 'not_published',
-        is_current: false, is_pinned: false, open_capability: { kind: 'gmail_attachment', gmail_message_id: message.gmail_message_id, gmail_attachment_id: attachmentId } }, identity);
+        is_current: false, is_pinned: false, open_capability: { kind: 'gmail_attachment', gmail_message_id: message.gmail_message_id, gmail_attachment_id: attachmentId } }, identities);
     }
   }
   const order = { estimate: 0, timetable: 10, layout: 20, photo: 30, performer: 40, invoice: 50, supporting: 60, other: 70 };
