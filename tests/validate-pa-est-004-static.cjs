@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const read = file => fs.readFileSync(file,'utf8');
-const sql = read('supabase/migrations/20260913110000_pa_case_management_v5.sql');
+const sql = read('supabase/migrations/20260913110000_pa_case_management_v5.sql') + read('supabase/migrations/20260913130000_pa_case_management_v5_r1.sql');
 const api = read('api/_pa-commercial.cjs');
 const page = read('pa-admin.html');
 const admin = read('js/pa-commercial-admin.js');
@@ -9,7 +9,7 @@ const security = read('api/_request-security.cjs');
 const preview = read('pa-est-004-preview.html') + read('js/pa-est-004-preview.js');
 
 for (const object of ['pa_estimate_revisions','pa_commercial_documents','pa_case_commercial_state','pa_commercial_outbox','pa_billings','pa_payment_adjustments','pa_change_orders']) assert.match(sql,new RegExp(`create table public\\.${object}`));
-for (const fn of ['pa_v5_begin_estimate_revision','pa_v5_issue_estimate','pa_v5_issue_confirmation','pa_v5_revoke_confirmation','pa_v5_outbox_claim','pa_v5_outbox_finish','pa_v5_confirm_fulfillment_and_settlement','pa_v5_create_billing','pa_v5_record_payment','pa_v5_adjust_payment','pa_v5_payment_and_close','pa_v5_reopen_case']) assert.match(sql,new RegExp(`create (?:or replace )?function public\\.${fn}`));
+for (const fn of ['pa_v5_begin_estimate_revision','pa_v5_issue_estimate','pa_v5_issue_confirmation','pa_v5_revoke_confirmation','pa_v5_outbox_claim','pa_v5_outbox_finish','pa_v5_confirm_fulfillment_and_settlement','pa_v5_create_billing','pa_v5_record_payment','pa_v5_record_prepayment','pa_v5_adjust_payment','pa_v5_payment_and_close','pa_v5_reopen_case']) assert.match(sql,new RegExp(`create (?:or replace )?function public\\.${fn}`));
 assert.match(sql,/accepted_contract_immutable|post_contract_change_required/);
 assert.match(sql,/revoke all on function public\.pa_contract_issue/);
 assert.match(api,/PA_MAIL_ADAPTER/); assert.match(api,/fake_adapter_requires_local_db/); assert.match(api,/mail_outcome_unknown/);

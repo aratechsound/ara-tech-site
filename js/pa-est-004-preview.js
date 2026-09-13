@@ -52,11 +52,11 @@ function statusText() {
 }
 function render() {
   $('estimate-panel').innerHTML = state.revision ? `<p class="preview-subtle">現在版 v${state.revision} · 発行済み原本</p><p class="preview-amount">${yen.format(state.estimate)}</p><dl class="preview-summary"><dt>条件</dt><dd>音響運営一式／架空条件</dd><dt>発行日</dt><dd>2026/10/26</dd></dl><div class="card-actions">${button('原本を開く','open-estimate')}${button('条件変更を開始','revise')}</div>` : `<div class="preview-callout">まだ見積版は発行されていません。</div><div class="card-actions">${button('見積を作成','compose-estimate',true)}${button('送信済み見積を登録','recover-estimate')}</div>`;
-  $('billing-panel').innerHTML = state.billing ? `<p class="preview-subtle">${state.billing.mode === 'separate' ? '請求書を別途発行' : '既存書類を使用・別途発行なし'}</p><p class="preview-amount">${yen.format(state.billing.amount)}</p><dl class="preview-summary"><dt>合意期限</dt><dd>${state.billing.due}</dd><dt>入金済み</dt><dd>${yen.format(state.paid)}</dd><dt>残額</dt><dd>${yen.format(Math.max(0,state.billing.amount-state.paid))}</dd></dl><div class="card-actions">${button('入金を確認','payment',true)}${state.paid ? button('誤登録を訂正','correct') : ''}</div>` : `<div class="preview-callout">請求条件は未登録です。実施日経過だけでは作成しません。</div><div class="card-actions">${button('請求書を発行','invoice',true)}${button('既存書類で管理','billing-existing')}</div>`;
+  $('billing-panel').innerHTML = state.billing ? `<p class="preview-subtle">${state.billing.mode === 'separate' ? '請求書を別途発行' : '既存書類を使用・別途発行なし'}</p><p class="preview-amount">${yen.format(state.billing.amount)}</p><dl class="preview-summary"><dt>合意期限</dt><dd>${state.billing.due}</dd><dt>入金済み</dt><dd>${yen.format(state.paid)}</dd><dt>残額</dt><dd>${yen.format(Math.max(0,state.billing.amount-state.paid))}</dd></dl><div class="card-actions">${state.closed ? button('入金記録を見る','payment',true) : button('入金を確認','payment',true)}${state.paid && !state.closed ? button('誤登録を訂正','correct') : ''}</div>` : `<div class="preview-callout">請求条件は未登録です。実施日経過だけでは作成しません。</div><div class="card-actions">${button('請求書を発行','invoice',true)}${button('既存書類で管理','billing-existing')}</div>`;
   const conf = state.confirmation;
   $('confirmation-badge').textContent = conf === 'accepted' ? '正式受注済み' : conf === 'pending' ? 'お客様確認待ち' : conf === 'revoked' ? '失効済み' : '未発行';
   $('confirmation-badge').className = `preview-badge${conf === 'accepted' ? ' ok' : conf === 'revoked' ? ' error' : ''}`;
-  $('confirmation-panel').innerHTML = `<dl class="preview-summary"><dt>対象見積</dt><dd>${state.revision ? `v${state.revision}（版固定）` : '未選択'}</dd><dt>状態</dt><dd>${$('confirmation-badge').textContent}</dd><dt>回答期限</dt><dd>${conf === 'pending' ? '2026/11/02' : '—'}</dd></dl>${conf === 'accepted' ? '<div class="preview-callout">承認済みスナップショットを保護します。通常の改訂では取消・上書きできません。</div>' : ''}<div class="card-actions">${state.revision && conf !== 'accepted' ? button('正式受注確認を発行','confirmation',true) : ''}${conf === 'pending' ? button('この確認だけ失効','revoke') : ''}</div>`;
+  $('confirmation-panel').innerHTML = `<dl class="preview-summary"><dt>対象見積</dt><dd>${state.revision ? `v${state.revision}（版固定）` : '未選択'}</dd><dt>状態</dt><dd>${$('confirmation-badge').textContent}</dd><dt>回答期限</dt><dd>${conf === 'pending' ? '2026/11/02' : '—'}</dd></dl>${conf === 'accepted' ? '<div class="preview-callout">承認済みスナップショットを保護します。通常の改訂では取消・上書きできません。</div>' : ''}<div class="card-actions">${state.revision && conf === 'none' ? button('正式受注確認を発行','confirmation',true) : ''}${conf === 'pending' ? `${button('案内内容を確認','open-confirmation')}${button('同じ確認を再案内','remind-confirmation')}${button('この確認だけ失効','revoke')}` : ''}</div>`;
   const [heading, detail] = statusText();
   $('next-panel').innerHTML = `<div class="preview-callout${state.unknown ? ' warn' : ''}"><strong>${state.unknown ? '同期状態は不明' : heading}</strong><p>${state.unknown ? '断定せず再同期・確認を案内します。' : detail}</p></div><div class="card-actions">${state.fulfilled && !state.settlement ? button('業務・精算完了を確認','settlement',true) : ''}${state.billing ? button('入金・完了画面','payment',true) : ''}${state.closed ? button('案件を再開','reopen') : ''}</div>`;
   $('sync-badge').textContent = state.unknown ? '同期状態不明' : 'ローカルfixture';
@@ -76,7 +76,7 @@ function pdfUrl() {
 }
 function renderFiles(list = files) {
   $('file-count').textContent = `${files.length}件`;
-  $('file-strip').innerHTML = list.slice(0,8).map((f,i) => `<button type="button" class="preview-file" data-file="${f.name}"><span class="preview-file__image">${i === 0 ? '<canvas data-pdf-thumbnail aria-label="見積書の実PDF先頭ページ"></canvas>' : i === 1 ? '<span class="sheet"><span>A</span><span>B</span><span>C</span><span>1</span><span>2</span><span>3</span></span>' : '<strong>ARA-TECH<br>LOCAL</strong>'}</span><span class="preview-file__meta"><strong>${f.pinned ? '★ ' : ''}${f.name}</strong><span>${f.type} · ${f.date}</span></span></button>`).join('');
+  $('file-strip').innerHTML = list.slice(0,8).map((f,i) => `<button type="button" class="preview-file" data-file="${f.name}"><span class="preview-file__image">${i === 0 ? '<canvas data-pdf-thumbnail aria-label="見積書の実PDF先頭ページ"></canvas>' : i === 1 ? '<img class="fixture-raster" alt="ローカル会場配置fixture" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAQWZVJ8AAAAASUVORK5CYII=">' : '<strong>ARA-TECH<br>LOCAL</strong>'}</span><span class="preview-file__meta"><strong>${f.pinned ? '★ ' : ''}${f.name}</strong><span>${f.type} · ${f.date}</span></span></button>`).join('');
   renderPdfThumbnail();
 }
 async function renderPdfThumbnail() {
@@ -109,12 +109,14 @@ function execute(action) {
   if (action === 'recover-estimate') { state.revision = Math.max(1,state.revision); state.estimate = 330000; toast('再送せず、送信済み原本を登録しました'); }
   if (action === 'correct') { state.paid = Math.max(0, state.paid - 10000); toast('元記録を残し、反対調整を追記しました'); }
   if (action === 'reopen') { state.closed = false; toast('理由付き再開をローカルfixtureへ記録'); }
+  if (action === 'remind-confirmation') toast('同一確認をfake再案内しました（新規発行なし）');
   render();
 }
 
 Object.entries(scenarios).forEach(([key,value]) => $('scenario-select').add(new Option(value.label,key)));
 $('scenario-select').value = 'pending';
 $('scenario-select').addEventListener('change', e => { state = structuredClone(scenarios[e.target.value]); render(); });
+$('scenario-reset').addEventListener('click', () => { state = structuredClone(scenarios[$('scenario-select').value]); dirty = false; render(); toast('シナリオを初期状態へ戻しました'); });
 document.querySelectorAll('[data-open-composer]').forEach(b => b.addEventListener('click', () => openComposer(b.dataset.openComposer)));
 document.querySelectorAll('[data-composer-mode]').forEach(b => b.addEventListener('click', () => { readDraft(); mode = b.dataset.composerMode; renderComposerMode(); writeDraft(); }));
 document.querySelectorAll('#composer-form input,#composer-form textarea').forEach(el => el.addEventListener('input', readDraft));
@@ -131,8 +133,10 @@ document.addEventListener('click', e => {
   if (action === 'invoice') return openComposer('invoice');
   if (action === 'payment') return openPayment();
   if (action === 'open-estimate') return window.open(pdfUrl(),'_blank','noopener');
+  if (action === 'open-confirmation') return toast('版固定された案内内容を表示しました');
+  if (action === 'remind-confirmation') return ask('同じ確認を再案内', '<p>新しい確認は発行せず、同一の有効な確認URLを再案内します。</p>', 'remind-confirmation', 'fake再案内');
   if (action === 'correct') return ask('誤登録訂正', '<p>元の入金記録は削除せず、反対調整を追記します。</p>', 'correct','訂正を記録');
-  const descriptions = { revise:'旧pendingがあれば失効し、新しいcurrent版へ同時に切り替えます。', revoke:'この未承認確認だけを失効します。', settlement:'業務実施と精算完了を確認します。', 'billing-existing':'請求書PDFを別途発行せず、金額と合意期限を管理します。', 'recover-estimate':'通常返信で送信済みの見積原本を、再送せず登録します。', reopen:'完了済み案件を理由付きで再開します。' };
+  const descriptions = { revise:'旧pendingがあれば失効し、新しいcurrent版へ同時に切り替えます。', revoke:'この未承認確認だけを失効します。', settlement:'業務実施と精算完了を確認します。', 'billing-existing':'請求書PDFを別途発行せず、金額と合意期限を管理します。', 'recover-estimate':'通常返信で送信済みの見積原本を、再送せず登録します。', reopen:'完了済み案件を理由付きで再開します。', 'remind-confirmation':'同一の確認を再案内しました。新しい確認は発行していません。' };
   ask('操作の確認', `<p>${descriptions[action]}</p>`, action);
 });
 function openPayment() {

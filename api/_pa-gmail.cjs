@@ -32,6 +32,7 @@ const caseReference = (value) => /^PA-\d{8}-\d{5}$/u.test(String(value || ""));
 const safeAddress = (value) => String(value || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
 const addressList = (value) => String(value || "").split(",")
     .map(safeAddress).filter((address) => EMAIL.test(address)).slice(0, 30);
+const uniqueAddresses = (values) => values.filter((address, index) => values.findIndex((item) => sameAddress(item, address)) === index);
 const replySubject = (value) => {
     const subject = cleanHeader(value, 240);
     if (/^re\s*:/iu.test(subject)) return subject;
@@ -520,8 +521,8 @@ const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "second
 };
 
 const previewSecret = () => String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, recipient, subject, body, mode, attachmentsHash, expiresAt }) => {
-    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, recipient, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, expiresAt });
+const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, body, mode, attachmentsHash, expiresAt }) => {
+    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, expiresAt });
     const signature = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
     return Buffer.from(payload).toString("base64url") + "." + signature;
 };
@@ -535,7 +536,8 @@ const verifyPreviewToken = (token, fields) => {
     const bodyHash = crypto.createHash("sha256").update(fields.body).digest("hex");
     if (Date.now() > Number(values.expiresAt) || values.inquiryId !== fields.inquiryId || values.actorId !== fields.actorId
         || values.threadId !== fields.threadId || values.replySourceMessageId !== fields.replySourceMessageId
-        || values.recipient !== fields.recipient || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash) {
+        || values.recipient !== fields.recipient || JSON.stringify(values.ccAddresses || []) !== JSON.stringify(fields.ccAddresses || [])
+        || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash) {
         throw new Error("invalid_confirmation");
     }
 };
@@ -568,7 +570,7 @@ const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySource
     if (!source || (explicit && source.direction !== "inbound")) throw new Error("invalid_reply_source");
     return { explicit, link, source };
 };
-const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
     const { explicit, link, source } = await resolveReplySource({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
     const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
@@ -578,6 +580,17 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
         ? safeAddress(latest.reply_to || latest.from_address)
         : safeAddress(Array.isArray(latest?.to_addresses) ? latest.to_addresses.find((address) => EMAIL.test(safeAddress(address))) : "");
     if (!EMAIL.test(recipient) || sameAddress(recipient, OFFICIAL_EMAIL)) throw new Error("reply_target_unavailable");
+    const allowedCc = uniqueAddresses([
+        latest?.from_address, latest?.reply_to,
+        ...(Array.isArray(latest?.to_addresses) ? latest.to_addresses : []),
+        ...(Array.isArray(latest?.cc_addresses) ? latest.cc_addresses : [])
+    ].map(safeAddress).filter((address) => EMAIL.test(address)
+        && !sameAddress(address, recipient) && !sameAddress(address, OFFICIAL_EMAIL)));
+    const requestedCc = ccAddresses === undefined || ccAddresses === null
+        ? allowedCc
+        : uniqueAddresses((Array.isArray(ccAddresses) ? ccAddresses : String(ccAddresses).split(",")).map(safeAddress).filter(Boolean));
+    if (requestedCc.length > 30 || requestedCc.some((address) => !EMAIL.test(address)
+        || !allowedCc.some((allowed) => sameAddress(allowed, address)))) throw new Error("invalid_reply_cc");
     const subject = replySubject(source.subject);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
@@ -592,26 +605,28 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
         reply_source_rfc_message_id: source.rfc_message_id,
         reply_source_references: source.references,
         recipient,
+        cc_addresses: requestedCc,
         subject,
         body: normalizedBody,
         html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
         attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size })),
-        confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, recipient, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),
+        confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),
         expires_at: new Date(expiresAt).toISOString()
     };
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", confirmationToken, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, replySourceMessageId, replySourceThreadId }, fetchImpl);
+    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
         inquiryId,
         actorId,
         threadId: preview.gmail_thread_id,
         replySourceMessageId: preview.reply_source_message_id,
         recipient: preview.recipient,
+        ccAddresses: preview.cc_addresses,
         subject: preview.subject,
         body: preview.body,
         mode: normalizedMode,
@@ -630,6 +645,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
             threadId: preview.gmail_thread_id,
             raw: buildRawMessage({
                 to: preview.recipient,
+                cc: preview.cc_addresses,
                 subject: preview.subject,
                 body: preview.body,
                 messageType: "customer_receipt",
@@ -649,6 +665,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         reply_source_message_id: preview.reply_source_message_id,
         gmail_message_id: sent.id,
         attachment_count: normalizedAttachments.length,
+        cc_count: preview.cc_addresses.length,
         attachment_filenames: normalizedAttachments.map((attachment) => attachment.filename)
     }, fetchImpl);
     const synced = await syncCase({ inquiryId, actorId }, fetchImpl);

@@ -315,6 +315,7 @@ let gmailReplyPreviewBinding = null;
 let gmailReplyAttachments = [];
 let gmailReplyMode = "normal";
 let gmailReplySource = null;
+let commercialComposerOperation = null;
 const MAX_GMAIL_REPLY_ATTACHMENTS = 10;
 const MAX_GMAIL_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 let currentSessionUser = null;
@@ -405,6 +406,9 @@ const openGmailReply = (message) => {
     gmailReplySource = Object.freeze({ inquiryId: currentCase.id, messageId: message.id, threadId: message.thread_id });
     setGmailReplyMode("normal");
     $("#gmail-reply-recipient").value = recipient;
+    if ($("#gmail-reply-cc")) $("#gmail-reply-cc").value = [...new Set([...(message?.to_addresses || []), ...(message?.cc_addresses || [])]
+        .map((value) => String(value).trim().toLowerCase())
+        .filter((value) => value && value !== GMAIL_OFFICIAL_ADDRESS && value !== recipient.toLowerCase()))].join(", ");
     $("#gmail-reply-subject").value = gmailReplySubjectForMessage(message.subject);
     $("#gmail-reply-body").value = "";
     gmailReplyAttachments = [];
@@ -2253,14 +2257,6 @@ const renderEmailHistory = () => {
                     ? "Gmailから受信"
                     : message.source === "gmail_direct" ? "Gmailから送信" : "PA案件管理から送信";
                 item.append(source);
-                if (message.direction === "outbound" && message.source === "gmail_direct") {
-                    const reconcile = document.createElement("button");
-                    reconcile.type = "button";
-                    reconcile.className = "button button--secondary button--small";
-                    reconcile.textContent = "この送信を見積提出として記録";
-                    reconcile.addEventListener("click", () => reconcileDirectEstimateSubmission(message, reconcile));
-                    item.append(reconcile);
-                }
                 if (message.body_html || message.body_text) {
                     const details = document.createElement("details");
                     const summary = document.createElement("summary");
@@ -3247,8 +3243,10 @@ const previewGmailReply = async () => {
     try {
         const attachments = await gmailReplyAttachmentPayload();
         const replySource = typeof gmailReplySource === "undefined" ? null : gmailReplySource;
+        const ccAddresses = [...new Set(($("#gmail-reply-cc")?.value || "").split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))];
         const response = await callGmailApi({
             action: "reply_preview", inquiry_id: currentCase.id, body: rawDraftBody, attachments, mode: gmailReplyMode,
+            cc_addresses: ccAddresses,
             ...(replySource ? { reply_source_message_id: replySource.messageId, reply_source_thread_id: replySource.threadId } : {})
         });
         gmailReplyPreview = response.preview;
@@ -3258,6 +3256,7 @@ const previewGmailReply = async () => {
             confirmationToken: response.preview.confirmation_token,
             recipient: response.preview.recipient,
             subject: response.preview.subject,
+            ccAddresses: Object.freeze([...(response.preview.cc_addresses || [])]),
             canonicalBody: response.preview.body,
             mode: response.preview.mode,
             replySourceExplicit: Boolean(response.preview.reply_source_explicit),
@@ -3269,6 +3268,7 @@ const previewGmailReply = async () => {
         $("#gmail-reply-recipient").value = response.preview.recipient;
         $("#gmail-reply-subject").value = response.preview.subject;
         $("#gmail-reply-preview-recipient").textContent = response.preview.recipient;
+        if ($("#gmail-reply-preview-cc")) $("#gmail-reply-preview-cc").textContent = (response.preview.cc_addresses || []).join(", ") || "なし";
         $("#gmail-reply-preview-subject").textContent = response.preview.subject;
         $("#gmail-reply-preview-body").textContent = response.preview.body;
         // The server uses this same renderer for the Gmail MIME HTML part.
@@ -3312,6 +3312,7 @@ const createGmailReplySendSnapshot = () => {
         confirmationToken: preview.confirmation_token,
         recipient: preview.recipient,
         subject: preview.subject,
+        ccAddresses: Object.freeze([...(preview.cc_addresses || [])]),
         rawDraftBody: $("#gmail-reply-body").value.trim(),
         canonicalBody: preview.body,
         mode: gmailReplyMode,
@@ -3329,6 +3330,7 @@ const createGmailReplySendSnapshot = () => {
         || preview.mode !== snapshot.mode || previewBinding.inquiryId !== snapshot.inquiryId
         || previewBinding.threadId !== snapshot.threadId || previewBinding.confirmationToken !== snapshot.confirmationToken
         || previewBinding.recipient !== snapshot.recipient || previewBinding.subject !== snapshot.subject
+        || JSON.stringify(previewBinding.ccAddresses || []) !== JSON.stringify(snapshot.ccAddresses)
         || previewBinding.canonicalBody !== snapshot.canonicalBody || previewBinding.mode !== snapshot.mode
         || Boolean(previewBinding.replySourceExplicit) !== snapshot.replySourceExplicit
         || previewBinding.replySourceMessageId !== snapshot.replySourceMessageId
@@ -3406,6 +3408,13 @@ const sendCommercialComposer = async (snapshot) => {
     if (!context || context.caseId !== snapshot.inquiryId) throw new Error("commercial_state_changed");
     const amount = Number($("#gmail-commercial-amount").value);
     if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("invalid_estimate");
+    const operationIdentity = JSON.stringify({ caseId: snapshot.inquiryId, mode: snapshot.mode, body: snapshot.rawDraftBody,
+        cc: snapshot.ccAddresses, amount: $("#gmail-commercial-amount").value, due: $("#gmail-commercial-due").value,
+        files: snapshot.attachments.map(({ file }) => [file.name, file.size, file.lastModified]) });
+    if (!commercialComposerOperation || commercialComposerOperation.identity !== operationIdentity) {
+        commercialComposerOperation = Object.freeze({ identity: operationIdentity, id: crypto.randomUUID(), documentId: crypto.randomUUID(), aggregateId: crypto.randomUUID() });
+    }
+    const operationId = commercialComposerOperation.id;
     let issued;
     if (snapshot.mode === "estimate_submission") {
         const pdfAttachment = snapshot.attachments.find(({ file }) => file.type === "application/pdf" || /\.pdf$/iu.test(file.name));
@@ -3414,10 +3423,10 @@ const sendCommercialComposer = async (snapshot) => {
         issued = await callCommercialApi({
             action: "issue_estimate", case_id: snapshot.inquiryId,
             expected_revision: context.state.revision, expected_current: context.state.current_estimate_revision_id,
-            operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: file.name,
+            operation_id: operationId, document_id: commercialComposerOperation.documentId, filename: file.name,
             content_base64: await base64UrlForFile(file), sha256: await sha256ForFile(file), amount_minor: amount,
             currency: "JPY", tax_basis: "tax_included", conditions: { source: "shared_composer", body: snapshot.rawDraftBody },
-            source_kind: "managed_send", source_sent_at: null, body: snapshot.rawDraftBody,
+            source_kind: "managed_send", source_sent_at: null, body: snapshot.rawDraftBody, cc_addresses: snapshot.ccAddresses,
             reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
         });
     } else if (snapshot.mode === "confirmation") {
@@ -3426,10 +3435,10 @@ const sendCommercialComposer = async (snapshot) => {
             ? snapshot.rawDraftBody : `${snapshot.rawDraftBody}\n\n{{CONFIRMATION_URL}}`;
         issued = await callCommercialApi({
             action: "issue_confirmation", case_id: snapshot.inquiryId, expected_revision: context.state.revision,
-            estimate_revision_id: context.currentEstimate.id, offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+            estimate_revision_id: context.currentEstimate.id, offer_id: commercialComposerOperation.aggregateId, operation_id: operationId,
             event_name: currentCase.event_name || currentCase.request_summary || "PA案件", event_date: currentCase.event_date,
             customer_acknowledgement: { estimate_revision_id: context.currentEstimate.id, amount_minor: context.currentEstimate.amount_minor, source: "shared_composer_final_confirmation" },
-            body_template: bodyTemplate,
+            body_template: bodyTemplate, cc_addresses: snapshot.ccAddresses,
             reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
         });
     } else if (snapshot.mode === "invoice") {
@@ -3440,15 +3449,17 @@ const sendCommercialComposer = async (snapshot) => {
         const due = $("#gmail-commercial-due").value || null;
         issued = await callCommercialApi({
             action: "create_billing", case_id: snapshot.inquiryId, expected_revision: context.state.revision,
-            operation_id: crypto.randomUUID(), contract_id: context.acceptedContract.id, estimate_revision_id: context.currentEstimate.id,
-            amount_minor: amount, invoice_policy: "separate_pdf", document_id: crypto.randomUUID(), filename: file.name,
+            operation_id: operationId, contract_id: context.acceptedContract.id, estimate_revision_id: context.currentEstimate.id,
+            amount_minor: amount, invoice_policy: "separate_pdf", document_id: commercialComposerOperation.documentId, filename: file.name,
             content_base64: await base64UrlForFile(file), sha256: await sha256ForFile(file), due_date: due,
             due_basis: due ? { status: "agreed", source: "shared_composer" } : { status: "unconfirmed", source: "shared_composer" },
             customer_planned_payment_on: null, agreement_evidence: { source: "shared_composer_final_confirmation" }, body: snapshot.rawDraftBody,
+            cc_addresses: snapshot.ccAddresses,
             reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
         });
     } else throw new Error("invalid_gmail_reply_mode");
     if (issued?.outbox_id) await callCommercialApi({ action: "dispatch_outbox", case_id: snapshot.inquiryId, job_id: issued.outbox_id });
+    commercialComposerOperation = null;
     return issued;
 };
 
@@ -3481,7 +3492,7 @@ const sendGmailReply = async () => {
         }
         const response = await callGmailApi({
             action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.rawDraftBody, attachments,
-            mode: snapshot.mode, confirmation_token: snapshot.confirmationToken,
+            mode: snapshot.mode, confirmation_token: snapshot.confirmationToken, cc_addresses: snapshot.ccAddresses,
             ...(snapshot.replySourceExplicit ? {
                 reply_source_message_id: snapshot.replySourceMessageId,
                 reply_source_thread_id: snapshot.replySourceThreadId
@@ -4032,6 +4043,7 @@ if (!isSupabaseConfigured) {
     $("#gmail-reply-body").addEventListener("input", () => {
         invalidateGmailReplyPreview();
     });
+    $("#gmail-reply-cc")?.addEventListener("input", invalidateGmailReplyPreview);
     $("#gmail-commercial-amount").addEventListener("input", invalidateGmailReplyPreview);
     $("#gmail-commercial-due").addEventListener("input", invalidateGmailReplyPreview);
     renderGmailReplyAttachments();

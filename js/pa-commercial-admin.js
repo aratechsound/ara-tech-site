@@ -27,6 +27,71 @@ const appendLine = (root, label, value, className = "") => {
     root.append(row);
 };
 
+const formDialog = (title, fields, confirmLabel = "確認して実行") => new Promise((resolve) => {
+    const dialog = element("dialog", "pa-commercial-dialog");
+    const form = document.createElement("form");
+    form.method = "dialog";
+    form.append(element("h3", "", title));
+    const controls = {};
+    fields.forEach((field) => {
+        const wrap = element("label", "field");
+        wrap.append(element("span", "", field.label));
+        const control = document.createElement(field.type === "select" ? "select" : field.type === "textarea" ? "textarea" : "input");
+        if (field.type !== "select" && field.type !== "textarea") control.type = field.type || "text";
+        control.name = field.name;
+        if (field.required) control.required = true;
+        if (field.value != null) control.value = field.value;
+        if (field.min != null) control.min = field.min;
+        if (field.type === "select") field.options.forEach(([value, label]) => control.append(new Option(label, value)));
+        controls[field.name] = control;
+        wrap.append(control);
+        form.append(wrap);
+    });
+    const actions = element("div", "actions actions--compact");
+    const cancel = button("キャンセル", () => dialog.close("cancel"));
+    const submit = button(confirmLabel, () => {}, "button button--small");
+    submit.type = "submit";
+    actions.append(cancel, submit);
+    form.append(actions);
+    dialog.append(form);
+    document.body.append(dialog);
+    dialog.addEventListener("close", () => {
+        const value = dialog.returnValue === "cancel" ? null : Object.fromEntries(Object.entries(controls).map(([name, control]) => [name, control.type === "file" ? control.files?.[0] : control.value]));
+        dialog.remove(); resolve(value);
+    }, { once: true });
+    dialog.showModal();
+});
+
+const filePayload = async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map((value) => value.toString(16).padStart(2, "0")).join("");
+    return { content_base64: btoa(binary), sha256: sha };
+};
+
+const openRecovery = async (context, state) => {
+    const candidates = await api(context, "recovery_candidates");
+    if (!candidates.length) return window.alert("この案件に復旧可能な送信済みPDFはありません。");
+    const values = await formDialog("送信済み見積を再送せず登録", [
+        { name: "candidate", label: "送信済みPDF", type: "select", options: candidates.map((item, index) => [String(index), `${item.source_sent_at || "送信日時不明"} / ${item.filename}${item.existing ? "（登録済み）" : ""}`]) },
+        { name: "mode", label: "登録方法", type: "select", options: [["current", "現在の見積として登録"], ["historical", "履歴としてのみ登録"]] },
+        { name: "amount", label: "見積金額（円）", type: "number", min: 1, required: true },
+        { name: "conditions", label: "見積条件（原本と照合した要約）", type: "textarea", required: true }
+    ], "再送せず登録");
+    if (!values) return;
+    const selected = candidates[Number(values.candidate)];
+    if (selected.existing) return window.alert(`登録済み見積：${selected.existing.estimate_revision_id}`);
+    await api(context, "recover_estimate", {
+        expected_revision: state.revision, expected_current: state.current_estimate_revision_id,
+        operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), mode: values.mode,
+        amount_minor: Number(values.amount), currency: "JPY", tax_basis: "tax_included",
+        conditions: { source: "owner_verified_sent_pdf", summary: values.conditions },
+        gmail_message_id: selected.gmail_message_id, gmail_attachment_id: selected.gmail_attachment_id
+    });
+    await context.refreshCommercial();
+};
+
 const api = async (context, action, input = {}, binary = false) => {
     const token = await context.getAccessToken();
     if (!token || context.getCurrentCase()?.id !== activeCaseId) throw Error("case_changed");
@@ -117,7 +182,7 @@ const render = async (context, data, epoch) => {
         await api(context, "begin_revision", { expected_revision: state.revision, operation_id: crypto.randomUUID(), reason });
         await context.refreshCommercial();
     }));
-    estimateActions.append(button("送信済みメールから登録", () => context.openRecovery()));
+    estimateActions.append(button("送信済みメールから登録", () => openRecovery(context, state)));
     estimateRoot.append(estimateActions);
 
     const billingRoot = byId("pa-billing-summary");
@@ -125,6 +190,7 @@ const render = async (context, data, epoch) => {
     if (!billing) {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--wait", "請求未準備"));
         appendLine(billingRoot, "最終精算額", money(state.final_settlement_minor, state.settlement_currency));
+        appendLine(billingRoot, "前払い確認済み", money(paid, current?.currency || "JPY"));
         appendLine(billingRoot, "請求書", "別途発行／既存書類を使用を選択");
     } else {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `請求 #${billing.billing_number}`));
@@ -135,6 +201,37 @@ const render = async (context, data, epoch) => {
         appendLine(billingRoot, "確認済み入金", money(paid, billing.currency));
     }
     const billingActions = element("div", "pa-commercial__compact-actions");
+    if (!billing && accepted && data.case_status !== "closed") {
+        billingActions.append(button("前払いを記録", async () => {
+            const values = await formDialog("前払いの手動確認", [
+                { name: "date", label: "入金確認日", type: "date", required: true },
+                { name: "amount", label: "確認した前払い額（円）", type: "number", min: 1, required: true },
+                { name: "memo", label: "確認メモ", type: "textarea", required: true }
+            ], "前払いとして記録");
+            if (!values) return;
+            await api(context, "record_prepayment", { operation_id: crypto.randomUUID(), payment_date: values.date, amount_minor: Number(values.amount), payment_method: "bank_transfer", memo: values.memo });
+            await context.refreshCommercial();
+        }));
+        if (data.payments?.length) billingActions.append(button("前払いを訂正", async () => {
+            const values = await formDialog("前払い記録の訂正", [
+                { name: "payment", label: "対象記録", type: "select", options: data.payments.filter((item) => !item.billing_id).map((item) => [item.id, `${item.payment_date} / ${money(item.amount_minor, current?.currency || "JPY")}`]) },
+                { name: "delta", label: "訂正差額（減額はマイナス）", type: "number", required: true },
+                { name: "reason", label: "訂正理由", type: "textarea", required: true }
+            ], "追記で訂正");
+            if (!values) return;
+            await api(context, "adjust_payment", { billing_id: null, payment_id: values.payment, operation_id: crypto.randomUUID(), delta_minor: Number(values.delta), reason: values.reason });
+            await context.refreshCommercial();
+        }));
+    }
+    if (accepted && state.fulfillment_state !== "confirmed") billingActions.append(button("実施・精算を確認", async () => {
+        const values = await formDialog("実施・精算確認", [
+            { name: "amount", label: "最終精算額（円）", type: "number", min: 0, required: true, value: current?.amount_minor || "" },
+            { name: "evidence", label: "確認根拠", type: "textarea", required: true }
+        ], "実施・精算を確定");
+        if (!values) return;
+        await api(context, "confirm_settlement", { expected_revision: state.revision, operation_id: crypto.randomUUID(), amount_minor: Number(values.amount), unresolved_changes: false, evidence: { source: "owner_review", note: values.evidence } });
+        await context.refreshCommercial();
+    }, "button button--small"));
     if (!billing && accepted && current && state.fulfillment_state === "confirmed" && state.settlement_state === "confirmed") {
         billingActions.append(button("請求書を添付して送る", () => context.openComposer("invoice"), "button button--small"));
         billingActions.append(button("既存書類で請求管理", async () => {
@@ -155,7 +252,47 @@ const render = async (context, data, epoch) => {
             await context.refreshCommercial();
         }));
     }
-    billingActions.append(button("請求・精算の詳細へ", () => context.focusBilling()));
+    if (billing?.state === "open") {
+        billingActions.append(button("入金を記録", async () => {
+            const values = await formDialog("手動入金確認", [
+                { name: "date", label: "入金確認日", type: "date", required: true },
+                { name: "amount", label: "確認した金額（円）", type: "number", min: 1, required: true },
+                { name: "memo", label: "確認メモ", type: "textarea" }
+            ], "入金のみ記録");
+            if (!values) return;
+            await api(context, "record_payment", { billing_id: billing.id, operation_id: crypto.randomUUID(), payment_date: values.date, amount_minor: Number(values.amount), payment_method: "bank_transfer", memo: values.memo });
+            await context.refreshCommercial();
+        }));
+        if (data.payments?.length) billingActions.append(button("誤登録を訂正", async () => {
+            const values = await formDialog("入金記録の訂正", [
+                { name: "payment", label: "対象記録", type: "select", options: data.payments.map((item) => [item.id, `${item.payment_date} / ${money(item.amount_minor, billing.currency)}`]) },
+                { name: "delta", label: "訂正差額（減額はマイナス）", type: "number", required: true },
+                { name: "reason", label: "訂正理由", type: "textarea", required: true }
+            ], "追記で訂正");
+            if (!values) return;
+            await api(context, "adjust_payment", { billing_id: billing.id, payment_id: values.payment, operation_id: crypto.randomUUID(), delta_minor: Number(values.delta), reason: values.reason });
+            await context.refreshCommercial();
+        }));
+        billingActions.append(button("案件完了を確認", async () => {
+            const balance = Number(billing.amount_minor) - paid;
+            const values = await formDialog("入金確認と案件完了", [
+                { name: "date", label: "追加入金確認日", type: "date", required: balance > 0 },
+                { name: "amount", label: "今回確認した金額（円）", type: "number", min: 0, required: true, value: Math.max(0, balance) },
+                { name: "memo", label: "確認メモ", type: "textarea", required: true }
+            ], "全条件を確認して完了");
+            if (!values) return;
+            await api(context, "close_case", { billing_id: billing.id, expected_revision: state.revision, operation_id: crypto.randomUUID(), payment_date: values.date || null, new_payment_minor: Number(values.amount), payment_method: Number(values.amount) ? "bank_transfer" : null, memo: values.memo });
+            await context.refreshCommercial();
+        }, "button button--small"));
+    } else if (billing) {
+        billingActions.append(button("入金記録を見る", () => context.focusBilling()));
+        billingActions.append(button("案件を再開", async () => {
+            const values = await formDialog("案件を再開", [{ name: "reason", label: "再開理由", type: "textarea", required: true }], "再開する");
+            if (!values) return;
+            await api(context, "reopen_case", { operation_id: crypto.randomUUID(), reason: values.reason });
+            await context.refreshCommercial();
+        }));
+    } else billingActions.append(button("請求・精算の詳細へ", () => context.focusBilling()));
     billingRoot.append(billingActions);
 
     const contractRoot = byId("pa-contract-v5-summary");
@@ -166,6 +303,13 @@ const render = async (context, data, epoch) => {
     if (active) {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
+        const activeDelivery = data.outbox.find((item) => item.aggregate_id === active.id && item.job_kind === "confirmation");
+        actions.append(button("案内内容を確認", () => context.openFileSearch()));
+        if (activeDelivery?.state === "sent") actions.append(button("同じ確認を再案内", async () => {
+            const result = await api(context, "remind_confirmation", { offer_id: active.id, expected_revision: state.revision, operation_id: crypto.randomUUID(), body_template: "正式受注確認の再案内です。内容は前回発行時から変更していません。\n\n{{CONFIRMATION_URL}}", cc_addresses: [] });
+            if (result.outbox_id) await api(context, "dispatch_outbox", { job_id: result.outbox_id });
+            await context.refreshCommercial();
+        }));
         actions.append(button("この確認だけを失効", async () => {
             const reason = window.prompt("失効理由を入力してください。新しい確認は発行しません。");
             if (!reason || !window.confirm("この未承認確認だけを失効しますか？")) return;
@@ -178,11 +322,43 @@ const render = async (context, data, epoch) => {
         contractRoot.append(element("p", "pa-commercial__label", "案内作成中はtokenを作らず、最終の発行・送信操作でだけ固定します。"));
         contractRoot.append(button("正式受注確認を送る", () => context.openComposer("confirmation"), "button button--small"));
     }
+    if (accepted) {
+        const change = data.change_orders?.[0];
+        const actions = element("div", "pa-commercial__compact-actions");
+        if ((!change || change.state === "agreed") && !billing) actions.append(button("受注後の変更提案", async () => {
+            const values = await formDialog("受注後の変更提案", [
+                { name: "amount", label: "追加変更額（円）", type: "number", min: 1, required: true },
+                { name: "conditions", label: "変更条件", type: "textarea", required: true },
+                { name: "file", label: "変更提案PDF", type: "file", required: true }
+            ], "提案を固定して送信");
+            if (!values?.file) return;
+            const bytes = await filePayload(values.file);
+            const result = await api(context, "create_change_proposal", {
+                expected_revision: state.revision, operation_id: crypto.randomUUID(), contract_id: accepted.id,
+                estimate_revision_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: values.file.name,
+                ...bytes, amount_minor: Number(values.amount), currency: "JPY", tax_basis: "tax_included",
+                conditions: { source: "owner_change_proposal", summary: values.conditions }, body: "受注後の変更提案を添付します。内容をご確認ください。", cc_addresses: []
+            });
+            if (result.outbox_id) await api(context, "dispatch_outbox", { job_id: result.outbox_id });
+            await context.refreshCommercial();
+        }));
+        if (change && change.state !== "agreed") actions.append(button("変更合意を記録", async () => {
+            const values = await formDialog("変更合意を記録", [
+                { name: "source", label: "合意根拠", type: "select", options: [["customer_email", "顧客メール"], ["phone_record", "通話記録"], ["signed_document", "署名済み書類"]] },
+                { name: "reference", label: "メールID・記録番号", required: true }
+            ], "合意を記録");
+            if (!values) return;
+            await api(context, "record_change_agreement", { change_order_id: change.id, expected_revision: state.revision, operation_id: crypto.randomUUID(), evidence: { source: values.source, reference: values.reference } });
+            await context.refreshCommercial();
+        }));
+        contractRoot.append(actions);
+    }
 
     const nextRoot = byId("pa-next-action-summary");
     nextRoot.replaceChildren();
     byId("pa-data-freshness").textContent = `取得 ${dateTime(new Date().toISOString())}`;
-    const next = pendingJob?.state === "unknown" ? "送信結果を照合してください。盲目的な再送・再発行はできません。"
+    const next = data.case_status === "closed" ? "案件は完了済みです。必要な場合だけ、理由を記録して再開してください。"
+        : pendingJob?.state === "unknown" ? "送信結果を照合してください。盲目的な再送・再発行はできません。"
         : state.estimate_change_state === "reconfirming" ? "条件再確認中です。新しい見積を作成してください。"
             : !current ? "最初の見積PDF・金額・条件を確認してください。"
                 : !accepted ? active ? "お客様の正式回答を待っています。" : "顧客了承の根拠を確認し、正式受注確認を準備してください。"

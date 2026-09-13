@@ -155,8 +155,10 @@ async function test(name, run) {
         vm.createContext(box);
         vm.runInContext(`${extract("renderEmailHistory")}\nthis.render = renderEmailHistory;`, box);
         box.render();
-        const inboundButtons = descendants(timeline.children[0]).filter((node) => node.tag === "button" && node.textContent === "このメールに返信");
-        const outboundButtons = descendants(timeline.children[1]).filter((node) => node.tag === "button" && node.textContent === "このメールに返信");
+        const inbound = timeline.children.find((node) => node.className.includes("--inbound"));
+        const outbound = timeline.children.find((node) => node.className.includes("--sent"));
+        const inboundButtons = descendants(inbound).filter((node) => node.tag === "button" && node.textContent === "このメールに返信");
+        const outboundButtons = descendants(outbound).filter((node) => node.tag === "button" && node.textContent === "このメールに返信");
         assert.equal(inboundButtons.length, 1);
         assert.equal(outboundButtons.length, 0);
     });

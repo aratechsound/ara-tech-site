@@ -1,5 +1,9 @@
 # PA-EST-004 Migration / Release Plan
 
+## R1 forward-only plan
+
+`20260913130000_pa_case_management_v5_r1.sql`を追加し、既存migrationは書換えない。見積復旧・再案内・変更契約に加え、請求前の前払い台帳と請求作成時の紐付けを同じforward migrationに含める。Production適用には別承認、legacy照合（特に既存のbilling未紐付けpayment）、backup/rollback計画、多接続PostgreSQL競合試験、RLS/ACL再確認、実Gmail限定試験が必要。今回は適用、push、deployを行わない。Docker修復前のため多接続gateは未通過。
+
 この文書は計画のみ。今回Productionへ適用しない。
 
 1. 所有者承認後、ProductionのHEAD、migration ledger、V5対象table/RPC不在、旧 `pa_contract_issue` 呼出元、未照合legacy offer/paymentをread-onlyで再確認する。

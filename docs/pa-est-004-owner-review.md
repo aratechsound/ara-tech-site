@@ -1,5 +1,27 @@
 # PA-EST-004 所有者レビュー
 
+## R1 実管理画面Preview
+
+起動: `node tests/pa-est-004-real-admin-server.cjs`
+
+入口: `http://127.0.0.1:8766/pa-est-004-real-admin-preview.html`
+
+実際の`pa-admin.html`、`js/pa-commercial-admin.js`、`api/_pa-commercial-handler.cjs`を、毎回作り直すPGlite fixtureとfake adapterへ結線するlocalhost専用harness。Productionの認証・DB・Storage・Gmail設定は使わない。画面上部で「正式受注確認待ち」「成立済み」「一部入金」を切り替えられ、切替時はfixture DBを再作成する。
+
+確認順:
+
+1. 上段3カード、関連資料、メールの順と、既存の案件詳細・連絡先・メモ・工程が残っていることを確認。
+2. 回答待ちでは「案内内容を確認」「同じ確認を再案内」「この確認だけを失効」が表示され、新規発行がないことを確認。
+3. 「送信済みメールから登録」でPDF候補、送信日時、current/historical、金額・条件確認を確認。
+4. 関連資料の実PNGとPDFを開く。
+5. 成立済みへ切替え、変更提案PDF→偽送信→根拠付き合意→追加額を含む精算を確認する。請求前の前払いと追記訂正が、後の請求へ引き継がれることも確認する。
+6. 一部入金へ切替え、50,000円入金済み・60,000円残額を確認。完了確認dialogで入金日、残額、メモを入力し、完了後の「入金記録を見る」「案件を再開」を確認。
+7. 共通ComposerのTo/CC/件名/本文/添付とモード切替を確認。外部宛送信は行わない。
+
+証跡はタスクoutputsの `PA-EST-004R1-real-admin-pending.png`、`PA-EST-004R1-real-admin-partial-initial.png`、`PA-EST-004R1-real-admin-closed.png`、4サイズの `PA-EST-004R1-real-admin-initial-*.png`、`PA-EST-004R1-db-readback-{initial,after}.json`、`PA-EST-004R1-layout-readback.json`。初期状態と操作後は別ファイルにしている。
+
+専用`pa-est-004-preview.html`は多状態の視覚比較用で、実DB/API操作証拠ではない。R1実管理画面Previewを機能確認の正とする。
+
 ## 起動
 
 worktreeで次を実行する。

@@ -1,5 +1,17 @@
 # PA-EST-004 実装設計
 
+## R1差分
+
+- forward migration `20260913130000_pa_case_management_v5_r1.sql`を追加。発行済みmigrationは書換えない。
+- 送信済み見積のdelivery evidenceと訂正をappend-only化。Gmail binaryはserverがcase/message/attachment固定で取得し、browserから任意byteを渡さない。
+- 同一正式受注確認の再案内は、元の暗号化secret envelopeを複製して同じoffer/token identityを使う。新しいtokenを発行しない。
+- 成立後変更は`change_order` seriesの提案・送信・明示的合意として分離し、成立済みcontractとpre-contract currentを上書きしない。
+- Composer CCはthread participant allow-list、preview token、outbox reply binding、MIME `Cc`まで固定。
+- outbox claimは送信直前にcurrent/token/change proposalを再検証し、stale jobをtransportへ渡さずcancelする。
+- adapter成功後のDB応答喪失はprovider message identityのreadbackでsent確定を復旧し、未確定ならunknownへ止める。期限切れworker leaseは同じjobを再claimする。
+- 成立後・請求前の手動前払いを既存payment ledgerへappend-only記録し、訂正も追記する。後の請求作成transaction内triggerでpaymentをbillingへ結び、全額前払いでも実施・精算・請求が揃うまで完了しない。
+- clientのoperation IDとdocument/offer IDを同一draftの再試行で保持し、serverは同一operationのpayload差替えを拒否する。
+
 ## 状態と不変条件
 
 - `pa_estimate_revisions` と `pa_commercial_documents` は発行後の原本を更新せず、caseごとの版番号とSHA-256で保持する。

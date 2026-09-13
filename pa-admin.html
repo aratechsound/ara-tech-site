@@ -274,6 +274,7 @@
                             <button type="button" class="button button--secondary button--small" data-gmail-composer-mode="confirmation">正式受注確認案内</button>
                         </div>
                         <div class="field"><label for="gmail-reply-recipient">To</label><input id="gmail-reply-recipient" type="email" readonly></div>
+                        <div class="field"><label for="gmail-reply-cc">CC（このスレッドの参加者のみ）</label><input id="gmail-reply-cc" type="text" autocomplete="off" placeholder="担当者@example.jp, 会場@example.jp"><p class="small-note">モードを切り替えても保持します。スレッド外の宛先はサーバーが拒否します。</p></div>
                         <div class="field"><label for="gmail-reply-subject">件名</label><input id="gmail-reply-subject" type="text" readonly></div>
                         <div class="field"><label for="gmail-reply-body">本文</label><textarea id="gmail-reply-body" class="email-body" maxlength="20000"></textarea></div>
                         <div id="gmail-commercial-fields" class="field hidden">
@@ -290,7 +291,7 @@
                             <button id="preview-gmail-reply" class="button button--secondary" type="button">プレビュー</button>
                             <button id="send-gmail-reply" class="button" type="button" disabled>最終確認後にGmail送信</button>
                         </div>
-<div id="gmail-reply-preview" class="mail-preview hidden"><h5>送信前プレビュー</h5><dl class="detail-list"><dt>To</dt><dd id="gmail-reply-preview-recipient"></dd><dt>件名</dt><dd id="gmail-reply-preview-subject"></dd><dt>本文</dt><dd><iframe id="gmail-reply-preview-frame" class="brand-mail-test-frame" title="送信前のARA-TECHメール" sandbox="allow-same-origin" referrerpolicy="no-referrer" hidden></iframe><details><summary>テキスト本文を確認</summary><div id="gmail-reply-preview-body" class="mail-preview__body"></div></details></dd><dt>添付</dt><dd id="gmail-reply-preview-attachments"></dd></dl></div>
+<div id="gmail-reply-preview" class="mail-preview hidden"><h5>送信前プレビュー</h5><dl class="detail-list"><dt>To</dt><dd id="gmail-reply-preview-recipient"></dd><dt>CC</dt><dd id="gmail-reply-preview-cc"></dd><dt>件名</dt><dd id="gmail-reply-preview-subject"></dd><dt>本文</dt><dd><iframe id="gmail-reply-preview-frame" class="brand-mail-test-frame" title="送信前のARA-TECHメール" sandbox="allow-same-origin" referrerpolicy="no-referrer" hidden></iframe><details><summary>テキスト本文を確認</summary><div id="gmail-reply-preview-body" class="mail-preview__body"></div></details></dd><dt>添付</dt><dd id="gmail-reply-preview-attachments"></dd></dl></div>
                         <p id="gmail-reply-message" class="alert hidden" aria-live="polite"></p>
                     </div>
                 </section>
