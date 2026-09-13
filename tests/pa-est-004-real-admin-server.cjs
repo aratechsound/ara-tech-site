@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const { createFixture } = require('./helpers/pa-contract-fixture.cjs');
 const { read } = require('./helpers/pa-estimate-fixture.cjs');
 const { createService } = require('../api/_pa-commercial.cjs');
+const { createService: createContractService } = require('../api/_pa-contract.cjs');
 const { createHandler } = require('../api/_pa-commercial-handler.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
 const { PDFDocument, StandardFonts } = require('pdf-lib');
@@ -17,6 +18,7 @@ const staticFiles = new Set([
   'img/favicon.ico', 'img/ARA-TECH ロゴ横 白.png'
 ]);
 process.env.PA_COMMERCIAL_OUTBOX_KEY = '44'.repeat(32);
+process.env.PA_MAIL_ADAPTER = 'gmail';
 process.env.PA_PUBLIC_ORIGIN = `http://127.0.0.1:${port}`;
 let fixture;
 let service;
@@ -38,7 +40,8 @@ async function initialize(nextScenario = 'pending') {
     read('20260913110000_pa_case_management_v5.sql') + '\n'
     + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
     + read('20260913170000_pa_case_management_v5_payment_race.sql') + '\n'
-    + read('20260913190000_pa_estimate_recovery_ux.sql')
+    + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n'
+    + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql')
   );
   await fixture.db.exec('create table if not exists public.pa_portals(id uuid primary key,case_id uuid not null unique);');
   const revisedPdf = await PDFDocument.create();
@@ -69,7 +72,7 @@ async function initialize(nextScenario = 'pending') {
       mime_type: index % 4 === 0 ? 'image/png' : index === 7 ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf',
       direction: index % 2 ? 'inbound' : 'outbound', source_date: `2026-09-${String(12 - (index % 9)).padStart(2, '0')}T01:00:00Z`, visibility: 'shared',
       portal_publication_state: index < 5 ? 'current' : 'not_published', is_current: index === 0, is_pinned: index === 0,
-      open_capability: index < 5 ? { kind: 'portal_asset', asset_kind: index % 4 === 0 ? 'photo' : 'version', asset_id: crypto.randomUUID() }
+      open_capability: index < 5 ? { kind: 'portal_asset', asset_kind: index % 4 === 0 ? 'photo' : 'version', asset_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}` }
         : { kind: 'gmail_attachment', gmail_message_id: 'direct_sent_001', gmail_attachment_id: `fixture-${index + 1}` }
     }));
     allowedPortalAssets.clear();
@@ -95,7 +98,7 @@ async function initialize(nextScenario = 'pending') {
     }, { id: fixture.actorId });
     await service.dispatch({ job_id: issued.outbox_id }, { id: fixture.actorId });
     let confirmation = null;
-    if (nextScenario !== 'revision') {
+    if (!['revision', 'preissue'].includes(nextScenario)) {
       confirmation = await service.issueConfirmation({
         case_id: fixture.inquiryId, expected_revision: 1, estimate_revision_id: issued.id,
         offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), event_name: '龍姫湖まつり2026（検証用）', event_date: '2026-10-18',
@@ -111,10 +114,12 @@ async function initialize(nextScenario = 'pending') {
       await fixture.db.query("insert into public.pa_estimate_revisions(id,inquiry_id,revision_number,document_id,amount_minor,currency,tax_basis,conditions_snapshot,source_kind,lifecycle,source_sent_at,issued_by,operation_id) values($1,$2,2,$3,198550,'JPY','tax_included',$4,'sent_recovery','issued','2026-09-11T12:00:00Z',$5,$6)", [estimateId, fixture.inquiryId, documentId, { source: 'local_recovered_fixture' }, fixture.actorId, crypto.randomUUID()]);
       await fixture.db.query('update public.pa_case_commercial_state set current_estimate_revision_id=$1,revision=revision+1,updated_at=now(),updated_by=$2 where inquiry_id=$3', [estimateId, fixture.actorId, fixture.inquiryId]);
     }
-    if (nextScenario === 'partial' || nextScenario === 'accepted') {
+    if (['partial', 'accepted', 'accepted-mail-failed'].includes(nextScenario)) {
       const token = confirmation.secret_url_returned_once.split('#')[1];
       const row = (await fixture.db.query('select snapshot_sha256 from public.pa_contract_offers where id=$1', [confirmation.id])).rows[0];
-      await rpc(fixture.db, 'pa_contract_accept', { p_token_hash: sha(token), p_offer_id: confirmation.id, p_snapshot_sha256: row.snapshot_sha256, p_name: '管理下テスト担当者', p_agree: true });
+      fixture.state.transport = nextScenario === 'accepted-mail-failed' ? 'fail' : 'ok';
+      await createContractService({ fetchImpl: fixture.fetchImpl }).accept({ token, offer_id: confirmation.id, snapshot_sha256: row.snapshot_sha256, confirmer_name: '管理下テスト担当者', agree: true });
+      fixture.state.transport = 'ok';
       if (nextScenario === 'partial') {
         await service.settle({ case_id: fixture.inquiryId, expected_revision: 1, operation_id: crypto.randomUUID(), amount_minor: 110000, unresolved_changes: false, evidence: { source: 'local_fixture' } }, { id: fixture.actorId });
         const billing = await service.createBilling({
@@ -152,7 +157,7 @@ function previewHtml() {
     .replace('<section id="dashboard" class="hidden">', '<section id="dashboard">')
     .replace(/<section id="detail-card" class="card hidden"/u, '<section id="detail-card" class="card"')
     .replace(/<script type="module" src="js\/pa-admin\.js[^"]*"><\/script>/u, '<script type="module" src="js/pa-est-004-real-admin-preview.js"></script>')
-    .replace('<main>', `<main><aside class="pa-commercial__notice" id="local-fixture-banner"><strong>LOCAL実管理画面／本番未接続</strong><span>PGlite実DB・実API handler・fake送信adapter。Production DB / Storage / Gmailへ接続しません。</span><label>シナリオ <select id="real-scenario"><option value="pending">正式受注確認待ち</option><option value="revision">改訂見積</option><option value="new">見積なし</option><option value="recovered">復旧見積</option><option value="accepted">正式受注済み・変更前</option><option value="partial">一部入金</option></select></label></aside>`);
+    .replace('<main>', `<main><aside class="pa-commercial__notice" id="local-fixture-banner"><strong>LOCAL実管理画面／本番未接続</strong><span>PGlite実DB・実API handler・fake送信adapter。Production DB / Storage / Gmailへ接続しません。</span><label>シナリオ <select id="real-scenario"><option value="pending">正式受注確認待ち</option><option value="preissue">正式受注確認発行前</option><option value="revision">改訂見積</option><option value="new">見積なし</option><option value="recovered">復旧見積</option><option value="accepted">正式受注済み・メール送信済み</option><option value="accepted-mail-failed">正式受注済み・メール送信失敗</option><option value="partial">一部入金</option></select></label></aside>`);
 }
 
 async function route(request, response) {
@@ -185,7 +190,7 @@ async function route(request, response) {
   }
   if (url.pathname === '/__fixture/scenario' && request.method === 'POST') {
     const input = JSON.parse(await readBody(request));
-    if (!['new', 'pending', 'revision', 'recovered', 'accepted', 'partial'].includes(input.scenario)) { response.statusCode = 400; return response.end('invalid'); }
+    if (!['new', 'preissue', 'pending', 'revision', 'recovered', 'accepted', 'accepted-mail-failed', 'partial'].includes(input.scenario)) { response.statusCode = 400; return response.end('invalid'); }
     await initialize(input.scenario); response.setHeader('Content-Type', 'application/json'); return response.end(JSON.stringify({ ok: true, scenario }));
   }
   if (url.pathname === '/__fixture/snapshot') {

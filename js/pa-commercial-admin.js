@@ -285,6 +285,16 @@ const api = async (context, action, input = {}, binary = false) => {
     if (!response.ok || !payload.ok) throw Error(payload.code || "commercial_request_failed");
     return payload.result;
 };
+const contractApi = async (context, action, input = {}, binary = false) => {
+    const token = await context.getAccessToken();
+    if (!token || context.getCurrentCase()?.id !== activeCaseId) throw Error("case_changed");
+    const response = await fetch("/api/pa-contract", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action, case_id: activeCaseId, ...input }), cache: "no-store" });
+    if (binary && response.ok) return response.blob();
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw Error(payload.code || "contract_request_failed");
+    return payload.result;
+};
+const saveBlob = (blob, filename) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => { const link = document.createElement("a"); link.href = String(reader.result); link.download = filename; link.click(); resolve(); }; reader.readAsDataURL(blob); });
 
 const estimateEntryFor = ({ current, accepted, active, change, billing }) => accepted
     ? { kind: "change_order", label: "変更見積を作成", available: (!change || change.state === "agreed") && !billing }
@@ -582,6 +592,17 @@ const render = async (context, data, epoch) => {
     contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${accepted ? "ok" : "wait"}`, `現在：${status}`));
     appendLine(contractRoot, "対象", accepted ? `見積 第${accepted.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${accepted.version}` : active ? `見積 第${active.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${active.version}` : current ? `見積 第${current.revision_number}版` : "見積なし");
     if (accepted) appendLine(contractRoot, "成立", dateTime(accepted.confirmed_at));
+    if (!accepted && !active && current && data.confirmation_preflight) {
+        const preflight = data.confirmation_preflight;
+        appendLine(contractRoot, "案件", preflight.event_name || "未設定");
+        appendLine(contractRoot, "顧客", [preflight.organization, preflight.contact_name].filter(Boolean).join(" ／ ") || "未設定");
+        appendLine(contractRoot, "開催日時", `${preflight.event_date || "未設定"}${preflight.event_time ? ` ${preflight.event_time}` : ""}`);
+        appendLine(contractRoot, "金額", money(current.amount_minor, current.currency));
+        appendLine(contractRoot, "PDF", data.documents.find((item) => item.id === current.document_id)?.original_filename || "未取得");
+        appendLine(contractRoot, "支払期限", preflight.payment_due_date || "未取得");
+        appendLine(contractRoot, "宛先", preflight.recipient || "未取得");
+        appendLine(contractRoot, "Gmail thread", preflight.gmail_thread_id || "未結線");
+    }
     if (active) {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
@@ -605,6 +626,15 @@ const render = async (context, data, epoch) => {
     }
     if (accepted) {
         const actions = element("div", "pa-commercial__compact-actions");
+        const receiptJob = data.outbox.find((item) => item.aggregate_id === accepted.id && item.job_kind === "accept_receipt");
+        const acceptedEstimate = data.estimates.find((item) => item.id === accepted.estimate_revision_id);
+        appendLine(contractRoot, "契約金額", money(accepted.snapshot?.amount_minor ?? accepted.snapshot?.estimate?.amount_minor, accepted.snapshot?.currency || accepted.snapshot?.estimate?.currency || "JPY"));
+        appendLine(contractRoot, "確認メール", receiptJob ? stateLabel("outbox", receiptJob.state) : "対象外");
+        actions.append(button("契約内容を見る", () => context.openFileSearch()));
+        actions.append(button("正式受注確認書PDF", async () => saveBlob(await contractApi(context, "receipt", { contract_id: accepted.id }, true), `正式受注確認書_v${accepted.version}.pdf`)));
+        if (acceptedEstimate) actions.append(button("見積PDF", async () => saveBlob(await api(context, "document", { document_id: acceptedEstimate.document_id }, true), data.documents.find((item) => item.id === acceptedEstimate.document_id)?.original_filename || "見積書.pdf")));
+        actions.append(button("実施準備へ", () => context.focusBilling()));
+        if (receiptJob?.state === "failed") actions.append(button("確認メールを再送", async () => { await api(context, "dispatch_outbox", { job_id: receiptJob.id }); await context.refreshCommercial(); }));
         if ((!change || change.state === "agreed") && !billing) actions.append(button("受注後の変更提案", () => openChangeProposal(context, state, accepted)));
         if (change && change.state !== "agreed") actions.append(button("変更合意を記録", async () => {
             const values = await formDialog("変更合意を記録", [

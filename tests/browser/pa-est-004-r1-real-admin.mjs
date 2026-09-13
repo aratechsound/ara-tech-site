@@ -18,6 +18,7 @@ page.on('request', request => {
   if (!url.startsWith(base) && !url.startsWith('blob:') && !url.startsWith('data:')) errors.push(`external request: ${url}`);
 });
 
+await page.request.post(`${base}/__fixture/scenario`, { data: { scenario: 'pending' } });
 await page.goto(`${base}/pa-est-004-real-admin-preview.html`, { waitUntil: 'networkidle' });
 assert.equal((await page.request.get(`${base}/.env`)).status(), 404, 'local harness serves only an explicit static allow-list');
 await page.locator('#pa-commercial-workspace:not(.hidden)').waitFor();
@@ -178,6 +179,7 @@ for (const layout of [
   auditPage.on('pageerror', error => errors.push(error.message));
   await auditPage.goto(`${base}/pa-est-004-real-admin-preview.html`, { waitUntil: 'networkidle' });
   await auditPage.locator('#pa-commercial-workspace:not(.hidden)').waitFor();
+  await auditPage.waitForTimeout(350);
   await auditPage.evaluate(() => {
     const anchor = window.matchMedia('(max-width: 720px)').matches
       ? document.querySelector('.pa-commercial-card--status')
