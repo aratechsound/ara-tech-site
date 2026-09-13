@@ -1,6 +1,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
 import { renderContractPanel } from "./pa-contract-admin.js";
+import { getCommercialDraftContext, renderCommercialWorkspace } from "./pa-commercial-admin.js";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -358,6 +359,7 @@ const invalidateGmailReplyPreview = () => {
     $("#gmail-reply-preview-frame").hidden = true;
 };
 const isEstimateSubmissionMode = () => gmailReplyMode === "estimate_submission";
+const isCommercialComposerMode = () => ["estimate_submission", "invoice", "confirmation"].includes(gmailReplyMode);
 const GMAIL_OFFICIAL_ADDRESS = "aratechsound@gmail.com";
 const gmailReplyRecipientForMessage = (message) => String(message?.reply_to || message?.from_address || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
 const gmailReplySubjectForMessage = (value) => {
@@ -365,14 +367,24 @@ const gmailReplySubjectForMessage = (value) => {
     return /^re\s*:/iu.test(subject) ? subject : `Re: ${subject}`.slice(0, 240);
 };
 const setGmailReplyMode = (mode = "normal") => {
-    gmailReplyMode = mode === "estimate_submission" ? "estimate_submission" : "normal";
+    gmailReplyMode = ["estimate_submission", "invoice", "confirmation"].includes(mode) ? mode : "normal";
     const estimateMode = isEstimateSubmissionMode();
-    $("#gmail-reply-title").textContent = estimateMode ? "見積書を送付" : gmailReplySource ? "このメールに返信" : "Gmailで返信";
+    const label = { estimate_submission: "見積書を送付", invoice: "請求書を送付", confirmation: "正式受注確認を案内" }[gmailReplyMode];
+    $("#gmail-reply-title").textContent = label || (gmailReplySource ? "このメールに返信" : "Gmailで返信");
     $("#gmail-reply-mode-note").textContent = estimateMode
         ? "見積提出モードです。既存のGmail threadを維持し、PCから選んだ見積書・関連資料を添付できます。送信前に本文・添付・宛先を確認してください。"
+        : gmailReplyMode === "invoice"
+            ? "請求モードです。請求書PDF、金額、合意した支払期限を確認し、最終操作でV5 outboxへ固定します。"
+            : gmailReplyMode === "confirmation"
+                ? "正式受注確認案内モードです。Composerを開く・切り替えるだけではtokenを作りません。"
         : gmailReplySource
             ? "選択した受信メールへの返信です。Gmail threadと返信ヘッダーを維持し、プレビューと最終確認を行うまで送信されません。"
             : "Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。";
+    document.querySelectorAll("[data-gmail-composer-mode]").forEach((node) => node.setAttribute("aria-selected", String(node.dataset.gmailComposerMode === gmailReplyMode)));
+    $("#gmail-commercial-fields")?.classList.toggle("hidden", !isCommercialComposerMode());
+    $("#gmail-commercial-due-field")?.classList.toggle("hidden", gmailReplyMode !== "invoice");
+    const context = getCommercialDraftContext();
+    if (context && !$("#gmail-commercial-amount").value) $("#gmail-commercial-amount").value = context.state.final_settlement_minor ?? context.currentEstimate?.amount_minor ?? "";
 };
 const openGmailReply = (message) => {
     if (!currentCase || message?.direction !== "inbound" || !message.id || !message.thread_id) return false;
@@ -414,7 +426,6 @@ const openEstimateSubmission = () => {
         setMessage(gmailSyncState, "先に案件進捗で「見積作成日」を保存してから、見積書を送付してください。", "error");
         return;
     }
-    gmailReplySource = null;
     setGmailReplyMode("estimate_submission");
     if (!$("#gmail-reply-body").value.trim()) {
         $("#gmail-reply-body").value = "見積書および関連資料を添付いたします。ご確認をお願いいたします。";
@@ -423,6 +434,25 @@ const openEstimateSubmission = () => {
     gmailReplyPanel.classList.remove("hidden");
     $("#gmail-reply-body").focus();
     setMessage($("#gmail-reply-message"), "見積提出モードを開きました。内容を編集し、添付を確認してからプレビューへ進んでください。", "info");
+};
+
+const openSharedComposer = (mode = "normal", options = {}) => {
+    if (mode === "estimate_submission") return openEstimateSubmission();
+    if (!currentCase || !currentGmailLink) {
+        setMessage(gmailSyncState, "既存のGmail threadが確認できません。同期または明示的な紐付けを先に行ってください。", "error");
+        $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+    }
+    if (["invoice", "confirmation"].includes(mode) && !getCommercialDraftContext()?.currentEstimate) {
+        setMessage(gmailSyncState, "先に現在の見積版を確定してください。", "error");
+        return;
+    }
+    setGmailReplyMode(mode);
+    if (mode === "confirmation" && !$("#gmail-reply-body").value.trim()) $("#gmail-reply-body").value = "正式受注確認の内容をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}";
+    if (mode === "invoice" && !$("#gmail-reply-body").value.trim()) $("#gmail-reply-body").value = "請求書を添付いたします。合意した支払期限とあわせてご確認ください。";
+    gmailReplyPanel.classList.remove("hidden");
+    $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+    (options.focusAttachments ? $("#gmail-reply-attachments-input") : $("#gmail-reply-body")).focus();
 };
 const renderGmailReplyAttachments = () => {
     const list = $("#gmail-reply-attachments");
@@ -848,6 +878,33 @@ const renderCurrentSituation = () => {
 
 const renderOverview = () => {
     renderContractPanel({ case: currentCase, progress: currentProgress, gmailRef: currentGmailTimeline, getCurrentCase: () => currentCase, getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token });
+    renderCommercialWorkspace({
+        case: currentCase,
+        progress: currentProgress,
+        gmailRef: currentGmailTimeline,
+        getCurrentCase: () => currentCase,
+        getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token,
+        openComposer: openSharedComposer,
+        openRecovery: () => {
+            $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+            setMessage(gmailSyncState, "送信済みメールのPDFを開き、対象case・宛先・message/attachment identity・金額・条件を確認して登録してください。メールは再送しません。", "info");
+        },
+        focusBilling: () => {
+            nextActionSection.classList.remove("hidden");
+            progressManagementSection.classList.remove("hidden");
+            progressManagementSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        },
+        focusNote: () => {
+            const memo = $("#internal-memo");
+            memo.closest("details").open = true;
+            memo.scrollIntoView({ behavior: "smooth", block: "center" });
+            memo.focus();
+        },
+        openFileSearch: () => {
+            $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+            setMessage(gmailSyncState, "関連資料の全件候補はGmail同期後の添付一覧で検索・確認できます。", "info");
+        }
+    });
     const portalLink = $("#open-case-portal");
     if (currentCase?.id) {
         portalLink.href = `/pa/cases/${encodeURIComponent(currentCase.id)}/portal`;
@@ -2178,7 +2235,7 @@ const renderEmailHistory = () => {
     emailHistory.replaceChildren();
     if (currentGmailTimeline.length) {
         [...currentGmailTimeline]
-            .sort((a, b) => new Date(a.occurred_at || 0).getTime() - new Date(b.occurred_at || 0).getTime())
+            .sort((a, b) => new Date(b.occurred_at || 0).getTime() - new Date(a.occurred_at || 0).getTime())
             .forEach((message) => {
                 const item = document.createElement("article");
                 item.className = `mail-history__item mail-history__item--${message.direction === "inbound" ? "inbound" : "sent"}`;
@@ -2940,6 +2997,22 @@ const callGmailApi = async (payload) => {
     if (!response.ok || !result.ok) throw new Error(result.code || "gmail_sync_failed");
     return result;
 };
+const sha256ForFile = async (file) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())))
+    .map((value) => value.toString(16).padStart(2, "0")).join("");
+
+const callCommercialApi = async (payload) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("not_authorized");
+    const response = await fetch("/api/pa-mail?surface=commercial", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) throw new Error(result.code || "commercial_request_failed");
+    return result.result;
+};
 
 const filenameFromContentDisposition = (value) => {
     const encoded = String(value || "").match(/filename\*=UTF-8''([^;]+)/iu)?.[1];
@@ -3328,15 +3401,84 @@ const reconcileDirectEstimateSubmission = async (message, button) => {
     }
 };
 
+const sendCommercialComposer = async (snapshot) => {
+    const context = getCommercialDraftContext();
+    if (!context || context.caseId !== snapshot.inquiryId) throw new Error("commercial_state_changed");
+    const amount = Number($("#gmail-commercial-amount").value);
+    if (!Number.isSafeInteger(amount) || amount < 1) throw new Error("invalid_estimate");
+    let issued;
+    if (snapshot.mode === "estimate_submission") {
+        const pdfAttachment = snapshot.attachments.find(({ file }) => file.type === "application/pdf" || /\.pdf$/iu.test(file.name));
+        if (!pdfAttachment) throw new Error("invalid_estimate");
+        const file = pdfAttachment.file;
+        issued = await callCommercialApi({
+            action: "issue_estimate", case_id: snapshot.inquiryId,
+            expected_revision: context.state.revision, expected_current: context.state.current_estimate_revision_id,
+            operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: file.name,
+            content_base64: await base64UrlForFile(file), sha256: await sha256ForFile(file), amount_minor: amount,
+            currency: "JPY", tax_basis: "tax_included", conditions: { source: "shared_composer", body: snapshot.rawDraftBody },
+            source_kind: "managed_send", source_sent_at: null, body: snapshot.rawDraftBody,
+            reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
+        });
+    } else if (snapshot.mode === "confirmation") {
+        if (!context.currentEstimate || context.acceptedContract || context.activeConfirmation) throw new Error("invalid_confirmation");
+        const bodyTemplate = snapshot.rawDraftBody.includes("{{CONFIRMATION_URL}}")
+            ? snapshot.rawDraftBody : `${snapshot.rawDraftBody}\n\n{{CONFIRMATION_URL}}`;
+        issued = await callCommercialApi({
+            action: "issue_confirmation", case_id: snapshot.inquiryId, expected_revision: context.state.revision,
+            estimate_revision_id: context.currentEstimate.id, offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+            event_name: currentCase.event_name || currentCase.request_summary || "PA案件", event_date: currentCase.event_date,
+            customer_acknowledgement: { estimate_revision_id: context.currentEstimate.id, amount_minor: context.currentEstimate.amount_minor, source: "shared_composer_final_confirmation" },
+            body_template: bodyTemplate,
+            reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
+        });
+    } else if (snapshot.mode === "invoice") {
+        if (!context.currentEstimate || !context.acceptedContract || context.billing) throw new Error("invalid_billing");
+        const pdfAttachment = snapshot.attachments.find(({ file }) => file.type === "application/pdf" || /\.pdf$/iu.test(file.name));
+        if (!pdfAttachment) throw new Error("invalid_billing");
+        const file = pdfAttachment.file;
+        const due = $("#gmail-commercial-due").value || null;
+        issued = await callCommercialApi({
+            action: "create_billing", case_id: snapshot.inquiryId, expected_revision: context.state.revision,
+            operation_id: crypto.randomUUID(), contract_id: context.acceptedContract.id, estimate_revision_id: context.currentEstimate.id,
+            amount_minor: amount, invoice_policy: "separate_pdf", document_id: crypto.randomUUID(), filename: file.name,
+            content_base64: await base64UrlForFile(file), sha256: await sha256ForFile(file), due_date: due,
+            due_basis: due ? { status: "agreed", source: "shared_composer" } : { status: "unconfirmed", source: "shared_composer" },
+            customer_planned_payment_on: null, agreement_evidence: { source: "shared_composer_final_confirmation" }, body: snapshot.rawDraftBody,
+            reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
+        });
+    } else throw new Error("invalid_gmail_reply_mode");
+    if (issued?.outbox_id) await callCommercialApi({ action: "dispatch_outbox", case_id: snapshot.inquiryId, job_id: issued.outbox_id });
+    return issued;
+};
+
 const sendGmailReply = async () => {
     if (!currentCase || !gmailReplyPreview) return;
-    if (!window.confirm(`${gmailReplyPreview.recipient} へGmailで返信します。送信しますか？`)) return;
+    if (!window.confirm(`${gmailReplyPreview.recipient} へ${["estimate_submission", "invoice", "confirmation"].includes(gmailReplyMode) ? "固定済み業務内容を発行して送信" : "Gmailで返信"}します。続行しますか？`)) return;
     let snapshot;
     $("#send-gmail-reply").disabled = true;
     try {
         snapshot = createGmailReplySendSnapshot();
         if (!snapshot) return;
         const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
+        if (["invoice", "confirmation"].includes(gmailReplyMode)
+            || (gmailReplyMode === "estimate_submission" && typeof getCommercialDraftContext === "function")) {
+            await sendCommercialComposer(snapshot);
+            if (isGmailReplySnapshotSelected(snapshot)) {
+                gmailReplyPreview = null;
+                gmailReplyPreviewBinding = null;
+                $("#gmail-reply-body").value = "";
+                gmailReplyAttachments = [];
+                gmailReplySource = null;
+                $("#gmail-reply-attachments-input").value = "";
+                renderGmailReplyAttachments();
+                $("#gmail-reply-preview").classList.add("hidden");
+                setGmailReplyMode("normal");
+                setMessage($("#gmail-reply-message"), "V5 outboxの固定内容を送信しました。", "success");
+                await syncGmail({ inquiryId: snapshot.inquiryId });
+            }
+            return;
+        }
         const response = await callGmailApi({
             action: "send_reply", inquiry_id: snapshot.inquiryId, body: snapshot.rawDraftBody, attachments,
             mode: snapshot.mode, confirmation_token: snapshot.confirmationToken,
@@ -3369,6 +3511,7 @@ const sendGmailReply = async () => {
         }
     } catch (error) {
         if (snapshot && !isGmailReplySnapshotSelected(snapshot)) return;
+        if (snapshot && ["estimate_submission", "invoice", "confirmation"].includes(snapshot.mode)) renderOverview();
         const message = error.message === "estimate_creation_required"
             ? "Gmail送信は完了しましたが、見積作成日が未保存のため工程を更新していません。"
             : error.message === "estimate_progress_update_failed"
@@ -3876,6 +4019,10 @@ if (!isSupabaseConfigured) {
     $("#send-email").addEventListener("click", sendEmail);
     $("#sync-gmail").addEventListener("click", () => syncGmail());
     $("#open-estimate-submission").addEventListener("click", openEstimateSubmission);
+    document.querySelectorAll("[data-gmail-composer-mode]").forEach((button) => button.addEventListener("click", () => {
+        openSharedComposer(button.dataset.gmailComposerMode);
+        invalidateGmailReplyPreview();
+    }));
     $("#preview-gmail-reply").addEventListener("click", previewGmailReply);
     $("#send-gmail-reply").addEventListener("click", sendGmailReply);
     $("#gmail-reply-attachments-input").addEventListener("change", (event) => {
@@ -3885,6 +4032,8 @@ if (!isSupabaseConfigured) {
     $("#gmail-reply-body").addEventListener("input", () => {
         invalidateGmailReplyPreview();
     });
+    $("#gmail-commercial-amount").addEventListener("input", invalidateGmailReplyPreview);
+    $("#gmail-commercial-due").addEventListener("input", invalidateGmailReplyPreview);
     renderGmailReplyAttachments();
     $("#preview-brand-mail-test").addEventListener("click", previewBrandMailTest);
     $("#send-brand-mail-test").addEventListener("click", sendBrandMailTest);

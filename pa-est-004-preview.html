@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <meta name="referrer" content="no-referrer">
+    <link rel="icon" href="data:,">
+    <title>PA-EST-004 Owner Review Preview</title>
+    <link rel="stylesheet" href="pa-commercial.css?v=pa-est-004-preview">
+    <link rel="stylesheet" href="pa-est-004-preview.css?v=pa-est-004-preview">
+</head>
+<body>
+<main class="preview-page">
+    <aside class="demo-banner" role="status"><strong>デモデータ／本番未接続</strong><span>LOCAL DB fixture · local private documents · fake mail adapter · 外部送信なし</span></aside>
+    <header class="preview-header">
+        <div><p class="preview-eyebrow">PA CASE / REVIEW-FIXTURE-004</p><h1>秋空フェス 音響運営（架空案件）</h1><p class="preview-meta">2026/11/08 · 架空市民広場 · Sample Events 合同会社 · demo-customer@example.invalid</p></div>
+        <label class="scenario-picker">確認シナリオ<select id="scenario-select"></select></label>
+    </header>
+    <nav class="preview-actions" aria-label="主要操作">
+        <button data-open-composer="normal" class="preview-button preview-button--primary" type="button">返信</button>
+        <button data-open-composer="estimate" class="preview-button" type="button">見積</button>
+        <button id="add-document" class="preview-button" type="button">資料追加</button>
+        <button id="open-note" class="preview-button" type="button">案件メモ</button>
+        <a href="#legacy-details" class="preview-button preview-button--quiet">案件詳細</a>
+    </nav>
+
+    <section class="preview-cards" aria-label="主要業務状態">
+        <article class="preview-card">
+            <header class="preview-card__header"><h2>見積・請求</h2><div class="preview-tabs" role="tablist"><button id="estimate-tab" role="tab" aria-selected="true" type="button">見積</button><button id="billing-tab" role="tab" aria-selected="false" type="button">請求</button></div></header>
+            <div id="estimate-panel" role="tabpanel" class="preview-card__body"></div>
+            <div id="billing-panel" role="tabpanel" class="preview-card__body" hidden></div>
+        </article>
+        <article class="preview-card">
+            <header class="preview-card__header"><h2>正式受注確認</h2><span id="confirmation-badge" class="preview-badge"></span></header>
+            <div id="confirmation-panel" class="preview-card__body"></div>
+        </article>
+        <article class="preview-card preview-card--next">
+            <header class="preview-card__header"><h2>現在の状況・次の対応</h2><span id="sync-badge" class="preview-subtle">同期済み</span></header>
+            <div id="next-panel" class="preview-card__body"></div>
+        </article>
+    </section>
+
+    <section class="preview-files" aria-labelledby="files-title">
+        <header><div><h2 id="files-title">関連資料</h2><p><span id="file-count"></span> · 固定した資料を先に表示 · ポータルへ自動公開しません</p></div><div><button id="files-prev" class="preview-icon-button" type="button" aria-label="前の資料">←</button><button id="files-next" class="preview-icon-button" type="button" aria-label="次の資料">→</button><button id="open-library" class="preview-button preview-button--small" type="button">全件・検索</button></div></header>
+        <div id="file-strip" class="preview-file-strip" tabindex="0"></div>
+    </section>
+
+    <section class="preview-mail" aria-labelledby="mail-title">
+        <header><div><h2 id="mail-title">顧客コミュニケーション</h2><p>最新 → 古い順 · 判定根拠と同期状態を分離</p></div><button data-open-composer="normal" class="preview-button preview-button--small" type="button">返信</button></header>
+        <div class="mail-attention"><strong>要確認 1件</strong><span>最新の受信メールは未確認です。「未返信なし」とは推定しません。</span></div>
+        <div id="mail-list"></div>
+    </section>
+
+    <details id="legacy-details" class="legacy-details">
+        <summary>案件詳細・連絡先・内部メモ・14工程・監査・既存ポータル導線</summary>
+        <div class="legacy-grid"><section><h3>連絡先</h3><p>Sample Events 合同会社<br>デモ担当者<br>demo-customer@example.invalid</p></section><section><h3>案件メモ</h3><textarea id="case-note">搬入口は架空の北ゲート。実データではありません。</textarea></section><section><h3>14工程</h3><ol id="workflow-list"></ol></section><section><h3>既存導線</h3><p>日程確保 · 履歴・監査 · ゴミ箱（保全対象はpurge不可） · イベント資料ポータル · Stage Plot Editor</p></section></div>
+    </details>
+</main>
+
+<dialog id="composer-dialog" aria-labelledby="composer-title">
+    <form method="dialog" class="preview-dialog" id="composer-form">
+        <header><div><p class="preview-eyebrow">SHARED COMPOSER</p><h2 id="composer-title">メール作成</h2></div><button value="cancel" class="preview-icon-button" aria-label="閉じる">×</button></header>
+        <div class="composer-modes" role="tablist" aria-label="メール種別"><button type="button" data-composer-mode="normal">通常返信</button><button type="button" data-composer-mode="estimate">見積</button><button type="button" data-composer-mode="invoice">請求</button><button type="button" data-composer-mode="confirmation">正式受注確認案内</button></div>
+        <div class="composer-grid"><label>To<input id="composer-to" type="email"></label><label>CC<input id="composer-cc" type="text"></label><label class="wide">件名<input id="composer-subject"></label><label class="wide">返信対象<input id="composer-thread" readonly></label><label class="wide">本文<textarea id="composer-body"></textarea></label><label class="wide">添付<input id="composer-attachment" type="text" placeholder="例：estimate-fixture-v2.pdf"></label></div>
+        <section id="composer-commercial-fields" class="composer-commercial"></section>
+        <p class="dialog-note">モード切替では To / CC / 件名 / 本文 / 添付 / 返信対象 / threadId を保持します。ここでの送信は fake adapter のデモ状態だけを更新します。</p>
+        <footer><button id="save-draft" value="save" class="preview-button" type="button">下書き保存</button><button id="preview-send" value="send" class="preview-button preview-button--primary" type="button">内容を確認</button></footer>
+    </form>
+</dialog>
+
+<dialog id="confirm-dialog" aria-labelledby="confirm-title"><form method="dialog" class="preview-dialog preview-dialog--small"><h2 id="confirm-title">最終確認</h2><div id="confirm-body"></div><footer><button value="cancel" class="preview-button">戻る</button><button id="confirm-action" value="default" class="preview-button preview-button--primary" type="button">確定</button></footer></form></dialog>
+<dialog id="library-dialog" aria-labelledby="library-title"><form method="dialog" class="preview-dialog"><header><h2 id="library-title">関連資料 全件</h2><button value="cancel" class="preview-icon-button" aria-label="閉じる">×</button></header><label>検索<input id="library-search" type="search" placeholder="ファイル名・種別・送受信"></label><div id="library-results" class="library-results"></div></form></dialog>
+<dialog id="payment-dialog" aria-labelledby="payment-title"><form method="dialog" class="preview-dialog preview-dialog--small" id="payment-form"><h2 id="payment-title">入金を確認・案件を完了</h2><dl id="payment-summary"></dl><label>今回の入金額<input id="payment-amount" type="number" min="0" step="1"></label><label>実際の入金日<input id="payment-date" type="date"></label><label><input id="payment-checked" type="checkbox"> 銀行等で実入金を確認しました</label><label>メモ<textarea id="payment-note"></textarea></label><p id="payment-warning" class="dialog-note"></p><footer><button value="cancel" class="preview-button">戻る</button><button id="record-payment-only" type="button" class="preview-button">入金のみ記録</button><button id="close-case" type="button" class="preview-button preview-button--primary">入金記録＋完了</button></footer></form></dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="js/pa-est-004-preview.js?v=pa-est-004-preview"></script>
+</body>
+</html>

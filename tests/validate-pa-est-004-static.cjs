@@ -1,0 +1,21 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const read = file => fs.readFileSync(file,'utf8');
+const sql = read('supabase/migrations/20260913110000_pa_case_management_v5.sql');
+const api = read('api/_pa-commercial.cjs');
+const page = read('pa-admin.html');
+const admin = read('js/pa-commercial-admin.js');
+const security = read('api/_request-security.cjs');
+const preview = read('pa-est-004-preview.html') + read('js/pa-est-004-preview.js');
+
+for (const object of ['pa_estimate_revisions','pa_commercial_documents','pa_case_commercial_state','pa_commercial_outbox','pa_billings','pa_payment_adjustments','pa_change_orders']) assert.match(sql,new RegExp(`create table public\\.${object}`));
+for (const fn of ['pa_v5_begin_estimate_revision','pa_v5_issue_estimate','pa_v5_issue_confirmation','pa_v5_revoke_confirmation','pa_v5_outbox_claim','pa_v5_outbox_finish','pa_v5_confirm_fulfillment_and_settlement','pa_v5_create_billing','pa_v5_record_payment','pa_v5_adjust_payment','pa_v5_payment_and_close','pa_v5_reopen_case']) assert.match(sql,new RegExp(`create (?:or replace )?function public\\.${fn}`));
+assert.match(sql,/accepted_contract_immutable|post_contract_change_required/);
+assert.match(sql,/revoke all on function public\.pa_contract_issue/);
+assert.match(api,/PA_MAIL_ADAPTER/); assert.match(api,/fake_adapter_requires_local_db/); assert.match(api,/mail_outcome_unknown/);
+assert.match(security,/PA_COMMERCIAL_ADMIN/);
+assert.equal((page.match(/pa-commercial-card/g)||[]).length >= 3,true);
+assert.match(admin,/見積 第/); assert.match(admin,/この確認だけを失効/); assert.match(admin,/盲目的な再送/);
+for (const [, id] of admin.matchAll(/byId\("([^"]+)"\)/g)) assert.match(page, new RegExp(`id=["']${id}["']`), `missing V5 DOM id: ${id}`);
+assert.match(preview,/demo-customer@example\.invalid/); assert.match(preview,/本番未接続/); assert.doesNotMatch(preview,/kogbnremsouajxxsgxro|gmail\.googleapis\.com|supabase\.co/);
+console.log('PASS PA-EST-004 static invariants: schema/RPC surface, old issue restriction, local-only preview, three-card integration');

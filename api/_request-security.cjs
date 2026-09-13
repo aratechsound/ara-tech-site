@@ -7,6 +7,7 @@ const RATE_LIMIT_RPC_NAME = "consume_rate_limit";
 const RATE_LIMIT_POLICIES = Object.freeze({
     PA_CONTRACT_PUBLIC: Object.freeze({ bucket: "pa-contract-public", windowMs: 600000, maxRequests: 40, identity: "client" }),
     PA_CONTRACT_ADMIN: Object.freeze({ bucket: "pa-contract-admin", windowMs: 600000, maxRequests: 60, identity: "scope" }),
+    PA_COMMERCIAL_ADMIN: Object.freeze({ bucket: "pa-commercial-admin", windowMs: 600000, maxRequests: 90, identity: "scope" }),
     PUBLIC_INQUIRY: Object.freeze({
         bucket: "pa-inquiry",
         windowMs: 10 * 60 * 1000,

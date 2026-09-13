@@ -543,6 +543,8 @@ const verifyPreviewToken = (token, fields) => {
 const replyMode = (value) => {
     if (value === undefined || value === null || value === "normal") return "normal";
     if (value === "estimate_submission") return "estimate_submission";
+    if (value === "invoice") return "invoice";
+    if (value === "confirmation") return "confirmation";
     throw new Error("invalid_reply_mode");
 };
 const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl) => {

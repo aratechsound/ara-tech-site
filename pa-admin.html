@@ -11,7 +11,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="pa-admin.css?v=pam-001-workflow">
+    <link rel="stylesheet" href="pa-admin.css?v=pa-est-004-v5">
+    <link rel="stylesheet" href="pa-commercial.css?v=pa-est-004-v5">
     <link rel="stylesheet" href="admin-navigation.css?v=ara-20260724-007">
 </head>
 <body>
@@ -185,7 +186,36 @@
                     <div><span>会場</span><strong id="overview-venue">未設定</strong></div>
                 </section>
 
-                <section id="formal-contract-panel" class="subsection" aria-label="正式受注・契約控え" hidden></section>
+                <section id="pa-commercial-workspace" class="pa-commercial hidden" aria-label="見積から案件完了までの業務管理">
+                    <div class="pa-commercial__notice"><strong>PA案件管理 V5</strong><span>取得状態と操作結果を分離して表示します。銀行連携・自動入金判定は行いません。</span><button id="pa-commercial-refresh" class="button button--secondary button--small" type="button">状態を更新</button></div>
+                    <div class="pa-commercial__actions" aria-label="主要操作">
+                        <button id="pa-v5-reply" class="button" type="button">返信</button>
+                        <button id="pa-v5-estimate" class="button button--secondary" type="button">見積</button>
+                        <button id="pa-v5-add-file" class="button button--secondary" type="button">資料追加</button>
+                        <button id="pa-v5-note" class="button button--secondary" type="button">案件メモ</button>
+                    </div>
+                    <div class="pa-commercial__cards">
+                        <section class="pa-commercial-card" aria-labelledby="pa-estimate-billing-title">
+                            <div class="pa-commercial-card__head"><h3 id="pa-estimate-billing-title">見積・請求</h3><div class="pa-commercial-tabs" role="tablist" aria-label="見積と請求"><button id="pa-estimate-tab" role="tab" aria-selected="true" type="button">見積</button><button id="pa-billing-tab" role="tab" aria-selected="false" type="button">請求</button></div></div>
+                            <div id="pa-estimate-summary" class="pa-commercial-card__body" role="tabpanel"></div>
+                            <div id="pa-billing-summary" class="pa-commercial-card__body hidden" role="tabpanel"></div>
+                        </section>
+                        <section class="pa-commercial-card pa-commercial-card--contract" aria-labelledby="pa-contract-card-title">
+                            <h3 id="pa-contract-card-title">正式受注確認</h3>
+                            <div id="pa-contract-v5-summary" class="pa-commercial-card__body"></div>
+                            <section id="formal-contract-panel" class="pa-commercial__legacy-contract" aria-label="正式受注・契約控え" hidden></section>
+                        </section>
+                        <section class="pa-commercial-card pa-commercial-card--status" aria-labelledby="pa-next-action-title">
+                            <h3 id="pa-next-action-title">現在の状況・次の対応</h3>
+                            <p id="pa-data-freshness" class="small-note">未取得</p>
+                            <div id="pa-next-action-summary" class="pa-commercial-card__body" aria-live="polite"></div>
+                        </section>
+                    </div>
+                    <section class="pa-commercial__files" aria-labelledby="pa-related-files-title">
+                        <div class="pa-commercial__files-head"><div><h3 id="pa-related-files-title">関連資料</h3><p id="pa-related-files-count" class="small-note"></p></div><div class="actions actions--compact"><button id="pa-related-left" class="button button--secondary button--small" type="button" aria-label="資料を左へ移動">←</button><button id="pa-related-right" class="button button--secondary button--small" type="button" aria-label="資料を右へ移動">→</button><button id="pa-related-all" class="button button--secondary button--small" type="button">全件・検索</button></div></div>
+                        <div id="pa-related-files" class="pa-commercial__file-strip" tabindex="0"></div>
+                    </section>
+                </section>
 
                 <section id="current-situation-section" class="subsection subsection--next hidden" aria-labelledby="current-situation-title">
                     <div class="section-head">
@@ -237,9 +267,19 @@
                     <div id="gmail-reply-panel" class="action-panel hidden">
                         <h4 id="gmail-reply-title">Gmailで返信</h4>
                         <p id="gmail-reply-mode-note" class="small-note">Gmail threadを維持して返信します。本文を編集後、プレビューと最終確認を行うまで送信されません。</p>
+                        <div id="gmail-composer-modes" class="actions actions--compact" role="tablist" aria-label="メール種別">
+                            <button type="button" class="button button--secondary button--small" data-gmail-composer-mode="normal">通常返信</button>
+                            <button type="button" class="button button--secondary button--small" data-gmail-composer-mode="estimate_submission">見積</button>
+                            <button type="button" class="button button--secondary button--small" data-gmail-composer-mode="invoice">請求</button>
+                            <button type="button" class="button button--secondary button--small" data-gmail-composer-mode="confirmation">正式受注確認案内</button>
+                        </div>
                         <div class="field"><label for="gmail-reply-recipient">To</label><input id="gmail-reply-recipient" type="email" readonly></div>
                         <div class="field"><label for="gmail-reply-subject">件名</label><input id="gmail-reply-subject" type="text" readonly></div>
                         <div class="field"><label for="gmail-reply-body">本文</label><textarea id="gmail-reply-body" class="email-body" maxlength="20000"></textarea></div>
+                        <div id="gmail-commercial-fields" class="field hidden">
+                            <div class="form-grid form-grid--compact"><div><label for="gmail-commercial-amount">金額（円）</label><input id="gmail-commercial-amount" type="number" min="0" step="1"></div><div id="gmail-commercial-due-field"><label for="gmail-commercial-due">合意した支払期限</label><input id="gmail-commercial-due" type="date"></div></div>
+                            <p class="small-note">案内の準備・モード切替だけでは発行、失効、送信を行いません。最終確認後にV5 outboxへ固定します。</p>
+                        </div>
                         <div class="field">
                             <label for="gmail-reply-attachments-input">添付ファイル</label>
                             <input id="gmail-reply-attachments-input" type="file" multiple aria-describedby="gmail-reply-attachments-help">
@@ -812,6 +852,6 @@
         </div>
     </dialog>
 
-    <script type="module" src="js/pa-admin.js?v=pam-001-workflow"></script>
+    <script type="module" src="js/pa-admin.js?v=pa-est-004-v5"></script>
 </body>
 </html>

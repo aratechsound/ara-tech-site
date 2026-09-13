@@ -35,7 +35,7 @@ async function createFixture(){
   assert.equal(u.pathname.split('/')[1],'rest');
   if(u.pathname.endsWith('/rpc/consume_rate_limit'))return json({allowed:state.rateAllowed,remaining:10,retry_after_seconds:600,limit:JSON.parse(options.body).p_limit});
   if(u.pathname.includes('/rpc/')){
-   const name=u.pathname.split('/').at(-1);assert(/^pa_contract_[a-z0-9_]+$/.test(name));const input=JSON.parse(options.body),keys=Object.keys(input);keys.forEach(k=>assert(/^p_[a-z0-9_]+$/.test(k)));
+   const name=u.pathname.split('/').at(-1);assert(/^pa_(?:contract|v5)_[a-z0-9_]+$/.test(name));const input=JSON.parse(options.body),keys=Object.keys(input);keys.forEach(k=>assert(/^p_[a-z0-9_]+$/.test(k)));
    try{const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k} => $${i+1}`).join(',')}) result`,Object.values(input));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}
   }
   const table=u.pathname.split('/').at(-1);assert(/^(pa_[a-z0-9_]+|work_admins)$/.test(table));

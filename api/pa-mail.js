@@ -17,6 +17,7 @@ const {
     isOriginAllowed,
     isRateLimitUnavailable
 } = require("./_request-security.cjs");
+const commercialHandler = require("./_pa-commercial-handler.cjs");
 
 const MAX_BODY_BYTES = 32_000;
 const RATE_LIMIT_POLICY_BY_ACTION = Object.freeze({
@@ -59,7 +60,7 @@ const sendJson = (response, status, payload) => {
     return response.status(status).json(payload);
 };
 
-module.exports = async (request, response) => {
+const paMailHandler = async (request, response) => {
     if (request.method !== "POST") {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
@@ -192,6 +193,12 @@ module.exports = async (request, response) => {
         return sendJson(response, 503, { ok: false, code: "service_unavailable" });
     }
 };
+
+const handler = (request, response) => request.query?.surface === "commercial"
+    ? commercialHandler(request, response)
+    : paMailHandler(request, response);
+
+module.exports = handler;
 
 module.exports.MAX_BODY_BYTES = MAX_BODY_BYTES;
 module.exports.bearerToken = bearerToken;

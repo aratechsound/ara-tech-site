@@ -42,7 +42,7 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
         });
         return elements.get(key);
     };
-    const events = { requests: [], sent: [], progressWrites: 0, rendered: 0, messages: [] };
+    const events = { requests: [], sent: [], commercial: 0, progressWrites: 0, rendered: 0, messages: [] };
     const fetchFixture = async (url, options = {}) => {
         const target = new URL(url);
         if (target.hostname === "oauth2.googleapis.com") return json({ access_token: "fixture-token" });
@@ -80,6 +80,9 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
             return { data: { ...box.currentProgress, inquiry_id: args.p_inquiry_id, updated_at: "progress-v2" }, error: null };
         } },
         applyGmailSyncResult: () => { events.rendered++; }, renderGmailReplyAttachments() {}, renderGmailReplyPreviewAttachments() {},
+        sendCommercialComposer: async () => { events.commercial++; return { outbox_id: "fixture-outbox" }; },
+        getCommercialDraftContext: () => ({ caseId: inquiryId }),
+        syncGmail: async () => {},
         renderOverview() {}, setGmailReplyMode: (next) => { box.gmailReplyMode = next; },
         setMessage: (_element, message, type) => { events.messages.push({ message, type }); }, gmailErrorMessage: (code) => code
     };
@@ -92,7 +95,7 @@ let count = 0;
 async function test(name, run) { await run(); count++; console.log(`PASS ${name}`); }
 
 (async () => {
-    await test("R2-1 raw estimate draft sends through canonical preview token and keeps footer", async () => {
+    await test("R2-1 raw estimate draft keeps canonical preview then delegates once to V5 outbox", async () => {
         const { box, $, events } = createUi();
         await box.preview();
         assert(box.gmailReplyPreview, JSON.stringify(events.messages));
@@ -100,9 +103,9 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
         assert.match(box.gmailReplyPreview.body, /ARA-TECH/u);
         assert.equal($("#gmail-reply-body").value, "見積書をお送りします。");
         await box.send();
-        assert.equal(events.sent.length, 1);
-        assert.equal(events.progressWrites, 1);
-        assert.match(events.sent[0].raw, /ARA-TECH/u, "real MIME generation retains the canonical brand footer");
+        assert.equal(events.sent.length, 0);
+        assert.equal(events.commercial, 1);
+        assert.equal(events.progressWrites, 0);
     });
     await test("R2-2 raw ordinary reply sends and never writes estimate progress", async () => {
         const { box, events } = createUi({ mode: "normal", body: "通常返信です。" });
@@ -149,7 +152,7 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
         assert.equal(events.sent.length, 0);
     });
     await test("R2-7 three attachments retain raw and canonical identities through real MIME generation", async () => {
-        const { box, events } = createUi({ attachmentCount: 3 });
+        const { box, events } = createUi({ mode: "normal", attachmentCount: 3 });
         await box.preview();
         assert.match(box.gmailReplyPreview.body, /ARA-TECH/u);
         await box.send();
