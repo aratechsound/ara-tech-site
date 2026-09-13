@@ -16,4 +16,14 @@ for (const text of ['合計（税込） 198,550円', '税込総額 ￥198,550', 
 }
 assert.equal(amount.extractEstimateAmountFromText('SUBTOTAL 180,500 JPY\nTAX 18,050 JPY').status, 'NOT_FOUND');
 assert.equal(amount.extractEstimateAmountFromText('御見積額 198,550円\n税込総額 200,000円').status, 'AMBIGUOUS');
+
+const multiColumnEstimate = amount.extractEstimateAmountFromText([
+  '                        小計          消費税10％      合計(税込)                                                   御見積額',
+  '                    ¥180,500          ¥18,050        ¥198,550                                                   ¥198,550'
+].join('\n'));
+assert.equal(multiColumnEstimate.status, 'HIGH_CONFIDENCE');
+assert.equal(multiColumnEstimate.amount_minor, 198550);
+assert.equal(multiColumnEstimate.subtotal_minor, 180500);
+assert.equal(multiColumnEstimate.tax_minor, 18050);
+assert.equal(multiColumnEstimate.matched_label, '御見積額');
 console.log('PASS PA-EST-004R11 amount: final-total semantics, subtotal exclusion, arithmetic diagnostics and Tier-A ambiguity');

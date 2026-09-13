@@ -30,14 +30,53 @@ const labelPattern = (label) => {
 };
 const hasExcludedLabel = (value) => EXCLUDED_LABELS.some((label) => new RegExp(labelPattern(label), "iu").test(value));
 
+const KNOWN_LABELS = [...LABELS.map((definition) => definition.label), ...EXCLUDED_LABELS];
+const amountOccurrences = (line, start = 0, end = line.length) => {
+    const section = line.slice(start, end);
+    const expression = new RegExp(AMOUNT.source, `${AMOUNT.flags}g`);
+    return [...section.matchAll(expression)].map((match) => ({
+        amount_minor: parseYen(match[1]),
+        currency_marked: /^[¥￥]/u.test(match[0].trim()) || Boolean(match[2]),
+        comma_grouped: /[,，]/u.test(match[1]),
+        index: start + (match.index || 0),
+        raw: match[0]
+    })).filter((match) => match.amount_minor != null && (match.currency_marked || match.comma_grouped));
+};
+const nextKnownLabelIndex = (line, after) => {
+    let next = line.length;
+    for (const label of KNOWN_LABELS) {
+        const expression = new RegExp(labelPattern(label), "giu");
+        let match;
+        while ((match = expression.exec(line))) {
+            if (match.index >= after && match.index < next) next = match.index;
+        }
+    }
+    return next;
+};
+const amountForLabel = (lines, lineIndex, labelMatch) => {
+    const line = lines[lineIndex];
+    const labelEnd = labelMatch.index + labelMatch[0].length;
+    const segmentEnd = nextKnownLabelIndex(line, labelEnd);
+    const sameLine = amountOccurrences(line, labelEnd, segmentEnd).find((match) => match.index - labelEnd <= 32);
+    if (sameLine) return { ...sameLine, same_line: true, distance: sameLine.index - labelEnd };
+
+    const nextLine = lines[lineIndex + 1] || "";
+    const nextAmounts = amountOccurrences(nextLine);
+    if (!nextAmounts.length) return null;
+    const nearest = nextAmounts.sort((left, right) => Math.abs(left.index - labelMatch.index) - Math.abs(right.index - labelMatch.index))[0];
+    const distance = Math.abs(nearest.index - labelMatch.index);
+    if (nextAmounts.length > 1 && distance > 32) return null;
+    return { ...nearest, same_line: false, distance };
+};
+
 const labelledAmount = (lines, labels) => {
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
         for (const label of labels) {
             const match = new RegExp(labelPattern(label), "iu").exec(line);
             if (!match) continue;
-            const amount = line.slice(match.index + match[0].length, match.index + match[0].length + 48).match(AMOUNT);
-            const parsed = amount && parseYen(amount[1]);
-            if (parsed != null) return parsed;
+            const amount = amountForLabel(lines, lineIndex, match);
+            if (amount) return amount.amount_minor;
         }
     }
     return null;
@@ -46,30 +85,14 @@ const labelledAmount = (lines, labels) => {
 const candidatesFromLines = (lines) => {
     const candidates = [];
     lines.forEach((line, lineIndex) => {
-        const nextLine = lines[lineIndex + 1] || "";
         for (const definition of LABELS) {
             const expression = new RegExp(labelPattern(definition.label), "giu");
             let labelMatch;
             while ((labelMatch = expression.exec(line))) {
-                const sameLineTail = line.slice(labelMatch.index + labelMatch[0].length, labelMatch.index + labelMatch[0].length + 64);
-                let amountMatch = sameLineTail.match(AMOUNT);
-                let sameLine = true;
-                let distance = amountMatch?.index ?? 999;
-                if (!amountMatch && !hasExcludedLabel(nextLine.slice(0, 28))) {
-                    amountMatch = nextLine.slice(0, 64).match(AMOUNT);
-                    sameLine = false;
-                    distance = amountMatch?.index ?? 999;
-                }
-                if (!amountMatch || distance > 32) continue;
-                const amount = parseYen(amountMatch[1]);
-                if (amount == null) continue;
-                const between = sameLine ? sameLineTail.slice(0, distance) : nextLine.slice(0, distance);
-                if (hasExcludedLabel(between)) continue;
-                const currencyMarked = /^[¥￥]/u.test(amountMatch[0].trim()) || Boolean(amountMatch[2]);
-                const commaGrouped = /[,，]/u.test(amountMatch[1]);
-                if (!currencyMarked && !commaGrouped && distance > 8) continue;
-                candidates.push({ amount_minor: amount, label: definition.label, tier: definition.tier, line: lineIndex + 1,
-                    score: definition.priority + (sameLine ? 15 : 5) + (currencyMarked ? 8 : 0) + (commaGrouped ? 3 : 0) - Math.min(distance, 12) });
+                const amount = amountForLabel(lines, lineIndex, labelMatch);
+                if (!amount) continue;
+                candidates.push({ amount_minor: amount.amount_minor, label: definition.label, tier: definition.tier, line: lineIndex + 1,
+                    score: definition.priority + (amount.same_line ? 15 : 5) + (amount.currency_marked ? 8 : 0) + (amount.comma_grouped ? 3 : 0) - Math.min(amount.distance, 12) });
             }
         }
     });
@@ -77,7 +100,9 @@ const candidatesFromLines = (lines) => {
 };
 
 const extractEstimateAmountFromText = (value) => {
-    const lines = String(value || "").replace(/\r\n?/gu, "\n").split("\n").map((line) => line.replace(/\s+/gu, " ").trim()).filter(Boolean);
+    const lines = String(value || "").replace(/\r\n?/gu, "\n").split("\n")
+        .map((line) => line.replace(/\t/gu, "    ").replace(/[\u00a0\u3000]/gu, " ").trimEnd())
+        .filter((line) => line.trim());
     const found = candidatesFromLines(lines);
     const subtotal = labelledAmount(lines, ["税抜小計", "SUBTOTAL", "小計"]);
     const tax = labelledAmount(lines, ["消費税", "税額", "TAX"]);
@@ -128,7 +153,14 @@ const pdfTextLines = async (bytes) => {
                 row.items.push(item);
             }
             rows.sort((left, right) => right.y - left.y);
-            for (const row of rows) lines.push(row.items.sort((left, right) => Number(left.transform?.[4] || 0) - Number(right.transform?.[4] || 0)).map((item) => item.str).join(" "));
+            for (const row of rows) {
+                let line = "";
+                for (const item of row.items.sort((left, right) => Number(left.transform?.[4] || 0) - Number(right.transform?.[4] || 0))) {
+                    const targetColumn = Math.max(0, Math.round(Number(item.transform?.[4] || 0) / 4));
+                    line += " ".repeat(Math.max(1, targetColumn - line.length)) + item.str;
+                }
+                lines.push(line);
+            }
         }
         return lines;
     } finally { if (task) await task.destroy(); }
