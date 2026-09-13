@@ -1,5 +1,18 @@
 # PA-EST-004 テスト結果
 
+## PA-EST-004R2 Gate準備（2026-09-13 JST、最新判定）
+
+`OWNER_ACCEPTED_UI=YES`。採用基準は `1e22fefa8d3f1e61f91ed5ea8f6ee07f409b8b3d` で、R2ではUIを変更していない。
+
+| 層 | コマンド／証跡 | 結果 |
+|---|---|---|
+| PostgreSQL環境探索 | PATH、Windows service/process/listener、標準install path、registry、Codex runtime、repo dependency、WSLをREAD-ONLY確認 | 利用可能な安全な通常PostgreSQL server/clientなし |
+| R2 harness構文 | `node --check tests/validate-pa-est-004-r2-postgres-races.mjs` | PASS |
+| R2 harness静的契約 | `node tests/validate-pa-est-004-r2-harness-static.cjs` | PASS。独立psql process、localhost/disposable gate、timeout、専用DB cleanup、Docker提案の禁止事項を検査 |
+| 複数connection実競合 | `node tests/validate-pa-est-004-r2-postgres-races.mjs` | **未実行／BLOCKED_ENVIRONMENT**。通常PostgreSQLがないためPASSではない |
+
+Dockerの一点rename修復提案は `docs/pa-est-004r2-docker-repair-proposal.md` に記録したが、所有者承認前のため実行していない。application/UI codeを変更していないため、R1回帰は再実行せず、下記R1証跡を継承する。
+
 ## PA-EST-004R1 追補（2026-09-13 JST、以下を最新判定とする）
 
 | 層 | コマンド | 結果 |
