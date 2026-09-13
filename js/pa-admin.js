@@ -421,14 +421,16 @@ const openGmailReply = (message) => {
     setMessage($("#gmail-reply-message"), "返信先と件名を設定しました。本文を入力してプレビューへ進んでください。", "info");
     return true;
 };
-const openEstimateSubmission = () => {
+const openEstimateSubmission = (options = {}) => {
     if (!currentCase || !currentGmailLink) {
         setMessage(gmailSyncState, "既存のGmail threadが確認できないため、見積書を送付できません。新規メールを作成せず、対象threadを同期・紐付けしてください。", "error");
-        return;
+        $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+        return false;
     }
-    if (!currentProgress?.estimate_created_on) {
+    if (options.source !== "v5" && !getCommercialDraftContext() && !currentProgress?.estimate_created_on) {
         setMessage(gmailSyncState, "先に案件進捗で「見積作成日」を保存してから、見積書を送付してください。", "error");
-        return;
+        $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
+        return false;
     }
     setGmailReplyMode("estimate_submission");
     if (!$("#gmail-reply-body").value.trim()) {
@@ -436,12 +438,15 @@ const openEstimateSubmission = () => {
     }
     invalidateGmailReplyPreview();
     gmailReplyPanel.classList.remove("hidden");
+    gmailReplyPanel.scrollIntoView?.({ behavior: "smooth", block: "start" });
     $("#gmail-reply-body").focus();
-    setMessage($("#gmail-reply-message"), "見積提出モードを開きました。内容を編集し、添付を確認してからプレビューへ進んでください。", "info");
+    const intent = options.estimateIntent === "revision_estimate" ? "改訂見積" : "見積";
+    setMessage($("#gmail-reply-message"), `${intent}の提出モードを開きました。内容を編集し、添付を確認してからプレビューへ進んでください。`, "info");
+    return true;
 };
 
 const openSharedComposer = (mode = "normal", options = {}) => {
-    if (mode === "estimate_submission") return openEstimateSubmission();
+    if (mode === "estimate_submission") return openEstimateSubmission(options);
     if (!currentCase || !currentGmailLink) {
         setMessage(gmailSyncState, "既存のGmail threadが確認できません。同期または明示的な紐付けを先に行ってください。", "error");
         $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });

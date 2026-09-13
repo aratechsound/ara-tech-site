@@ -46,7 +46,7 @@ async function initialize(nextScenario = 'pending') {
   revisedPage.drawText('TAX JPY 18,050', { x: 50, y: 730, size: 12, font: revisedFont });
   revisedPage.drawText('GRAND TOTAL JPY 198,550', { x: 50, y: 690, size: 16, font: revisedFont });
   fixture.state.revisedQuote = Buffer.from(await revisedPdf.save());
-  await fixture.db.query("insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,direction,from_address,message_source,sent_at,attachment_metadata) values('r11_revised','thread_123',$1,'outbound','aratechsound@gmail.com','gmail_direct','2026-09-11T12:00:00Z',$2)", [fixture.inquiryId, [{ id: 'r11_attachment', filename: '見積書 2026.09.11 龍姫湖まつり（改訂.pdf', mime_type: 'application/pdf', size: fixture.state.revisedQuote.length }]]);
+  await fixture.db.query("insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,direction,from_address,to_addresses,message_source,sent_at,attachment_metadata) values('r11_revised','thread_123',$1,'outbound','aratechsound@gmail.com','[\"customer@example.invalid\"]'::jsonb,'gmail_direct','2026-09-11T12:00:00Z',$2)", [fixture.inquiryId, [{ id: 'r11_attachment', filename: '見積書 2026.09.11 龍姫湖まつり（改訂.pdf', mime_type: 'application/pdf', size: fixture.state.revisedQuote.length }]]);
   service = createService({
     fetchImpl: fixture.fetchImpl,
     sendTransport: async (job) => {
@@ -76,34 +76,46 @@ async function initialize(nextScenario = 'pending') {
     if (token !== 'fixture-admin') throw Error('not_authorized');
     return { id: fixture.actorId };
   }, rate: async () => ({ allowed: true }) });
-  const issued = await service.issueEstimate({
-    case_id: fixture.inquiryId, expected_revision: 0, expected_current: null, operation_id: crypto.randomUUID(),
-    document_id: crypto.randomUUID(), filename: '実管理画面-fixture-estimate.pdf', content_base64: fixture.quote.toString('base64'),
-    sha256: sha(fixture.quote), amount_minor: 110000, currency: 'JPY', tax_basis: 'tax_included',
-    conditions: { source: 'local_real_admin_fixture' }, source_kind: 'managed_send', source_sent_at: null,
-    body: 'ローカル実管理画面fixtureの見積です。外部送信は行いません。', cc_addresses: ['venue@example.invalid']
-  }, { id: fixture.actorId });
-  await service.dispatch({ job_id: issued.outbox_id }, { id: fixture.actorId });
-  const confirmation = await service.issueConfirmation({
-    case_id: fixture.inquiryId, expected_revision: 1, estimate_revision_id: issued.id,
-    offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), event_name: '龍姫湖まつり2026（検証用）', event_date: '2026-10-18',
-    customer_acknowledgement: { source: 'local_fixture', estimate_revision_id: issued.id },
-    body_template: '正式受注確認の内容をご確認ください。\n\n{{CONFIRMATION_URL}}', cc_addresses: ['venue@example.invalid']
-  }, { id: fixture.actorId });
-  await service.dispatch({ job_id: confirmation.outbox_id }, { id: fixture.actorId });
-  if (nextScenario === 'partial' || nextScenario === 'accepted') {
-    const token = confirmation.secret_url_returned_once.split('#')[1];
-    const row = (await fixture.db.query('select snapshot_sha256 from public.pa_contract_offers where id=$1', [confirmation.id])).rows[0];
-    await rpc(fixture.db, 'pa_contract_accept', { p_token_hash: sha(token), p_offer_id: confirmation.id, p_snapshot_sha256: row.snapshot_sha256, p_name: '管理下テスト担当者', p_agree: true });
-    if (nextScenario === 'partial') {
-      await service.settle({ case_id: fixture.inquiryId, expected_revision: 1, operation_id: crypto.randomUUID(), amount_minor: 110000, unresolved_changes: false, evidence: { source: 'local_fixture' } }, { id: fixture.actorId });
-    const billing = await service.createBilling({
-      case_id: fixture.inquiryId, expected_revision: 2, operation_id: crypto.randomUUID(), contract_id: confirmation.id,
-      estimate_revision_id: issued.id, amount_minor: 110000, invoice_policy: 'no_separate_invoice', due_date: '2026-10-31',
-      due_basis: { status: 'agreed', source: 'local_fixture' }, customer_planned_payment_on: null,
-      agreement_evidence: { source: 'local_fixture' }
+  if (nextScenario !== 'new') {
+    const issued = await service.issueEstimate({
+      case_id: fixture.inquiryId, expected_revision: 0, expected_current: null, operation_id: crypto.randomUUID(),
+      document_id: crypto.randomUUID(), filename: '実管理画面-fixture-estimate.pdf', content_base64: fixture.quote.toString('base64'),
+      sha256: sha(fixture.quote), amount_minor: 110000, currency: 'JPY', tax_basis: 'tax_included',
+      conditions: { source: 'local_real_admin_fixture' }, source_kind: 'managed_send', source_sent_at: null,
+      body: 'ローカル実管理画面fixtureの見積です。外部送信は行いません。', cc_addresses: ['venue@example.invalid']
     }, { id: fixture.actorId });
-      await service.recordPayment({ case_id: fixture.inquiryId, billing_id: billing.id, operation_id: crypto.randomUUID(), payment_date: '2026-10-20', amount_minor: 50000, payment_method: 'bank_transfer', memo: 'local fixture partial' }, { id: fixture.actorId });
+    await service.dispatch({ job_id: issued.outbox_id }, { id: fixture.actorId });
+    let confirmation = null;
+    if (nextScenario !== 'revision') {
+      confirmation = await service.issueConfirmation({
+        case_id: fixture.inquiryId, expected_revision: 1, estimate_revision_id: issued.id,
+        offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), event_name: '龍姫湖まつり2026（検証用）', event_date: '2026-10-18',
+        customer_acknowledgement: { source: 'local_fixture', estimate_revision_id: issued.id },
+        body_template: '正式受注確認の内容をご確認ください。\n\n{{CONFIRMATION_URL}}', cc_addresses: ['venue@example.invalid']
+      }, { id: fixture.actorId });
+      await service.dispatch({ job_id: confirmation.outbox_id }, { id: fixture.actorId });
+    }
+    if (nextScenario === 'recovered') {
+      const documentId = crypto.randomUUID();
+      const estimateId = crypto.randomUUID();
+      await fixture.db.query("insert into public.pa_commercial_documents(id,inquiry_id,document_kind,source_kind,gmail_message_id,gmail_attachment_id,original_filename,mime_type,content,sha256,metadata,created_by) values($1,$2,'estimate','sent_recovery','r11_revised','r11_attachment','見積書 2026.09.11 龍姫湖まつり（改訂.pdf','application/pdf',$3,$4,$5,$6)", [documentId, fixture.inquiryId, fixture.state.revisedQuote, sha(fixture.state.revisedQuote), { source_sent_at: '2026-09-11T12:00:00Z', local_fixture: true }, fixture.actorId]);
+      await fixture.db.query("insert into public.pa_estimate_revisions(id,inquiry_id,revision_number,document_id,amount_minor,currency,tax_basis,conditions_snapshot,source_kind,lifecycle,source_sent_at,issued_by,operation_id) values($1,$2,2,$3,198550,'JPY','tax_included',$4,'sent_recovery','issued','2026-09-11T12:00:00Z',$5,$6)", [estimateId, fixture.inquiryId, documentId, { source: 'local_recovered_fixture' }, fixture.actorId, crypto.randomUUID()]);
+      await fixture.db.query('update public.pa_case_commercial_state set current_estimate_revision_id=$1,revision=revision+1,updated_at=now(),updated_by=$2 where inquiry_id=$3', [estimateId, fixture.actorId, fixture.inquiryId]);
+    }
+    if (nextScenario === 'partial' || nextScenario === 'accepted') {
+      const token = confirmation.secret_url_returned_once.split('#')[1];
+      const row = (await fixture.db.query('select snapshot_sha256 from public.pa_contract_offers where id=$1', [confirmation.id])).rows[0];
+      await rpc(fixture.db, 'pa_contract_accept', { p_token_hash: sha(token), p_offer_id: confirmation.id, p_snapshot_sha256: row.snapshot_sha256, p_name: '管理下テスト担当者', p_agree: true });
+      if (nextScenario === 'partial') {
+        await service.settle({ case_id: fixture.inquiryId, expected_revision: 1, operation_id: crypto.randomUUID(), amount_minor: 110000, unresolved_changes: false, evidence: { source: 'local_fixture' } }, { id: fixture.actorId });
+        const billing = await service.createBilling({
+          case_id: fixture.inquiryId, expected_revision: 2, operation_id: crypto.randomUUID(), contract_id: confirmation.id,
+          estimate_revision_id: issued.id, amount_minor: 110000, invoice_policy: 'no_separate_invoice', due_date: '2026-10-31',
+          due_basis: { status: 'agreed', source: 'local_fixture' }, customer_planned_payment_on: null,
+          agreement_evidence: { source: 'local_fixture' }
+        }, { id: fixture.actorId });
+        await service.recordPayment({ case_id: fixture.inquiryId, billing_id: billing.id, operation_id: crypto.randomUUID(), payment_date: '2026-10-20', amount_minor: 50000, payment_method: 'bank_transfer', memo: 'local fixture partial' }, { id: fixture.actorId });
+      }
     }
   }
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAQWZVJ8AAAAASUVORK5CYII=', 'base64');
@@ -131,7 +143,7 @@ function previewHtml() {
     .replace('<section id="dashboard" class="hidden">', '<section id="dashboard">')
     .replace(/<section id="detail-card" class="card hidden"/u, '<section id="detail-card" class="card"')
     .replace(/<script type="module" src="js\/pa-admin\.js[^"]*"><\/script>/u, '<script type="module" src="js/pa-est-004-real-admin-preview.js"></script>')
-    .replace('<main>', `<main><aside class="pa-commercial__notice" id="local-fixture-banner"><strong>LOCAL実管理画面／本番未接続</strong><span>PGlite実DB・実API handler・fake送信adapter。Production DB / Storage / Gmailへ接続しません。</span><label>シナリオ <select id="real-scenario"><option value="pending">正式受注確認待ち</option><option value="accepted">正式受注済み・変更前</option><option value="partial">一部入金</option></select></label></aside>`);
+    .replace('<main>', `<main><aside class="pa-commercial__notice" id="local-fixture-banner"><strong>LOCAL実管理画面／本番未接続</strong><span>PGlite実DB・実API handler・fake送信adapter。Production DB / Storage / Gmailへ接続しません。</span><label>シナリオ <select id="real-scenario"><option value="pending">正式受注確認待ち</option><option value="revision">改訂見積</option><option value="new">見積なし</option><option value="recovered">復旧見積</option><option value="accepted">正式受注済み・変更前</option><option value="partial">一部入金</option></select></label></aside>`);
 }
 
 async function route(request, response) {
@@ -151,7 +163,7 @@ async function route(request, response) {
   }
   if (url.pathname === '/__fixture/scenario' && request.method === 'POST') {
     const input = JSON.parse(await readBody(request));
-    if (!['pending', 'accepted', 'partial'].includes(input.scenario)) { response.statusCode = 400; return response.end('invalid'); }
+    if (!['new', 'pending', 'revision', 'recovered', 'accepted', 'partial'].includes(input.scenario)) { response.statusCode = 400; return response.end('invalid'); }
     await initialize(input.scenario); response.setHeader('Content-Type', 'application/json'); return response.end(JSON.stringify({ ok: true, scenario }));
   }
   if (url.pathname === '/__fixture/snapshot') {

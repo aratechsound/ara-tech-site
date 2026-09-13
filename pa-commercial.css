@@ -54,6 +54,11 @@
 .pa-commercial__status--error { background: #fff0f0; color: var(--pa-v5-red); }
 .pa-commercial__compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
 .pa-commercial__compact-actions button { min-height: 34px; }
+.pa-commercial__action-status:empty { display: none; }
+.pa-estimate-history { border-top: 1px solid var(--pa-v5-line); padding-top: 7px; }
+.pa-estimate-history summary { color: var(--pa-v5-blue); cursor: pointer; font-weight: 800; }
+.pa-estimate-history__item { display: grid; gap: 4px; padding-top: 7px; }
+.pa-estimate-history__item + .pa-estimate-history__item { border-top: 1px solid var(--pa-v5-line); margin-top: 7px; }
 .pa-commercial__legacy-contract { border-top: 1px solid var(--pa-v5-line); margin-top: 10px; padding-top: 10px; }
 .pa-commercial__legacy-contract > h3 { display: none; }
 .pa-commercial__legacy-contract .action-panel { padding: 8px; }

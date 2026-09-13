@@ -1,12 +1,18 @@
 import { renderCommercialWorkspace } from './pa-commercial-admin.js';
 
-const caseFixture = Object.freeze({ id: '123e4567-e89b-42d3-a456-426614174000', status: 'active' });
+let caseFixture = Object.freeze({ id: '123e4567-e89b-42d3-a456-426614174000', status: 'active' });
+let composerFailure = false;
+const hotfixEvidence = { openCount: 0, actions: [] };
 const context = {
     case: caseFixture,
     getAccessToken: async () => 'fixture-admin',
     getCurrentCase: () => caseFixture,
-    openComposer: (mode) => {
+    openComposer: (mode, options = {}) => {
+        if (composerFailure) return false;
+        hotfixEvidence.openCount += 1;
+        hotfixEvidence.actions.push({ mode, intent: options.estimateIntent || null });
         document.getElementById('gmail-reply-panel').classList.remove('hidden');
+        document.getElementById('gmail-reply-panel').dataset.estimateIntent = options.estimateIntent || '';
         document.getElementById('gmail-reply-title').textContent = `共通Composer：${mode}`;
         document.getElementById('gmail-reply-recipient').value = 'customer@example.invalid';
         document.getElementById('gmail-reply-cc').value ||= 'venue@example.invalid';
@@ -14,10 +20,22 @@ const context = {
         document.getElementById('gmail-reply-body').value ||= 'ローカルfixtureの本文。外部送信しません。';
         document.getElementById('communication-section').classList.remove('hidden');
         document.getElementById('gmail-reply-panel').scrollIntoView({ block: 'start' });
+        return true;
     },
     focusBilling: () => document.getElementById('pa-billing-summary').scrollIntoView({ block: 'center' }),
     focusNote: () => document.getElementById('internal-memo')?.scrollIntoView({ block: 'center' }),
     openFileSearch: () => document.getElementById('pa-related-files').scrollIntoView({ block: 'center' })
+};
+
+window.__paR11a = {
+    evidence: hotfixEvidence,
+    setComposerFailure: (value) => { composerFailure = Boolean(value); },
+    setCaseIdentity: (id) => {
+        caseFixture = Object.freeze({ id, status: 'active' });
+        context.case = caseFixture;
+    },
+    rerender: () => renderCommercialWorkspace(context),
+    refresh: () => context.refreshCommercial()
 };
 
 document.getElementById('detail-title').textContent = '龍姫湖まつり2026（検証用）';

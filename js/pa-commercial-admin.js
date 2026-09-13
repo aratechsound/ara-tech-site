@@ -1,6 +1,9 @@
 let activeCaseId = null;
 let refreshEpoch = 0;
 let activeCommercialDraftContext = null;
+let activeEstimateEntry = null;
+let activeEstimateActionStatus = null;
+let estimateEntryOpening = false;
 const previewUrls = new Map();
 
 const byId = (id) => document.getElementById(id);
@@ -25,6 +28,16 @@ const appendLine = (root, label, value, className = "") => {
     const name = element("span", "pa-commercial__label", `${label}：`);
     row.append(name, document.createTextNode(value));
     root.append(row);
+};
+const estimateDeliveryFor = (outbox, estimateId) => (outbox || [])
+    .filter((item) => item.job_kind === "estimate" && item.aggregate_id === estimateId)
+    .sort((left, right) => Date.parse(right.finished_at || right.created_at || 0) - Date.parse(left.finished_at || left.created_at || 0))[0];
+const appendEstimateDates = (root, estimate, delivery) => {
+    const sentAt = estimate.source_sent_at
+        || (delivery?.state === "sent" ? delivery.finished_at : null);
+    if (sentAt) appendLine(root, "送信", dateTime(sentAt));
+    if (estimate.source_kind === "sent_recovery") appendLine(root, "V5登録", dateTime(estimate.issued_at));
+    else if (!sentAt) appendLine(root, "V5発行", dateTime(estimate.issued_at));
 };
 const STATE_LABELS = Object.freeze({
     fulfillment: { not_confirmed: "実施確認前", confirmed: "実施確認済み", postponed: "延期", cancelled: "中止" },
@@ -272,6 +285,79 @@ const api = async (context, action, input = {}, binary = false) => {
     return payload.result;
 };
 
+const estimateEntryFor = ({ current, accepted, active, change, billing }) => accepted
+    ? { kind: "change_order", label: "変更見積を作成", available: (!change || change.state === "agreed") && !billing }
+    : current
+        ? { kind: "revision_estimate", label: "改訂見積を準備", available: !active, blockedReason: active ? "active_confirmation" : null }
+        : { kind: "new_estimate", label: "見積を作成", available: true };
+
+const openChangeProposal = async (context, state, accepted) => {
+    const values = await formDialog("受注後の変更提案", [
+        { name: "amount", label: "追加変更額（円）", type: "number", min: 1, required: true },
+        { name: "conditions", label: "変更条件", type: "textarea", required: true },
+        { name: "file", label: "変更提案PDF", type: "file", required: true }
+    ], "提案を固定して送信");
+    if (!values?.file) return true;
+    const bytes = await filePayload(values.file);
+    const result = await api(context, "create_change_proposal", {
+        expected_revision: state.revision, operation_id: crypto.randomUUID(), contract_id: accepted.id,
+        estimate_revision_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: values.file.name,
+        ...bytes, amount_minor: Number(values.amount), currency: "JPY", tax_basis: "tax_included",
+        conditions: { source: "owner_change_proposal", summary: values.conditions }, body: "受注後の変更提案を添付します。内容をご確認ください。", cc_addresses: []
+    });
+    if (result.outbox_id) await api(context, "dispatch_outbox", { job_id: result.outbox_id });
+    await context.refreshCommercial();
+    return true;
+};
+
+const setEstimateEntryBusy = (busy) => {
+    document.querySelectorAll("[data-pa-estimate-entry]").forEach((node) => {
+        if (!node.dataset.paEstimateIdleLabel) node.dataset.paEstimateIdleLabel = node.textContent;
+        node.disabled = busy;
+        node.toggleAttribute("aria-busy", busy);
+        node.textContent = busy ? "準備しています…" : node.dataset.paEstimateIdleLabel;
+    });
+};
+
+const launchEstimateEntry = async (context, entry) => {
+    if (estimateEntryOpening) return false;
+    estimateEntryOpening = true;
+    const caseId = activeCaseId;
+    const status = activeEstimateActionStatus?.isConnected ? activeEstimateActionStatus : null;
+    setEstimateEntryBusy(true);
+    if (status) {
+        status.className = "pa-commercial__action-status pa-commercial__label";
+        status.textContent = "準備しています…";
+    }
+    try {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (caseId !== activeCaseId || context.getCurrentCase()?.id !== caseId) throw Error("case_changed");
+        if (!entry.available) throw Error(entry.blockedReason || "change_order_unavailable");
+        const result = entry.kind === "change_order"
+            ? openChangeProposal(context, entry.state, entry.accepted)
+            : context.openComposer("estimate_submission", { estimateIntent: entry.kind, source: "v5" });
+        if (result === false) throw Error("composer_unavailable");
+        if (status) status.textContent = entry.kind === "change_order" ? "変更見積の入力画面を開きました。" : "見積作成画面を開きました。";
+        await result;
+        return true;
+    } catch (error) {
+        if (caseId === activeCaseId && status) {
+            status.className = "pa-commercial__action-status pa-commercial__error";
+            status.textContent = error.message === "active_confirmation"
+                ? "旧確認が受付中です。先に「旧確認を無効にして改訂開始」を実行してください。画面を開いただけでは失効しません。"
+                : error.message === "change_order_unavailable"
+                    ? "進行中の変更または請求があるため、新しい変更見積は開始できません。"
+                    : "見積作成画面を開けませんでした。もう一度お試しください。";
+        }
+        return false;
+    } finally {
+        window.setTimeout(() => {
+            if (caseId === activeCaseId) setEstimateEntryBusy(false);
+            estimateEntryOpening = false;
+        }, 350);
+    }
+};
+
 const materialBlob = async (context, item) => {
     const capability = item.open_capability || { kind: "commercial_document", document_id: item.id };
     if (capability.kind === "commercial_document") return api(context, "document", { document_id: capability.document_id }, true);
@@ -336,6 +422,7 @@ const render = async (context, data, epoch) => {
     const billing = (data.billings || []).find((item) => item.state === "open") || data.billings?.[0];
     const accepted = (data.offers || []).find((item) => item.state === "accepted");
     const active = (data.offers || []).find((item) => item.state === "active");
+    const change = data.change_orders?.[0];
     const pendingJob = (data.outbox || []).find((item) => ["queued", "failed", "unknown", "processing"].includes(item.state));
     const paid = (data.payments || []).reduce((sum, item) => sum + Number(item.amount || 0), 0)
         + (data.adjustments || []).reduce((sum, item) => sum + Number(item.delta_minor || 0), 0);
@@ -356,12 +443,34 @@ const render = async (context, data, epoch) => {
     } else {
         estimateRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `見積 第${current.revision_number}版・現在`));
         estimateRoot.append(element("p", "pa-commercial__amount", money(current.amount_minor, current.currency)));
-        appendLine(estimateRoot, "発行", dateTime(current.issued_at));
-        const estimateDelivery = data.outbox.find((item) => item.job_kind === "estimate" && item.aggregate_id === current.id)?.state;
-        appendLine(estimateRoot, "送信状態", estimateDelivery ? stateLabel("outbox", estimateDelivery) : "送信済みメールから復旧");
+        const estimateDelivery = estimateDeliveryFor(data.outbox, current.id);
+        appendEstimateDates(estimateRoot, current, estimateDelivery);
+        appendLine(estimateRoot, "送信状態", estimateDelivery ? stateLabel("outbox", estimateDelivery.state) : current.source_kind === "sent_recovery" ? "送信済みメールから復旧" : "送信履歴なし");
+        const historical = estimates.filter((item) => item.id !== current.id).sort((left, right) => right.revision_number - left.revision_number);
+        if (historical.length) {
+            const history = element("details", "pa-estimate-history");
+            history.append(element("summary", "", `過去の見積 ${historical.length}件`));
+            historical.forEach((item) => {
+                const row = element("div", "pa-estimate-history__item");
+                row.append(element("strong", "", `第${item.revision_number}版・${money(item.amount_minor, item.currency)}`));
+                appendEstimateDates(row, item, estimateDeliveryFor(data.outbox, item.id));
+                history.append(row);
+            });
+            estimateRoot.append(history);
+        }
     }
+    const entry = { ...estimateEntryFor({ current, accepted, active, change, billing }), state, accepted };
+    const openEntry = () => launchEstimateEntry(context, entry);
+    activeEstimateEntry = Object.freeze({ caseId: activeCaseId, open: openEntry, kind: entry.kind });
+    const topEstimateButton = byId("pa-v5-estimate");
+    topEstimateButton.disabled = false;
+    topEstimateButton.dataset.paEstimateEntry = entry.kind;
+    topEstimateButton.dataset.paEstimateIdleLabel = "見積";
     const estimateActions = element("div", "pa-commercial__compact-actions");
-    estimateActions.append(button(current ? "改訂見積を準備" : "見積を添付して送る", () => context.openComposer("estimate_submission"), "button button--small"));
+    const estimateEntryButton = button(entry.label, openEntry, "button button--small");
+    estimateEntryButton.dataset.paEstimateEntry = entry.kind;
+    estimateEntryButton.dataset.paEstimateIdleLabel = entry.label;
+    estimateActions.append(estimateEntryButton);
     if (active && !accepted) estimateActions.append(button("旧確認を無効にして改訂開始", async () => {
         const reason = window.prompt("改訂理由を入力してください。旧確認URLは復活できません。", "条件変更のため");
         if (!reason || !window.confirm("対象の未承認確認を無効にして改訂を開始しますか？")) return;
@@ -370,6 +479,11 @@ const render = async (context, data, epoch) => {
     }));
     estimateActions.append(button("送信済みメールから登録", (event) => openRecovery(context, state, event.currentTarget)));
     estimateRoot.append(estimateActions);
+    const estimateActionStatus = element("p", "pa-commercial__action-status pa-commercial__label", "");
+    estimateActionStatus.setAttribute("role", "status");
+    estimateActionStatus.setAttribute("aria-live", "polite");
+    estimateRoot.append(estimateActionStatus);
+    activeEstimateActionStatus = estimateActionStatus;
 
     const billingRoot = byId("pa-billing-summary");
     billingRoot.replaceChildren();
@@ -509,25 +623,8 @@ const render = async (context, data, epoch) => {
         contractRoot.append(button("正式受注確認を送る", () => context.openComposer("confirmation"), "button button--small"));
     }
     if (accepted) {
-        const change = data.change_orders?.[0];
         const actions = element("div", "pa-commercial__compact-actions");
-        if ((!change || change.state === "agreed") && !billing) actions.append(button("受注後の変更提案", async () => {
-            const values = await formDialog("受注後の変更提案", [
-                { name: "amount", label: "追加変更額（円）", type: "number", min: 1, required: true },
-                { name: "conditions", label: "変更条件", type: "textarea", required: true },
-                { name: "file", label: "変更提案PDF", type: "file", required: true }
-            ], "提案を固定して送信");
-            if (!values?.file) return;
-            const bytes = await filePayload(values.file);
-            const result = await api(context, "create_change_proposal", {
-                expected_revision: state.revision, operation_id: crypto.randomUUID(), contract_id: accepted.id,
-                estimate_revision_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: values.file.name,
-                ...bytes, amount_minor: Number(values.amount), currency: "JPY", tax_basis: "tax_included",
-                conditions: { source: "owner_change_proposal", summary: values.conditions }, body: "受注後の変更提案を添付します。内容をご確認ください。", cc_addresses: []
-            });
-            if (result.outbox_id) await api(context, "dispatch_outbox", { job_id: result.outbox_id });
-            await context.refreshCommercial();
-        }));
+        if ((!change || change.state === "agreed") && !billing) actions.append(button("受注後の変更提案", () => openChangeProposal(context, state, accepted)));
         if (change && change.state !== "agreed") actions.append(button("変更合意を記録", async () => {
             const values = await formDialog("変更合意を記録", [
                 { name: "source", label: "合意根拠", type: "select", options: [["customer_email", "顧客メール"], ["phone_record", "通話記録"], ["signed_document", "署名済み書類"]] },
@@ -582,18 +679,32 @@ export function renderCommercialWorkspace(context) {
     if (!context.case) {
         activeCaseId = null;
         activeCommercialDraftContext = null;
+        activeEstimateEntry = null;
+        activeEstimateActionStatus = null;
+        estimateEntryOpening = false;
         refreshEpoch += 1;
         byId("pa-commercial-workspace")?.classList.add("hidden");
         return;
     }
+    if (activeCaseId !== context.case.id) estimateEntryOpening = false;
     activeCaseId = context.case.id;
+    activeEstimateEntry = null;
+    const topEstimateButton = byId("pa-v5-estimate");
+    topEstimateButton.disabled = true;
+    topEstimateButton.textContent = "見積";
+    topEstimateButton.dataset.paEstimateEntry = "loading";
+    topEstimateButton.dataset.paEstimateIdleLabel = "見積";
     const refresh = async () => {
         const epoch = ++refreshEpoch;
+        activeEstimateEntry = null;
+        activeEstimateActionStatus = null;
+        topEstimateButton.disabled = true;
         try {
             const data = await api(context, "snapshot");
             await render(context, data, epoch);
         } catch (error) {
             if (epoch !== refreshEpoch) return;
+            activeEstimateEntry = null;
             const root = byId("pa-next-action-summary");
             root.replaceChildren(element("p", "pa-commercial__error", `V5状態を取得できません：${error.message}`));
             byId("pa-commercial-workspace").classList.remove("hidden");
@@ -602,7 +713,11 @@ export function renderCommercialWorkspace(context) {
     context.refreshCommercial = refresh;
     byId("pa-commercial-refresh").onclick = refresh;
     byId("pa-v5-reply").onclick = () => context.openComposer("normal");
-    byId("pa-v5-estimate").onclick = () => context.openComposer("estimate_submission");
+    topEstimateButton.onclick = () => {
+        const entry = activeEstimateEntry;
+        if (!entry || entry.caseId !== activeCaseId) return false;
+        return entry.open();
+    };
     byId("pa-v5-add-file").onclick = () => context.openComposer("normal", { focusAttachments: true });
     byId("pa-v5-note").onclick = context.focusNote;
     byId("pa-estimate-tab").onclick = () => {

@@ -37,8 +37,8 @@ assert.equal(await page.locator('#gmail-reply-body').inputValue(), '実管理画
 await page.locator('#preview-gmail-reply').click();
 await page.locator('#gmail-reply-preview:not(.hidden)').waitFor();
 assert.equal(await page.locator('#gmail-reply-preview-cc').textContent(), 'venue@example.invalid');
-await page.locator('.pa-commercial-file img').waitFor();
-assert.equal(await page.locator('.pa-commercial-file img').evaluate(image => image.naturalWidth > 0), true, 'real raster fixture rendered');
+await page.locator('.pa-commercial-file img').first().waitFor();
+assert.equal(await page.locator('.pa-commercial-file img').first().evaluate(image => image.naturalWidth > 0), true, 'real raster fixture rendered');
 const popupPromise = page.waitForEvent('popup');
 await page.locator('.pa-commercial-file').first().click();
 const popup = await popupPromise; await popup.close();
@@ -53,6 +53,9 @@ await page.getByRole('button', { name: '送信済みメールから登録' }).ev
 const recoveryDialog = page.locator('dialog[open]');
 await page.waitForFunction(() => document.querySelector('dialog[open]')?.textContent.includes('送信済みメールと添付を確認しています'));
 assert.equal(await page.getByRole('button', { name: '検索中…' }).isDisabled(), true, 'recovery search disables immediate double click');
+const recoveryCandidates = recoveryDialog.locator('select[name="candidate"]');
+await recoveryCandidates.waitFor();
+if (await recoveryCandidates.locator('option').count() > 1) await recoveryCandidates.selectOption({ index: 1 });
 await recoveryDialog.locator('.pa-recovery-dialog__filename').getByText('見積書 2026.10.18 龍姫湖まつり.pdf', { exact: true }).waitFor();
 assert.match(await recoveryDialog.textContent(), /￥110,000/);
 assert.match(await recoveryDialog.textContent(), /PDFから自動取得/);
