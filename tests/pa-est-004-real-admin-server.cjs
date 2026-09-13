@@ -31,7 +31,11 @@ async function initialize(nextScenario = 'pending') {
   if (fixture) await fixture.db.close();
   fixture = await createFixture();
   process.env.ALLOWED_ORIGINS = `http://127.0.0.1:${port}`;
-  await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql'));
+  await fixture.db.exec(
+    read('20260913110000_pa_case_management_v5.sql') + '\n'
+    + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
+    + read('20260913170000_pa_case_management_v5_payment_race.sql')
+  );
   service = createService({
     fetchImpl: fixture.fetchImpl,
     sendTransport: async (job) => {

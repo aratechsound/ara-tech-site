@@ -1,5 +1,7 @@
 # PA-EST-004R2 PostgreSQL競合試験Gate
 
+> R6更新（2026-09-13 JST）: Dockerを使用せず、隔離したPortable PostgreSQL 17.11上で全10 scenarioを独立`psql` process／backend PIDにより実行し、`MULTIPLE_CONNECTION_DB_RACE=PASS`、`LOCAL_RELEASE_GATE=PASS`となった。以下はR2時点の探索・harness準備記録であり、現在の判定は `docs/pa-est-004r6-portable-postgres-race-gate.md` を正とする。
+
 ## 状態
 
 - `OWNER_ACCEPTED_UI=YES`

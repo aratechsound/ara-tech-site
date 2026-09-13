@@ -48,7 +48,8 @@ const migrationNames = [
   '20260903020000_pam005_atomic_estimate_reconciliation.sql',
   '20260907130000_pa_formal_contract.sql',
   '20260913110000_pa_case_management_v5.sql',
-  '20260913130000_pa_case_management_v5_r1.sql'
+  '20260913130000_pa_case_management_v5_r1.sql',
+  '20260913170000_pa_case_management_v5_payment_race.sql'
 ];
 
 const lit = value => value === null ? 'null' : `'${String(value).replaceAll("'", "''")}'`;
@@ -70,7 +71,7 @@ function scalar(sql) {
   return output.at(-1);
 }
 
-function startSession(label, operationSql, { hold = false, rollback = false, failure = false } = {}) {
+function startSession(label, operationSql, { hold = false, rollback = false, failure = false, requireLockMarker = true } = {}) {
   const marker = `R2|${label}|LOCK_HELD|`;
   const sql = sessionPreamble(label)
     + `${operationSql}\nselect '${marker}'||pg_backend_pid()||'|'||clock_timestamp();\n`
@@ -86,8 +87,12 @@ function startSession(label, operationSql, { hold = false, rollback = false, fai
   const startedAt = Date.now();
   const done = new Promise((resolve, reject) => {
     const timer = setTimeout(() => { child.kill(); reject(new Error(`${label} timed out`)); }, 15000);
-    child.on('error', error => { clearTimeout(timer); markerReject(error); reject(error); });
-    child.on('close', code => { clearTimeout(timer); if (!stdout.includes(marker)) markerReject(new Error(`${label} did not reach lock marker`)); resolve({ label, code, stdout, stderr, elapsedMs: Date.now() - startedAt }); });
+    child.on('error', error => { clearTimeout(timer); if (requireLockMarker) markerReject(error); reject(error); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (requireLockMarker && !stdout.includes(marker)) markerReject(new Error(`${label} did not reach lock marker`));
+      resolve({ label, code, stdout, stderr, elapsedMs: Date.now() - startedAt });
+    });
   });
   return { markerSeen, done };
 }
@@ -95,7 +100,10 @@ function startSession(label, operationSql, { hold = false, rollback = false, fai
 async function race(name, aSql, bSql, expectations = {}) {
   const a = startSession(`${name}-A`, aSql, { hold: true, rollback: expectations.aRollback, failure: expectations.aFailure });
   await a.markerSeen;
-  const b = startSession(`${name}-B`, bSql, { rollback: expectations.bRollback });
+  // A's marker is the synchronization gate. B may be expected to raise while
+  // executing the competing operation, before it can emit its post-operation
+  // marker; BEGIN/backend identity and connection-exit rollback are still kept.
+  const b = startSession(`${name}-B`, bSql, { rollback: expectations.bRollback, requireLockMarker: false });
   const [ar, br] = await Promise.all([a.done, b.done]);
   assert.equal(ar.code, expectations.aCode ?? 0, `${name} session A exit`);
   assert.equal(br.code, expectations.bCode ?? 0, `${name} session B exit: ${br.stderr}`);
@@ -190,6 +198,14 @@ function auditCount(caseId, action) {
   return Number(scalar(`select count(*) from public.pa_inquiry_audit where inquiry_id=${lit(caseId)}::uuid and action=${lit(action)};`));
 }
 
+function recordPassed(result, invariant) {
+  result.invariant = invariant;
+  result.duplicateRows = 0;
+  result.timeoutOrDeadlock = false;
+  result.status = 'PASS';
+  evidence.tests.push(result);
+}
+
 const bootstrap = `
 \\set ON_ERROR_STOP on
 do $$ begin
@@ -231,52 +247,60 @@ async function main() {
   let s = seedConfirmation();
   let result = await race('accept-first-vs-revision', acceptSql(s), `select public.pa_v5_begin_estimate_revision(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,1,${lit(uuid())}::uuid,'race revision');`, { bCode: 3, bError: /post_contract_change_required/ });
   result.finalState = finalJson(`jsonb_build_object('contracts',(select count(*) from public.pa_contracts where inquiry_id=${lit(s.caseId)}::uuid),'token',(select state from public.pa_contract_tokens where offer_id=${lit(s.offer)}::uuid),'revision_audit',${auditCount(s.caseId, 'estimate_revision_started')})`);
-  assert.deepEqual(result.finalState, { contracts: 1, token: 'accepted', revision_audit: 0 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { contracts: 1, token: 'accepted', revision_audit: 0 });
+  recordPassed(result, 'accepted contract remains authoritative; revision creates no state or audit residue');
 
   // 1b. Revision takes the case lock first; accept waits and then sees revoked token/current change.
   s = seedConfirmation();
   result = await race('revision-first-vs-accept', `select public.pa_v5_begin_estimate_revision(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,1,${lit(uuid())}::uuid,'race revision');`, acceptSql(s), { bCode: 3, bError: /invalid_link/ });
   result.finalState = finalJson(`jsonb_build_object('contracts',(select count(*) from public.pa_contracts where inquiry_id=${lit(s.caseId)}::uuid),'token',(select state from public.pa_contract_tokens where offer_id=${lit(s.offer)}::uuid),'revision_audit',${auditCount(s.caseId, 'estimate_revision_started')},'revoke_audit',${auditCount(s.caseId, 'formal_contract_revoked')})`);
-  assert.deepEqual(result.finalState, { contracts: 0, token: 'revoked', revision_audit: 1, revoke_audit: 1 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { contracts: 0, token: 'revoked', revision_audit: 1, revoke_audit: 1 });
+  recordPassed(result, 'revision and pending-token revocation commit atomically; stale accept is rejected');
 
   // 2. Accepted confirmation is immutable against a dedicated revoke.
   s = seedConfirmation();
   result = await race('accept-vs-single-revoke', acceptSql(s), `select public.pa_v5_revoke_confirmation(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.offer)}::uuid,${lit(uuid())}::uuid,'race revoke');`, { bCode: 3, bError: /accepted_contract_immutable/ });
   result.finalState = finalJson(`jsonb_build_object('contracts',(select count(*) from public.pa_contracts where inquiry_id=${lit(s.caseId)}::uuid),'token',(select state from public.pa_contract_tokens where offer_id=${lit(s.offer)}::uuid),'revoke_audit',${auditCount(s.caseId, 'formal_contract_revoked')})`);
-  assert.deepEqual(result.finalState, { contracts: 1, token: 'accepted', revoke_audit: 0 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { contracts: 1, token: 'accepted', revoke_audit: 0 });
+  recordPassed(result, 'dedicated revoke cannot change an accepted confirmation or append a revoke audit');
 
   // 3. Exactly one estimate can win the same expected current/revision switch.
   s = seedEstimate();
   const opA = uuid(), opB = uuid(), docA = uuid(), docB = uuid();
   result = await race('simultaneous-current-estimate-switch', issueEstimate(s.caseId, opA, docA, 1, s.estimate), issueEstimate(s.caseId, opB, docB, 1, s.estimate), { bCode: 3, bError: /commercial_state_changed/ });
   result.finalState = finalJson(`jsonb_build_object('estimate_count',(select count(*) from public.pa_estimate_revisions where inquiry_id=${lit(s.caseId)}::uuid),'current_matches_winner',(select current_estimate_revision_id=(select id from public.pa_estimate_revisions where operation_id=${lit(opA)}::uuid) from public.pa_case_commercial_state where inquiry_id=${lit(s.caseId)}::uuid),'loser_document_count',(select count(*) from public.pa_commercial_documents where id=${lit(docB)}::uuid),'issue_audit',${auditCount(s.caseId, 'estimate_revision_issued')})`);
-  assert.deepEqual(result.finalState, { estimate_count: 2, current_matches_winner: true, loser_document_count: 0, issue_audit: 2 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { estimate_count: 2, current_matches_winner: true, loser_document_count: 0, issue_audit: 2 });
+  recordPassed(result, 'one expected-current switch wins; losing estimate and document leave no residue');
 
   // 4. Exactly one active confirmation can be issued.
   s = seedEstimate();
   const offerA = uuid(), offerB = uuid();
   result = await race('simultaneous-confirmation-issue', issueConfirmation(s.caseId, s.estimate, offerA, uuid(), crypto.randomBytes(32).toString('hex')), issueConfirmation(s.caseId, s.estimate, offerB, uuid(), crypto.randomBytes(32).toString('hex')), { bCode: 3, bError: /confirmation_already_active/ });
   result.finalState = finalJson(`jsonb_build_object('offer_count',(select count(*) from public.pa_contract_offers where inquiry_id=${lit(s.caseId)}::uuid),'active_tokens',(select count(*) from public.pa_contract_tokens t join public.pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=${lit(s.caseId)}::uuid and t.state='active'),'loser_offer_count',(select count(*) from public.pa_contract_offers where id=${lit(offerB)}::uuid),'issue_audit',${auditCount(s.caseId, 'formal_contract_issued')})`);
-  assert.deepEqual(result.finalState, { offer_count: 1, active_tokens: 1, loser_offer_count: 0, issue_audit: 1 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { offer_count: 1, active_tokens: 1, loser_offer_count: 0, issue_audit: 1 });
+  recordPassed(result, 'one active confirmation and one issue audit exist for the current estimate');
 
   // 5. Same operation retry returns the committed row and does not duplicate facts/audit.
   s = seedBilling(); const payOp = uuid();
   const paymentSql = `select public.pa_v5_record_payment(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.billing)}::uuid,${lit(payOp)}::uuid,'2026-10-20',30000,'bank_transfer','same operation race');`;
   result = await race('same-payment-operation-retry', paymentSql, paymentSql);
   result.finalState = finalJson(`jsonb_build_object('payment_count',(select count(*) from public.pa_payment_records where operation_id=${lit(payOp)}::uuid),'payment_audit',${auditCount(s.caseId, 'payment_recorded')})`);
-  assert.deepEqual(result.finalState, { payment_count: 1, payment_audit: 1 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { payment_count: 1, payment_audit: 1 });
+  recordPassed(result, 'same payment operation commits once and retry returns the committed identity');
 
   // 6. Distinct payment operations both serialize and commit.
   s = seedBilling(); const payA = uuid(), payB = uuid();
   result = await race('two-different-payment-registrations', `select public.pa_v5_record_payment(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.billing)}::uuid,${lit(payA)}::uuid,'2026-10-20',30000,'bank_transfer','payment A');`, `select public.pa_v5_record_payment(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.billing)}::uuid,${lit(payB)}::uuid,'2026-10-21',20000,'bank_transfer','payment B');`);
   result.finalState = finalJson(`jsonb_build_object('payment_count',(select count(*) from public.pa_payment_records where billing_id=${lit(s.billing)}::uuid),'total',(select sum(round(amount)::bigint) from public.pa_payment_records where billing_id=${lit(s.billing)}::uuid),'payment_audit',${auditCount(s.caseId, 'payment_recorded')})`);
-  assert.deepEqual(result.finalState, { payment_count: 2, total: 50000, payment_audit: 2 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { payment_count: 2, total: 50000, payment_audit: 2 });
+  recordPassed(result, 'different payment operations both commit once with the exact aggregate total');
 
   // 7. Two workers contend for one queued job; only one lease is installed.
   s = seedEstimate({ finish: false }); const leaseA = uuid(), leaseB = uuid();
   result = await race('outbox-worker-concurrent-claim', `select public.pa_v5_outbox_claim(${lit(actor)}::uuid,${lit(s.outbox)}::uuid,${lit(leaseA)}::uuid);`, `select public.pa_v5_outbox_claim(${lit(actor)}::uuid,${lit(s.outbox)}::uuid,${lit(leaseB)}::uuid);`, { bCode: 3, bError: /outbox_busy/ });
   result.finalState = finalJson(`(select jsonb_build_object('state',state,'lease_id',lease_id,'attempt_count',attempt_count) from public.pa_commercial_outbox where id=${lit(s.outbox)}::uuid)`);
-  assert.deepEqual(result.finalState, { state: 'processing', lease_id: leaseA, attempt_count: 1 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { state: 'processing', lease_id: leaseA, attempt_count: 1 });
+  recordPassed(result, 'one worker owns the non-expired lease and the competing claim is rejected');
 
   // 8. An expired lease is recoverable exactly once; the concurrent claimant becomes busy.
   s = seedEstimate({ finish: false });
@@ -284,14 +308,16 @@ async function main() {
   const recoveredLease = uuid();
   result = await race('expired-worker-lease-recovery', `select public.pa_v5_outbox_claim(${lit(actor)}::uuid,${lit(s.outbox)}::uuid,${lit(recoveredLease)}::uuid);`, `select public.pa_v5_outbox_claim(${lit(actor)}::uuid,${lit(s.outbox)}::uuid,${lit(uuid())}::uuid);`, { bCode: 3, bError: /outbox_busy/ });
   result.finalState = finalJson(`(select jsonb_build_object('state',state,'lease_id',lease_id,'attempt_count',attempt_count) from public.pa_commercial_outbox where id=${lit(s.outbox)}::uuid)`);
-  assert.deepEqual(result.finalState, { state: 'processing', lease_id: recoveredLease, attempt_count: 2 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { state: 'processing', lease_id: recoveredLease, attempt_count: 2 });
+  recordPassed(result, 'one worker replaces the expired lease exactly once and the competing claim is rejected');
 
   // 9. A deliberate SQL failure aborts the transaction; connection exit rolls it back,
   // releases the case lock, and leaves no payment/audit residue.
   s = seedBilling(); const rolledBackOp = uuid(), committedOp = uuid();
   result = await race('transaction-failure-rollback', `select public.pa_v5_record_payment(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.billing)}::uuid,${lit(rolledBackOp)}::uuid,'2026-10-20',10000,'bank_transfer','rollback A');`, `select public.pa_v5_record_payment(${lit(actor)}::uuid,${lit(s.caseId)}::uuid,${lit(s.billing)}::uuid,${lit(committedOp)}::uuid,'2026-10-21',20000,'bank_transfer','commit B');`, { aFailure: true, aCode: 3, aError: /division by zero/ });
   result.finalState = finalJson(`jsonb_build_object('rolled_back_rows',(select count(*) from public.pa_payment_records where operation_id=${lit(rolledBackOp)}::uuid),'committed_rows',(select count(*) from public.pa_payment_records where operation_id=${lit(committedOp)}::uuid),'payment_audit',${auditCount(s.caseId, 'payment_recorded')})`);
-  assert.deepEqual(result.finalState, { rolled_back_rows: 0, committed_rows: 1, payment_audit: 1 }); evidence.tests.push(result);
+  assert.deepEqual(result.finalState, { rolled_back_rows: 0, committed_rows: 1, payment_audit: 1 });
+  recordPassed(result, 'failed transaction leaves no payment or audit residue and releases the lock for the competitor');
 
   fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
   fs.writeFileSync(evidencePath, JSON.stringify({ ...evidence, result: 'PASS', completedAt: new Date().toISOString() }, null, 2) + '\n');

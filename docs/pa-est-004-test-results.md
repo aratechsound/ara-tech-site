@@ -1,5 +1,24 @@
 # PA-EST-004 テスト結果
 
+## PA-EST-004R6 Portable PostgreSQL競合Gate（2026-09-13 JST、最新判定）
+
+DockerをPA Release Gateから分離し、公式Windows向けEDB ZIPのPostgreSQL 17.11を専用rootへ隔離展開した。`127.0.0.1:55432`、専用`pgdata`、Windows serviceなし、管理者権限なしで起動し、異なる`psql` process／backend PIDによる全10 scenarioを再実行してPASSした。Production PostgreSQL versionは安全な既存証拠・認証済みread pathがなかったため`UNKNOWN`であり、Productionには接続していない。
+
+初回raceで同一payment operation retryがunique violationとなる実不具合を検出したため、forward migrationで案件lock後のfresh idempotency readbackへ修正した。修正後は同一operationがpayment 1/audit 1、異なるoperationがpayment 2/audit 2となり、全scenarioでlock待機、A/B PID相違、重複0、timeout/deadlockなしを確認した。
+
+| 層 | コマンド／証跡 | 結果 |
+|---|---|---|
+| PostgreSQL実競合 | `node tests/validate-pa-est-004-r2-postgres-races.mjs` | PASS、10/10独立session |
+| R1 DB/HTTP/CC | `validate-pa-est-004-r1-db.cjs`, `-r1-http.cjs`, `-r1-cc.cjs` | 各PASS |
+| base DB/API/outbox/static | PA-EST-004 validate 4本 | 各PASS |
+| formal confirmation | `node tests/validate-pa-contract.cjs` | 29/29 PASS |
+| Composer | case binding、preview body binding | 7/7 + 7/7 PASS |
+| portal/Stage Plot | portal validate群、Stage Plot Phase 1A | PASS |
+| Function consolidation | `validate-pa-portal-function-consolidation.cjs` | PASS、12 Functions |
+| 実管理画面browser | fresh localhost fixture + PGlite + fake adapter | PASS、外部request 0 |
+
+詳細は `docs/pa-est-004r6-portable-postgres-race-gate.md`。`MULTIPLE_CONNECTION_DB_RACE=PASS`、`LOCAL_RELEASE_GATE=PASS`。UI、Production、実Gmailは変更していない。
+
 ## PA-EST-004R2 Gate準備（2026-09-13 JST、最新判定）
 
 `OWNER_ACCEPTED_UI=YES`。採用基準は `1e22fefa8d3f1e61f91ed5ea8f6ee07f409b8b3d` で、R2ではUIを変更していない。
