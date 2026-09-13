@@ -1,5 +1,8 @@
 const TERMS_VERSION = 'PA-FORMAL-20260908-v2';
 const INVOICE = '請求書は原則としてPDFをメール添付でお送りします。原本の郵送や指定様式が必要な場合は、別途ご相談ください。';
+const TRANSFER_FEE = '振込手数料はお客様のご負担となります。';
+const BANKING_DAY = '期限日が金融機関休業日の場合は翌営業日。';
+const PAYMENT_CONSULT = '行政機関、法人、団体等で所定の会計手続きにより14日以内のお支払いが難しい場合は、正式依頼の前にARA-TECHへご相談ください。別の支払条件を承認した場合は、その条件を反映した新しい確認ページをご案内します。';
 const PAYMENT = 'イベント終了後14日以内に銀行振込でお支払いください。振込手数料はお客様のご負担となります。\n\n行政機関、法人、団体等で所定の会計手続きにより14日以内のお支払いが難しい場合は、「この内容で正式に依頼する」ボタンを押す前にARA-TECHへご相談ください。別の支払条件を承認した場合は、その条件を反映した新しい確認URLをご案内します。新しい確認ページの内容をご確認のうえ、お手続きください。';
 const BUSINESS = [
  '業務はARA-TECHが責任をもって実施します。必要に応じて、ARA-TECHが適切な担当者を配置する場合があります。',
@@ -52,6 +55,9 @@ function issuanceTermsV4(eventDate,customPayment='',approvedDate=''){
  const base=issuanceTerms(eventDate,customPayment,approvedDate);
  const cancel=base.cancellation_terms.split('\n\n').slice(0,5).join('\n\n');
  const sections=OTHER_TERMS_V4.map(s=>({...s})),business=sections.map(s=>s.title+'\n'+s.text).join('\n\n');
- return {...base,terms_version:'PA-FORMAL-20260908-v4',presentation_version:4,cancellation_terms:cancel,business_terms:business,other_terms_sections:sections,terms_text:`キャンセル条件\n${cancel}\n\n支払条件\n今回のお支払期限：${base.payment_due_date}\n${base.payment_terms}\n\nその他のご確認事項\n${business}`};
+ return {...base,terms_version:'PA-FORMAL-20260908-v4',presentation_version:4,cancellation_terms:cancel,business_terms:business,other_terms_sections:sections,
+  banking_day_treatment:BANKING_DAY,transfer_fee_terms:TRANSFER_FEE,invoice_terms:INVOICE,payment_consult_terms:PAYMENT_CONSULT,
+  weather_change_terms:cancel.split('\n\n').at(-1),
+  terms_text:`キャンセル条件\n${cancel}\n\n支払条件\n今回のお支払期限：${base.payment_due_date}\n${base.payment_terms}\n\nその他のご確認事項\n${business}`};
 }
 module.exports.issuanceTermsV4=issuanceTermsV4;

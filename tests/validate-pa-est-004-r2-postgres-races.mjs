@@ -50,7 +50,8 @@ const migrationNames = [
   '20260913110000_pa_case_management_v5.sql',
   '20260913130000_pa_case_management_v5_r1.sql',
   '20260913170000_pa_case_management_v5_payment_race.sql',
-  '20260913190000_pa_estimate_recovery_ux.sql'
+  '20260913190000_pa_estimate_recovery_ux.sql',
+  '20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'
 ];
 
 const lit = value => value === null ? 'null' : `'${String(value).replaceAll("'", "''")}'`;
@@ -146,13 +147,13 @@ function issueConfirmation(caseId, estimate, offer, operation, token) {
     p_actor=>${lit(actor)}::uuid,p_case=>${lit(caseId)}::uuid,p_expected_revision=>1,p_estimate=>${lit(estimate)}::uuid,
     p_offer=>${lit(offer)}::uuid,p_operation=>${lit(operation)}::uuid,p_token_hash=>${lit(token)},
     p_secret_envelope=>'isolated-race-envelope-000000000000000000000000000000',
-    p_snapshot=>'{"event_name":"Race fixture","event_date":"2026-10-18","amount_minor":100000}'::jsonb,
+    p_snapshot=>'{"snapshot_schema_version":"PA-FORMAL-V5-20260914-1","customer_acknowledgement":{},"conditions":{},"terms_version":"PA-FORMAL-20260908-v4","payment_due_date":"2026-11-02","payment_summary":"イベント終了後14日以内","payment_terms":"イベント終了後14日以内に銀行振込でお支払いください。","banking_day_treatment":"期限日が金融機関休業日の場合は翌営業日。","transfer_fee_terms":"振込手数料はお客様のご負担となります。","cancellation_terms":"キャンセル条件は開催日までの日数に応じます。","cancellation_bands":[],"weather_change_terms":"天候等は状況を確認のうえ相談します。","invoice_terms":"請求書はPDFでご案内します。","payment_consult_terms":"支払時期は事前にご相談ください。","business_terms":"ARA-TECHが責任をもって業務を実施します。","other_terms_sections":[],"terms_text":"管理下テスト条件全文"}'::jsonb,
     p_recipient=>'fixture@example.invalid',p_subject=>'Race confirmation',p_body=>'Isolated race fixture',p_reply_binding=>'{}'::jsonb);`;
 }
 
 function insertCase(caseId) {
-  runSql(`insert into public.pa_inquiries(id,status,email,customer_name,contact_name,organization_name,event_name,event_date,inquiry_number,request_summary)
-    values(${lit(caseId)}::uuid,'rough_estimate','fixture@example.invalid','Fixture','Fixture','Isolated','Race fixture','2026-10-18',${lit(`R2-${caseId.slice(0, 8)}`)},'Isolated local PostgreSQL race fixture');`);
+  runSql(`insert into public.pa_inquiries(id,status,email,customer_name,contact_name,organization_name,event_name,event_date,event_time,venue,inquiry_number,request_summary)
+    values(${lit(caseId)}::uuid,'rough_estimate','fixture@example.invalid','Fixture','Fixture','Isolated','Race fixture','2026-10-18','10:00-15:00','Isolated venue',${lit(`R2-${caseId.slice(0, 8)}`)},'Isolated local PostgreSQL race fixture');`);
 }
 
 function seedEstimate({ finish = true } = {}) {
@@ -228,7 +229,7 @@ ${migrationNames.slice(0, 7).map(read).join('\n')}
 create table public.work_admins(user_id uuid primary key);
 insert into public.work_admins values('${actor}');
 alter table public.pa_email_deliveries add column inquiry_id uuid,add column status text,add column gmail_thread_id text,add column gmail_message_id text,add column message_type text,add column sent_at timestamptz,add column recipient text,add column subject text;
-alter table public.pa_inquiries add column email text,add column customer_name text,add column contact_name text,add column organization_name text,add column event_name text,add column event_date date,add column inquiry_number text,add column request_summary text;
+alter table public.pa_inquiries add column email text,add column customer_name text,add column contact_name text,add column organization_name text,add column event_name text,add column event_date date,add column event_time text,add column venue text,add column inquiry_number text,add column request_summary text;
 ${migrationNames.slice(7).map(read).join('\n')}
 `;
 

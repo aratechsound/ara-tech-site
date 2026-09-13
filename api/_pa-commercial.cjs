@@ -3,7 +3,10 @@ const mail = require('./_pa-mail.cjs');
 const gmail = require('./_pa-gmail.cjs');
 const pdf = require('./_pa-contract-pdf.cjs');
 const estimateAmount = require('./_pa-estimate-amount.cjs');
+const { issuanceTermsV4 } = require('./_pa-contract-terms.cjs');
 const { canonicalAssetKey } = require('./_pa-portal-candidates.cjs');
+
+const FORMAL_SNAPSHOT_VERSION = 'PA-FORMAL-V5-20260914-1';
 
 const SAFE = new Set([
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
@@ -59,6 +62,7 @@ const fromBytea = (value) => {
   if (typeof value !== 'string' || !/^\\x[0-9a-f]+$/iu.test(value)) throw Error('document_identity_mismatch');
   return Buffer.from(value.slice(2), 'hex');
 };
+const emailAddress=value=>String(value||'').trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1]?.toLowerCase()||'';
 const isLocalUrl = (value) => {
   try {
     const host = new URL(value).hostname;
@@ -228,7 +232,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
   async function snapshot(caseId) {
     uuid(caseId);
     const inquiry = await mail.getInquiry(caseId, fetchImpl);
-    const [state, estimates, documents, offers, tokens, contracts, outbox, billings, payments, adjustments, changeOrders, deliveryEvidence, importCorrections, gmailMessages, portal] = await Promise.all([
+    const [state, estimates, documents, offers, tokens, contracts, outbox, billings, payments, adjustments, changeOrders, deliveryEvidence, importCorrections, gmailMessages, portal, primaryThread] = await Promise.all([
       one('pa_case_commercial_state', { inquiry_id: 'eq.' + caseId, select: '*' }),
       rows('pa_estimate_revisions', { inquiry_id: 'eq.' + caseId, select: '*', order: 'issued_at.desc', limit: '100' }),
       rows('pa_commercial_documents', { inquiry_id: 'eq.' + caseId, select: 'id,inquiry_id,document_kind,source_kind,gmail_message_id,gmail_attachment_id,original_filename,mime_type,sha256,metadata,created_at', order: 'created_at.desc', limit: '200' }),
@@ -243,7 +247,8 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       rows('pa_estimate_delivery_evidence', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
       rows('pa_estimate_import_corrections', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
       rows('pa_gmail_message_index', { inquiry_id: 'eq.' + caseId, select: 'gmail_message_id,direction,sent_at,received_at,indexed_at,attachment_metadata', order: 'indexed_at.desc', limit: '200' }),
-      one('pa_portals', { case_id: 'eq.' + caseId, select: 'id' })
+      one('pa_portals', { case_id: 'eq.' + caseId, select: 'id' }),
+      one('pa_gmail_thread_links', { inquiry_id: 'eq.' + caseId, conversation_role: 'eq.primary_conversation', select: 'gmail_thread_id' })
     ]);
     const portalCards = portal ? await rows('pa_portal_document_cards', { portal_id: 'eq.' + portal.id, archived_at: 'is.null', select: 'id,category,title,owner_kind,sort_order,current_version_id,archived_at' }) : [];
     const cardIds = new Set(portalCards.map((item) => item.id));
@@ -263,6 +268,14 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       })),
       outbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
+      confirmation_preflight: {
+        event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
+        venue: inquiry.venue || null, service_scope: inquiry.request_summary || null,
+        organization: inquiry.organization_name || null, contact_name: inquiry.contact_name || inquiry.customer_name || null,
+        recipient: inquiry.email, gmail_thread_id: primaryThread?.gmail_thread_id || null,
+        payment_due_date: issuanceTermsV4(inquiry.event_date).payment_due_date,
+        cancellation_terms: issuanceTermsV4(inquiry.event_date).cancellation_terms
+      },
       related_materials: buildRelatedMaterials({ caseId, state: effectiveState, estimates, documents, gmailMessages, portalCards, portalVersions: casePortalVersions, portalPhotos })
     };
   }
@@ -367,7 +380,6 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       const expectedBody = text(input.body_template, 20000);
       if (priorJob.job_kind !== 'confirmation' || !priorOffer || priorOffer.id !== input.offer_id
         || priorOffer.estimate_revision_id !== input.estimate_revision_id || priorJob.body_text !== expectedBody
-        || priorOffer.snapshot?.event_name !== input.event_name || priorOffer.snapshot?.event_date !== input.event_date
         || canonical(priorOffer.snapshot?.customer_acknowledgement) !== canonical(input.customer_acknowledgement)) throw Error('idempotency_payload_mismatch');
       return { id: priorOffer.id, version: priorOffer.version, outbox_id: priorJob.id, already_committed: true, secret_url_returned_once: null };
     }
@@ -378,6 +390,8 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     const estimate = current.estimates.find((item) => item.id === input.estimate_revision_id);
     const document = current.documents.find((item) => item.id === estimate?.document_id);
     if (!estimate || !document) throw Error('estimate_not_found');
+    const inquiry = await mail.getInquiry(uuid(input.case_id), fetchImpl);
+    const agreement = issuanceTermsV4(text(inquiry.event_date, 10));
     const token = crypto.randomBytes(32).toString('hex');
     const origin = String(process.env.PA_PUBLIC_ORIGIN || 'https://ara-tech.cc').replace(/\/+$/u, '');
     const confirmationUrl = origin + '/pa-contract.html#' + token;
@@ -391,9 +405,10 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       p_estimate: uuid(estimate.id), p_offer: offerId, p_operation: operationId,
       p_token_hash: pdf.sha(token), p_secret_envelope: encryptSecret(confirmationUrl),
       p_snapshot: {
-        event_name: text(input.event_name, 200), event_date: text(input.event_date, 10),
-        recipient: preview.recipient, customer_acknowledgement: object(input.customer_acknowledgement),
-        estimate_sha256: document.sha256, conditions: estimate.conditions_snapshot
+        snapshot_schema_version: FORMAL_SNAPSHOT_VERSION,
+        customer_acknowledgement: object(input.customer_acknowledgement),
+        conditions: estimate.conditions_snapshot,
+        ...agreement
       },
       p_recipient: preview.recipient, p_subject: preview.subject,
       p_body: bodyTemplate, p_reply_binding: replyBinding(preview)
@@ -563,6 +578,14 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     if (adapter !== 'gmail') throw Error('mail_adapter_not_configured');
     let body = job.body_text;
     if (job.secret_envelope) body = body.replace('{{CONFIRMATION_URL}}', decryptSecret(job.secret_envelope));
+    if(job.job_kind==='accept_receipt'){
+      const binding=job.reply_binding||{};
+      const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,
+        ...(binding.reply_source_explicit?{replySourceMessageId:binding.reply_source_message_id,replySourceThreadId:binding.reply_source_thread_id}:{})};
+      const preview=await gmail.replyPreview(options,fetchImpl);
+      if(emailAddress(preview.recipient)!==emailAddress(job.recipient))throw Error('recipient_changed');
+      return gmail.sendReply({...options,confirmationToken:preview.confirmation_token},fetchImpl);
+    }
     return gmail.sendReply({
       inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
       mode: 'normal', confirmationToken: job.reply_binding.confirmation_token,
@@ -584,16 +607,18 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       return { state: 'sent', provider_message_id: completed?.provider_message_id || null, already_committed: true };
     }
     const job = await one('pa_commercial_outbox', { id: 'eq.' + jobId, select: '*' });
-    const documents = [];
-    for (const id of job.attachment_ids || []) {
-      const document = await one('pa_commercial_documents', { id: 'eq.' + id, inquiry_id: 'eq.' + job.inquiry_id, select: 'original_filename,mime_type,content' });
-      documents.push({ filename: document.original_filename, mime_type: document.mime_type, data: fromBytea(document.content).toString('base64url') });
-    }
     let sent;
     try {
+      let documents=[];
+      if(job.job_kind==='accept_receipt')documents=await require('./_pa-contract.cjs').createService({fetchImpl}).receiptAttachments(job.inquiry_id,job.aggregate_id);
+      else for (const id of job.attachment_ids || []) {
+        const document = await one('pa_commercial_documents', { id: 'eq.' + id, inquiry_id: 'eq.' + job.inquiry_id, select: 'original_filename,mime_type,content' });
+        if(!document)throw Error('document_identity_mismatch');
+        documents.push({ filename: document.original_filename, mime_type: document.mime_type, data: fromBytea(document.content).toString('base64url') });
+      }
       sent = await (sendTransport || defaultTransport)({ ...job, actor_id: actor.id }, documents);
     } catch (error) {
-      const knownFailure = ['mail_adapter_not_configured', 'fake_adapter_requires_local_db'].includes(error.message) || String(error.message).startsWith('gmail_send_');
+      const knownFailure = ['mail_adapter_not_configured','fake_adapter_requires_local_db','recipient_changed','quote_missing','invalid_pdf','unsafe_pdf','receipt_identity_mismatch','receipt_too_large','document_identity_mismatch'].includes(error.message) || String(error.message).startsWith('gmail_send_');
       await rpc('pa_v5_outbox_finish', {
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: knownFailure ? 'failed' : 'unknown',
         p_message: null, p_thread: null, p_error: knownFailure ? error.message : 'mail_outcome_unknown'

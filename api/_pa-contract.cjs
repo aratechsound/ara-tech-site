@@ -5,7 +5,7 @@ const pdf=require('./_pa-contract-pdf.cjs');
 const {receiptBody}=require('./_pa-contract-display.cjs');
 const {issuanceTermsV4:issuanceTerms}=require('./_pa-contract-terms.cjs');
 const TOKEN=/^[a-f0-9]{64}$/;
-const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
+const SAFE=new Set(['not_authorized','case_unavailable','case_changed','quote_case_mismatch','quote_identity_mismatch','invalid_contract','invalid_link','revoked_link','expired_link','contract_changed','consent_required','receipt_unavailable','delivery_replay','delivery_in_progress','resend_ack_required','invalid_payment_date','payment_calendar_unavailable','related_document_invalid','related_documents_too_large']);
 for(const code of ['related_index_unavailable','related_link_unavailable','related_gmail_not_found','related_gmail_unavailable','related_pdf_unavailable'])SAFE.add(code);
 const uuid=v=>{if(!mail.isUuid(v))throw Error('invalid_contract');return v;};
 const text=(v,max)=>{const s=String(v||'').trim();if(!s||s.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(s))throw Error('invalid_contract');return s;};
@@ -16,8 +16,45 @@ const orderScope=input=>{
 const scopeSummary=s=>`本番時間：${s.performance_time}\n会場：${s.venue}\n業務内容：${s.services}`;
 const fromBytea=v=>{if(typeof v!=='string'||!/^\\x[0-9a-f]+$/i.test(v))throw Error('quote_missing');return Buffer.from(v.slice(2),'hex');};
 const address=v=>String(v||'').trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1]?.toLowerCase()||'';
-const publicSnapshot=s=>Array.isArray(s.related_documents)?({...s,related_documents:s.related_documents.map(({content_base64,...identity})=>identity)}):({...s});
-function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
+const FORMAL_SNAPSHOT_VERSION='PA-FORMAL-V5-20260914-1';
+const publicDocument=d=>{
+ if(!d||typeof d!=='object'||Array.isArray(d))throw Error('invalid_link');
+ const filename=String(d.original_filename||d.filename||'').trim(),sha256=String(d.sha256||'').trim();
+ if(!filename||!`${sha256}`.match(/^[a-f0-9]{64}$/u))throw Error('invalid_link');
+ return {filename,mime_type:String(d.mime_type||'application/pdf'),sha256,size:Number(d.size)||null};
+};
+const normalizeSnapshot=s=>{
+ if(!s||typeof s!=='object'||Array.isArray(s))throw Error('invalid_link');
+ const marker=s.snapshot_schema_version;
+ if(marker!=null&&marker!==FORMAL_SNAPSHOT_VERSION)throw Error('invalid_link');
+ const current=marker===FORMAL_SNAPSHOT_VERSION;
+ const event=current?s.case||{}:{event_name:s.event_name,event_date:s.event_date,event_time:s.order_scope?.performance_time||null,venue:s.order_scope?.venue||'',service_scope:s.order_scope?.services||s.request_summary||''};
+ const customer=current?s.customer||{}:{organization:'',department:null,contact_name:s.confirmer_name||s.customer_name,display_name:s.customer_name};
+ const estimate=current?s.estimate||{}:{revision_number:s.estimate_revision_number,amount_minor:s.amount??s.amount_minor,currency:s.currency||'JPY',original_filename:s.quote?.filename,mime_type:s.quote?.mime_type,sha256:s.quote?.sha256,sent_at:null};
+ const terms=current?s.terms||{}:{terms_version:s.terms_version,payment_due_date:s.payment_due_date,payment_summary:s.payment_summary,payment_terms:s.payment_terms,cancellation_terms:s.cancellation_terms,cancellation_bands:s.cancellation_bands,business_terms:s.business_terms,other_terms_sections:s.other_terms_sections,terms_text:s.terms_text};
+ const issuance=current?s.issuance||{}:{issued_at:s.issued_at,expires_at:s.expires_at};
+ const acceptance=s.acceptance||{confirmer_name:s.confirmer_name||'',confirmed_at:s.confirmed_at||null,agreed:s.agreed===true};
+ const amount=Number(estimate.amount_minor);
+ if(!String(event.event_name||'').trim()||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(String(event.event_date||''))
+  ||!String(customer.display_name||customer.contact_name||'').trim()||!Number.isSafeInteger(amount)||amount<=0
+  ||!String(event.service_scope||'').trim()||!String(terms.payment_terms||'').trim()||!String(terms.cancellation_terms||'').trim())throw Error('invalid_link');
+ const quote=publicDocument(estimate);
+ const related=Array.isArray(s.related_documents)?s.related_documents.map(publicDocument):[];
+ return {
+  snapshot_schema_version:marker||'legacy',presentation_version:current?5:Number(s.presentation_version)||null,
+  case:{event_name:String(event.event_name),event_date:String(event.event_date),event_time:event.event_time?String(event.event_time):null,venue:String(event.venue||''),service_scope:String(event.service_scope)},
+  customer:{organization:String(customer.organization||''),department:customer.department?String(customer.department):null,contact_name:String(customer.contact_name||''),display_name:String(customer.display_name||customer.contact_name)},
+  estimate:{revision_number:Number(estimate.revision_number)||null,amount_minor:amount,currency:String(estimate.currency||'JPY'),original_filename:quote.filename,mime_type:quote.mime_type,sha256:quote.sha256,sent_at:estimate.sent_at||null},
+  terms:{terms_version:String(terms.terms_version||''),payment_due_date:terms.payment_due_date||null,payment_summary:String(terms.payment_summary||''),payment_terms:String(terms.payment_terms),banking_day_treatment:String(terms.banking_day_treatment||''),transfer_fee_terms:String(terms.transfer_fee_terms||''),cancellation_terms:String(terms.cancellation_terms),cancellation_bands:Array.isArray(terms.cancellation_bands)?terms.cancellation_bands:[],weather_change_terms:String(terms.weather_change_terms||''),invoice_terms:String(terms.invoice_terms||''),payment_consult_terms:String(terms.payment_consult_terms||''),business_terms:String(terms.business_terms||''),other_terms_sections:Array.isArray(terms.other_terms_sections)?terms.other_terms_sections.map(section=>({title:String(section?.title||''),text:String(section?.text||'')})):[],terms_text:String(terms.terms_text||'')},
+  issuance:{issued_at:issuance.issued_at||null,expires_at:issuance.expires_at||null},
+  acceptance:{confirmer_name:String(acceptance.confirmer_name||''),confirmed_at:acceptance.confirmed_at||null,agreed:acceptance.agreed===true},
+  event_name:String(event.event_name),event_date:String(event.event_date),customer_name:String(customer.display_name||customer.contact_name),confirmer_name:String(acceptance.confirmer_name||customer.contact_name||''),amount,currency:String(estimate.currency||'JPY'),estimate_revision_number:Number(estimate.revision_number)||null,issued_at:issuance.issued_at||null,order_scope:{performance_time:event.event_time?String(event.event_time):'',venue:String(event.venue||''),services:String(event.service_scope)},request_summary:String(event.service_scope),terms_version:String(terms.terms_version||''),payment_due_date:terms.payment_due_date||null,payment_summary:String(terms.payment_summary||''),payment_terms:String(terms.payment_terms),cancellation_terms:String(terms.cancellation_terms),cancellation_bands:Array.isArray(terms.cancellation_bands)?terms.cancellation_bands:[],business_terms:String(terms.business_terms||''),other_terms_sections:Array.isArray(terms.other_terms_sections)?terms.other_terms_sections:[],terms_text:String(terms.terms_text||''),quote,related_documents:related
+ };
+};
+const publicSnapshot=s=>normalizeSnapshot(s);
+const receiptFilename=s=>`正式受注確認書_${String(normalizeSnapshot(s).case.event_name).replace(/[\\/:*?"<>|\u0000-\u001f]/gu,'').replace(/\s+/gu,'').slice(0,80)||'ARA-TECH'}.pdf`;
+function createService({fetchImpl=fetch,createReceipt=pdf.createReceipt,mergeReceipt}={}) {
+ if(mergeReceipt)createReceipt=mergeReceipt;
  const db=async(path,options={})=>{
   const {url,serviceRoleKey}=mail.supabaseConfig();
   const r=await fetchImpl(url+'/rest/v1/'+path,{...options,headers:{apikey:serviceRoleKey,authorization:`Bearer ${serviceRoleKey}`,'content-type':'application/json',prefer:'return=representation',...(options.headers||{})}});
@@ -99,29 +136,34 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
  }
  async function resolve(token){
   if(typeof token!=='string'||!TOKEN.test(token))throw Error('invalid_link');
-  const t=await one('pa_contract_tokens',{token_hash:`eq.${pdf.sha(token)}`,select:'offer_id,state'});
-  if(!t||t.state==='revoked')throw Error('invalid_link');
-  const o=await one('pa_contract_offers',{id:`eq.${t.offer_id}`,select:'*'});
-  if(!o)throw Error('invalid_link');
-  if(t.state==='accepted')return {state:'accepted',offer:o};
+   const t=await one('pa_contract_tokens',{token_hash:`eq.${pdf.sha(token)}`,select:'offer_id,state'});
+   if(!t)throw Error('invalid_link');
+   const o=await one('pa_contract_offers',{id:`eq.${t.offer_id}`,select:'*'});
+   if(!o)throw Error('invalid_link');
+   if(t.state==='revoked')throw Error(o.snapshot?.snapshot_schema_version===FORMAL_SNAPSHOT_VERSION?'revoked_link':'invalid_link');
+   if(t.state==='accepted'){
+    const contract=await one('pa_contracts',{id:`eq.${o.id}`,inquiry_id:`eq.${o.inquiry_id}`,select:'snapshot,confirmed_at'});
+    if(!contract)throw Error('invalid_link');
+    return {state:'accepted',offer:o,contract};
+   }
   if(Date.now()>=Date.parse(o.expires_at))throw Error('expired_link');
   const i=await inquiry(o.inquiry_id);
   if(['closed','cancelled','declined','schedule_unavailable'].includes(i.status))throw Error('case_unavailable');
   return {state:'active',offer:o};
  }
  async function view(token){
-  const {state,offer:o}=await resolve(token);
-  if(state==='accepted')return {state};
-  const {recipient,issued_by,payment_approval,...snapshot}=o.snapshot;
-  return {state,snapshot:publicSnapshot(snapshot),offer_id:o.id,snapshot_sha256:o.snapshot_sha256,expires_at:o.expires_at};
+   const {state,offer:o,contract}=await resolve(token);
+   if(state==='accepted')return {state,snapshot:publicSnapshot(contract.snapshot),confirmed_at:contract.confirmed_at};
+   return {state,snapshot:publicSnapshot(o.snapshot),offer_id:o.id,snapshot_sha256:o.snapshot_sha256,expires_at:o.expires_at};
  }
  async function customerQuote(token){
-  const r=await resolve(token);if(r.state!=='active')throw Error('invalid_link');
-  const bytes=fromBytea(r.offer.quote_pdf);await pdf.validatePdf(bytes,r.offer.quote_sha256);
-  return {bytes,filename:r.offer.snapshot.quote.filename,mime_type:'application/pdf'};
+   const r=await resolve(token);
+   const bytes=fromBytea(r.offer.quote_pdf);await pdf.validatePdf(bytes,r.offer.quote_sha256);
+   return {bytes,filename:normalizeSnapshot(r.state==='accepted'?r.contract.snapshot:r.offer.snapshot).quote.filename,mime_type:'application/pdf'};
  }
  async function customerRelated(token,index){
-  const r=await resolve(token);if(r.state!=='active')throw Error('invalid_link');
+   const r=await resolve(token);
+  if(r.state!=='active')throw Error('invalid_link');
   if(!Number.isInteger(index)||index<0)throw Error('related_document_invalid');
   const d=r.offer.snapshot.related_documents?.[index];if(!d||d.role!=='related')throw Error('related_document_invalid');
   const bytes=Buffer.from(d.content_base64,'base64');await pdf.validatePdf(bytes,d.sha256);
@@ -136,17 +178,29 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   const c=await contract(caseId,id);
   let r=await one('pa_contract_receipts',{contract_id:`eq.${id}`,select:'*'});
   if(!r){
-   const o=await one('pa_contract_offers',{id:`eq.${id}`,inquiry_id:`eq.${caseId}`,select:'quote_pdf,quote_sha256'});
-   if(!o)throw Error('quote_missing');
-   const quote=fromBytea(o.quote_pdf);await pdf.validatePdf(quote,c.snapshot.quote.sha256);
-   const merged=await mergeReceipt(c.snapshot,quote);
+    const o=await one('pa_contract_offers',{id:`eq.${id}`,inquiry_id:`eq.${caseId}`,select:'quote_pdf,quote_sha256'});
+    if(!o)throw Error('quote_missing');
+    const quote=fromBytea(o.quote_pdf);await pdf.validatePdf(quote,normalizeSnapshot(c.snapshot).quote.sha256);
+    const merged=await createReceipt(c.snapshot,quote);
    try{await db('pa_contract_receipts',{method:'POST',body:JSON.stringify({contract_id:id,pdf:'\\x'+merged.bytes.toString('hex'),sha256:merged.sha256,cover_pages:merged.cover_pages,quote_pages:merged.quote_pages})});}catch(error){
     r=await one('pa_contract_receipts',{contract_id:`eq.${id}`,select:'*'});if(!r)throw error;
    }
    r=r||await one('pa_contract_receipts',{contract_id:`eq.${id}`,select:'*'});
   }
   const bytes=fromBytea(r.pdf);if(pdf.sha(bytes)!==r.sha256)throw Error('receipt_identity_mismatch');
-  return {bytes,filename:`ARA-TECH-contract-${c.id}.pdf`,mime_type:'application/pdf',sha256:r.sha256,snapshot:c.snapshot};
+  return {bytes,filename:receiptFilename(c.snapshot),mime_type:'application/pdf',sha256:r.sha256,snapshot:c.snapshot};
+ }
+ async function customerReceipt(token){
+  const r=await resolve(token);if(r.state!=='accepted')throw Error('receipt_unavailable');
+  return ensureReceipt(r.offer.inquiry_id,r.offer.id);
+ }
+ async function receiptAttachments(caseId,id){
+  const receipt=await ensureReceipt(caseId,id);
+  const c=await contract(caseId,id),s=normalizeSnapshot(c.snapshot);
+  const o=await one('pa_contract_offers',{id:`eq.${id}`,inquiry_id:`eq.${caseId}`,select:'quote_pdf,quote_sha256'});
+  if(!o)throw Error('quote_missing');
+  const quote=fromBytea(o.quote_pdf);await pdf.validatePdf(quote,s.estimate.sha256);
+  return [{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')},{filename:s.estimate.original_filename,mime_type:'application/pdf',data:quote.toString('base64url')}];
  }
  async function accept(input){
   const r=await resolve(input.token);
@@ -154,13 +208,23 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   if(r.offer.id!==input.offer_id)throw Error('invalid_link');
   const quote=fromBytea(r.offer.quote_pdf);await pdf.validatePdf(quote,r.offer.quote_sha256);
   const result=await rpc('pa_contract_accept',{p_token_hash:pdf.sha(input.token),p_offer_id:uuid(input.offer_id),p_snapshot_sha256:input.snapshot_sha256,p_name:input.confirmer_name,p_agree:input.agree===true});
-  // Acceptance survives worker/PDF/mail failure. PDF can be retried by an admin.
-  try{await ensureReceipt(r.offer.inquiry_id,r.offer.id);return {...result,receipt_status:'ready'};}catch{return {...result,receipt_status:'pending'};}
+  let receipt_status='pending',email_status=result.outbox_id?'queued':'not_applicable';
+  try{await ensureReceipt(r.offer.inquiry_id,r.offer.id);receipt_status='ready';}catch{}
+  if(result.outbox_id&&result.actor_id){
+   try{
+    const commercial=require('./_pa-commercial.cjs').createService({fetchImpl});
+    const sent=await commercial.dispatch({job_id:result.outbox_id},{id:result.actor_id});
+    email_status=sent.state;
+   }catch{email_status='failed';}
+  }
+  return {...result,receipt_status,email_status};
  }
  async function mailData(caseId,id,actor){
   const receipt=await ensureReceipt(caseId,id);
   const body=receiptBody(receipt.snapshot);
-  const attachments=[{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')}];
+  const attachments=receipt.snapshot?.snapshot_schema_version===FORMAL_SNAPSHOT_VERSION
+   ?await receiptAttachments(caseId,id)
+   :[{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')}];
   const preview=await gmail.replyPreview({inquiryId:caseId,actorId:actor.id,body,attachments},fetchImpl);
   if(address(preview.recipient)!==address(receipt.snapshot.recipient))throw Error('recipient_changed');
   return {body,attachments,preview};
@@ -189,6 +253,6 @@ function createService({fetchImpl=fetch,mergeReceipt=pdf.mergeReceipt}={}) {
   await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${input.attempt_id}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status:'sent',finished_at:new Date().toISOString(),gmail_message_id:sent.gmail_message_id})});
   return {state:'accepted',delivery_status:'sent'};
  }
- return {offers,quoteSource,relatedSource,previewConditions,issue,view,customerQuote,customerRelated,accept,ensureReceipt,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
+ return {offers,quoteSource,relatedSource,previewConditions,issue,view,customerQuote,customerRelated,customerReceipt,accept,ensureReceipt,receiptAttachments,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
 }
-module.exports={createService,SAFE};
+module.exports={createService,SAFE,normalizeSnapshot,FORMAL_SNAPSHOT_VERSION};

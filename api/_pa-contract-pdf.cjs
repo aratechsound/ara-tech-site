@@ -27,6 +27,53 @@ async function validatePdf(bytes,expectedHash) {
  }
  return doc;
 }
+async function buildConfirmationReceipt(snapshot,quote) {
+ const estimate=snapshot.estimate||{};
+ await validatePdf(quote,estimate.sha256);
+ const event=snapshot.case||{},customer=snapshot.customer||{},terms=snapshot.terms||{},acceptance=snapshot.acceptance||{};
+ const doc=await PDFDocument.create();
+ const font=fontkit.create(fs.readFileSync(path.join(__dirname,'contract-fonts','NotoSansJP.ttf')));
+ const logo=await doc.embedPng(fs.readFileSync(path.join(__dirname,'../img/ara-tech-logo-horizontal-white.png')));
+ let page,y;const margin=44,width=507,lineHeight=16;
+ const newPage=()=>{page=doc.addPage([595,842]);page.drawRectangle({x:0,y:768,width:595,height:74,color:rgb(0,123/255,1)});page.drawImage(logo,{x:margin,y:792,width:166,height:166*logo.height/logo.width});y=740;};
+ const measure=(value,size)=>font.layout(String(value)).positions.reduce((sum,position)=>sum+position.xAdvance,0)*size/font.unitsPerEm;
+ const drawLine=(value,x,baseline,size,color=rgb(28/255,45/255,61/255))=>{
+  const run=font.layout(String(value)),scale=size/font.unitsPerEm;let cursor=x;
+  for(let index=0;index<run.glyphs.length;index++){
+   const position=run.positions[index],svg=run.glyphs[index].path.scale(1,-1).toSVG();
+   if(svg)page.drawSvgPath(svg,{x:cursor+position.xOffset*scale,y:baseline+position.yOffset*scale,scale,color});
+   cursor+=position.xAdvance*scale;
+  }
+ };
+ const paragraph=(value,size=10,gap=7)=>{
+  for(const raw of String(value||'').split('\n')){
+   if(!raw){y-=lineHeight*.55;continue;}
+   let line='';
+   const put=()=>{if(y<62)newPage();if(line)drawLine(line,margin,y,size);y-=lineHeight;line='';};
+   for(const char of raw){if(line&&measure(line+char,size)>width)put();line+=char;}put();
+  }
+  y-=gap;
+ };
+ const heading=value=>{if(y<105)newPage();paragraph(value,13,5);};
+ newPage();
+ paragraph('正式受注確認書',18,14);
+ paragraph(`イベント名\n${event.event_name}\n\n開催日時\n${japaneseDate(event.event_date)}${event.event_time?' '+event.event_time:''}`);
+ if(customer.organization)paragraph(`ご依頼者\n${customer.organization}${customer.department?' '+customer.department:''}`);
+ paragraph(`ご担当者\n${honorific(customer.contact_name||customer.display_name)}`);
+ paragraph(`対象見積\n第${estimate.revision_number||'-'}版\n\n見積金額\n${amount(estimate.amount_minor)}`);
+ heading('ご依頼内容');paragraph(event.service_scope);
+ heading('キャンセル・変更条件');paragraph(terms.cancellation_terms);
+ heading('支払期限');paragraph(terms.payment_due_date?japaneseDate(terms.payment_due_date):terms.payment_terms);
+ heading('支払時期について');paragraph(terms.payment_consult_terms||'所定のお手続き等によりお支払時期の調整が必要な場合は、事前にご相談ください。');
+ heading('正式受注の確認');paragraph(`確認者：${acceptance.confirmer_name||snapshot.confirmer_name}\n成立日時（日本時間）：${snapshot.confirmed_at_jst||acceptance.confirmed_at||snapshot.confirmed_at}`);
+ paragraph('このたびは正式にご依頼いただきありがとうございます。確認内容を受け付けました。',10,16);
+ paragraph('ARA-TECH',11,0);
+ const count=doc.getPageCount();for(const [i,p] of doc.getPages().entries()){page=p;drawLine(`${i+1} / ${count}`,520,28,8,rgb(.35,.4,.45));}
+ doc.setTitle('ARA-TECH Formal Order Receipt');doc.setAuthor('ARA-TECH');
+ const fixed=new Date(acceptance.confirmed_at||snapshot.confirmed_at);if(Number.isFinite(+fixed)){doc.setCreationDate(fixed);doc.setModificationDate(fixed);}
+ const bytes=Buffer.from(await doc.save());if(bytes.length>3*1024*1024)throw Error('receipt_too_large');
+ return {bytes,sha256:sha(bytes),cover_pages:count,quote_pages:0};
+}
 async function mergeReceipt(snapshot,quote) {
  const original=await validatePdf(quote,snapshot.quote.sha256);
  const receiptTerms=postAcceptanceTerms(snapshot,await bankFromQuote(quote));
@@ -63,4 +110,5 @@ async function mergeReceipt(snapshot,quote) {
  if(bytes.length>3*1024*1024)throw Error('receipt_too_large');
  return {bytes,sha256:sha(bytes),cover_pages:coverPages,quote_pages:pages.length};
 }
-module.exports={sha,validatePdf,mergeReceipt,MAX_QUOTE_BYTES};
+const createReceipt=(snapshot,quote)=>snapshot?.snapshot_schema_version==='PA-FORMAL-V5-20260914-1'?buildConfirmationReceipt(snapshot,quote):mergeReceipt(snapshot,quote);
+module.exports={sha,validatePdf,mergeReceipt,createReceipt,MAX_QUOTE_BYTES};

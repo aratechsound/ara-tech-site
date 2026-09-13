@@ -2,7 +2,7 @@ const {createService,SAFE}=require('./_pa-contract.cjs');
 const {verifyAdmin}=require('./_pa-mail.cjs');
 const {streamAttachmentResponse}=require('./_pa-gmail.cjs');
 const {applyOriginPolicy,checkRateLimit}=require('./_request-security.cjs');
-const PUBLIC={view:['action','token'],quote:['action','token'],related_document:['action','token','index'],accept:['action','token','offer_id','snapshot_sha256','confirmer_name','agree']};
+const PUBLIC={view:['action','token'],quote:['action','token'],customer_receipt:['action','token'],related_document:['action','token','index'],accept:['action','token','offer_id','snapshot_sha256','confirmer_name','agree']};
 const ADMIN=new Set(['list','inspect_quote','inspect_related','preview_conditions','issue','receipt','mail_preview','send','mark_uncertain']);
 const headers=res=>{
  for(const [k,v] of Object.entries({'Cache-Control':'private, no-store, max-age=0','X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}))res.setHeader(k,v);
@@ -28,6 +28,7 @@ function createHandler({service=createService(),admin=verifyAdmin,rate=checkRate
    switch(input.action){
     case 'view':result=await service.view(input.token);break;
     case 'quote':return streamAttachmentResponse(res,await service.customerQuote(input.token));
+    case 'customer_receipt':return streamAttachmentResponse(res,await service.customerReceipt(input.token));
     case 'related_document':return streamAttachmentResponse(res,await service.customerRelated(input.token,input.index));
     case 'accept':result=await service.accept(input);break;
     case 'list':result=await service.offers(input.case_id);break;

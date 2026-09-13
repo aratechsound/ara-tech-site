@@ -603,7 +603,7 @@ const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySource
     if (!source || (explicit && source.direction !== "inbound")) throw new Error("invalid_reply_source");
     return { explicit, link, source };
 };
-const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
     const { explicit, link, source } = await resolveReplySource({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
     const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
@@ -624,7 +624,7 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
         : uniqueAddresses((Array.isArray(ccAddresses) ? ccAddresses : String(ccAddresses).split(",")).map(safeAddress).filter(Boolean));
     if (requestedCc.length > 30 || requestedCc.some((address) => !EMAIL.test(address)
         || !allowedCc.some((allowed) => sameAddress(allowed, address)))) throw new Error("invalid_reply_cc");
-    const subject = replySubject(source.subject);
+    const subject = subjectOverride==null ? replySubject(source.subject) : cleanHeader(subjectOverride,240);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
@@ -649,10 +649,10 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
     };
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId }, fetchImpl);
+    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
         inquiryId,
         actorId,
