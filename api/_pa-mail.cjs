@@ -497,7 +497,7 @@ const replyAttachmentsHash = (attachments) => crypto.createHash("sha256").update
 )).digest("hex");
 const encodeAttachmentDataLines = (data) => Buffer.from(String(data || ""), "base64url").toString("base64").match(/.{1,76}/gu)?.join("\r\n") || "";
 
-const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders = {}, attachments = [], config = mailConfig() }) => {
+const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders = {}, attachments = [], messageId = null, config = mailConfig() }) => {
     const recipient = cleanHeader(to);
     const carbonCopy = (Array.isArray(cc) ? cc : String(cc || "").split(","))
         .map((value) => cleanHeader(value, 320))
@@ -517,6 +517,7 @@ const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders
         ...(carbonCopy.length ? [`Cc: ${carbonCopy.join(", ")}`] : []),
         `Reply-To: ${replyTo}`,
         `Subject: ${encodeWord(safeSubject)}`,
+        ...(messageId && /^<pa-e2e-[0-9a-f-]{36}@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
         "MIME-Version: 1.0"
     ];
     const inReplyTo = String(replyHeaders.inReplyTo || "").trim();

@@ -36,7 +36,10 @@ const SAFE = new Set([
   'change_proposal_not_found', 'change_already_agreed', 'change_not_agreeable',
   'change_proposal_not_sent', 'change_after_billing_not_allowed', 'unresolved_change_orders', 'settlement_amount_mismatch',
   'commercial_history_immutable'
-  ,'stale_confirmation_preview'
+  ,'stale_confirmation_preview', 'invalid_production_e2e_test', 'production_e2e_test_not_found',
+  'production_e2e_test_already_archived', 'production_e2e_failpoint_already_used',
+  'production_e2e_delivery_not_found', 'production_e2e_duplicate_delivery',
+  'production_e2e_delivery_mismatch'
 ]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -233,6 +236,25 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   const rpc = (name, input) => db('rpc/' + name, { method: 'POST', body: JSON.stringify(input) });
   const rows = (table, params) => db(table + '?' + new URLSearchParams(params));
   const one = async (table, params) => (await rows(table, { ...params, limit: '1' }))?.[0] || null;
+  const productionE2eMetadata = (caseId) => one('pa_production_e2e_tests', {
+    test_case_id: 'eq.' + uuid(caseId), state: 'eq.active', select: '*'
+  });
+
+  async function confirmationMailPreview({ caseId, actor, body, ccAddresses = [], contentOnly = false }) {
+    try {
+      const render = contentOnly ? gmail.replyContentPreview : gmail.replyPreview;
+      return await render({ inquiryId: caseId, actorId: actor.id, body, mode: 'confirmation', ccAddresses }, fetchImpl);
+    } catch (error) {
+      if (error.message !== 'gmail_thread_not_linked') throw error;
+      const metadata = await productionE2eMetadata(caseId);
+      if (!metadata || emailAddress(metadata.allowed_recipient) !== 'tonokun@gmail.com') throw error;
+      const render = contentOnly ? gmail.standaloneContentPreview : gmail.standalonePreview;
+      return render({
+        inquiryId: caseId, actorId: actor.id, body, mode: 'confirmation',
+        subjectOverride: metadata.source_confirmation_subject
+      }, fetchImpl);
+    }
+  }
 
   async function snapshot(caseId) {
     uuid(caseId);
@@ -313,6 +335,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   const replyBinding = (preview) => ({
     thread_id: preview.gmail_thread_id,
     confirmation_token: preview.confirmation_token,
+    delivery_mode: preview.delivery_mode || 'reply',
     reply_source_explicit: Boolean(preview.reply_source_explicit),
     reply_source_message_id: preview.reply_source_message_id || null,
     reply_source_thread_id: preview.gmail_thread_id,
@@ -345,9 +368,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const agreement = termsForIssue(text(inquiry.event_date, 10));
     const bodyTemplate = confirmationBodyTemplate(inquiry);
     const previewBody = bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER);
-    const email = await gmail.replyContentPreview({
-      inquiryId: safeCaseId, actorId: actor.id, body: previewBody, mode: 'confirmation'
-    }, fetchImpl);
+    const email = await confirmationMailPreview({ caseId: safeCaseId, actor, body: previewBody, contentOnly: true });
     if (emailAddress(email.recipient) !== emailAddress(inquiry.email)) throw Error('invalid_contract');
     const contactName = String(inquiry.contact_name || inquiry.customer_name || '').trim();
     const organization = String(inquiry.organization_name || '').trim();
@@ -525,7 +546,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const body = bodyTemplate.replace('{{CONFIRMATION_URL}}', confirmationUrl);
     let preview;
     try {
-      preview = await mailPreview({ caseId: input.case_id, actor, body, ccAddresses: prepared.email.cc_addresses || [] });
+      preview = await confirmationMailPreview({ caseId: input.case_id, actor, body, ccAddresses: prepared.email.cc_addresses || [] });
     } catch (error) {
       if (['invalid_reply_cc', 'gmail_thread_not_linked', 'reply_target_unavailable', 'invalid_reply_source'].includes(error.message)) throw Error('stale_confirmation_preview');
       throw error;
@@ -717,6 +738,18 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     if (adapter !== 'gmail') throw Error('mail_adapter_not_configured');
     let body = job.body_text;
     if (job.secret_envelope) body = body.replace('{{CONFIRMATION_URL}}', decryptSecret(job.secret_envelope));
+    if (job.job_kind === 'confirmation' && job.reply_binding?.delivery_mode === 'standalone_production_e2e') {
+      const metadata = await productionE2eMetadata(job.inquiry_id);
+      if (!metadata
+        || emailAddress(job.recipient) !== 'tonokun@gmail.com'
+        || emailAddress(metadata.allowed_recipient) !== emailAddress(job.recipient)
+        || metadata.source_confirmation_subject !== job.subject) throw Error('invalid_production_e2e_test');
+      return gmail.sendStandalone({
+        inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
+        confirmationToken: job.reply_binding.confirmation_token,
+        subjectOverride: job.subject, jobId: job.id
+      }, fetchImpl);
+    }
     if(job.job_kind==='accept_receipt'){
       const binding=job.reply_binding||{};
       const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,
@@ -756,6 +789,16 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         documents.push({ filename: document.original_filename, mime_type: document.mime_type, data: fromBytea(document.content).toString('base64url') });
       }
       sent = await (sendTransport || defaultTransport)({ ...job, actor_id: actor.id }, documents);
+      if (sent?.production_e2e_standalone) {
+        const failpoint = await rpc('pa_production_e2e_consume_failpoint', {
+          p_actor: actor.id, p_case: job.inquiry_id, p_job: job.id
+        });
+        if (failpoint?.fired) throw Error('production_e2e_after_gmail_send');
+        await gmail.manualLink({
+          inquiryId: job.inquiry_id, gmailThreadId: sent.gmail_thread_id,
+          conversationRole: 'primary_conversation', actorId: actor.id
+        }, fetchImpl);
+      }
     } catch (error) {
       const knownFailure = ['mail_adapter_not_configured','fake_adapter_requires_local_db','recipient_changed','quote_missing','invalid_pdf','unsafe_pdf','receipt_identity_mismatch','receipt_layout_overflow','receipt_too_large','document_identity_mismatch'].includes(error.message) || String(error.message).startsWith('gmail_send_');
       await rpc('pa_v5_outbox_finish', {
@@ -780,9 +823,54 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
   }
 
+  const createProductionE2eClone = (input, actor) => rpc('pa_production_e2e_clone_case', {
+    p_actor: actor.id,
+    p_source_case: uuid(input.source_case_id),
+    p_allowed_recipient: emailAddress(input.allowed_recipient),
+    p_operation: uuid(input.operation_id)
+  });
+
+  const armProductionE2eFailpoint = (input, actor) => rpc('pa_production_e2e_arm_failpoint', {
+    p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id)
+  });
+
+  async function reconcileProductionE2eUnknown(input, actor) {
+    const caseId = uuid(input.case_id);
+    const jobId = uuid(input.job_id);
+    const [metadata, job] = await Promise.all([
+      productionE2eMetadata(caseId),
+      one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: '*' })
+    ]);
+    if (!metadata || !job || job.job_kind !== 'confirmation'
+      || !['unknown', 'sent'].includes(job.state)
+      || emailAddress(job.recipient) !== 'tonokun@gmail.com') throw Error('invalid_production_e2e_test');
+    const evidence = await gmail.findStandaloneDelivery({ jobId, recipient: job.recipient, subject: job.subject }, fetchImpl);
+    if (job.state === 'sent') {
+      if (job.provider_message_id !== evidence.gmail_message_id || job.provider_thread_id !== evidence.gmail_thread_id) {
+        throw Error('production_e2e_delivery_mismatch');
+      }
+      return { state: 'sent', already_committed: true, ...evidence };
+    }
+    const result = await rpc('pa_production_e2e_reconcile_unknown', {
+      p_actor: actor.id, p_case: caseId, p_job: jobId,
+      p_message: evidence.gmail_message_id, p_thread: evidence.gmail_thread_id,
+      p_sent_at: evidence.sent_at
+    });
+    await gmail.manualLink({
+      inquiryId: caseId, gmailThreadId: evidence.gmail_thread_id,
+      conversationRole: 'primary_conversation', actorId: actor.id
+    }, fetchImpl);
+    return { ...result, ...evidence };
+  }
+
+  const archiveProductionE2eCase = (input, actor) => rpc('pa_production_e2e_archive_case', {
+    p_actor: actor.id, p_case: uuid(input.case_id), p_reason: text(input.reason, 2000)
+  });
+
   return {
     snapshot, document, confirmationPreview, confirmationReceiptPreview, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
+    createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown, archiveProductionE2eCase,
     revoke: (input, actor) => rpc('pa_v5_revoke_confirmation', { p_actor: actor.id, p_case: uuid(input.case_id), p_offer: uuid(input.offer_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) }),
     settle: (input, actor) => rpc('pa_v5_confirm_fulfillment_and_settlement', { p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_amount_minor: integer(input.amount_minor), p_unresolved: input.unresolved_changes === true, p_evidence: object(input.evidence) }),
     recordPayment: (input, actor) => rpc('pa_v5_record_payment', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: uuid(input.billing_id), p_operation: uuid(input.operation_id), p_payment_date: text(input.payment_date, 10), p_amount_minor: integer(input.amount_minor, 1), p_method: text(input.payment_method, 30), p_memo: text(input.memo, 5000, true) }),

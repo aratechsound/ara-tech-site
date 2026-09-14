@@ -4,6 +4,11 @@ import { renderContractPanel } from "./pa-contract-admin.js";
 import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=pa-est-006r2";
 
 const $ = (selector) => document.querySelector(selector);
+const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
+const isProductionE2eTest = (item) => String(item?.internal_memo || "").startsWith(PRODUCTION_E2E_MARKER);
+const adminEventName = (item) => isProductionE2eTest(item)
+    ? PRODUCTION_E2E_MARKER
+    : item?.event_name || "イベント名未設定";
 
 const statusLabels = {
     new: "新規問い合わせ（既存）",
@@ -1311,6 +1316,7 @@ const filteredCases = () => {
             item.customer_name,
             item.organization_name,
             item.event_name,
+            isProductionE2eTest(item) ? PRODUCTION_E2E_MARKER : "",
             item.venue
         ].filter(Boolean).join(" ").toLocaleLowerCase("ja").includes(query);
     });
@@ -1358,7 +1364,7 @@ const renderCases = () => {
         const customerCell = document.createElement("td");
         customerCell.append(textBlock(
             item.organization_name || item.customer_name,
-            item.organization_name ? `${item.customer_name} ／ ${item.event_name || "イベント名未設定"}` : item.event_name
+            item.organization_name ? `${item.customer_name} ／ ${adminEventName(item)}` : adminEventName(item)
         ));
 
         const eventCell = document.createElement("td");
@@ -1785,7 +1791,7 @@ const populateCaseForm = (item) => {
     $("#public-request-summary").value = item.public_request_summary || "";
     $("#public-guidance").value = item.public_guidance || "";
     $("#public-conditions").value = item.public_conditions || defaultConditions;
-    $("#detail-title").textContent = item.event_name || "問い合わせ案件";
+    $("#detail-title").textContent = isProductionE2eTest(item) ? PRODUCTION_E2E_MARKER : item.event_name || "問い合わせ案件";
     const sourceLabel = item.submission_source === "public_form" ? "Webフォーム" : "手入力";
     $("#detail-number").textContent = `${item.inquiry_number} ／ 受付 ${formatDateTime(item.received_at)} ／ ${sourceLabel}`;
     renderFirstFormData(item);

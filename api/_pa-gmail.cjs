@@ -30,9 +30,15 @@ const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
 const GMAIL_ATTACHMENT_REFERENCE = /^[^\s\u0000-\u001f\\/]{1,1000}$/u;
 const EMAIL = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/u;
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
+const PRODUCTION_E2E_RECIPIENT = "tonokun@gmail.com";
+const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
 
 const validGmailId = (value) => GMAIL_ID.test(String(value || ""));
 const validGmailAttachmentReference = (value) => GMAIL_ATTACHMENT_REFERENCE.test(String(value || ""));
+const productionE2eMessageId = (jobId) => {
+    if (!isUuid(jobId)) throw new Error("invalid_production_e2e_test");
+    return `<pa-e2e-${String(jobId).toLowerCase()}@ara-tech.cc>`;
+};
 const caseReference = (value) => /^PA-\d{8}-\d{5}$/u.test(String(value || ""));
 const safeAddress = (value) => String(value || "").trim().match(/<?([^<>\s,;]+@[^<>\s,;]+)>?/u)?.[1] || "";
 const addressList = (value) => String(value || "").split(",")
@@ -657,6 +663,91 @@ const replyPreview = (input, fetchImpl = fetch) => buildReplyPreview(input, fetc
 // but deliberately creates no send confirmation token.
 const replyContentPreview = (input, fetchImpl = fetch) => buildReplyPreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
+const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = [], mode = "confirmation", subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
+    if (!isUuid(inquiryId) || !isUuid(actorId) || mode !== "confirmation") throw new Error("invalid_production_e2e_test");
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
+    const recipient = safeAddress(inquiry.email);
+    if (!sameAddress(recipient, PRODUCTION_E2E_RECIPIENT)
+        || !String(inquiry.internal_memo || "").startsWith(PRODUCTION_E2E_MARKER)) throw new Error("invalid_production_e2e_test");
+    const subject = cleanHeader(subjectOverride, 240);
+    const normalizedBody = normalizeCustomerBody(cleanBody(body));
+    const normalizedAttachments = normalizeReplyAttachments(attachments);
+    const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
+    const expiresAt = issueConfirmationToken ? Date.now() + PREVIEW_TTL_MS : null;
+    const preview = {
+        inquiry_id: inquiryId,
+        gmail_thread_id: null,
+        reply_source_explicit: false,
+        reply_source_message_id: null,
+        reply_source_rfc_message_id: null,
+        reply_source_references: null,
+        recipient,
+        cc_addresses: [],
+        subject,
+        body: normalizedBody,
+        html: buildCustomerHtml(normalizedBody),
+        mode,
+        delivery_mode: "standalone_production_e2e",
+        attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
+    };
+    if (issueConfirmationToken) {
+        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: null, replySourceMessageId: null, recipient, ccAddresses: [], subject, body: normalizedBody, mode, attachmentsHash, expiresAt });
+        preview.expires_at = new Date(expiresAt).toISOString();
+    }
+    return preview;
+};
+const standalonePreview = (input, fetchImpl = fetch) => buildStandalonePreview(input, fetchImpl);
+const standaloneContentPreview = (input, fetchImpl = fetch) => buildStandalonePreview({ ...input, issueConfirmationToken: false }, fetchImpl);
+
+const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], confirmationToken, subjectOverride, jobId }, fetchImpl = fetch) => {
+    const normalizedAttachments = normalizeReplyAttachments(attachments);
+    const preview = await standalonePreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: "confirmation", subjectOverride }, fetchImpl);
+    verifyPreviewToken(confirmationToken, {
+        inquiryId, actorId, threadId: null, replySourceMessageId: null,
+        recipient: preview.recipient, ccAddresses: [], subject: preview.subject,
+        body: preview.body, mode: "confirmation", attachmentsHash: replyAttachmentsHash(normalizedAttachments)
+    });
+    const config = mailConfig();
+    const token = await getGmailAccessToken(config, fetchImpl);
+    const messageId = productionE2eMessageId(jobId);
+    const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+            raw: buildRawMessage({
+                to: preview.recipient, subject: preview.subject, body: preview.body,
+                messageType: "customer_receipt", attachments: normalizedAttachments,
+                messageId, config
+            })
+        })
+    });
+    if (!response.ok) throw new Error(`gmail_send_${response.status}`);
+    const sent = await response.json();
+    if (!validGmailId(sent?.id) || !validGmailId(sent?.threadId)) throw new Error("gmail_send_invalid");
+    return { gmail_message_id: sent.id, gmail_thread_id: sent.threadId, production_e2e_standalone: true, rfc_message_id: messageId };
+};
+
+const findStandaloneDelivery = async ({ jobId, recipient, subject }, fetchImpl = fetch) => {
+    if (!sameAddress(recipient, PRODUCTION_E2E_RECIPIENT)) throw new Error("invalid_production_e2e_test");
+    const rfcMessageId = productionE2eMessageId(jobId);
+    const queryMessageId = rfcMessageId.slice(1, -1);
+    const query = new URLSearchParams({ q: `in:sent to:${PRODUCTION_E2E_RECIPIENT} rfc822msgid:${queryMessageId}`, maxResults: "10", includeSpamTrash: "false" });
+    const result = await gmailJson(`/messages?${query}`, {}, fetchImpl);
+    const messages = Array.isArray(result?.messages) ? result.messages : [];
+    if (messages.length !== 1) throw new Error(messages.length ? "production_e2e_duplicate_delivery" : "production_e2e_delivery_not_found");
+    const raw = await gmailMessage(messages[0].id, fetchImpl);
+    const normalized = normalizeMessage(raw);
+    const headers = headerMap(raw);
+    if (!validGmailId(normalized.id) || !validGmailId(normalized.thread_id)
+        || normalized.direction !== "outbound"
+        || !normalized.to_addresses.some((address) => sameAddress(address, PRODUCTION_E2E_RECIPIENT))
+        || normalized.subject !== cleanHeader(subject, 240)
+        || String(headers["message-id"] || "").trim().toLowerCase() !== rfcMessageId.toLowerCase()) {
+        throw new Error("production_e2e_delivery_mismatch");
+    }
+    return { gmail_message_id: normalized.id, gmail_thread_id: normalized.thread_id, sent_at: normalized.occurred_at, rfc_message_id: rfcMessageId, match_count: 1 };
+};
+
 const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
@@ -713,4 +804,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, findStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

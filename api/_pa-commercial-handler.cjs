@@ -7,7 +7,8 @@ const ACTIONS = new Set([
   'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
   'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
-  'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview'
+  'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview',
+  'create_production_e2e_clone', 'arm_production_e2e_failpoint', 'reconcile_production_e2e_unknown', 'archive_production_e2e_case'
 ]);
 
 function createHandler({ service = createService(), admin = verifyAdmin, rate = checkRateLimit } = {}) {
@@ -60,6 +61,10 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'create_change_proposal': result = await service.createChangeProposal(input, actor); break;
         case 'record_change_agreement': result = await service.recordChangeAgreement(input, actor); break;
         case 'composer_preview': result = await service.composerPreview(input, actor); break;
+        case 'create_production_e2e_clone': result = await service.createProductionE2eClone(input, actor); break;
+        case 'arm_production_e2e_failpoint': result = await service.armProductionE2eFailpoint(input, actor); break;
+        case 'reconcile_production_e2e_unknown': result = await service.reconcileProductionE2eUnknown(input, actor); break;
+        case 'archive_production_e2e_case': result = await service.archiveProductionE2eCase(input, actor); break;
       }
       return json(200, { ok: true, result });
     } catch (error) {
