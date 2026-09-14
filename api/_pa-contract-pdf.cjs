@@ -11,6 +11,39 @@ const BLUE=rgb(0,123/255,1),INK=rgb(23/255,46/255,69/255),BODY=rgb(41/255,62/255
 const PT_PER_MM=72/25.4;
 const mm=value=>value*PT_PER_MM;
 const RECEIPT_V41_TEMPLATE_SHA='d9dc133719b21012ef7522db75502d5e081883c1da5a57fc5a5adafb4e6a8d52';
+const RECEIPT_SERVICE_FALLBACK='対象見積書記載の業務';
+const SERVICE_LABELS=new Map([
+ ['PA・音響','PA・音響'],
+ ['照明','照明'],
+ ['DJ機材','DJ機材'],
+ ['バンド機材','バンド機材'],
+ ['電源・発電機','電源対応'],
+ ['ステージ制作・舞台設営','ステージ制作・舞台設営'],
+ ['オペレーター・技術スタッフ','技術スタッフ'],
+ ['その他','その他業務']
+]);
+
+const normalizeDisplayText=value=>String(value??'')
+ .normalize('NFC')
+ .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\ufffd\u25a0\u25a1]+/gu,' ')
+ .replace(/\s+/gu,' ')
+ .trim();
+
+function customerServiceSummary(event={}){
+ const structured=Array.isArray(event.requested_services)?event.requested_services:[];
+ let labels=structured.map(normalizeDisplayText).filter(Boolean);
+ if(!labels.length){
+  const raw=String(event.service_scope??'').replace(/\r\n?/gu,'\n');
+  const requested=raw.split('\n').map(line=>line.trim()).find(line=>/^希望業務\s*[：:]/u.test(line));
+  if(requested)labels=requested.replace(/^希望業務\s*[：:]\s*/u,'').split(/[、,，]+/u).map(normalizeDisplayText).filter(Boolean);
+  else if(!raw.includes('\n')){
+   const direct=normalizeDisplayText(raw).replace(/\s*[／/]\s*詳しくは対象見積書をご確認ください。?$/u,'');
+   if(direct)labels=[direct];
+  }
+ }
+ const normalized=[...new Set(labels.map(label=>SERVICE_LABELS.get(label)||label).map(normalizeDisplayText).filter(Boolean))].join('・');
+ return normalized||RECEIPT_SERVICE_FALLBACK;
+}
 
 async function validatePdf(bytes,expectedHash) {
  if (!Buffer.isBuffer(bytes) || bytes.length<20 || bytes.length>MAX_QUOTE_BYTES || bytes.subarray(0,5).toString()!=='%PDF-' || !bytes.subarray(-2048).toString('latin1').includes('%%EOF')) throw Error('invalid_pdf');
@@ -102,9 +135,16 @@ async function buildConfirmationReceipt(snapshot,quote) {
  paint.draw(page1,[customer.organization,customer.department].filter(Boolean).join(' ')||customer.display_name,margin,698,10,BODY);
  bold(page1,honorific(customer.contact_name||customer.display_name),margin,673,14,INK);
  bold(page1,event.event_name,margin+11,611.5,12.5,INK);
- const infoRows=[['開催日時',`${japaneseDate(event.event_date)}${event.event_time?' '+event.event_time:''}（予定）`],['会場',event.venue],['対象業務',`${event.service_scope}／詳しくは対象見積書をご確認ください。`]];
+ const infoRows=[['開催日時',`${japaneseDate(event.event_date)}${event.event_time?' '+event.event_time:''}（予定）`],['会場',event.venue],['対象業務',`${customerServiceSummary(event)}／詳しくは対象見積書をご確認ください。`]];
  const infoBaselineAdjust=[.5,2,1];
- for(let i=0;i<3;i++){const y=598-i*27.3;paint.draw(page1,infoRows[i][1],margin+94,y-18+infoBaselineAdjust[i],9.7,BODY);}
+ for(let i=0;i<3;i++){
+  const y=598-i*27.3,baseline=y-18+infoBaselineAdjust[i];
+  if(i!==2){paint.draw(page1,infoRows[i][1],margin+94,baseline,9.7,BODY);continue;}
+  const cellWidth=right-(margin+94)-7,wrapped=paint.lines(normalizeDisplayText(infoRows[i][1]),9.7,cellWidth);
+  if(!wrapped.length||wrapped.length>2||wrapped.some(line=>paint.measure(line,9.7)>cellWidth))throw Error('receipt_layout_overflow');
+  const firstBaseline=baseline+(wrapped.length-1)*5.25;
+  wrapped.forEach((line,index)=>paint.draw(page1,line,margin+94,firstBaseline-index*10.5,9.7,BODY));
+ }
  paragraph(page1,estimate.original_filename,{x:margin+62,y:487,size:9.1,width:176,lineHeight:15,maxLines:2,color:INK});
  paint.draw(page1,`見積 第${estimate.revision_number||'-'}版／本確認書3枚目以降に原本を収録`,margin+62,455,8,MUTED);
  bold(page1,`${Number(estimate.amount_minor).toLocaleString('ja-JP')}円`,margin+width/2+70,487,11.5,INK);
@@ -162,4 +202,4 @@ async function mergeReceipt(snapshot,quote) {
  return {bytes,sha256:sha(bytes),cover_pages:coverPages,quote_pages:pages.length};
 }
 const createReceipt=(snapshot,quote)=>snapshot?.snapshot_schema_version==='PA-FORMAL-V5-20260914-1'?buildConfirmationReceipt(snapshot,quote):mergeReceipt(snapshot,quote);
-module.exports={sha,validatePdf,mergeReceipt,createReceipt,MAX_QUOTE_BYTES,RECEIPT_V41_TEMPLATE_SHA};
+module.exports={sha,validatePdf,mergeReceipt,createReceipt,customerServiceSummary,normalizeDisplayText,MAX_QUOTE_BYTES,RECEIPT_V41_TEMPLATE_SHA};
