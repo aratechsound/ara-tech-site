@@ -1,0 +1,24 @@
+.condition-details {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.condition-details summary {
+    min-height: 48px;
+    padding: 13px 15px;
+    cursor: pointer;
+    background: #f8fbfe;
+    color: #006bd8;
+    font-weight: 800;
+}
+
+.condition-details[open] summary {
+    border-bottom: 1px solid var(--line);
+}
+
+.condition-details .condition-list {
+    border: 0;
+    border-radius: 0;
+}

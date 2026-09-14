@@ -15,7 +15,13 @@ const candidatePhoto = "50000000-0000-4000-8000-000000000002";
 const candidateOther = "50000000-0000-4000-8000-000000000003";
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lq8QYQAAAABJRU5ErkJggg==", "base64");
 const client = `const SUPABASE_ANON_KEY="fixture"; const SUPABASE_URL="https://fixture.invalid"; const isSupabaseConfigured=true;
-globalThis.__PA_PORTAL_TEST_DEPS__={createClient:()=>({auth:{getSession:async()=>({data:{session:{access_token:"fixture-token"}}})},from:(table)=>{const builder={select(){return builder},eq(){return builder},is(){return builder},maybeSingle:async()=>({data:table==="pa_inquiries"?{id:"${caseId}",event_name:"候補UI検証",event_date:"2026-10-18",event_time:"10:00〜15:30",venue:"検証会場"}:{confirmed_event_date:"2026-10-18"},error:null})};return builder}}),pdfjsLib:{GlobalWorkerOptions:{},getDocument(){return {promise:Promise.resolve({numPages:1,getPage:async()=>({getViewport:({scale})=>({width:600*scale,height:840*scale}),render:()=>({promise:Promise.resolve()})})})}}}};
+globalThis.__PA_PORTAL_TEST_DEPS__={
+ createClient:()=>({
+  auth:{getSession:async()=>({data:{session:{access_token:"fixture-token"}}})},
+  from:(table)=>{const builder={select(){return builder},eq(){return builder},is(){return builder},maybeSingle:async()=>({data:table==="pa_inquiries"?{id:"${caseId}",event_name:"候補UI検証",event_date:"2026-10-18",event_time:"10:00〜15:00",venue:"検証会場"}:{confirmed_event_date:"2026-10-18"},error:null})};return builder}
+ }),
+ pdfjsLib:{GlobalWorkerOptions:{},getDocument(){return {promise:Promise.resolve({numPages:1,getPage:async()=>({getViewport:({scale})=>({width:600*scale,height:840*scale}),render:()=>({promise:Promise.resolve()})})})};}}
+};
 ${source.replace(/^import .*$/gmu, "")}`;
 const portal = { portal: { id: "30000000-0000-4000-8000-000000000001", case_id: caseId }, cards: [
   { id: timetableCard, category: "timetable", title: "タイムテーブル", card_kind: "fixed", owner_kind: "shared", current_version_id: null, versions: [] },
@@ -55,6 +61,8 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
   const browser = await chromium.launch({ headless: true, executablePath: process.env.PA_CHROME_EXECUTABLE || "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe", args: ["--disable-extensions", "--no-first-run"] });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page.on("pageerror", (error) => console.error("PAGE_ERROR", error.message));
+    page.on("console", (message) => { if (message.type() === "error") console.error("CONSOLE_ERROR", message.text()); });
     await page.goto(`http://127.0.0.1:${server.address().port}/pa/cases/${caseId}/portal`, { waitUntil: "networkidle" });
     await page.waitForSelector("#portal:not([hidden])");
     assert.equal(await page.locator("#candidate-inbox").isVisible(), false, "normal V8 reading mode must not be obstructed by the inbox");

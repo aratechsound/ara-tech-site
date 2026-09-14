@@ -49,13 +49,14 @@ const OTHER_TERMS_V4 = [
  {title:'主催者様にお願いする事項',text:'会場使用に必要な許可・届出、近隣への騒音対応、音楽著作権に関する手続きなどは、ARA-TECHが別途請け負う場合を除き、主催者様にてご対応ください。会場側から供給される電源の安全性・容量についても、主催者様・会場側にてご確認ください。ARA-TECHが発電機を提供する場合は、その範囲についてARA-TECHが管理します。'},
  {title:'安全上の対応',text:'雷・強風・大雨などにより安全確保が難しいとARA-TECHが判断した場合、設営・本番対応を一時中断、中止または撤収する場合があります。'},
  {title:'持込音源・機材について',text:'主催者様・出演者様がお持ち込みになる音源・機材については、すべての機器との動作を保証するものではありません。重要な再生素材は予備をご用意ください。ARA-TECHの機材は、安全管理のため、スタッフの案内なく操作・移動しないようお願いいたします。'},
- {title:'責任について',text:'法令上認められる範囲で、ARA-TECHが負う損害賠償責任は、当該案件で確定した契約金額を上限とします。また、間接損害、特別損害、逸失利益等については責任を負わないものとします。ただし、ARA-TECHの故意または重大な過失による場合、身体への損害、その他法令上この制限を適用できない場合はこの限りではありません。'}
+ {title:'責任について',text:'法令上認められる範囲で、ARA-TECHが負う損害賠償責任は、当該案件で確定した契約金額を上限とします。また、間接損害、特別損害、逸失利益等については責任を負わないものとします。ただし、ARA-TECHの故意または重大な過失による場合、身体への損害、その他法令上この制限を適用できない場合はこの限りではありません。'},
+ {title:'その他',text:'本確認ページと対象見積書に記載のない事項や、追加の確認が必要となった事項は、双方で確認のうえ対応します。'}
 ];
 function issuanceTermsV4(eventDate,customPayment='',approvedDate=''){
  const base=issuanceTerms(eventDate,customPayment,approvedDate);
  const cancel=base.cancellation_terms.split('\n\n').slice(0,5).join('\n\n');
  const sections=OTHER_TERMS_V4.map(s=>({...s})),business=sections.map(s=>s.title+'\n'+s.text).join('\n\n');
- return {...base,terms_version:'PA-FORMAL-20260908-v4',presentation_version:4,cancellation_terms:cancel,business_terms:business,other_terms_sections:sections,
+ return {...base,terms_version:'PA-FORMAL-20260908-v4.1',presentation_version:4,cancellation_terms:cancel,business_terms:business,other_terms_sections:sections,
   banking_day_treatment:BANKING_DAY,transfer_fee_terms:TRANSFER_FEE,invoice_terms:INVOICE,payment_consult_terms:PAYMENT_CONSULT,
   weather_change_terms:cancel.split('\n\n').at(-1),
   terms_text:`キャンセル条件\n${cancel}\n\n支払条件\n今回のお支払期限：${base.payment_due_date}\n${base.payment_terms}\n\nその他のご確認事項\n${business}`};

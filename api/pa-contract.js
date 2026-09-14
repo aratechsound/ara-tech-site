@@ -44,7 +44,7 @@ function createHandler({service=createService(),admin=verifyAdmin,rate=checkRate
    return json(200,{ok:true,result});
   }catch(e){
    const code=String(e?.message||'');
-   const allowed=SAFE.has(code)||['invalid_pdf','unsafe_pdf','quote_missing','receipt_identity_mismatch','recipient_changed','receipt_too_large'].includes(code);
+   const allowed=SAFE.has(code)||['invalid_pdf','unsafe_pdf','quote_missing','receipt_identity_mismatch','receipt_layout_overflow','recipient_changed','receipt_too_large'].includes(code);
    return json(code==='not_authorized'?401:allowed?400:503,{ok:false,code:allowed?code:'service_unavailable'});
   }
  };

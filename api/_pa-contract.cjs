@@ -196,11 +196,7 @@ function createService({fetchImpl=fetch,createReceipt=pdf.createReceipt,mergeRec
  }
  async function receiptAttachments(caseId,id){
   const receipt=await ensureReceipt(caseId,id);
-  const c=await contract(caseId,id),s=normalizeSnapshot(c.snapshot);
-  const o=await one('pa_contract_offers',{id:`eq.${id}`,inquiry_id:`eq.${caseId}`,select:'quote_pdf,quote_sha256'});
-  if(!o)throw Error('quote_missing');
-  const quote=fromBytea(o.quote_pdf);await pdf.validatePdf(quote,s.estimate.sha256);
-  return [{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')},{filename:s.estimate.original_filename,mime_type:'application/pdf',data:quote.toString('base64url')}];
+  return [{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')}];
  }
  async function accept(input){
   const r=await resolve(input.token);
@@ -222,9 +218,7 @@ function createService({fetchImpl=fetch,createReceipt=pdf.createReceipt,mergeRec
  async function mailData(caseId,id,actor){
   const receipt=await ensureReceipt(caseId,id);
   const body=receiptBody(receipt.snapshot);
-  const attachments=receipt.snapshot?.snapshot_schema_version===FORMAL_SNAPSHOT_VERSION
-   ?await receiptAttachments(caseId,id)
-   :[{filename:receipt.filename,mime_type:'application/pdf',data:receipt.bytes.toString('base64url')}];
+  const attachments=await receiptAttachments(caseId,id);
   const preview=await gmail.replyPreview({inquiryId:caseId,actorId:actor.id,body,attachments},fetchImpl);
   if(address(preview.recipient)!==address(receipt.snapshot.recipient))throw Error('recipient_changed');
   return {body,attachments,preview};

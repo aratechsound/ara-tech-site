@@ -32,7 +32,7 @@ try {
   await scenario('preissue', '現在：未発行');
   const preissue = await card.innerText();
   assert.match(preissue, /龍姫湖まつり2026（検証用）/);
-  assert.match(preissue, /2026-10-18 10:00〜15:30/);
+  assert.match(preissue, /2026-10-18 10:00〜15:00/);
   assert.match(preissue, /テスト実行委員会.*管理下テスト担当者/s);
   assert.match(preissue, /支払期限.*2026-11-02/s);
   assert.match(preissue, /Gmail thread.*thread_123/s);

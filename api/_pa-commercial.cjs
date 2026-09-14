@@ -618,7 +618,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
       }
       sent = await (sendTransport || defaultTransport)({ ...job, actor_id: actor.id }, documents);
     } catch (error) {
-      const knownFailure = ['mail_adapter_not_configured','fake_adapter_requires_local_db','recipient_changed','quote_missing','invalid_pdf','unsafe_pdf','receipt_identity_mismatch','receipt_too_large','document_identity_mismatch'].includes(error.message) || String(error.message).startsWith('gmail_send_');
+      const knownFailure = ['mail_adapter_not_configured','fake_adapter_requires_local_db','recipient_changed','quote_missing','invalid_pdf','unsafe_pdf','receipt_identity_mismatch','receipt_layout_overflow','receipt_too_large','document_identity_mismatch'].includes(error.message) || String(error.message).startsWith('gmail_send_');
       await rpc('pa_v5_outbox_finish', {
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: knownFailure ? 'failed' : 'unknown',
         p_message: null, p_thread: null, p_error: knownFailure ? error.message : 'mail_outcome_unknown'

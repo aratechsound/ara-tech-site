@@ -14,7 +14,7 @@ Object.defineProperty(globalThis,"__PA_PORTAL_TEST_DEPS__",{get(){globalThis.__P
 ${source.replace(/^import .*$/gmu, "")}`;
 const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZtQAAAAASUVORK5CYII=", "base64");
 const ref = (character) => character.repeat(36);
-const portal = { event: { event_name: "共同ポータル検証", event_date: "2026-10-18", event_time: "10:00〜15:30", venue: "検証会場" }, cards: [
+const portal = { event: { event_name: "共同ポータル検証", event_date: "2026-10-18", event_time: "10:00〜15:00", venue: "検証会場" }, cards: [
   { ref: ref("a"), category: "timetable", title: "タイムテーブル", card_kind: "fixed", owner_kind: "shared", can_edit: true, current_version_ref: null, versions: [] },
   { ref: ref("b"), category: "script", title: "台本", card_kind: "fixed", owner_kind: "shared", can_edit: true, current_version_ref: null, versions: [] },
   { ref: ref("c"), category: "layout", title: "ARA音響図", card_kind: "collection", owner_kind: "ara_tech", can_edit: false, current_version_ref: ref("d"), versions: [{ ref: ref("d"), display_filename: "ARA音響図.pdf", mime_type: "application/pdf", contributor_kind: "ara_tech", created_at: "2026-09-08T00:00:00Z" }] },

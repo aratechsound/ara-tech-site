@@ -10,7 +10,7 @@ const css = fs.readFileSync(path.join(root, "pa-case-portal.css"), "utf8");
 const source = fs.readFileSync(path.join(root, "js", "pa-case-portal.js"), "utf8");
 const caseId = "20000000-0000-4000-8000-000000000001";
 const client = `const SUPABASE_ANON_KEY="fixture"; const SUPABASE_URL="https://fixture.invalid"; const isSupabaseConfigured=true;
-globalThis.__PA_PORTAL_TEST_DEPS__={createClient:()=>({auth:{getSession:async()=>({data:{session:{access_token:"fixture-token"}}})},from:(table)=>{const builder={select(){return builder},eq(){return builder},is(){return builder},maybeSingle:async()=>({data:table==="pa_inquiries"?{id:"${caseId}",event_name:"検証イベント",event_date:"2026-10-18",event_time:"10:00〜15:30",venue:"検証会場"}:{confirmed_event_date:"2026-10-18"},error:null})};return builder}}),pdfjsLib:{GlobalWorkerOptions:{},getDocument(){throw new Error("not used")}}};
+globalThis.__PA_PORTAL_TEST_DEPS__={createClient:()=>({auth:{getSession:async()=>({data:{session:{access_token:"fixture-token"}}})},from:(table)=>{const builder={select(){return builder},eq(){return builder},is(){return builder},maybeSingle:async()=>({data:table==="pa_inquiries"?{id:"${caseId}",event_name:"検証イベント",event_date:"2026-10-18",event_time:"10:00〜15:00",venue:"検証会場"}:{confirmed_event_date:"2026-10-18"},error:null})};return builder}}),pdfjsLib:{GlobalWorkerOptions:{},getDocument(){throw new Error("not used")}}};
 ${source.replace(/^import .*$/gmu, "")}`;
 const portal = {
   portal: { id: "30000000-0000-4000-8000-000000000001", case_id: caseId },

@@ -30,7 +30,7 @@ async function main() {
       create table public.pa_gmail_thread_links(id uuid primary key default gen_random_uuid(),inquiry_id uuid not null references public.pa_inquiries(id),gmail_thread_id text not null unique);
       create table public.pa_gmail_message_index(gmail_message_id text primary key,gmail_thread_id text not null,inquiry_id uuid not null references public.pa_inquiries(id),message_source text,direction text not null,from_address text not null default 'sender@example.test',to_addresses jsonb not null default '[]',cc_addresses jsonb not null default '[]',subject text not null default '',sent_at timestamptz,received_at timestamptz,indexed_at timestamptz not null default now(),attachment_metadata jsonb not null default '[]');
       insert into auth.users values('${actor}');insert into public.work_admins values('${actor}');
-      insert into public.pa_inquiries values('${caseA}',null,'共同ポータル検証','2026-10-18','10:00〜15:30','検証会場'),('${caseB}',null,'別案件','2026-11-01','09:00〜10:00','別会場');
+      insert into public.pa_inquiries values('${caseA}',null,'共同ポータル検証','2026-10-18','10:00〜15:00','検証会場'),('${caseB}',null,'別案件','2026-11-01','09:00〜10:00','別会場');
       insert into public.pa_gmail_thread_links(inquiry_id,gmail_thread_id) values('${caseA}','thread_a'),('${caseB}','thread_b');
       insert into public.pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,message_source,direction,subject,sent_at,received_at,indexed_at,attachment_metadata) values
       ('in_a','thread_a','${caseA}','gmail_received','inbound','主催者資料',now(),null,now(),'[{"id":"tt","filename":"タイムテーブル.pdf","mime_type":"application/pdf"},{"id":"layout","filename":"会場図.pdf","mime_type":"application/pdf"},{"id":"photo","filename":"主催者写真.jpg","mime_type":"image/jpeg"}]'),
@@ -58,7 +58,7 @@ async function main() {
     let model = await queryResult(db, "select public.pa_portal_organizer_read($1) result", [hash(session)]);
     assert.equal(model.ok, true); const serialized = JSON.stringify(model.portal);
     for (const forbidden of ["case_id", "source_ref", "source_key", "gmail_message_id", "attachment_id", "submitted_by", "audit", actor, caseA]) assert.equal(serialized.includes(forbidden), false, forbidden);
-    assert.equal(model.portal.event.event_time, "10:00〜15:30");
+    assert.equal(model.portal.event.event_time, "10:00〜15:00");
 
     const cards = model.portal.cards; const timetable = cards.find((c) => c.category === "timetable"); const script = cards.find((c) => c.category === "script"); const araCard = cards.find((c) => c.owner_kind === "ara_tech");
     const portalRef = (await db.query("select public_ref from pa_portals where case_id=$1", [caseA])).rows[0].public_ref;

@@ -19,7 +19,7 @@ async function main(){
   assert.deepEqual((await f.db.query('select snapshot,snapshot_sha256 from pa_contract_offers where id=$1',[oldId])).rows[0],before);
   const r=await f.call({...input,action:'issue'});assert.equal(r.statusCode,200);const token=new URL(r.body.result.url).hash.slice(1),view=await f.service.view(token),s=view.snapshot;
   assert.equal(s.presentation_version,4);assert.deepEqual(s.order_scope,input.order_scope);assert(!s.request_summary.includes('問い合わせ原文'));
-  assert.equal(s.terms_text,preview.terms_text);assert.equal(s.payment_due_date,'2026-11-02');assert.equal(s.other_terms_sections.length,6);
+  assert.equal(s.terms_text,preview.terms_text);assert.equal(s.payment_due_date,'2026-11-02');assert.equal(s.other_terms_sections.length,7);assert.equal(s.other_terms_sections.at(-1).title,'その他');
   assert(!/外注費|実費|いずれか高い方|ご依頼にあたっての確認事項/.test(s.terms_text));
   assert(!/キャンセル条件|支払条件/.test(s.business_terms));assert(s.business_terms.includes('重大な過失'));assert(s.business_terms.includes('身体への損害'));
   assert.equal(s.quote.sha256,quote.sha256);assert.deepEqual((await f.db.query('select snapshot,snapshot_sha256 from pa_contract_offers where id=$1',[oldId])).rows[0],before);
@@ -28,7 +28,7 @@ async function main(){
   const saved=(await f.db.query('select snapshot from pa_contracts where id=$1',[view.offer_id])).rows[0].snapshot;
   assert.equal(saved.confirmer_name,'顧客が編集した最終確認者');assert.deepEqual(saved.order_scope,s.order_scope);assert.equal(saved.terms_text,s.terms_text);assert.equal(f.state.sendCount,0);
   assert.equal(issuanceTermsV4('2026-10-18','承認済み翌月末払い','2026-11-30').payment_due_date,'2026-11-30');
-  console.log('PASS v4 explicit scope, stale form rejection, exact preview/snapshot, standard cancellation, six sections, immutable v3, edited confirmer, no live transport');
+  console.log('PASS v4.1 explicit scope, stale form rejection, exact preview/snapshot, standard cancellation, seven detail sections, immutable v3, edited confirmer, no live transport');
  }finally{await f.db.close();}
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1;});
