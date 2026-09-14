@@ -12,25 +12,32 @@ begin
 end $$;
 
 alter table public.pa_commercial_outbox
-  add column if not exists delivery_state text not null default 'queued',
+  add column if not exists delivery_state text,
   add column if not exists failure_phase text,
   add column if not exists failure_code text,
   add column if not exists safe_error_message text,
-  add column if not exists provider_request_started boolean not null default false,
-  add column if not exists provider_response_received boolean not null default false,
+  add column if not exists provider_request_started boolean,
+  add column if not exists provider_response_received boolean,
   add column if not exists provider_http_status integer;
+
+-- Defaults apply only to newly queued work. Existing terminal rows deliberately
+-- remain NULL so this migration does not rewrite historical Production delivery
+-- evidence unrelated to the guarded TEST job below.
+alter table public.pa_commercial_outbox alter column delivery_state set default 'queued';
+alter table public.pa_commercial_outbox alter column provider_request_started set default false;
+alter table public.pa_commercial_outbox alter column provider_response_received set default false;
 
 alter table public.pa_commercial_outbox drop constraint if exists pa_commercial_outbox_delivery_state_check;
 alter table public.pa_commercial_outbox add constraint pa_commercial_outbox_delivery_state_check
-  check (delivery_state in ('queued','processing','failed_before_provider','failed_after_provider_response','unknown_after_provider_start','sent','cancelled'));
+  check (delivery_state is null or delivery_state in ('queued','processing','failed_before_provider','failed_after_provider_response','unknown_after_provider_start','sent','cancelled'));
 alter table public.pa_commercial_outbox drop constraint if exists pa_commercial_outbox_delivery_diagnostics_check;
 alter table public.pa_commercial_outbox add constraint pa_commercial_outbox_delivery_diagnostics_check check (
   (failure_phase is null or failure_phase ~ '^[a-z][a-z0-9_]{0,99}$')
   and (failure_code is null or failure_code ~ '^[a-z][a-z0-9_]{0,99}$')
   and (safe_error_message is null or (char_length(safe_error_message) between 1 and 500
     and safe_error_message !~ '[[:cntrl:]]' and safe_error_message !~* 'https?://'))
-  and (not provider_response_received or provider_request_started)
-  and (provider_http_status is null or (provider_response_received and provider_http_status between 100 and 599))
+  and (provider_response_received is distinct from true or provider_request_started is true)
+  and (provider_http_status is null or (provider_response_received is true and provider_http_status between 100 and 599))
 );
 
 create or replace function public.pa_v5_outbox_guard() returns trigger
@@ -42,9 +49,7 @@ begin
     or old.body_text<>new.body_text or old.reply_binding<>new.reply_binding
     or old.attachment_ids<>new.attachment_ids or old.secret_envelope is distinct from new.secret_envelope
     or old.created_at<>new.created_at then raise exception 'outbox_payload_immutable'; end if;
-  if old.state in ('sent','cancelled') and not (
-    new.state=old.state and coalesce(current_setting('ara_tech.pa_delivery_migration',true),'')='1'
-  ) then raise exception 'outbox_terminal'; end if;
+  if old.state in ('sent','cancelled') then raise exception 'outbox_terminal'; end if;
   if old.state='unknown' and new.state not in ('unknown','cancelled') then
     if not (
       (new.state='sent'
@@ -58,21 +63,6 @@ begin
   end if;
   return new;
 end $$;
-
-select set_config('ara_tech.pa_delivery_migration','1',true);
-update public.pa_commercial_outbox set
-  delivery_state=case state
-    when 'queued' then 'queued'
-    when 'processing' then 'processing'
-    when 'sent' then 'sent'
-    when 'cancelled' then 'cancelled'
-    else 'unknown_after_provider_start' end,
-  provider_request_started=case when state in ('sent','failed','unknown') then true else false end,
-  provider_response_received=case when state='sent' then true else false end,
-  provider_http_status=case when state='sent' then 200 else null end
-where delivery_state='queued'
-  and (state<>'queued' or failure_phase is null);
-select set_config('ara_tech.pa_delivery_migration','0',true);
 
 create or replace function public.pa_v5_outbox_claim(p_actor uuid,p_job uuid,p_lease uuid)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
