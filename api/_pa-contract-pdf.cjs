@@ -7,7 +7,10 @@ const {honorific,japaneseDate,amount,postAcceptanceTerms}=require('./_pa-contrac
 const {bankFromQuote}=require('./_pa-contract-bank.cjs');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const MAX_QUOTE_BYTES=1500000;
-const BLUE=rgb(0,123/255,1),INK=rgb(23/255,43/255,62/255),MUTED=rgb(83/255,101/255,117/255),LINE=rgb(218/255,228/255,236/255),SOFT=rgb(246/255,249/255,252/255);
+const BLUE=rgb(0,123/255,1),INK=rgb(23/255,46/255,69/255),BODY=rgb(41/255,62/255,80/255),MUTED=rgb(101/255,122/255,142/255);
+const PT_PER_MM=72/25.4;
+const mm=value=>value*PT_PER_MM;
+const RECEIPT_V41_TEMPLATE_SHA='d9dc133719b21012ef7522db75502d5e081883c1da5a57fc5a5adafb4e6a8d52';
 
 async function validatePdf(bytes,expectedHash) {
  if (!Buffer.isBuffer(bytes) || bytes.length<20 || bytes.length>MAX_QUOTE_BYTES || bytes.subarray(0,5).toString()!=='%PDF-' || !bytes.subarray(-2048).toString('latin1').includes('%%EOF')) throw Error('invalid_pdf');
@@ -34,7 +37,7 @@ function glyphPainter(font){
   const text=String(value??''),run=font.layout(text),scale=size/font.unitsPerEm;
   let cursor=align==='right'?x-measure(text,size):x;
   for(let index=0;index<run.glyphs.length;index++){
-   const position=run.positions[index],svg=run.glyphs[index].path.scale(1,-1).toSVG();
+   const position=run.positions[index],svg=run.glyphs[index].path.mapPoints((x,y)=>[x,-y]).toSVG();
    if(svg)page.drawSvgPath(svg,{x:cursor+position.xOffset*scale,y:baseline+position.yOffset*scale,scale,color});
    cursor+=position.xAdvance*scale;
   }
@@ -68,71 +71,64 @@ async function buildConfirmationReceipt(snapshot,quote) {
  const estimate=snapshot.estimate||{};
  const original=await validatePdf(quote,estimate.sha256);
  const event=snapshot.case||{},customer=snapshot.customer||{},terms=snapshot.terms||{},acceptance=snapshot.acceptance||{};
- const doc=await PDFDocument.create();
- const font=fontkit.create(fs.readFileSync(path.join(__dirname,'contract-fonts','NotoSansJP.ttf')));
- const paint=glyphPainter(font);
- const logo=await doc.embedPng(fs.readFileSync(path.join(__dirname,'../img/ara-tech-logo-horizontal-black.png')));
- const page1=doc.addPage([595,842]),page2=doc.addPage([595,842]);
- const margin=44,contentWidth=507;
- const topRule=page=>page.drawRectangle({x:0,y:832,width:595,height:10,color:BLUE});
- const label=(page,value,y)=>{paint.draw(page,value,margin,y,9,BLUE);page.drawLine({start:{x:margin,y:y-7},end:{x:551,y:y-7},thickness:.7,color:LINE});};
- const box=(page,{x=margin,y,width=contentWidth,height})=>page.drawRectangle({x,y,width,height,color:SOFT,borderColor:LINE,borderWidth:.8});
- const pair=(page,name,value,x,y,width)=>{paint.draw(page,name,x,y,7.5,MUTED);paint.paragraph(page,value,{x,y:y-17,size:9.5,width,lineHeight:13,maxLines:3});};
- topRule(page1);
- const logoWidth=166,logoHeight=logoWidth*logo.height/logo.width;
- page1.drawImage(logo,{x:551-logoWidth,y:794-logoHeight,width:logoWidth,height:logoHeight});
- paint.draw(page1,'担当：荒殿（アラドノ）',551,770,8.5,MUTED,'right');
- paint.draw(page1,'正式受注確認書',margin,730,22,INK);
- paint.draw(page1,'お客様とARA-TECH双方で保管する、正式受注成立時の確認書です。',margin,707,8.5,MUTED);
- label(page1,'ご依頼者／案件基本情報',682);box(page1,{y:562,height:103});
- pair(page1,'ご依頼者',[customer.organization,customer.department].filter(Boolean).join(' ')||customer.display_name,58,641,225);
- pair(page1,'ご担当者',honorific(customer.contact_name||customer.display_name),307,641,225);
- pair(page1,'案件',event.event_name,58,598,225);
- pair(page1,'開催日時',`${japaneseDate(event.event_date)}${event.event_time?' '+event.event_time:''}`,307,598,225);
- label(page1,'対象見積書',539);box(page1,{y:447,height:75});
- paint.paragraph(page1,estimate.original_filename,{x:58,y:495,size:11,width:475,lineHeight:14,maxLines:2});
- paint.draw(page1,`見積 第${estimate.revision_number||'-'}版`,58,466,8.5,MUTED);
- paint.draw(page1,yen(estimate.amount_minor),235,466,9.5,INK);
- paint.draw(page1,'本確認書3ページ目以降に原本を収録',533,466,8,MUTED,'right');
- label(page1,'ご依頼内容',423);box(page1,{y:337,height:69});
- paint.paragraph(page1,event.service_scope,{x:58,y:381,size:9.2,width:475,lineHeight:13,maxLines:3});
- label(page1,'キャンセル・変更条件',313);box(page1,{y:253,height:43});
- paint.draw(page1,'正式受注時に合意した条件を2ページ目に記録しています。',58,270,9,INK);
- label(page1,'お支払期限',229);box(page1,{y:170,height:42});
- paint.draw(page1,terms.payment_due_date?japaneseDate(terms.payment_due_date):terms.payment_terms,58,186,12,INK);
- label(page1,'正式受注成立情報',146);box(page1,{y:72,height:57});
- pair(page1,'確認者',acceptance.confirmer_name||snapshot.confirmer_name,58,109,225);
- pair(page1,'成立日時（日本時間）',snapshot.confirmed_at_jst||acceptance.confirmed_at||snapshot.confirmed_at,307,109,225);
+ // The fixed visual surface is printed directly from the Owner-approved V4.1
+ // HTML/CSS. Only the explicitly hidden mock/dynamic fields are painted here.
+ const templateBytes=fs.readFileSync(path.join(__dirname,'contract-assets','pa-receipt-v4-1-template.pdf'));
+ if(sha(templateBytes)!==RECEIPT_V41_TEMPLATE_SHA)throw Error('receipt_template_invalid');
+ let template;
+ try{template=await PDFDocument.load(templateBytes,{throwOnInvalidObject:true});}catch{throw Error('receipt_template_invalid');}
+ if(template.getPageCount()!==2)throw Error('receipt_template_invalid');
+ const doc=await PDFDocument.create(),embedded=await doc.embedPdf(templateBytes,[0,1]),templateSize=template.getPage(0).getSize();
+ const page1=doc.addPage([templateSize.width,templateSize.height]),page2=doc.addPage([templateSize.width,templateSize.height]);
+ page1.drawPage(embedded[0],{x:0,y:0,width:templateSize.width,height:templateSize.height});
+ page2.drawPage(embedded[1],{x:0,y:0,width:templateSize.width,height:templateSize.height});
+ const fontBytes=fs.readFileSync(path.join(__dirname,'contract-fonts','NotoSansJP.ttf')),paint=glyphPainter(fontkit.create(fontBytes));
+ const margin=mm(16),right=templateSize.width-margin,width=templateSize.width-mm(32);
+ const bold=(page,value,x,y,size,color=INK,align='left')=>{
+  const dx=align==='right'?-0.24:0.24;
+  paint.draw(page,value,x,y,size,color,align);paint.draw(page,value,x+dx,y,size,color,align);
+  paint.draw(page,value,x,y+.18,size,color,align);paint.draw(page,value,x+dx,y+.18,size,color,align);
+ };
+ const paragraph=(page,value,options={})=>paint.paragraph(page,value,{color:BODY,...options});
+ const shortDate=value=>{const d=new Date(`${value}T00:00:00Z`);return Number.isFinite(+d)?`${d.getUTCMonth()+1}月${d.getUTCDate()}日`:String(value||'');};
+ const acceptedAt=()=>{
+  const value=acceptance.confirmed_at||snapshot.confirmed_at;
+  if(!value)return '';
+  const d=new Date(value);if(!Number.isFinite(+d))return String(value);
+  const parts=new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(d),get=t=>parts.find(p=>p.type===t)?.value;
+  return `${get('year')}年${get('month')}月${get('day')}日 ${get('hour')}:${get('minute')}`;
+ };
 
- topRule(page2);
- paint.draw(page2,'詳細契約条件',margin,792,19,INK);
- paint.draw(page2,'正式受注時の条件控え',margin,770,8.5,MUTED);
- page2.drawLine({start:{x:margin,y:755},end:{x:551,y:755},thickness:1.1,color:BLUE});
- const frozenSections=[
-  ['ご依頼内容',event.service_scope],
-  ['キャンセル・変更条件',terms.cancellation_terms],
-  ['お支払い',[terms.payment_due_date?`お支払期限：${japaneseDate(terms.payment_due_date)}`:'',postAcceptPayment(terms),terms.banking_day_treatment].filter(Boolean).join('\n')],
-  ['請求書',terms.invoice_terms],
-  ['振込手数料',terms.transfer_fee_terms],
-  ['天候・日程変更',terms.weather_change_terms],
-  ...(Array.isArray(terms.other_terms_sections)?terms.other_terms_sections.map(section=>[section.title,section.text]):[])
- ].filter(([,value])=>String(value||'').trim());
- const columnWidth=242,columnX=[44,309],bottom=58;
- let column=0,y=731;
- for(const [title,body] of frozenSections){
-  const bodyLines=paint.lines(body,7.6,columnWidth-20),height=25+bodyLines.length*10.4+11;
-  if(y-height<bottom){column++;y=731;}
-  if(column>1||y-height<bottom)throw Error('receipt_layout_overflow');
-  box(page2,{x:columnX[column],y:y-height+5,width:columnWidth,height:height-5});
-  paint.draw(page2,title,columnX[column]+10,y-16,8.5,BLUE);
-  let lineY=y-34;
-  for(const line of bodyLines){if(line)paint.draw(page2,line,columnX[column]+10,lineY,7.6,INK);lineY-=10.4;}
-  y-=height+8;
- }
- const copied=await doc.copyPages(original,original.getPageIndices());
- copied.forEach(page=>doc.addPage(page));
+ paint.draw(page1,[customer.organization,customer.department].filter(Boolean).join(' ')||customer.display_name,margin,698,10,BODY);
+ bold(page1,honorific(customer.contact_name||customer.display_name),margin,673,14,INK);
+ bold(page1,event.event_name,margin+11,611.5,12.5,INK);
+ const infoRows=[['開催日時',`${japaneseDate(event.event_date)}${event.event_time?' '+event.event_time:''}（予定）`],['会場',event.venue],['対象業務',`${event.service_scope}／詳しくは対象見積書をご確認ください。`]];
+ const infoBaselineAdjust=[.5,2,1];
+ for(let i=0;i<3;i++){const y=598-i*27.3;paint.draw(page1,infoRows[i][1],margin+94,y-18+infoBaselineAdjust[i],9.7,BODY);}
+ paragraph(page1,estimate.original_filename,{x:margin+62,y:487,size:9.1,width:176,lineHeight:15,maxLines:2,color:INK});
+ paint.draw(page1,`見積 第${estimate.revision_number||'-'}版／本確認書3枚目以降に原本を収録`,margin+62,455,8,MUTED);
+ bold(page1,`${Number(estimate.amount_minor).toLocaleString('ja-JP')}円`,margin+width/2+70,487,11.5,INK);
+ const bands=Array.isArray(terms.cancellation_bands)?terms.cancellation_bands:[];
+ if(bands.length!==4)throw Error('receipt_layout_overflow');
+ const dateValues=bands.map(b=>b.from?`${shortDate(b.from)}〜${shortDate(b.to)}`:`${shortDate(b.to)}まで`);
+ dateValues.forEach((value,index)=>paint.draw(page1,value,margin+78,354-index*24.5,8.25,BODY));
+ bold(page1,terms.payment_due_date?japaneseDate(terms.payment_due_date):terms.payment_terms,margin+289,371.5,12.5,INK);
+ bold(page1,honorific(acceptance.confirmer_name||snapshot.confirmer_name),margin+12,101,9.8,INK);
+ bold(page1,acceptedAt(),margin+216,101,9.8,INK);
+
+ const {issuanceTermsV4}=require('./_pa-contract-terms.cjs'),expected=issuanceTermsV4(event.event_date);
+ const normalizedSections=value=>(Array.isArray(value)?value:[]).filter(section=>section.title!=='その他').map(section=>({title:section.title,text:section.text}));
+ if(JSON.stringify(normalizedSections(terms.other_terms_sections))!==JSON.stringify(normalizedSections(expected.other_terms_sections))||terms.invoice_terms!==expected.invoice_terms||terms.transfer_fee_terms!==expected.transfer_fee_terms)throw Error('receipt_layout_overflow');
+ bold(page2,event.event_name,margin,692,9,MUTED);paint.draw(page2,`対象：見積 第${estimate.revision_number||'-'}版`,right,692,9,MUTED,'right');
+ const copied=await doc.copyPages(original,original.getPageIndices());copied.forEach(page=>doc.addPage(page));
  const total=doc.getPageCount(),totalLabel=String(total).padStart(2,'0');
- [page1,page2].forEach((page,index)=>paint.draw(page,`${String(index+1).padStart(2,'0')} / ${totalLabel}`,551,28,8,MUTED,'right'));
+ bold(page2,`本書は${total}ページ構成です`,margin+11,129,9.5,rgb(41/255,78/255,107/255));
+ if(copied.length>1){
+  page2.drawRectangle({x:margin+10,y:84,width:width-20,height:38,color:rgb(243/255,249/255,1)});
+  paint.draw(page2,'ご依頼内容・金額・キャンセル条件・支払期限は1枚目、詳しい条件はこの2枚目、',margin+11,108,8.6,rgb(72/255,104/255,128/255));
+  paint.draw(page2,'対象見積書は3枚目以降をご確認ください。',margin+11,91,8.6,rgb(72/255,104/255,128/255));
+ }
+ [page1,page2].forEach((page,index)=>paint.draw(page,`${String(index+1).padStart(2,'0')} / ${totalLabel}`,right,27,8,MUTED,'right'));
  doc.setTitle('ARA-TECH 正式受注確認書');doc.setAuthor('ARA-TECH');doc.setSubject('正式受注内容と正式受注時にbindされた見積書原本');
  const fixed=new Date(acceptance.confirmed_at||snapshot.confirmed_at);if(Number.isFinite(+fixed)){doc.setCreationDate(fixed);doc.setModificationDate(fixed);}
  const bytes=Buffer.from(await doc.save());if(bytes.length>3*1024*1024)throw Error('receipt_too_large');
@@ -166,4 +162,4 @@ async function mergeReceipt(snapshot,quote) {
  return {bytes,sha256:sha(bytes),cover_pages:coverPages,quote_pages:pages.length};
 }
 const createReceipt=(snapshot,quote)=>snapshot?.snapshot_schema_version==='PA-FORMAL-V5-20260914-1'?buildConfirmationReceipt(snapshot,quote):mergeReceipt(snapshot,quote);
-module.exports={sha,validatePdf,mergeReceipt,createReceipt,MAX_QUOTE_BYTES};
+module.exports={sha,validatePdf,mergeReceipt,createReceipt,MAX_QUOTE_BYTES,RECEIPT_V41_TEMPLATE_SHA};
