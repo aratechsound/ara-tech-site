@@ -11,6 +11,25 @@ const PRE_ISSUE_PREVIEW_VERSION = 'PA-EST-006-PREVIEW-1';
 const CUSTOMER_CONFIRMATION_TEMPLATE_VERSION = 'PA-CUSTOMER-WEB-V3.2';
 const RECEIPT_TEMPLATE_VERSION = 'PA-RECEIPT-V4.1';
 const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
+const LEGACY_CONFIRMATION_RECOVERY_AUTHORITY = Object.freeze({
+  case_id: '21073084-a71f-4892-b97d-7717aeda0672',
+  offer_id: '53084cdf-90fc-45fc-8bc1-e0c27cbafc4f',
+  outbox_id: 'a74497c3-9ce1-453f-ae55-c950391fb30d',
+  recipient: 'tonokun@gmail.com',
+  estimate_id: '68752534-c548-4424-84c5-703e4710d7d1',
+  document_id: '3c50acae-eddf-47fd-890b-dcede24919bb',
+  revision_number: 2,
+  amount_minor: 198550,
+  currency: 'JPY',
+  filename: '見積書 2026.09.11 龍姫湖まつり（改訂）.pdf',
+  mime_type: 'application/pdf',
+  byte_size: 82851,
+  sha256: '79d0357eb94d7c9aeb81e0d1621aa9119242c76cd0f3ed3f0d7456d879972f6a'
+});
+const confirmationBodyTemplate = (inquiry) => {
+  const contact = String(inquiry.contact_name || inquiry.customer_name || 'ご担当者').trim().replace(/\s*様\s*$/u, '');
+  return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
+};
 
 const SAFE = new Set([
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
@@ -66,6 +85,89 @@ const integer = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => {
 };
 const canonical = (value) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
+const jsonbKeyOrder = (left, right) => Buffer.byteLength(left) - Buffer.byteLength(right) || Buffer.compare(Buffer.from(left), Buffer.from(right));
+const postgresJsonbText = (value) => {
+  if (value === null) return 'null';
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(postgresJsonbText).join(', ') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort(jsonbKeyOrder)
+    .map((key) => JSON.stringify(key) + ': ' + postgresJsonbText(value[key])).join(', ') + '}';
+  throw Error('production_e2e_recovery_blocked');
+};
+const legacyRecoveryBlocked = (reason) => {
+  const error = Error('production_e2e_recovery_blocked');
+  Object.defineProperty(error, 'recoveryReason', { value: reason, enumerable: false });
+  throw error;
+};
+const sameValue = (left, right) => canonical(left) === canonical(right);
+const assertLegacyConfirmationRecovery = (evidence, authority = LEGACY_CONFIRMATION_RECOVERY_AUTHORITY) => {
+  const fail = (reason) => legacyRecoveryBlocked(reason);
+  const { metadata, job, offers, tokens, contracts, offer, estimate, document, inquiry, state, actorId, legacyPreview } = evidence;
+  if (!metadata || metadata.state !== 'active' || metadata.test_case_id !== authority.case_id
+    || metadata.test_estimate_id !== authority.estimate_id || metadata.test_document_id !== authority.document_id
+    || String(metadata.allowed_recipient || '').trim().toLowerCase() !== authority.recipient || metadata.source_estimate_sha !== authority.sha256) fail('identity_mismatch');
+  if (!job || job.id !== authority.outbox_id || job.inquiry_id !== authority.case_id || job.aggregate_id !== authority.offer_id
+    || job.job_kind !== 'confirmation' || String(job.recipient || '').trim().toLowerCase() !== authority.recipient
+    || job.reply_binding?.delivery_mode !== 'standalone_production_e2e') fail('identity_mismatch');
+  if (!offer || offer.id !== authority.offer_id || offer.inquiry_id !== authority.case_id || Number(offer.version) !== 1
+    || offer.estimate_revision_id !== authority.estimate_id || !offer.snapshot || !offer.snapshot_sha256
+    || !Array.isArray(offers) || offers.length !== 1 || offers[0].id !== authority.offer_id) fail('offer_authority_mismatch');
+  const offerExpiry = Number(new Date(offer.expires_at));
+  if (!Number.isFinite(offerExpiry) || offerExpiry <= Date.now()) fail('offer_not_active');
+  const activeTokens = (tokens || []).filter((token) => token.state === 'active');
+  if (activeTokens.length !== 1 || activeTokens[0].offer_id !== authority.offer_id
+    || metadata.created_by !== actorId || offer.issued_by !== actorId || evidence.customerUrlTokenHashMatches !== true
+    || evidence.customerUrlAuthorityMatches !== true || !job.secret_envelope) fail('customer_token_authority_mismatch');
+  if (!Array.isArray(contracts) || contracts.length !== 0) fail('contract_exists');
+  if (job.state !== 'failed' || job.delivery_state !== 'failed_before_provider'
+    || job.failure_phase !== 'preview_validation' || job.failure_code !== 'invalid_confirmation'
+    || job.provider_request_started !== false || job.provider_response_received !== false || job.provider_http_status != null
+    || job.provider_message_id != null || job.provider_thread_id != null || job.sent_at != null) fail('provider_already_started');
+  if (evidence.gmailSentCount !== 0) fail('gmail_sent_exists');
+  if (!estimate || estimate.id !== authority.estimate_id || estimate.inquiry_id !== authority.case_id
+    || estimate.document_id !== authority.document_id || Number(estimate.revision_number) !== authority.revision_number
+    || Number(estimate.amount_minor) !== authority.amount_minor || estimate.currency !== authority.currency
+    || state?.current_estimate_revision_id !== authority.estimate_id) fail('estimate_authority_mismatch');
+  if (!document || document.id !== authority.document_id || document.inquiry_id !== authority.case_id
+    || document.original_filename !== authority.filename || document.mime_type !== authority.mime_type
+    || Number(evidence.documentByteSize) !== authority.byte_size || evidence.documentComputedSha !== authority.sha256
+    || document.sha256 !== authority.sha256) fail('document_authority_mismatch');
+  if (!Array.isArray(job.attachment_ids) || job.attachment_ids.length !== 1 || job.attachment_ids[0] !== authority.document_id
+    || offer.quote_sha256 !== authority.sha256 || evidence.offerQuoteComputedSha !== authority.sha256
+    || Number(evidence.offerQuoteByteSize) !== authority.byte_size || evidence.offerQuoteMatchesDocument !== true) fail('frozen_estimate_mismatch');
+  if (pdf.sha(Buffer.from(postgresJsonbText(offer.snapshot), 'utf8')) !== offer.snapshot_sha256) fail('snapshot_hash_mismatch');
+  const expectedTerms = issuanceTermsV4(String(inquiry?.event_date || ''));
+  const snapshot = offer.snapshot;
+  if (!inquiry || String(inquiry.email || '').trim().toLowerCase() !== authority.recipient || !String(inquiry.internal_memo || '').startsWith('[TEST] 2026龍姫湖まつり 正式受注E2E')
+    || snapshot.snapshot_schema_version !== FORMAL_SNAPSHOT_VERSION
+    || snapshot.case?.event_name !== String(inquiry.event_name || '').trim()
+    || snapshot.case?.event_date !== String(inquiry.event_date || '')
+    || snapshot.case?.event_time !== (String(inquiry.event_time || '').trim() || null)
+    || snapshot.case?.venue !== String(inquiry.venue || '').trim()
+    || snapshot.case?.service_scope !== String(inquiry.request_summary || '').trim()
+    || snapshot.recipient !== String(inquiry.email || '').trim()
+    || snapshot.estimate?.estimate_id !== authority.estimate_id || snapshot.estimate?.document_id !== authority.document_id
+    || snapshot.estimate?.revision_number !== authority.revision_number || snapshot.estimate?.amount_minor !== authority.amount_minor
+    || snapshot.estimate?.currency !== authority.currency || snapshot.estimate?.original_filename !== authority.filename
+    || snapshot.estimate?.mime_type !== authority.mime_type || snapshot.estimate?.sha256 !== authority.sha256
+    || snapshot.quote?.filename !== authority.filename || snapshot.quote?.mime_type !== authority.mime_type
+    || snapshot.quote?.sha256 !== authority.sha256 || Number(snapshot.quote?.size) !== authority.byte_size
+    || snapshot.customer_acknowledgement?.estimate_revision_id !== authority.estimate_id
+    || Number(snapshot.customer_acknowledgement?.amount_minor) !== authority.amount_minor
+    || !sameValue(snapshot.conditions || {}, estimate.conditions_snapshot || {})
+    || !sameValue(snapshot.terms, expectedTerms)
+    || snapshot.payment_due_date !== expectedTerms.payment_due_date
+    || job.subject !== metadata.source_confirmation_subject
+    || job.body_text !== confirmationBodyTemplate(inquiry)) fail('business_authority_mismatch');
+  if (!legacyPreview?.expired || legacyPreview.attachment_count !== 0
+    || legacyPreview.attachments_hash !== gmail.EMPTY_REPLY_ATTACHMENTS_HASH) fail('legacy_preview_mismatch');
+  return {
+    eligible: true,
+    reasons: ['legacy_preview_expired', 'legacy_attachment_manifest_mismatch'],
+    same_offer: true, same_customer_token: true, same_customer_url: true, same_frozen_snapshot: true
+  };
+};
 const fromBytea = (value) => {
   if (typeof value !== 'string' || !/^\\x[0-9a-f]+$/iu.test(value)) throw Error('document_identity_mismatch');
   return Buffer.from(value.slice(2), 'hex');
@@ -239,7 +341,8 @@ const buildRelatedMaterials = ({ caseId, state, estimates = [], documents = [], 
     || String(right.source_date || '').localeCompare(String(left.source_date || '')) || left.material_id.localeCompare(right.material_id));
 };
 
-function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issuanceTermsV4, createReceipt = pdf.createReceipt } = {}) {
+function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issuanceTermsV4, createReceipt = pdf.createReceipt,
+  legacyRecoveryAuthority = LEGACY_CONFIRMATION_RECOVERY_AUTHORITY } = {}) {
   const db = async (path, options = {}) => {
     const { url, serviceRoleKey } = mail.supabaseConfig();
     const response = await fetchImpl(url + '/rest/v1/' + path, {
@@ -381,11 +484,6 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     reply_source_thread_id: preview.gmail_thread_id,
     cc_addresses: preview.cc_addresses || []
   });
-
-  const confirmationBodyTemplate = (inquiry) => {
-    const contact = String(inquiry.contact_name || inquiry.customer_name || 'ご担当者').trim().replace(/\s*様\s*$/u, '');
-    return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
-  };
 
   async function confirmationAuthority(caseId, actor) {
     const safeCaseId = uuid(caseId);
@@ -770,7 +868,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_evidence: object(input.evidence)
   });
 
-  const defaultTransport = async (job, attachments, deliveryTrace) => {
+  const defaultTransport = async (job, attachments, deliveryTrace, internal = {}) => {
     deliveryTrace.phase = 'adapter_validation';
     const adapter = String(process.env.PA_MAIL_ADAPTER || '').trim();
     if (adapter === 'fake') {
@@ -788,9 +886,15 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         || emailAddress(job.recipient) !== 'tonokun@gmail.com'
         || emailAddress(metadata.allowed_recipient) !== emailAddress(job.recipient)
         || metadata.source_confirmation_subject !== job.subject) throw Error('invalid_production_e2e_test');
+      const recovery = internal.legacyRecoveryAuthorization;
+      if (recovery && (recovery.job_id !== job.id || job.id !== legacyRecoveryAuthority.outbox_id
+        || job.inquiry_id !== legacyRecoveryAuthority.case_id || job.aggregate_id !== legacyRecoveryAuthority.offer_id)) {
+        throw Error('production_e2e_recovery_blocked');
+      }
       return gmail.sendStandalone({
         inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
-        confirmationToken: job.reply_binding.confirmation_token,
+        confirmationToken: recovery?.confirmation_token || job.reply_binding.confirmation_token,
+        attachmentAuthority: recovery?.attachment_authority,
         subjectOverride: job.subject, jobId: job.id, deliveryTrace
       }, fetchImpl);
     }
@@ -814,8 +918,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }, fetchImpl);
   };
 
-  async function dispatch(input, actor) {
+  async function dispatch(input, actor, internal = {}) {
     const jobId = uuid(input.job_id);
+    if (internal.legacyRecoveryAuthorization && (jobId !== legacyRecoveryAuthority.outbox_id
+      || internal.legacyRecoveryAuthorization.job_id !== jobId)) throw Error('production_e2e_recovery_blocked');
     const lease = crypto.randomUUID();
     const claimed = await rpc('pa_v5_outbox_claim', { p_actor: actor.id, p_job: jobId, p_lease: lease });
     if (claimed?.state === 'cancelled') return claimed;
@@ -838,7 +944,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         deliveryTrace.phase = 'provider_request';
         deliveryTrace.provider_request_started = true;
       }
-      sent = await (sendTransport || defaultTransport)({ ...job, actor_id: actor.id }, documents, deliveryTrace);
+      sent = sendTransport
+        ? await sendTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal)
+        : await defaultTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal);
       if (sent?.production_e2e_standalone) {
         deliveryTrace.phase = 'post_send_failpoint';
         const failpoint = await rpc('pa_production_e2e_consume_failpoint', {
@@ -927,6 +1035,83 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     return { ...result, ...evidence };
   }
 
+  async function legacyConfirmationRecoveryEvidence(caseId, jobId, actor, gmailSentCount) {
+    if (caseId !== legacyRecoveryAuthority.case_id || jobId !== legacyRecoveryAuthority.outbox_id) {
+      legacyRecoveryBlocked('identity_mismatch');
+    }
+    const [metadata, job, offers, tokens, contracts, estimate, document, state, inquiry] = await Promise.all([
+      productionE2eMetadata(caseId),
+      one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: '*' }),
+      rows('pa_contract_offers', { inquiry_id: 'eq.' + caseId, select: 'id,inquiry_id,version,expires_at,issued_by,snapshot,snapshot_sha256,quote_pdf,quote_sha256,estimate_revision_id' }),
+      rows('pa_contract_tokens', { offer_id: 'eq.' + legacyRecoveryAuthority.offer_id, select: 'offer_id,token_hash,state' }),
+      rows('pa_contracts', { inquiry_id: 'eq.' + caseId, select: 'id' }),
+      one('pa_estimate_revisions', { id: 'eq.' + legacyRecoveryAuthority.estimate_id, inquiry_id: 'eq.' + caseId, select: 'id,inquiry_id,revision_number,document_id,amount_minor,currency,conditions_snapshot' }),
+      one('pa_commercial_documents', { id: 'eq.' + legacyRecoveryAuthority.document_id, inquiry_id: 'eq.' + caseId, select: 'id,inquiry_id,original_filename,mime_type,content,sha256' }),
+      one('pa_case_commercial_state', { inquiry_id: 'eq.' + caseId, select: 'current_estimate_revision_id' }),
+      mail.getInquiry(caseId, fetchImpl)
+    ]);
+    const offer = offers.find((item) => item.id === legacyRecoveryAuthority.offer_id) || null;
+    let documentBytes;
+    let offerQuoteBytes;
+    let customerUrl;
+    let customerToken;
+    try {
+      documentBytes = fromBytea(document?.content);
+      offerQuoteBytes = fromBytea(offer?.quote_pdf);
+      customerUrl = decryptSecret(job?.secret_envelope);
+      const parsed = new URL(customerUrl);
+      customerToken = parsed.hash.slice(1);
+    } catch {
+      legacyRecoveryBlocked('customer_url_or_document_invalid');
+    }
+    let expectedOrigin;
+    try { expectedOrigin = new URL(String(process.env.PA_PUBLIC_ORIGIN || 'https://ara-tech.cc')).origin; }
+    catch { legacyRecoveryBlocked('customer_url_or_document_invalid'); }
+    let customerUrlAuthorityMatches = false;
+    try {
+      const parsed = new URL(customerUrl);
+      customerUrlAuthorityMatches = parsed.origin === expectedOrigin && parsed.pathname === '/pa-contract.html' && parsed.search === ''
+        && /^[a-f0-9]{64}$/u.test(customerToken);
+    } catch {}
+    const activeToken = tokens.filter((token) => token.state === 'active')[0] || null;
+    const body = String(job?.body_text || '').replace('{{CONFIRMATION_URL}}', customerUrl);
+    const content = await gmail.standaloneContentPreview({
+      inquiryId: caseId, actorId: actor.id, body, attachments: [], mode: 'confirmation', subjectOverride: job?.subject
+    }, fetchImpl);
+    let legacyPreview;
+    try {
+      legacyPreview = gmail.inspectExpiredEmptyStandalonePreview({
+        token: job?.reply_binding?.confirmation_token,
+        fields: {
+          inquiryId: caseId, actorId: actor.id, recipient: content.recipient,
+          subject: content.subject, body: content.body
+        }
+      });
+    } catch {
+      legacyRecoveryBlocked('legacy_preview_not_exact');
+    }
+    const eligibility = assertLegacyConfirmationRecovery({
+      metadata, job, offers, tokens, contracts, offer, estimate, document, inquiry, state, actorId: actor.id, legacyPreview,
+      gmailSentCount,
+      customerUrlAuthorityMatches,
+      customerUrlTokenHashMatches: Boolean(activeToken && pdf.sha(customerToken) === activeToken.token_hash),
+      documentByteSize: documentBytes.length,
+      documentComputedSha: pdf.sha(documentBytes),
+      offerQuoteByteSize: offerQuoteBytes.length,
+      offerQuoteComputedSha: pdf.sha(offerQuoteBytes),
+      offerQuoteMatchesDocument: offerQuoteBytes.equals(documentBytes)
+    }, legacyRecoveryAuthority);
+    return {
+      eligibility, body, attachment: {
+        filename: document.original_filename, mime_type: document.mime_type, data: documentBytes.toString('base64url')
+      },
+      attachmentAuthority: {
+        document_id: document.id, filename: document.original_filename, mime_type: document.mime_type,
+        byte_size: documentBytes.length, sha256: document.sha256
+      }
+    };
+  }
+
   async function productionE2eRecoveryPreview(input, actor) {
     const caseId = uuid(input.case_id);
     const jobId = uuid(input.job_id);
@@ -934,7 +1119,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       productionE2eMetadata(caseId),
       one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: '*' })
     ]);
-    if (!metadata || metadata.state !== 'active' || !job || job.job_kind !== 'confirmation'
+    if (caseId !== legacyRecoveryAuthority.case_id || jobId !== legacyRecoveryAuthority.outbox_id
+      || !metadata || metadata.state !== 'active' || !job || job.job_kind !== 'confirmation'
+      || job.aggregate_id !== legacyRecoveryAuthority.offer_id
       || emailAddress(metadata.allowed_recipient) !== 'tonokun@gmail.com'
       || emailAddress(job.recipient) !== 'tonokun@gmail.com'
       || job.reply_binding?.delivery_mode !== 'standalone_production_e2e') throw Error('invalid_production_e2e_test');
@@ -953,6 +1140,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       && (job.provider_message_id !== evidence.gmail_message_id || job.provider_thread_id !== evidence.gmail_thread_id)) {
       throw Error('production_e2e_delivery_mismatch');
     }
+    const canSend = evidence.match_count === 0 && deliveryState === 'failed_before_provider';
+    if (canSend) await legacyConfirmationRecoveryEvidence(caseId, jobId, actor, evidence.match_count);
     return {
       case_id: caseId, job_id: jobId, offer_id: offer.id, confirmation_version: Number(offer.version),
       recipient: job.recipient, subject: job.subject, event_name: '2026龍姫湖まつり',
@@ -962,8 +1151,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       safe_error_message: job.safe_error_message || null, deterministic_message_id: gmail.productionE2eMessageId(jobId),
       provider_match_count: evidence.match_count, provider_message_id: evidence.gmail_message_id || null,
       provider_thread_id: evidence.gmail_thread_id || null, sent_at: evidence.sent_at || null,
-      can_send_same_confirmation: evidence.match_count === 0 && deliveryState === 'failed_before_provider',
-      will_send: evidence.match_count === 0 && deliveryState === 'failed_before_provider'
+      can_send_same_confirmation: canSend,
+      will_send: canSend
     };
   }
 
@@ -981,8 +1170,29 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       return { ...result, send_performed: false, provider_match_count: 1, deterministic_message_id: preview.deterministic_message_id };
     }
     if (!preview.can_send_same_confirmation) throw Error('production_e2e_recovery_blocked');
-    const result = await dispatch({ job_id: preview.job_id }, actor);
-    return { ...result, send_performed: true, provider_match_count: 0, deterministic_message_id: preview.deterministic_message_id };
+    const prepared = await legacyConfirmationRecoveryEvidence(preview.case_id, preview.job_id, actor, preview.provider_match_count);
+    const freshPreview = await gmail.standalonePreview({
+      inquiryId: preview.case_id, actorId: actor.id, body: prepared.body, attachments: [prepared.attachment],
+      attachmentAuthority: prepared.attachmentAuthority, mode: 'confirmation', subjectOverride: preview.subject
+    }, fetchImpl);
+    if (freshPreview.attachments.length !== 1 || freshPreview.recipient !== legacyRecoveryAuthority.recipient) {
+      throw Error('production_e2e_recovery_blocked');
+    }
+    const result = await dispatch({ job_id: preview.job_id }, actor, {
+      legacyRecoveryAuthorization: {
+        job_id: preview.job_id, confirmation_token: freshPreview.confirmation_token,
+        attachment_authority: prepared.attachmentAuthority
+      }
+    });
+    return {
+      ...result, send_performed: true, provider_match_count: 0,
+      deterministic_message_id: preview.deterministic_message_id,
+      compatibility_recovery: {
+        design: 'strict_legacy_eligibility_plus_fresh_ephemeral_preview_auth',
+        legacy_preview_used_for_send: false, fresh_preview_regenerated: true,
+        fresh_attachment_count: 1, reasons: [...prepared.eligibility.reasons, 'fresh_preview_regenerated']
+      }
+    };
   }
 
   const archiveProductionE2eCase = (input, actor) => rpc('pa_production_e2e_archive_case', {
@@ -1004,4 +1214,4 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   };
 }
 
-module.exports = { createService, SAFE, encryptSecret, decryptSecret, buildRelatedMaterials, businessAttachment, materialCategory, PRE_ISSUE_PREVIEW_VERSION, CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, RECEIPT_TEMPLATE_VERSION };
+module.exports = { createService, SAFE, encryptSecret, decryptSecret, assertLegacyConfirmationRecovery, LEGACY_CONFIRMATION_RECOVERY_AUTHORITY, postgresJsonbText, buildRelatedMaterials, businessAttachment, materialCategory, PRE_ISSUE_PREVIEW_VERSION, CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, RECEIPT_TEMPLATE_VERSION };

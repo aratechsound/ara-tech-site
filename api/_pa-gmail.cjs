@@ -564,25 +564,53 @@ const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "second
 };
 
 const previewSecret = () => String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, body, mode, attachmentsHash, expiresAt }) => {
-    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, expiresAt });
+const EMPTY_REPLY_ATTACHMENTS_HASH = replyAttachmentsHash([]);
+const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, body, mode, attachmentsHash, attachmentAuthorityHash, expiresAt }) => {
+    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, recipient, ccAddresses, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, attachmentAuthorityHash, expiresAt });
     const signature = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
     return Buffer.from(payload).toString("base64url") + "." + signature;
 };
+const signedPreviewPayload = (token) => {
+    try {
+        const parts = String(token || "").split(".");
+        if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("invalid_confirmation");
+        const payload = Buffer.from(parts[0], "base64url").toString("utf8");
+        const expected = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
+        const actualBytes = Buffer.from(parts[1]);
+        const expectedBytes = Buffer.from(expected);
+        if (actualBytes.length !== expectedBytes.length || !crypto.timingSafeEqual(actualBytes, expectedBytes)) throw new Error("invalid_confirmation");
+        const values = JSON.parse(payload);
+        if (!values || typeof values !== "object" || Array.isArray(values)) throw new Error("invalid_confirmation");
+        return values;
+    } catch {
+        throw new Error("invalid_confirmation");
+    }
+};
 const verifyPreviewToken = (token, fields) => {
-    const [encoded, signature] = String(token || "").split(".");
-    if (!encoded || !signature) throw new Error("invalid_confirmation");
-    const payload = Buffer.from(encoded, "base64url").toString("utf8");
-    const expected = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new Error("invalid_confirmation");
-    const values = JSON.parse(payload);
+    const values = signedPreviewPayload(token);
     const bodyHash = crypto.createHash("sha256").update(fields.body).digest("hex");
     if (Date.now() > Number(values.expiresAt) || values.inquiryId !== fields.inquiryId || values.actorId !== fields.actorId
         || values.threadId !== fields.threadId || values.replySourceMessageId !== fields.replySourceMessageId
         || values.recipient !== fields.recipient || JSON.stringify(values.ccAddresses || []) !== JSON.stringify(fields.ccAddresses || [])
-        || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash) {
+        || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== fields.mode || values.attachmentsHash !== fields.attachmentsHash
+        || values.attachmentAuthorityHash !== fields.attachmentAuthorityHash) {
         throw new Error("invalid_confirmation");
     }
+};
+
+// This is evidence inspection for the single guarded compatibility recovery,
+// not an alternate send validator. It accepts only an already-expired,
+// correctly signed standalone confirmation that was bound to the historical
+// empty attachment manifest. The returned value contains no token or body.
+const inspectExpiredEmptyStandalonePreview = ({ token, fields, now = Date.now() }) => {
+    const values = signedPreviewPayload(token);
+    const bodyHash = crypto.createHash("sha256").update(fields.body).digest("hex");
+    if (!(Number(values.expiresAt) < Number(now)) || values.inquiryId !== fields.inquiryId || values.actorId !== fields.actorId
+        || values.threadId !== null || values.replySourceMessageId !== null
+        || values.recipient !== fields.recipient || JSON.stringify(values.ccAddresses || []) !== "[]"
+        || values.subject !== fields.subject || values.bodyHash !== bodyHash || values.mode !== "confirmation"
+        || values.attachmentsHash !== EMPTY_REPLY_ATTACHMENTS_HASH || values.attachmentAuthorityHash !== undefined) throw new Error("invalid_confirmation");
+    return { expired: true, attachment_count: 0, attachments_hash: EMPTY_REPLY_ATTACHMENTS_HASH };
 };
 
 const replyMode = (value) => {
@@ -591,6 +619,20 @@ const replyMode = (value) => {
     if (value === "invoice") return "invoice";
     if (value === "confirmation") return "confirmation";
     throw new Error("invalid_reply_mode");
+};
+const standaloneAttachmentAuthorityHash = (authority, attachments) => {
+    if (authority === undefined || authority === null) return undefined;
+    if (!authority || typeof authority !== "object" || Array.isArray(authority) || attachments.length !== 1
+        || !isUuid(authority.document_id) || authority.filename !== attachments[0].filename
+        || authority.mime_type !== attachments[0].mime_type || Number(authority.byte_size) !== attachments[0].size
+        || !/^[a-f0-9]{64}$/u.test(String(authority.sha256 || ""))
+        || crypto.createHash("sha256").update(Buffer.from(attachments[0].data, "base64url")).digest("hex") !== authority.sha256) {
+        throw new Error("invalid_confirmation");
+    }
+    return crypto.createHash("sha256").update(JSON.stringify({
+        document_id: authority.document_id, filename: authority.filename, mime_type: authority.mime_type,
+        byte_size: Number(authority.byte_size), sha256: authority.sha256
+    })).digest("hex");
 };
 const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl) => {
     const requestedMessageId = String(replySourceMessageId || "");
@@ -667,7 +709,7 @@ const replyPreview = (input, fetchImpl = fetch) => buildReplyPreview(input, fetc
 // but deliberately creates no send confirmation token.
 const replyContentPreview = (input, fetchImpl = fetch) => buildReplyPreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
-const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = [], mode = "confirmation", subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
+const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = [], attachmentAuthority, mode = "confirmation", subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
     if (!isUuid(inquiryId) || !isUuid(actorId) || mode !== "confirmation") throw new Error("invalid_production_e2e_test");
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     const recipient = safeAddress(inquiry.email);
@@ -677,6 +719,7 @@ const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = 
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
+    const attachmentAuthorityHash = standaloneAttachmentAuthorityHash(attachmentAuthority, normalizedAttachments);
     const expiresAt = issueConfirmationToken ? Date.now() + PREVIEW_TTL_MS : null;
     const preview = {
         inquiry_id: inquiryId,
@@ -695,7 +738,7 @@ const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = 
         attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
     };
     if (issueConfirmationToken) {
-        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: null, replySourceMessageId: null, recipient, ccAddresses: [], subject, body: normalizedBody, mode, attachmentsHash, expiresAt });
+        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: null, replySourceMessageId: null, recipient, ccAddresses: [], subject, body: normalizedBody, mode, attachmentsHash, attachmentAuthorityHash, expiresAt });
         preview.expires_at = new Date(expiresAt).toISOString();
     }
     return preview;
@@ -703,14 +746,15 @@ const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = 
 const standalonePreview = (input, fetchImpl = fetch) => buildStandalonePreview(input, fetchImpl);
 const standaloneContentPreview = (input, fetchImpl = fetch) => buildStandalonePreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
-const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], confirmationToken, subjectOverride, jobId, deliveryTrace }, fetchImpl = fetch) => {
+const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], attachmentAuthority, confirmationToken, subjectOverride, jobId, deliveryTrace }, fetchImpl = fetch) => {
     updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
-    const preview = await standalonePreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: "confirmation", subjectOverride }, fetchImpl);
+    const preview = await standalonePreview({ inquiryId, actorId, body, attachments: normalizedAttachments, attachmentAuthority, mode: "confirmation", subjectOverride }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
         inquiryId, actorId, threadId: null, replySourceMessageId: null,
         recipient: preview.recipient, ccAddresses: [], subject: preview.subject,
-        body: preview.body, mode: "confirmation", attachmentsHash: replyAttachmentsHash(normalizedAttachments)
+        body: preview.body, mode: "confirmation", attachmentsHash: replyAttachmentsHash(normalizedAttachments),
+        attachmentAuthorityHash: standaloneAttachmentAuthorityHash(attachmentAuthority, normalizedAttachments)
     });
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_oauth" });
     const config = mailConfig();
@@ -825,4 +869,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
