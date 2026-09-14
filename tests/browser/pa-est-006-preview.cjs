@@ -20,7 +20,7 @@ async function counts(db, caseId) { const result = {}; for (const [key, sql] of 
 
 async function main() {
     let fixture, server, browser;
-    const pageErrors = [];
+    const pageErrors = [], apiActions = [];
     try {
         fixture = await createFixture();
         await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql') + '\n' + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n' + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'));
@@ -33,7 +33,7 @@ async function main() {
             try {
                 const url = new URL(request.url, `http://${request.headers.host}`);
                 if (url.pathname === '/harness.html') { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return response.end(harness(fixture.inquiryId)); }
-                if (url.pathname === '/api/pa-mail') { const body = await readBody(request); return handler({ ...request, body, query: { surface: 'commercial' } }, adapt(response)); }
+                if (url.pathname === '/api/pa-mail') { const body = await readBody(request); apiActions.push(body.action); return handler({ ...request, body, query: { surface: 'commercial' } }, adapt(response)); }
                 const target = path.resolve(root, decodeURIComponent(url.pathname.slice(1)));
                 assert(target.startsWith(root + path.sep) && fs.statSync(target).isFile());
                 const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[path.extname(target)] || 'application/octet-stream';
@@ -48,21 +48,33 @@ async function main() {
         await context.route('**/*', (route) => { const url = new URL(route.request().url()); return url.origin === base || url.protocol === 'blob:' ? route.continue() : route.abort(); });
         const page = await context.newPage(); page.on('pageerror', (error) => { pageErrors.push(error.message); console.error('PAGEERROR', error.message); }); page.on('console', (message) => { if (message.type() === 'error') console.error('CONSOLE', message.text()); }); page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
         const before = await counts(fixture.db, fixture.inquiryId);
+        const openPreview = async () => { await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); };
+        const ownerButton = () => page.getByRole('button', { name: /この内容で発行して.*へ案内する/ });
+        const issueCalls = () => apiActions.filter((action) => action === 'issue_confirmation').length;
         for (const width of [1366, 940, 390]) {
             await page.setViewportSize({ width, height: 1000 }); await page.goto(`${base}/harness.html`);
-            await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' });
-            await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint'));
+            await openPreview();
             const previewText = await page.locator('.pa-confirmation-preview-dialog').innerText();
             assert.match(previewText, /送信前の最終確認/); assert.match(previewText, /198,550/); assert.match(previewText, /発行時に正式URLが入ります/); assert.match(previewText, /2026年10月18日（日） 10:00〜15:00/); assert.match(previewText, /2026年11月2日（月）/);
             const customerFrame = page.frameLocator('iframe[title="顧客向け正式受注確認ページの送信前プレビュー"]'); await customerFrame.locator('#page').waitFor({ state: 'visible' }); assert.equal(await customerFrame.locator('h1').innerText(), '正式受注確認');
             assert((await page.evaluate(() => document.documentElement.scrollWidth)) <= width); await page.screenshot({ path: path.join(out, `pre-issue-${width}.png`), fullPage: false });
-            await page.getByLabel('上記の内容を確認しました。').check(); const finalButton = page.getByRole('button', { name: /この内容で発行して.*へ案内する/ }); assert.equal(await finalButton.isDisabled(), false); await finalButton.click(); await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); await page.getByRole('button', { name: '戻って確認する' }).click();
+            const finalButton = ownerButton(); assert.equal(await finalButton.isDisabled(), true, 'unchecked owner button remains disabled');
+            await page.getByLabel('上記の内容を確認しました。').check(); assert.equal(await finalButton.isDisabled(), false, 'checked owner button becomes enabled');
+            const issueBefore = issueCalls(); await finalButton.click(); await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(issueCalls(), issueBefore, 'opening final dialog must not call issue API'); if (width === 1366) await page.screenshot({ path: path.join(out, 'final-dialog-1366.png') });
+            if (width === 1366) await page.keyboard.press('Escape'); else await page.getByRole('button', { name: '戻って確認する' }).click();
+            await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'detached' }); assert.equal(await page.evaluate(() => document.activeElement?.textContent?.includes('この内容で発行して')), true, 'Escape/Back returns focus to owner button');
             await page.getByRole('button', { name: '閉じる' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'detached' });
         }
-        await page.setViewportSize({ width: 1366, height: 1000 }); await page.goto(`${base}/harness.html`); await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); await page.evaluate(() => { document.documentElement.style.zoom = '200%'; }); assert((await page.evaluate(() => document.documentElement.scrollWidth)) <= 1366); await page.screenshot({ path: path.join(out, 'pre-issue-200-percent.png') });
-        await page.getByRole('button', { name: '内容を再取得' }).evaluate((node) => node.click()); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); await page.getByRole('button', { name: '閉じる' }).evaluate((node) => node.click());
+        await page.setViewportSize({ width: 1366, height: 1000 }); await page.goto(`${base}/harness.html`); await openPreview(); await page.evaluate(() => { document.documentElement.style.zoom = '200%'; }); assert((await page.evaluate(() => document.documentElement.scrollWidth)) <= 1366); await page.screenshot({ path: path.join(out, 'pre-issue-200-percent.png') });
+        await page.getByRole('button', { name: '内容を再取得' }).evaluate((node) => node.click()); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint'));
+        await page.getByLabel('上記の内容を確認しました。').check(); const refreshedButton = ownerButton(), refreshedIssueBefore = issueCalls(); await refreshedButton.click(); await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(issueCalls(), refreshedIssueBefore, 'refreshed preview dialog open must not mutate'); await page.getByRole('button', { name: '戻って確認する' }).click();
+        const doubleIssueBefore = issueCalls(); await refreshedButton.evaluate((node) => { node.click(); node.click(); }); await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(await page.locator('.pa-confirmation-final-dialog').count(), 1, 'double click creates exactly one final dialog'); assert.equal(issueCalls(), doubleIssueBefore, 'double click must not call issue API'); await page.getByRole('button', { name: '戻って確認する' }).click();
+        await page.evaluate(() => { const original = HTMLDialogElement.prototype.showModal; HTMLDialogElement.prototype.showModal = function () { if (this.classList.contains('pa-confirmation-final-dialog')) throw Error('simulated_final_dialog_failure'); return original.call(this); }; });
+        const errorIssueBefore = issueCalls(); await refreshedButton.click(); const visibleError = page.getByRole('alert'); await visibleError.waitFor({ state: 'visible' }); assert.equal(await visibleError.innerText(), '最終確認画面を開けませんでした。内容を再取得してもう一度お試しください。'); assert.equal(issueCalls(), errorIssueBefore, 'dialog rendering failure must not call issue API'); assert.equal(await refreshedButton.isEnabled(), true, 'dialog rendering failure restores the owner button'); assert.equal(await refreshedButton.getAttribute('aria-busy'), null, 'dialog rendering failure clears aria-busy');
+        await page.getByRole('button', { name: '閉じる' }).evaluate((node) => node.click());
         assert.deepEqual(await counts(fixture.db, fixture.inquiryId), before); assert.equal(pageErrors.length, 0, pageErrors.join('\n'));
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_back_only: true, real_issue: 0, real_email: 0 };
+        assert.equal(issueCalls(), 0);
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
 }
