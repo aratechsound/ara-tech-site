@@ -10,6 +10,7 @@ const customer = read('js/pa-contract.js');
 const renderer = read('js/pa-contract-renderer.js');
 const html = read('pa-contract.html');
 const css = read('pa-confirmation-preview.css');
+const vercel = JSON.parse(read('vercel.json'));
 for (const value of ['case_revision', 'commercial_state_revision', 'recipient_thread', 'current_estimate', 'terms_content_sha256', 'receipt_template_version', 'customer_confirmation_template_version']) assert(service.includes(value));
 assert.match(handler, /stale_confirmation_preview' \? 409/);
 assert.match(admin, /上記の内容を確認しました/); assert.match(admin, /正式受注確認を発行して案内する/); assert.match(admin, /まだ正式受注確認は発行・送信されていません/);
@@ -17,5 +18,8 @@ assert.match(admin, /confirmation_receipt_preview/); assert.match(admin, /pa-con
 assert.match(customer, /PAContractRenderer/); assert.match(customer, /admin-pre-issue/); assert.match(renderer, /const fill/); assert.match(html, /pa-contract-renderer\.js/);
 assert(!customer.includes('fetch("/api/pa-contract"') || customer.indexOf('if (previewMode)') < customer.indexOf('fetch("/api/pa-contract"'));
 for (const width of ['1240px', '940px', '520px']) assert(css.includes(width));
+const adminHeaders = vercel.headers.find((rule) => rule.source === '/pa-admin.html').headers;
+const adminCsp = adminHeaders.find((header) => header.key === 'Content-Security-Policy').value;
+assert.match(adminCsp, /frame-src 'self' blob:/, 'Production admin must allow blob PDF previews in the final preview gate');
 assert.equal(fs.readdirSync(path.join(root, 'api')).filter((name) => name.endsWith('.js')).length, 12);
 console.log('PASS PA-EST-006 static/security: full preview, same renderer, checkbox/dialog, stale 409, responsive CSS, Function 12');
