@@ -88,7 +88,7 @@ await page.locator('#real-scenario').selectOption('revision');
 await page.getByText('現在：未発行', { exact: true }).waitFor();
 assert.match(await page.locator('#pa-contract-v5-summary').innerText(), /正式受注確認を送る/u);
 await page.locator('#real-scenario').selectOption('accepted');
-await page.getByText('現在：成立済み', { exact: true }).waitFor();
+await page.getByText('現在：正式受注済み', { exact: true }).waitFor();
 assert.match(await page.locator('#pa-contract-v5-summary').innerText(), /成立：/u);
 await page.close();
 

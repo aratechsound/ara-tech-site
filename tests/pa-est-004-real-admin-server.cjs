@@ -13,8 +13,8 @@ const { PDFDocument, StandardFonts } = require('pdf-lib');
 const root = path.resolve(__dirname, '..');
 const port = Number(process.env.PA_EST_004_REAL_PORT || 8766);
 const staticFiles = new Set([
-  'admin-navigation.css', 'pa-admin.css', 'pa-commercial.css',
-  'js/pa-est-004-real-admin-preview.js', 'js/pa-commercial-admin.js', 'js/pa-material-preview.js',
+  'admin-navigation.css', 'pa-admin.css', 'pa-commercial.css', 'pa-confirmation-preview.css',
+  'js/pa-est-004-real-admin-preview.js', 'js/pa-commercial-admin.js', 'js/pa-confirmation-display.mjs', 'js/pa-material-preview.js',
   'img/favicon.ico', 'img/ARA-TECH ロゴ横 白.png'
 ]);
 process.env.PA_COMMERCIAL_OUTBOX_KEY = '44'.repeat(32);

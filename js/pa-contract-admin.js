@@ -54,15 +54,15 @@ export function renderContractPanel(context){
   if(!related.length)$('related-status').textContent='この案件に紐づく関連PDF候補はありません。関連資料なしで発行できます。';
   const last=data.history.find(h=>h.state==='accepted'),pending=data.history.find(h=>h.state==='active');
   const sent=last?.delivery?.status==='sent';
-  $('state').textContent=last?`正式受注済み（v${last.version}）／${sent?'控え送信済み':'契約成立済み／控え送信未完了'}`:pending?'正式受注確認：お客様の回答待ち':'正式受注確認：未成立';
-  $('next').textContent='次に行うこと：'+(pending?`v${pending.version}の回答待ち。`:'')+(last?!last.receipt?'契約控えPDFを生成してください。':!sent?'控えを確認してメール送信してください。':'イベント準備を進めてください。':pending?'':'最終見積PDFと契約条件を確認し、URLを発行してください。');
+  $('state').textContent=last?`正式受注済み（v${last.version}）／${sent?'控え送信済み':'契約成立済み／控え送信未完了'}`:pending?'正式受注確認：発行済み（配送状態は上段で確認）':'正式受注確認：未成立';
+  $('next').textContent='次に行うこと：'+(pending?`v${pending.version}の配送状態とお客様の回答を上段で確認してください。`:'')+(last?!last.receipt?'契約控えPDFを生成してください。':!sent?'控えを確認してメール送信してください。':'イベント準備を進めてください。':pending?'':'最終見積PDFと契約条件を確認し、URLを発行してください。');
   const unfinished=[pending?'新versionの回答確認':'',last&&!last.receipt?'PDF生成':'',last&&!sent?'控え送信':'',!last?'正式受注確認':''].filter(Boolean);
   $('meta').textContent=`イベント日：${last?.snapshot.event_date||context.case.event_date||'未設定'} ／ 契約金額：${last?Number(last.snapshot.amount).toLocaleString('ja-JP')+'円（税込）':'未確定'} ／ 未完了：${unfinished.join('・')||'なし'}`;
   $('history').replaceChildren();
   const older=document.createElement('div');older.className='pa-contract-history-older';older.hidden=true;
   for(const [historyIndex,h] of data.history.entries()){
    const card=document.createElement('div');card.className=`action-panel ${historyIndex===0?'pa-contract-history-latest':''}`;
-   const p=document.createElement('p');p.textContent=`${historyIndex===0?'直近：':''}v${h.version} / ${{active:'回答待ち',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
+   const p=document.createElement('p');p.textContent=`${historyIndex===0?'直近：':''}v${h.version} / ${{active:'発行済み',expired:'期限切れ',revoked:'失効',accepted:'回答受付済み'}[h.state]||'確認必要'} / ${h.snapshot.quote.filename}`;card.append(p);
    if(h.state==='accepted'){
     card.append(button(h.receipt?'契約控えPDFをダウンロード':'契約控えPDFを生成',async()=>{download(await api('receipt',{contract_id:h.id},true),`契約控え-v${h.version}.pdf`);await refresh();}));
     card.append(button('控え送信・再送のプレビュー',async()=>{clearMail();const revision=mailEpoch,preview=await api('mail_preview',{contract_id:h.id});if(!valid()||revision!==mailEpoch)return;if(!preview.html)throw Error('preview_unavailable');mailPreview={id:h.id,preview,attempt:crypto.randomUUID()};mailMeta.textContent=`To: ${preview.recipient} ／ 件名: ${preview.subject}`;mailAttachments.textContent=`添付PDF: ${preview.attachments.map(a=>a.filename).join(', ')}`;mailFrame.srcdoc=preview.html;mailFrame.hidden=false;$('preview').textContent=preview.body;plain.open=false;$('ack').checked=false;$('mail').hidden=false;}));

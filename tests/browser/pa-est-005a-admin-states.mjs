@@ -39,14 +39,14 @@ try {
   assert.equal(await card.getByRole('button', { name: '正式受注確認を送る' }).count(), 1);
   await page.screenshot({ path: `${out}/admin-confirmation-preissue.png`, fullPage: true });
 
-  await scenario('accepted', '現在：成立済み');
+  await scenario('accepted', '現在：正式受注済み');
   assert.match(await card.innerText(), /確認メール.*送信済み/s);
   assert.equal(await card.getByRole('button', { name: '正式受注確認書PDF' }).count(), 1);
   assert.equal(await card.getByRole('button', { name: '見積PDF' }).count(), 1);
   assert.equal(await card.getByRole('button', { name: '実施準備へ' }).count(), 1);
   await page.screenshot({ path: `${out}/admin-confirmation-accepted.png`, fullPage: true });
 
-  await scenario('accepted-mail-failed', '現在：成立済み');
+  await scenario('accepted-mail-failed', '現在：正式受注済み');
   await page.waitForFunction(() => document.querySelector('#pa-contract-v5-summary')?.textContent.includes('送信失敗'));
   assert.equal(await card.getByRole('button', { name: '確認メールを再送' }).count(), 1);
   await page.screenshot({ path: `${out}/admin-confirmation-mail-failed.png`, fullPage: true });

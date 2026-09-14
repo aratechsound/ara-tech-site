@@ -1,4 +1,5 @@
 import { createMaterialPreview } from "./pa-material-preview.js";
+import { confirmationDisplayState } from "./pa-confirmation-display.mjs";
 
 let activeCaseId = null;
 let refreshEpoch = 0;
@@ -743,8 +744,11 @@ const render = async (context, data, epoch) => {
 
     const contractRoot = byId("pa-contract-v5-summary");
     contractRoot.replaceChildren();
-    const status = accepted ? "成立済み" : active ? "回答待ち" : "未発行";
-    contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${accepted ? "ok" : "wait"}`, `現在：${status}`));
+    const activeDelivery = active
+        ? data.outbox.find((item) => item.aggregate_id === active.id && item.job_kind === "confirmation")
+        : null;
+    const confirmationStatus = confirmationDisplayState({ accepted, active, delivery: activeDelivery });
+    contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${confirmationStatus.tone}`, `現在：${confirmationStatus.label}`));
     appendLine(contractRoot, "対象", accepted ? `見積 第${accepted.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${accepted.version}` : active ? `見積 第${active.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${active.version}` : current ? `見積 第${current.revision_number}版` : "見積なし");
     if (accepted) appendLine(contractRoot, "成立", dateTime(accepted.confirmed_at));
     if (!accepted && !active && current && data.confirmation_preflight) {
@@ -761,7 +765,6 @@ const render = async (context, data, epoch) => {
     if (active) {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
-        const activeDelivery = data.outbox.find((item) => item.aggregate_id === active.id && item.job_kind === "confirmation");
         actions.append(button("案内内容を確認", () => context.openFileSearch()));
         if (data.production_e2e_test && activeDelivery) {
             if (activeDelivery.state !== "sent") {
