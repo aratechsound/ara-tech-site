@@ -48,6 +48,7 @@ const STATE_LABELS = Object.freeze({
     estimate_change: { ready: "見積確定", reconfirming: "条件再確認中", post_contract_change: "受注後変更" },
     invoice: { not_required: "別途発行なし", registered: "発行準備済み", queued: "送信待ち", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認" },
     outbox: { queued: "送信待ち", processing: "送信処理中", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認", cancelled: "送信取消" },
+    delivery: { queued: "送信待ち", processing: "送信処理中", failed_before_provider: "Gmail送信前に失敗", failed_after_provider_response: "Gmailが送信を受理せず失敗", unknown_after_provider_start: "Gmail呼出後の結果要照合", sent: "送信済み", cancelled: "送信取消" },
     invoice: { not_required: "別途発行なし", registered: "請求書登録済み", queued: "送信待ち", sent: "送信済み", failed: "送信失敗", unknown: "送信結果要確認" }
 });
 const stateLabel = (group, value) => {
@@ -392,6 +393,64 @@ const openConfirmationPreview = async (context) => {
 
 export const openConfirmationPreviewForCurrentCase = () => openConfirmationPreview(activeWorkspaceContext);
 
+let deliveryRecoveryOpening = false;
+const openProductionE2eDeliveryRecovery = async (context, active, current, job, trigger) => {
+    if (deliveryRecoveryOpening || !active || !current || !job) return false;
+    deliveryRecoveryOpening = true;
+    const idleLabel = trigger?.textContent || "同じ確認を送信する";
+    if (trigger) { trigger.disabled = true; trigger.setAttribute("aria-busy", "true"); }
+    const dialog = element("dialog", "pa-commercial-dialog");
+    dialog.setAttribute("aria-labelledby", "pa-delivery-recovery-title");
+    const wrap = element("div", "pa-confirmation-final-dialog__body");
+    const title = element("h2", "", "正式受注確認の配送復旧"); title.id = "pa-delivery-recovery-title";
+    const status = element("p", "pa-confirmation-preview__loading", "Gmail Sentを固定Message-IDで照合しています…");
+    status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+    const facts = element("dl", "pa-confirmation-preview__facts");
+    const actions = element("div", "actions pa-confirmation-final-dialog__actions");
+    const back = button("戻って確認する", () => dialog.close("back"));
+    const confirm = button("照合中…", () => {}, "button button--small"); confirm.disabled = true;
+    actions.append(back, confirm); wrap.append(title, status, facts, actions); dialog.append(wrap); document.body.append(dialog);
+    const addFact = (label, value) => facts.append(element("dt", "", label), element("dd", "", value));
+    let preview = null; let busy = false;
+    const cleanup = () => {
+        deliveryRecoveryOpening = false;
+        if (trigger?.isConnected) { trigger.disabled = false; trigger.removeAttribute("aria-busy"); trigger.textContent = idleLabel; }
+        dialog.remove();
+    };
+    dialog.addEventListener("close", cleanup, { once: true });
+    confirm.addEventListener("click", async () => {
+        if (busy || !preview || (!preview.can_send_same_confirmation && preview.provider_match_count !== 1)) return;
+        busy = true; confirm.disabled = true; back.disabled = true; confirm.setAttribute("aria-busy", "true");
+        confirm.textContent = preview.provider_match_count === 1 ? "送信済み状態を照合中…" : "同じ確認を送信中…";
+        try {
+            const result = await api(context, "recover_production_e2e_delivery", { job_id: job.id });
+            status.className = "pa-commercial__status pa-commercial__status--ok";
+            status.textContent = result.send_performed ? "同じ正式受注確認 #1を送信しました。新しい確認やURLは作成していません。" : "Gmail Sentの既存メールと照合しました。再送はしていません。";
+            confirm.textContent = "完了"; dialog.close("done"); await context.refreshCommercial();
+        } catch (error) {
+            status.className = "pa-confirmation-preview__error";
+            status.textContent = `配送復旧を完了できません：${error.message}`;
+            busy = false; back.disabled = false; confirm.removeAttribute("aria-busy"); confirm.disabled = false;
+            confirm.textContent = preview.provider_match_count === 1 ? "送信済み状態を照合する" : "同じ確認を送信する";
+        }
+    });
+    dialog.showModal();
+    try {
+        preview = await api(context, "production_e2e_recovery_preview", { job_id: job.id });
+        status.className = preview.provider_match_count === 1 ? "pa-commercial__status pa-commercial__status--ok" : preview.can_send_same_confirmation ? "pa-commercial__warning" : "pa-confirmation-preview__error";
+        status.textContent = preview.provider_match_count === 1 ? "Gmail Sentに同一配送が1件あります。再送せず状態だけ照合します。" : preview.can_send_same_confirmation ? "Gmail API呼出前の失敗で、Sent照合は0件です。同じ確認だけを安全に送信できます。" : "Gmail呼出後の結果が未確定です。自動再送はできません。";
+        addFact("確認", `#${preview.confirmation_version}`); addFact("宛先", preview.recipient); addFact("案件", preview.event_name);
+        addFact("見積", `第${preview.estimate_revision_number}版 / ${money(preview.amount_minor, preview.currency)}`);
+        addFact("配送状態", stateLabel("delivery", preview.delivery_state)); addFact("Gmail Sent照合", `${preview.provider_match_count}件`);
+        addFact("不変条件", "新しい正式受注確認やURLは作成されません。");
+        confirm.textContent = preview.provider_match_count === 1 ? "送信済み状態を照合する" : "同じ確認を送信する";
+        confirm.disabled = !preview.can_send_same_confirmation && preview.provider_match_count !== 1;
+    } catch (error) {
+        status.className = "pa-confirmation-preview__error"; status.textContent = `配送状態を確認できません：${error.message}`;
+    }
+    return true;
+};
+
 const estimateEntryFor = ({ current, accepted, active, change, billing }) => accepted
     ? { kind: "change_order", label: "変更見積を作成", available: (!change || change.state === "agreed") && !billing }
     : current
@@ -704,7 +763,16 @@ const render = async (context, data, epoch) => {
         const actions = element("div", "pa-commercial__compact-actions");
         const activeDelivery = data.outbox.find((item) => item.aggregate_id === active.id && item.job_kind === "confirmation");
         actions.append(button("案内内容を確認", () => context.openFileSearch()));
-        if (activeDelivery?.state === "sent") actions.append(button("同じ確認を再案内", async () => {
+        if (data.production_e2e_test && activeDelivery) {
+            if (activeDelivery.state !== "sent") {
+                const error = element("p", "pa-commercial__error", "案内メールを送信できませんでした。");
+                error.setAttribute("role", "alert"); contractRoot.append(error);
+                appendLine(contractRoot, "配送状態", stateLabel("delivery", activeDelivery.delivery_state || activeDelivery.state));
+                if (activeDelivery.safe_error_message) appendLine(contractRoot, "理由", activeDelivery.safe_error_message);
+            }
+            const recoveryLabel = activeDelivery.state === "sent" ? "同じ確認の配送を再照合" : "同じ確認を送信する";
+            actions.append(button(recoveryLabel, (event) => openProductionE2eDeliveryRecovery(context, active, current, activeDelivery, event.currentTarget), "button button--small"));
+        } else if (activeDelivery?.state === "sent") actions.append(button("同じ確認を再案内", async () => {
             const result = await api(context, "remind_confirmation", { offer_id: active.id, expected_revision: state.revision, operation_id: crypto.randomUUID(), body_template: "正式受注確認の再案内です。内容は前回発行時から変更していません。\n\n{{CONFIRMATION_URL}}", cc_addresses: [] });
             if (result.outbox_id) await api(context, "dispatch_outbox", { job_id: result.outbox_id });
             await context.refreshCommercial();
@@ -765,7 +833,7 @@ const render = async (context, data, epoch) => {
         const kind = { estimate: "見積", confirmation: "正式受注確認", invoice: "請求書", confirmation_reminder: "再案内" }[pendingJob.job_kind] || pendingJob.job_kind;
         const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
         nextRoot.append(alert);
-        if (["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (["queued", "failed"].includes(pendingJob.state) && !(data.production_e2e_test && pendingJob.job_kind === "confirmation")) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();

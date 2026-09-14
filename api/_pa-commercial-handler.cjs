@@ -8,7 +8,8 @@ const ACTIONS = new Set([
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
   'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
   'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview',
-  'create_production_e2e_clone', 'arm_production_e2e_failpoint', 'reconcile_production_e2e_unknown', 'archive_production_e2e_case'
+  'create_production_e2e_clone', 'arm_production_e2e_failpoint', 'reconcile_production_e2e_unknown',
+  'production_e2e_recovery_preview', 'recover_production_e2e_delivery', 'archive_production_e2e_case'
 ]);
 
 function createHandler({ service = createService(), admin = verifyAdmin, rate = checkRateLimit } = {}) {
@@ -64,6 +65,8 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'create_production_e2e_clone': result = await service.createProductionE2eClone(input, actor); break;
         case 'arm_production_e2e_failpoint': result = await service.armProductionE2eFailpoint(input, actor); break;
         case 'reconcile_production_e2e_unknown': result = await service.reconcileProductionE2eUnknown(input, actor); break;
+        case 'production_e2e_recovery_preview': result = await service.productionE2eRecoveryPreview(input, actor); break;
+        case 'recover_production_e2e_delivery': result = await service.recoverProductionE2eDelivery(input, actor); break;
         case 'archive_production_e2e_case': result = await service.archiveProductionE2eCase(input, actor); break;
       }
       return json(200, { ok: true, result });

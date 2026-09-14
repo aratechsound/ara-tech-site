@@ -17,7 +17,7 @@ for (const value of ['case_revision', 'commercial_state_revision', 'recipient_th
 assert.match(handler, /stale_confirmation_preview' \? 409/);
 assert.match(admin, /上記の内容を確認しました/); assert.match(admin, /正式受注確認を発行して案内する/); assert.match(admin, /まだ正式受注確認は発行・送信されていません/);
 assert.match(admin, /最終確認画面を開けませんでした/); assert.match(admin, /aria-busy/); assert.match(admin, /requestAnimationFrame/); assert.match(admin, /final\.matches\(":modal"\)/); assert.match(admin, /addEventListener\("cancel"/);
-assert.match(adminShell, /pa-commercial-admin\.js\?v=pa-est-006r2/); assert.match(adminHtml, /pa-admin\.js\?v=pa-est-007r1/);
+assert.match(adminShell, /pa-commercial-admin\.js\?v=pa-est-007r3/); assert.match(adminHtml, /pa-admin\.js\?v=pa-est-007r3/);
 assert.match(admin, /confirmation_receipt_preview/); assert.match(admin, /pa-contract\.html\?mode=admin-pre-issue/); assert.match(admin, /発行案内メール/);
 assert.match(customer, /PAContractRenderer/); assert.match(customer, /admin-pre-issue/); assert.match(renderer, /const fill/); assert.match(html, /pa-contract-renderer\.js/);
 assert(!customer.includes('fetch("/api/pa-contract"') || customer.indexOf('if (previewMode)') < customer.indexOf('fetch("/api/pa-contract"'));

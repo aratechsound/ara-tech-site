@@ -8,7 +8,7 @@ const adminSource = fs.readFileSync(path.join(root, 'js', 'pa-admin.js'), 'utf8'
 const adminHtml = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
 assert.match(adminSource, /PRODUCTION_E2E_MARKER = "\[TEST\] 2026龍姫湖まつり 正式受注E2E"/u);
 assert.match(adminSource, /isProductionE2eTest\(item\) \? PRODUCTION_E2E_MARKER/u);
-assert.match(adminHtml, /pa-admin\.js\?v=pa-est-007r1/u);
+assert.match(adminHtml, /pa-admin\.js\?v=pa-est-007r3/u);
 
 Object.assign(process.env, {
   SUPABASE_URL: 'https://fixture.invalid',
@@ -25,6 +25,7 @@ const actorId = '123e4567-e89b-42d3-a456-426614174001';
 const jobId = '71111111-1111-4111-8111-111111111111';
 const subject = 'Re: 【ARA-TECH】正式受注確認';
 const body = '竹林 智也 様\n\n正式受注確認です。';
+const estimateAttachment = { filename: '見積書 2026.09.11 龍姫湖まつり（改訂）.pdf', mime_type: 'application/pdf', data: Buffer.from('fixture estimate pdf').toString('base64url') };
 const rfcMessageId = `<pa-e2e-${jobId}@ara-tech.cc>`;
 let sentCount = 0;
 let listMode = 'one';
@@ -70,14 +71,28 @@ const fetchImpl = async (target, options = {}) => {
   assert.equal(content.delivery_mode, 'standalone_production_e2e');
   assert.equal(Object.hasOwn(content, 'confirmation_token'), false);
 
-  const preview = await gmail.standalonePreview({ inquiryId, actorId, body, mode: 'confirmation', subjectOverride: subject }, fetchImpl);
+  const legacyPreview = await gmail.standalonePreview({ inquiryId, actorId, body, mode: 'confirmation', subjectOverride: subject }, fetchImpl);
+  const rejectedTrace = {};
+  await assert.rejects(gmail.sendStandalone({
+    inquiryId, actorId, body, attachments: [estimateAttachment], confirmationToken: legacyPreview.confirmation_token,
+    subjectOverride: subject, jobId, deliveryTrace: rejectedTrace
+  }, fetchImpl), /invalid_confirmation/);
+  assert.equal(sentCount, 0, 'attachment hash mismatch fails before Gmail API');
+  assert.equal(rejectedTrace.phase, 'preview_validation');
+  assert.equal(Boolean(rejectedTrace.provider_request_started), false);
+
+  const preview = await gmail.standalonePreview({ inquiryId, actorId, body, attachments: [estimateAttachment], mode: 'confirmation', subjectOverride: subject }, fetchImpl);
+  const deliveryTrace = {};
   const sent = await gmail.sendStandalone({
-    inquiryId, actorId, body, confirmationToken: preview.confirmation_token,
-    subjectOverride: subject, jobId
+    inquiryId, actorId, body, attachments: [estimateAttachment], confirmationToken: preview.confirmation_token,
+    subjectOverride: subject, jobId, deliveryTrace
   }, fetchImpl);
   assert.equal(sentCount, 1);
   assert.equal(sent.gmail_message_id, fullMessage.id);
   assert.equal(sent.gmail_thread_id, fullMessage.threadId);
+  assert.equal(deliveryTrace.provider_request_started, true);
+  assert.equal(deliveryTrace.provider_response_received, true);
+  assert.equal(deliveryTrace.provider_http_status, 200);
   assert.equal(Object.hasOwn(lastSend, 'threadId'), false, 'the first message creates a new Gmail thread');
   const raw = Buffer.from(lastSend.raw, 'base64url').toString('utf8');
   assert.match(raw, /^To: tonokun@gmail\.com$/mu);
@@ -88,6 +103,8 @@ const fetchImpl = async (target, options = {}) => {
   assert.equal(evidence.match_count, 1);
   assert.equal(evidence.gmail_message_id, fullMessage.id);
   listMode = 'none';
+  const absent = await gmail.probeStandaloneDelivery({ jobId, recipient: 'tonokun@gmail.com', subject }, fetchImpl);
+  assert.equal(absent.match_count, 0);
   await assert.rejects(gmail.findStandaloneDelivery({ jobId, recipient: 'tonokun@gmail.com', subject }, fetchImpl), /production_e2e_delivery_not_found/);
   listMode = 'duplicate';
   await assert.rejects(gmail.findStandaloneDelivery({ jobId, recipient: 'tonokun@gmail.com', subject }, fetchImpl), /production_e2e_duplicate_delivery/);

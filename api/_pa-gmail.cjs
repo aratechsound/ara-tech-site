@@ -33,6 +33,10 @@ const PREVIEW_TTL_MS = 10 * 60 * 1000;
 const PRODUCTION_E2E_RECIPIENT = "tonokun@gmail.com";
 const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
 
+const updateDeliveryTrace = (trace, values) => {
+    if (trace && typeof trace === "object") Object.assign(trace, values);
+};
+
 const validGmailId = (value) => GMAIL_ID.test(String(value || ""));
 const validGmailAttachmentReference = (value) => GMAIL_ATTACHMENT_REFERENCE.test(String(value || ""));
 const productionE2eMessageId = (jobId) => {
@@ -699,7 +703,8 @@ const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = 
 const standalonePreview = (input, fetchImpl = fetch) => buildStandalonePreview(input, fetchImpl);
 const standaloneContentPreview = (input, fetchImpl = fetch) => buildStandalonePreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
-const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], confirmationToken, subjectOverride, jobId }, fetchImpl = fetch) => {
+const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], confirmationToken, subjectOverride, jobId, deliveryTrace }, fetchImpl = fetch) => {
+    updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const preview = await standalonePreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: "confirmation", subjectOverride }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
@@ -707,9 +712,11 @@ const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], conf
         recipient: preview.recipient, ccAddresses: [], subject: preview.subject,
         body: preview.body, mode: "confirmation", attachmentsHash: replyAttachmentsHash(normalizedAttachments)
     });
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_oauth" });
     const config = mailConfig();
     const token = await getGmailAccessToken(config, fetchImpl);
     const messageId = productionE2eMessageId(jobId);
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
@@ -721,20 +728,23 @@ const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], conf
             })
         })
     });
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_response", provider_response_received: true, provider_http_status: response.status });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
     if (!validGmailId(sent?.id) || !validGmailId(sent?.threadId)) throw new Error("gmail_send_invalid");
     return { gmail_message_id: sent.id, gmail_thread_id: sent.threadId, production_e2e_standalone: true, rfc_message_id: messageId };
 };
 
-const findStandaloneDelivery = async ({ jobId, recipient, subject }, fetchImpl = fetch) => {
+const probeStandaloneDelivery = async ({ jobId, recipient, subject }, fetchImpl = fetch) => {
     if (!sameAddress(recipient, PRODUCTION_E2E_RECIPIENT)) throw new Error("invalid_production_e2e_test");
     const rfcMessageId = productionE2eMessageId(jobId);
     const queryMessageId = rfcMessageId.slice(1, -1);
     const query = new URLSearchParams({ q: `in:sent to:${PRODUCTION_E2E_RECIPIENT} rfc822msgid:${queryMessageId}`, maxResults: "10", includeSpamTrash: "false" });
     const result = await gmailJson(`/messages?${query}`, {}, fetchImpl);
     const messages = Array.isArray(result?.messages) ? result.messages : [];
-    if (messages.length !== 1) throw new Error(messages.length ? "production_e2e_duplicate_delivery" : "production_e2e_delivery_not_found");
+    if (messages.length > 1) throw new Error("production_e2e_duplicate_delivery");
+    if (!messages.length) return { rfc_message_id: rfcMessageId, match_count: 0 };
     const raw = await gmailMessage(messages[0].id, fetchImpl);
     const normalized = normalizeMessage(raw);
     const headers = headerMap(raw);
@@ -747,8 +757,14 @@ const findStandaloneDelivery = async ({ jobId, recipient, subject }, fetchImpl =
     }
     return { gmail_message_id: normalized.id, gmail_thread_id: normalized.thread_id, sent_at: normalized.occurred_at, rfc_message_id: rfcMessageId, match_count: 1 };
 };
+const findStandaloneDelivery = async (input, fetchImpl = fetch) => {
+    const evidence = await probeStandaloneDelivery(input, fetchImpl);
+    if (evidence.match_count !== 1) throw new Error("production_e2e_delivery_not_found");
+    return evidence;
+};
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
+    updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
     const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
@@ -764,12 +780,15 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         mode: normalizedMode,
         attachmentsHash: replyAttachmentsHash(normalizedAttachments)
     });
+    updateDeliveryTrace(deliveryTrace, { phase: "reply_source_validation" });
     const thread = await gmailThread(preview.gmail_thread_id, fetchImpl);
     const source = (thread.messages || []).map(normalizeMessage)
         .find((message) => message.id === preview.reply_source_message_id);
     if (!source) throw new Error("invalid_reply_source");
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_oauth" });
     const config = mailConfig();
     const token = await getGmailAccessToken(config, fetchImpl);
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
@@ -787,8 +806,10 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
             })
         })
     });
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_response", provider_response_received: true, provider_http_status: response.status });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
     if (!validGmailId(sent?.id)) throw new Error("gmail_send_invalid");
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
@@ -804,4 +825,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, findStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

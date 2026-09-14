@@ -19,7 +19,7 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
     let mode = 'success'; let transportCalls = 0; let loseFinishResponseFor = null;
     const guardedFetch = async (url, options = {}) => {
       const response = await fixture.fetchImpl(url, options);
-      if (String(url).includes('/rpc/pa_v5_outbox_finish') && loseFinishResponseFor) {
+      if (new URL(String(url)).pathname.endsWith('/rpc/pa_v5_outbox_finish') && loseFinishResponseFor) {
         const body = JSON.parse(String(options.body || '{}'));
         if (body.p_job === loseFinishResponseFor && body.p_state === 'sent') {
           loseFinishResponseFor = null;
