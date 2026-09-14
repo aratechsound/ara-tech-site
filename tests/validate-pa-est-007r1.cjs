@@ -8,7 +8,7 @@ const adminSource = fs.readFileSync(path.join(root, 'js', 'pa-admin.js'), 'utf8'
 const adminHtml = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
 assert.match(adminSource, /PRODUCTION_E2E_MARKER = "\[TEST\] 2026龍姫湖まつり 正式受注E2E"/u);
 assert.match(adminSource, /isProductionE2eTest\(item\) \? PRODUCTION_E2E_MARKER/u);
-assert.match(adminHtml, /pa-admin\.js\?v=pa-est-008/u);
+assert.match(adminHtml, /pa-admin\.js\?v=pa-est-009/u);
 
 Object.assign(process.env, {
   SUPABASE_URL: 'https://fixture.invalid',

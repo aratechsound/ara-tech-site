@@ -36,7 +36,7 @@ async function main() {
                 if (url.pathname === '/api/pa-mail') { const body = await readBody(request); apiActions.push(body.action); return handler({ ...request, body, query: { surface: 'commercial' } }, adapt(response)); }
                 const target = path.resolve(root, decodeURIComponent(url.pathname.slice(1)));
                 assert(target.startsWith(root + path.sep) && fs.statSync(target).isFile());
-                const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[path.extname(target)] || 'application/octet-stream';
+                const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[path.extname(target)] || 'application/octet-stream';
                 response.writeHead(200, { 'Content-Type': type }); fs.createReadStream(target).pipe(response);
             } catch (error) { response.writeHead(500); response.end(String(error.message)); }
         });
@@ -48,8 +48,8 @@ async function main() {
         await context.route('**/*', (route) => { const url = new URL(route.request().url()); return url.origin === base || url.protocol === 'blob:' ? route.continue() : route.abort(); });
         const page = await context.newPage(); page.on('pageerror', (error) => { pageErrors.push(error.message); console.error('PAGEERROR', error.message); }); page.on('console', (message) => { if (message.type() === 'error') console.error('CONSOLE', message.text()); }); page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
         const before = await counts(fixture.db, fixture.inquiryId);
-        const openPreview = async () => { await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); };
-        const ownerButton = () => page.getByRole('button', { name: /この内容で発行して.*へ案内する/ });
+        const openPreview = async () => { await page.getByRole('button', { name: '正式受注確認を発行準備' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); };
+        const ownerButton = () => page.getByRole('button', { name: 'この内容で正式受注確認を発行する（送信しない）' });
         const issueCalls = () => apiActions.filter((action) => action === 'issue_confirmation').length;
         for (const width of [1366, 940, 390]) {
             await page.setViewportSize({ width, height: 1000 }); await page.goto(`${base}/harness.html`);
@@ -62,7 +62,7 @@ async function main() {
             await page.getByLabel('上記の内容を確認しました。').check(); assert.equal(await finalButton.isDisabled(), false, 'checked owner button becomes enabled');
             const issueBefore = issueCalls(); await finalButton.click(); await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(issueCalls(), issueBefore, 'opening final dialog must not call issue API'); if (width === 1366) await page.screenshot({ path: path.join(out, 'final-dialog-1366.png') });
             if (width === 1366) await page.keyboard.press('Escape'); else await page.getByRole('button', { name: '戻って確認する' }).click();
-            await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'detached' }); assert.equal(await page.evaluate(() => document.activeElement?.textContent?.includes('この内容で発行して')), true, 'Escape/Back returns focus to owner button');
+            await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'detached' }); assert.equal(await page.evaluate(() => document.activeElement?.textContent?.includes('この内容で正式受注確認を発行する')), true, 'Escape/Back returns focus to owner button');
             await page.getByRole('button', { name: '閉じる' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'detached' });
         }
         await page.setViewportSize({ width: 1366, height: 1000 }); await page.goto(`${base}/harness.html`); await openPreview(); await page.evaluate(() => { document.documentElement.style.zoom = '200%'; }); assert((await page.evaluate(() => document.documentElement.scrollWidth)) <= 1366); await page.screenshot({ path: path.join(out, 'pre-issue-200-percent.png') });
@@ -74,7 +74,18 @@ async function main() {
         await page.getByRole('button', { name: '閉じる' }).evaluate((node) => node.click());
         assert.deepEqual(await counts(fixture.db, fixture.inquiryId), before); assert.equal(pageErrors.length, 0, pageErrors.join('\n'));
         assert.equal(issueCalls(), 0);
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, real_issue: 0, real_email: 0 };
+
+        await page.goto(`${base}/harness.html`); await openPreview(); await page.getByLabel('上記の内容を確認しました。').check(); await ownerButton().click();
+        await page.getByRole('button', { name: '正式受注確認を発行する（送信しない）' }).click();
+        await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        const afterIssue = await counts(fixture.db, fixture.inquiryId);
+        assert.equal(afterIssue.offers, before.offers + 1); assert.equal(afterIssue.tokens, before.tokens + 1); assert.equal(afterIssue.contracts, before.contracts); assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0);
+        await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint'));
+        assert.match(await page.locator('.pa-confirmation-preview-dialog').innerText(), /発行済みです。案内メールはまだ送信されていません/u);
+        await page.getByLabel('上記の内容を確認しました。').check(); await page.getByRole('button', { name: '正式受注確認を送る' }).last().click();
+        await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0);
+        await page.getByRole('button', { name: '戻って確認する' }).click(); await page.getByRole('button', { name: '閉じる' }).click();
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
 }

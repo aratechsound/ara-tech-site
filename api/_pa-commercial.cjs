@@ -592,6 +592,50 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     return { current, inquiry, estimate, documentRow, quoteBytes, confirmationAttachment, agreement, bodyTemplate, email, customerSnapshot, authority, fingerprint };
   }
 
+  async function issuedConfirmationAuthority(input, actor) {
+    const caseId = uuid(input.case_id);
+    const offerId = uuid(input.offer_id);
+    const current = await snapshot(caseId);
+    const activeOffers = current.offers.filter((item) => item.state === 'active');
+    const offerSummary = activeOffers.find((item) => item.id === offerId);
+    if (activeOffers.length !== 1 || !offerSummary || current.offers.some((item) => item.state === 'accepted')) throw Error('invalid_contract');
+    const [offer, job] = await Promise.all([
+      one('pa_contract_offers', { id: 'eq.' + offerId, inquiry_id: 'eq.' + caseId, select: '*' }),
+      one('pa_commercial_outbox', { inquiry_id: 'eq.' + caseId, aggregate_id: 'eq.' + offerId, job_kind: 'eq.confirmation', select: '*' })
+    ]);
+    if (!offer || !job || job.state !== 'queued' || !job.secret_envelope || Number(new Date(offer.expires_at)) <= Date.now()) throw Error('invalid_contract');
+    const estimate = current.estimates.find((item) => item.id === offer.estimate_revision_id);
+    const documentRow = estimate && current.documents.find((item) => item.id === estimate.document_id);
+    if (!estimate || !documentRow || current.state.current_estimate_revision_id !== estimate.id
+      || offer.snapshot?.estimate?.estimate_id !== estimate.id
+      || offer.snapshot?.estimate?.document_id !== documentRow.id
+      || offer.snapshot?.estimate?.sha256 !== documentRow.sha256
+      || offer.quote_sha256 !== documentRow.sha256
+      || !Array.isArray(job.attachment_ids) || job.attachment_ids.length !== 1 || job.attachment_ids[0] !== documentRow.id
+      || pdf.sha(Buffer.from(postgresJsonbText(offer.snapshot), 'utf8')) !== offer.snapshot_sha256) throw Error('document_identity_mismatch');
+    const quoteBytes = fromBytea(offer.quote_pdf);
+    if (pdf.sha(quoteBytes) !== offer.quote_sha256) throw Error('document_identity_mismatch');
+    await pdf.validatePdf(quoteBytes, offer.quote_sha256);
+    const bodyTemplate = text(job.body_text, 20000);
+    if (!bodyTemplate.includes('{{CONFIRMATION_URL}}')) throw Error('invalid_contract');
+    const attachment = [{ filename: documentRow.original_filename, mime_type: documentRow.mime_type, data: quoteBytes.toString('base64url') }];
+    const email = await confirmationMailPreview({
+      caseId, actor, body: bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER), attachments: attachment,
+      ccAddresses: job.reply_binding?.cc_addresses || [], contentOnly: true
+    });
+    if (emailAddress(email.recipient) !== emailAddress(job.recipient) || email.subject !== job.subject
+      || email.gmail_thread_id !== job.reply_binding?.thread_id
+      || email.reply_source_message_id !== job.reply_binding?.reply_source_message_id
+      || canonical(email.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('stale_confirmation_preview');
+    const authority = {
+      offer_id: offer.id, offer_version: Number(offer.version), offer_snapshot_sha256: offer.snapshot_sha256,
+      outbox_id: job.id, outbox_state: job.state, recipient: job.recipient, subject: job.subject,
+      body_template_sha256: pdf.sha(Buffer.from(bodyTemplate, 'utf8')), attachment_sha256: offer.quote_sha256,
+      current_estimate_revision_id: current.state.current_estimate_revision_id
+    };
+    return { current, offer, job, estimate, documentRow, quoteBytes, attachment, email, authority, fingerprint: pdf.sha(Buffer.from(canonical(authority), 'utf8')) };
+  }
+
   async function confirmationPreview(input, actor) {
     const result = await confirmationAuthority(input.case_id, actor);
     return {
@@ -618,6 +662,34 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     if (result.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
     const receipt = await createReceipt(result.customerSnapshot, result.quoteBytes);
     return { bytes: receipt.bytes, filename: `正式受注確認書_送信前プレビュー_${result.customerSnapshot.case.event_name}.pdf`, mime_type: 'application/pdf' };
+  }
+
+  async function confirmationSendPreview(input, actor) {
+    const prepared = await issuedConfirmationAuthority(input, actor);
+    return {
+      preview_route: '/api/pa-mail?surface=commercial', preview_kind: 'issued_unsent',
+      fingerprint: prepared.fingerprint, fingerprint_short: prepared.fingerprint.slice(0, 12),
+      fingerprint_fields: Object.keys(prepared.authority), offer_id: prepared.offer.id,
+      confirmation_version: Number(prepared.offer.version), outbox_id: prepared.job.id,
+      customer_url_ready: true, customer_snapshot: prepared.offer.snapshot,
+      service_summary: pdf.customerServiceSummary(prepared.offer.snapshot.case),
+      recipient: {
+        customer_name: prepared.offer.snapshot.customer?.contact_name,
+        organization: prepared.offer.snapshot.customer?.organization,
+        to: prepared.email.recipient, gmail_thread_id: prepared.email.gmail_thread_id,
+        reply_source_message_id: prepared.email.reply_source_message_id, cc: prepared.email.cc_addresses || []
+      },
+      estimate: { ...prepared.offer.snapshot.estimate, bytes: prepared.quoteBytes.length },
+      email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html },
+      versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
+    };
+  }
+
+  async function confirmationSendReceiptPreview(input, actor) {
+    const prepared = await issuedConfirmationAuthority(input, actor);
+    if (prepared.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
+    const receipt = await createReceipt(prepared.offer.snapshot, prepared.quoteBytes);
+    return { bytes: receipt.bytes, filename: `正式受注確認書_送信前プレビュー_${prepared.offer.snapshot.case.event_name}.pdf`, mime_type: 'application/pdf' };
   }
 
   async function issueEstimate(input, actor) {
@@ -924,6 +996,20 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       if(emailAddress(preview.recipient)!==emailAddress(job.recipient))throw Error('recipient_changed');
       return gmail.sendReply({...options,confirmationToken:preview.confirmation_token},fetchImpl);
     }
+    if (job.job_kind === 'confirmation') {
+      const fresh = await confirmationMailPreview({
+        caseId: job.inquiry_id, actor: { id: job.actor_id }, body, attachments,
+        ccAddresses: job.reply_binding?.cc_addresses || []
+      });
+      if (emailAddress(fresh.recipient) !== emailAddress(job.recipient) || fresh.subject !== job.subject
+        || fresh.gmail_thread_id !== job.reply_binding?.thread_id
+        || fresh.reply_source_message_id !== job.reply_binding?.reply_source_message_id
+        || canonical(fresh.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('recipient_changed');
+      return gmail.sendReply({
+        inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments, mode: 'confirmation',
+        confirmationToken: fresh.confirmation_token, deliveryTrace, ccAddresses: fresh.cc_addresses
+      }, fetchImpl);
+    }
     return gmail.sendReply({
       inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
       mode: job.job_kind === 'confirmation' ? 'confirmation' : 'normal', confirmationToken: job.reply_binding.confirmation_token,
@@ -1218,7 +1304,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   });
 
   return {
-    snapshot, document, confirmationPreview, confirmationReceiptPreview, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
+    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,
     productionE2eRecoveryPreview, recoverProductionE2eDelivery, archiveProductionE2eCase,

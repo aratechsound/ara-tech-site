@@ -1,7 +1,8 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
 import { renderContractPanel } from "./pa-contract-admin.js";
-import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=pa-est-008";
+import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=pa-est-009";
+import { resolveRequestedCase, withoutRequestedCase } from "./pa-admin-selection.mjs?v=pa-est-009";
 
 const $ = (selector) => document.querySelector(selector);
 const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
@@ -346,6 +347,11 @@ const setMessage = (element, text, type = "info") => {
 const clearMessage = (element) => {
     element.textContent = "";
     element.className = "alert hidden";
+};
+
+const clearSelectedCaseReference = () => {
+    const pageUrl = withoutRequestedCase(window.location.href);
+    if (pageUrl !== window.location.href) history.replaceState(null, "", pageUrl);
 };
 
 const attachmentCacheKey = (messageId, attachmentId, inquiryId = currentCase?.id) => `${inquiryId || ""}:${String(messageId || "")}:${String(attachmentId || "")}`;
@@ -1540,6 +1546,7 @@ const confirmTrashCase = async () => {
         closeCaseDialog("trash-case-dialog");
         detailCard.classList.add("hidden");
         currentCase = null;
+        clearSelectedCaseReference();
         selectedTrashCase = null;
         activeCaseTab = "trash";
         await loadCases();
@@ -1708,6 +1715,11 @@ const loadCases = async () => {
         progress: progressByInquiry.get(item.id) || progressForCase(item)
     }));
     trashedCases = trashResult.data || [];
+    if (currentCase && !cases.some((item) => item.id === currentCase.id)) {
+        currentCase = null;
+        detailCard.classList.add("hidden");
+        clearSelectedCaseReference();
+    }
     renderCaseTabs();
     renderProgressSummary();
     renderCases();
@@ -2464,7 +2476,10 @@ const openCase = async (id) => {
         .single();
 
     if (error || !item) {
-        setMessage(listStatus, "案件を読み込めませんでした。", "error");
+        if (currentCase?.id === id) currentCase = null;
+        detailCard.classList.add("hidden");
+        clearSelectedCaseReference();
+        setMessage(caseStatusMessage, "指定案件の詳細を読み込めませんでした。案件一覧から選び直してください。", "warning");
         return;
     }
 
@@ -3915,12 +3930,23 @@ const openRequestedCase = async () => {
     if (requestedCaseHandled) return;
     requestedCaseHandled = true;
     const inquiryId = new URL(window.location.href).searchParams.get("case") || "";
-    if (!inquiryId) return;
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(inquiryId)) {
+    const requested = resolveRequestedCase({
+        requestedCaseId: inquiryId,
+        activeCaseIds: cases.map((item) => item.id),
+        archivedCaseIds: trashedCases.map((item) => item.id)
+    });
+    if (requested.state === "none") return;
+    if (requested.state === "invalid") {
         setMessage(listStatus, "指定された案件リンクは無効です。案件一覧から選択してください。", "error");
         return;
     }
-    await openCase(inquiryId);
+    if (requested.state !== "active") {
+        clearSelectedCaseReference();
+        detailCard.classList.add("hidden");
+        clearMessage(listStatus);
+        return;
+    }
+    await openCase(requested.id);
 };
 
 const showDashboard = async (user) => {
@@ -3982,8 +4008,8 @@ if (!isSupabaseConfigured) {
         renderProgressSummary();
         renderCases();
     });
-    $("#close-detail").addEventListener("click", () => detailCard.classList.add("hidden"));
-    $("#cancel-case-edit").addEventListener("click", () => detailCard.classList.add("hidden"));
+    $("#close-detail").addEventListener("click", () => { detailCard.classList.add("hidden"); clearSelectedCaseReference(); });
+    $("#cancel-case-edit").addEventListener("click", () => { detailCard.classList.add("hidden"); clearSelectedCaseReference(); });
 
     caseForm.addEventListener("submit", async (event) => {
         event.preventDefault();

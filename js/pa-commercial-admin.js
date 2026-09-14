@@ -300,15 +300,22 @@ const contractApi = async (context, action, input = {}, binary = false) => {
 };
 const saveBlob = (blob, filename) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => { const link = document.createElement("a"); link.href = String(reader.result); link.download = filename; link.click(); resolve(); }; reader.readAsDataURL(blob); });
 
-const openConfirmationPreview = async (context) => {
+const openConfirmationPreview = async (context, issuedConfirmation = null) => {
     if (confirmationPreviewOpening || !context?.getCurrentCase()?.id) return false;
     confirmationPreviewOpening = true;
+    const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
     const caseId = context.getCurrentCase().id;
     const dialog = element("dialog", "pa-confirmation-preview-dialog");
     dialog.setAttribute("aria-labelledby", "pa-confirmation-preview-title");
     const header = element("header", "pa-confirmation-preview__header"), heading = element("div", ""), headerActions = element("div", "actions actions--compact");
     const title = element("h2", "", "顧客へ実際に届く内容"); title.id = "pa-confirmation-preview-title";
-    heading.append(element("p", "pa-confirmation-preview__eyebrow", "送信前の最終確認"), title, element("p", "", "まだ正式受注確認は発行・送信されていません。"));
+    heading.append(
+        element("p", "pa-confirmation-preview__eyebrow", "送信前の最終確認"),
+        title,
+        element("p", "", issuedMode
+            ? `正式受注確認 #${issuedConfirmation.version}は発行済みです。案内メールはまだ送信されていません。`
+            : "まだ正式受注確認は発行・送信されていません。")
+    );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
     headerActions.append(refreshButton, closeButton); header.append(heading, headerActions);
     const body = element("div", "pa-confirmation-preview__body"), status = element("p", "pa-confirmation-preview__loading", "Production authorityを読み込んでいます…");
@@ -325,9 +332,14 @@ const openConfirmationPreview = async (context) => {
     };
     const finalDialog = (model) => new Promise((resolve, reject) => {
         const final = element("dialog", "pa-confirmation-final-dialog"), wrap = element("div", "pa-confirmation-final-dialog__body");
-        wrap.append(element("h2", "", "正式発行・案内の最終確認"), element("p", "", `${honorific(model.recipient.customer_name)}へ正式受注確認を発行し、案内メールを送信します。`));
+        wrap.append(
+            element("h2", "", issuedMode ? "正式受注確認メール送信の最終確認" : "正式受注確認発行の最終確認"),
+            element("p", "", issuedMode
+                ? `${honorific(model.recipient.customer_name)}へ正式受注確認 #${model.confirmation_version}の案内メールを送信します。`
+                : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
+        );
         const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", money(model.estimate.amount_minor, model.estimate.currency)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
-        const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button("正式受注確認を発行して案内する", () => final.close("confirm"), "button button--small");
+        const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode ? "正式受注確認を送信する" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
         actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
         let settled = false;
         const fail = (error) => { if (settled) return; settled = true; final.remove(); reject(error); };
@@ -345,7 +357,13 @@ const openConfirmationPreview = async (context) => {
         } catch (error) { fail(error); }
     });
     const renderPreview = async (model, epoch) => {
-        const [estimateBlob, receiptBlob] = await Promise.all([api(context, "document", { document_id: model.estimate.document_id }, true), api(context, "confirmation_receipt_preview", { preview_fingerprint: model.fingerprint }, true)]);
+        const [estimateBlob, receiptBlob] = await Promise.all([
+            api(context, "document", { document_id: model.estimate.document_id }, true),
+            api(context, issuedMode ? "confirmation_send_receipt_preview" : "confirmation_receipt_preview", {
+                preview_fingerprint: model.fingerprint,
+                ...(issuedMode ? { offer_id: issuedConfirmation.offer_id } : {})
+            }, true)
+        ]);
         if (epoch !== loadEpoch || !dialog.open) return;
         const estimateUrl = blobUrl(estimateBlob), receiptUrl = blobUrl(receiptBlob); body.replaceChildren();
         const overview = section("送信先・案件・対象見積"), facts = element("dl", "pa-confirmation-preview__facts");
@@ -353,7 +371,7 @@ const openConfirmationPreview = async (context) => {
         const estimateFrame = element("iframe", "pa-confirmation-preview__pdf"); estimateFrame.title = "Productionにbindされた正規見積PDF"; estimateFrame.src = `${estimateUrl}#toolbar=1&navpanes=0&view=FitH`; overview.append(element("h4", "", "正規見積PDFを確認"), estimateFrame);
         const terms = section("キャンセル条件・支払期限"), termsGrid = element("div", "pa-confirmation-preview__two-column"), cancellation = element("article", ""), payment = element("article", "");
         cancellation.append(element("h4", "", "キャンセル・変更条件"), element("pre", "", model.customer_snapshot.terms.cancellation_terms)); payment.append(element("h4", "", "支払期限"), element("strong", "pa-confirmation-preview__due", japaneseDate(model.customer_snapshot.terms.payment_due_date)), element("p", "", model.customer_snapshot.terms.payment_consult_terms)); termsGrid.append(cancellation, payment); terms.append(termsGrid);
-        const customer = section("顧客が開く正式受注確認ページ"); customer.append(element("p", "pa-confirmation-preview__note", `Customer Web UI ${model.versions.customer}を同じrendererで表示しています。secret URLは未生成です。`));
+        const customer = section("顧客が開く正式受注確認ページ"); customer.append(element("p", "pa-confirmation-preview__note", `Customer Web UI ${model.versions.customer}を同じrendererで表示しています。${issuedMode ? "専用URLは発行済みですが、この画面には表示しません。" : "secret URLは未生成です。"}`));
         const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; customerFrame.src = "/pa-contract.html?mode=admin-pre-issue"; customer.append(customerFrame);
         const onMessage = (event) => { if (event.origin === location.origin && event.source === customerFrame.contentWindow && event.data?.type === "pa-contract-preview-ready") customerFrame.contentWindow.postMessage({ type: "pa-contract-preview-model", snapshot: model.customer_snapshot }, location.origin); };
         window.addEventListener("message", onMessage); dialog.addEventListener("close", () => window.removeEventListener("message", onMessage), { once: true });
@@ -364,15 +382,22 @@ const openConfirmationPreview = async (context) => {
         const receiptFrame = element("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; receiptFrame.src = `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`; receipt.append(receiptFrame);
         const gate = section("Owner最終確認"); gate.classList.add("pa-confirmation-preview__gate");
         const identity = element("p", "pa-confirmation-preview__fingerprint", `内容確認ID：${model.fingerprint_short}`), checkLabel = element("label", "pa-confirmation-preview__check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkLabel.append(checkbox, element("span", "", "上記の内容を確認しました。"));
-        const actionLabel = `この内容で発行して${honorific(model.recipient.customer_name)}へ案内する`, dialogError = element("p", "pa-confirmation-preview__error hidden"); dialogError.setAttribute("role", "alert");
+        const actionLabel = issuedMode ? "正式受注確認を送る" : "この内容で正式受注確認を発行する（送信しない）";
+        const dialogError = element("p", "pa-confirmation-preview__error hidden"); dialogError.setAttribute("role", "alert");
         const finalButton = button(actionLabel, async () => {
             if (busy || !checkbox.checked || model !== preview) return;
             busy = true; checkbox.disabled = true; finalButton.disabled = true; finalButton.setAttribute("aria-busy", "true"); finalButton.textContent = "最終確認画面を開いています…"; dialogError.classList.add("hidden"); dialogError.textContent = "";
             let phase = "dialog", retryBlocked = false;
             try {
                 if (!await finalDialog(model)) return;
-                phase = "issue"; finalButton.textContent = "正式受注確認を発行しています…";
-                operationId ||= crypto.randomUUID(); const issued = await api(context, "issue_confirmation", { preview_fingerprint: model.fingerprint, operation_id: operationId }); if (issued.outbox_id) await api(context, "dispatch_outbox", { job_id: issued.outbox_id }); dialog.close(); await context.refreshCommercial();
+                phase = issuedMode ? "dispatch" : "issue";
+                finalButton.textContent = issuedMode ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
+                if (issuedMode) await api(context, "dispatch_outbox", { job_id: model.outbox_id });
+                else {
+                    operationId ||= crypto.randomUUID();
+                    await api(context, "issue_confirmation", { preview_fingerprint: model.fingerprint, operation_id: operationId });
+                }
+                dialog.close(); await context.refreshCommercial();
             } catch (error) {
                 if (phase === "dialog") { dialogError.textContent = "最終確認画面を開けませんでした。内容を再取得してもう一度お試しください。"; dialogError.classList.remove("hidden"); }
                 else { retryBlocked = true; const stale = error.message === "stale_confirmation_preview"; status.textContent = stale ? "プレビュー後に内容が変更されています。もう一度内容をご確認ください。" : "発行または案内の結果を確認できません。状態を更新して履歴をご確認ください。"; status.className = stale ? "pa-confirmation-preview__stale" : "pa-confirmation-preview__error"; body.prepend(status); if (stale) { preview = null; checkbox.checked = false; } }
@@ -385,7 +410,11 @@ const openConfirmationPreview = async (context) => {
     };
     async function load() {
         const epoch = ++loadEpoch; preview = null; operationId = null; revokeUrls(); body.replaceChildren(status); status.className = "pa-confirmation-preview__loading"; status.textContent = "Production authorityを読み込んでいます…"; refreshButton.disabled = true;
-        try { const model = await api(context, "confirmation_preview"); if (epoch !== loadEpoch || !dialog.open || context.getCurrentCase()?.id !== caseId) return; preview = model; await renderPreview(model, epoch); }
+        try {
+            const model = await api(context, issuedMode ? "confirmation_send_preview" : "confirmation_preview", issuedMode ? { offer_id: issuedConfirmation.offer_id } : {});
+            if (epoch !== loadEpoch || !dialog.open || context.getCurrentCase()?.id !== caseId) return;
+            preview = model; await renderPreview(model, epoch);
+        }
         catch (error) { if (epoch !== loadEpoch || !dialog.open) return; status.className = "pa-confirmation-preview__error"; status.textContent = `送信前プレビューを作成できません：${error.message}`; }
         finally { if (epoch === loadEpoch) refreshButton.disabled = false; }
     }
@@ -766,6 +795,13 @@ const render = async (context, data, epoch) => {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
         actions.append(button("案内内容を確認", () => context.openFileSearch()));
+        if (activeDelivery?.state === "queued") {
+            actions.append(button("正式受注確認を送る", () => openConfirmationPreview(context, {
+                offer_id: active.id,
+                outbox_id: activeDelivery.id,
+                version: active.version
+            }), "button button--small"));
+        }
         if (data.production_e2e_test && activeDelivery) {
             if (activeDelivery.state !== "sent") {
                 const error = element("p", "pa-commercial__error", "案内メールを送信できませんでした。");
@@ -789,7 +825,7 @@ const render = async (context, data, epoch) => {
         contractRoot.append(actions);
     }
     if (!active && !accepted && current) {
-        contractRoot.append(button("正式受注確認を送る", () => openConfirmationPreview(context), "button button--small"));
+        contractRoot.append(button("正式受注確認を発行準備", () => openConfirmationPreview(context), "button button--small"));
     }
     if (accepted) {
         const actions = element("div", "pa-commercial__compact-actions");

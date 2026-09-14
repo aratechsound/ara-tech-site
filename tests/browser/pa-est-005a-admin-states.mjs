@@ -36,7 +36,7 @@ try {
   assert.match(preissue, /テスト実行委員会.*管理下テスト担当者/s);
   assert.match(preissue, /支払期限.*2026-11-02/s);
   assert.match(preissue, /Gmail thread.*thread_123/s);
-  assert.equal(await card.getByRole('button', { name: '正式受注確認を送る' }).count(), 1);
+  assert.equal(await card.getByRole('button', { name: '正式受注確認を発行準備' }).count(), 1);
   await page.screenshot({ path: `${out}/admin-confirmation-preissue.png`, fullPage: true });
 
   await scenario('accepted', '現在：正式受注済み');
