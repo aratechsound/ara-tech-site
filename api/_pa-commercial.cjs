@@ -101,6 +101,24 @@ const legacyRecoveryBlocked = (reason) => {
   throw error;
 };
 const sameValue = (left, right) => canonical(left) === canonical(right);
+// Exact persisted terms schema authored by pa_v5_issue_confirmation in
+// 20260914100000_pa_est_005a_confirmation_snapshot_compat.sql.
+// Generator-only calendar/presentation metadata is not part of that stored object.
+// Do not infer keys from a stored payload: missing/extra/changed fields must fail.
+const FORMAL_V5_PERSISTED_TERMS_KEYS = Object.freeze([
+  'terms_version', 'payment_terms', 'payment_due_date', 'payment_summary',
+  'banking_day_treatment', 'transfer_fee_terms', 'cancellation_terms', 'cancellation_bands',
+  'weather_change_terms', 'invoice_terms', 'payment_consult_terms', 'business_terms',
+  'other_terms_sections', 'terms_text'
+]);
+const formalV5PersistedTerms = (generated) => {
+  if (!generated || typeof generated !== 'object' || Array.isArray(generated)
+    || FORMAL_V5_PERSISTED_TERMS_KEYS.some((key) => !Object.prototype.hasOwnProperty.call(generated, key)
+      || generated[key] === undefined || generated[key] === null)) {
+    legacyRecoveryBlocked('terms_schema_mismatch');
+  }
+  return Object.fromEntries(FORMAL_V5_PERSISTED_TERMS_KEYS.map((key) => [key, generated[key]]));
+};
 const assertLegacyConfirmationRecovery = (evidence, authority = LEGACY_CONFIRMATION_RECOVERY_AUTHORITY) => {
   const fail = (reason) => legacyRecoveryBlocked(reason);
   const { metadata, job, offers, tokens, contracts, offer, estimate, document, inquiry, state, actorId, legacyPreview } = evidence;
@@ -156,7 +174,7 @@ const assertLegacyConfirmationRecovery = (evidence, authority = LEGACY_CONFIRMAT
     || snapshot.customer_acknowledgement?.estimate_revision_id !== authority.estimate_id
     || Number(snapshot.customer_acknowledgement?.amount_minor) !== authority.amount_minor
     || !sameValue(snapshot.conditions || {}, estimate.conditions_snapshot || {})
-    || !sameValue(snapshot.terms, expectedTerms)
+    || !sameValue(snapshot.terms, formalV5PersistedTerms(expectedTerms))
     || snapshot.payment_due_date !== expectedTerms.payment_due_date
     || job.subject !== metadata.source_confirmation_subject
     || job.body_text !== confirmationBodyTemplate(inquiry)) fail('business_authority_mismatch');

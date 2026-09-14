@@ -36,7 +36,17 @@ const inquiry = {
   internal_memo: '[TEST] 2026龍姫湖まつり 正式受注E2E\nfixture'
 };
 const confirmationBodyTemplate = `${inquiry.contact_name} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${inquiry.event_name}」の正式受注確認をご案内いたします。\n対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
-const terms = issuanceTermsV4(inquiry.event_date);
+// Use the DB-authored snapshot shape, not the generator's superset.
+// Extract independently from the migration; do not call the recovery projection under test.
+const generatedTerms = issuanceTermsV4(inquiry.event_date);
+const persistedTermsSql = require('node:fs').readFileSync(require('node:path').join(__dirname,
+  '../supabase/migrations/20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'), 'utf8');
+const persistedTermsBlock = persistedTermsSql.split("'terms',jsonb_build_object(")[1].split("'issuance',")[0];
+const persistedTermsKeys = [...persistedTermsBlock.matchAll(/'([^']+)',p_snapshot->>?'/g)].map((match) => match[1]);
+assert.equal(persistedTermsKeys.length, 14);
+assert.equal(new Set(persistedTermsKeys).size, 14);
+const terms = Object.fromEntries(persistedTermsKeys.map((key) => [key, generatedTerms[key] ?? null]));
+assert.notDeepEqual(terms, generatedTerms, 'Persisted terms must not copy generator-only fields.');
 const snapshot = {
   snapshot_schema_version: 'PA-FORMAL-V5-20260914-1',
   case: { event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time, venue: inquiry.venue, service_scope: inquiry.request_summary },
@@ -68,7 +78,7 @@ const baseEvidence = () => ({
     reply_binding: { delivery_mode: 'standalone_production_e2e' }, attachment_ids: [AUTHORITY.document_id],
     secret_envelope: 'fixture-secret-envelope', provider_request_started: false,
     provider_response_received: false, provider_http_status: null, provider_message_id: null, provider_thread_id: null,
-    failure_phase: 'preview_validation', failure_code: 'invalid_confirmation', sent_at: null
+    failure_phase: 'preview_validation', failure_code: 'invalid_confirmation'
   },
   offers: [{ id: AUTHORITY.offer_id }],
   offer: {
