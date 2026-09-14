@@ -1,0 +1,15 @@
+.preview-only-banner {
+    align-items: center;
+    background: #eaf4ff;
+    border: 1px solid #b9d7f3;
+    border-radius: 12px;
+    color: #14456e;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    padding: 12px 16px;
+}
+
+.preview-only-banner span { font-size: 13px; }
+.pre-issue-preview footer { display: none; }

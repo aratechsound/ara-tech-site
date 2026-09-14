@@ -1,24 +1,100 @@
-(()=>{'use strict';
-const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);window.addEventListener('hashchange',()=>{if(location.hash)location.reload();});
-const $=id=>document.getElementById(id),messages={expired_link:'このURLの有効期限が切れています。ARA-TECHへ再発行をご依頼ください。',revoked_link:'この確認は失効しています。最新のご案内をご確認ください。',invalid_link:'このURLは利用できません。ARA-TECHへお問い合わせください。',case_unavailable:'現在この案件の回答を受け付けていません。ARA-TECHへお問い合わせください。',contract_changed:'確認内容が一致しません。案内されたURLを開き直してください。',consent_required:'同意と確認者氏名をご入力ください。',receipt_unavailable:'正式受注確認書は準備中です。時間をおいてお試しください。',rate_limited:'操作が集中しています。しばらくしてからお試しください。'};
-let offer,busy=false,quoteFile=null,dialogReturn=null;
-const date=v=>new Date(v+'T00:00:00Z').toLocaleDateString('ja-JP',{timeZone:'UTC',year:'numeric',month:'long',day:'numeric',weekday:'short'});
-const datetime=v=>new Date(v).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit'});
-const money=(v,c='JPY')=>new Intl.NumberFormat('ja-JP',{style:'currency',currency:c,currencyDisplay:'symbol',maximumFractionDigits:0}).format(Number(v))+'（税込）';
-const short=v=>{const [y,m,d]=String(v).split('-');return `${y}/${m}/${d}`;};
-const withHonorific=value=>/様\s*$/u.test(String(value||''))?String(value):`${String(value||'')} 様`;
-async function request(action,extra={},binary=false){const r=await fetch('/api/pa-contract',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',referrerPolicy:'no-referrer',body:JSON.stringify({action,token,...extra})});if(binary&&r.ok)return r.blob();let data;try{data=await r.json();}catch{}if(!r.ok||!data?.ok)throw Error(data?.code||'service_unavailable');return data.result;}
-const addPair=(root,label,value)=>{const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value||'—';root.append(dt,dd);};
-async function quoteBlob(){if(quoteFile)return quoteFile;const blob=await request('quote',{},true),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');if(hash!==offer.snapshot.estimate.sha256)throw Error('contract_changed');quoteFile={blob,url:URL.createObjectURL(blob)};return quoteFile;}
-async function save(action,filename,status){try{const blob=action==='quote'?(await quoteBlob()).blob:await request(action,{},true),a=document.createElement('a'),url=action==='quote'?(await quoteBlob()).url:URL.createObjectURL(blob);a.href=url;a.download=filename;a.click();status.textContent='PDFを保存しました。';if(action!=='quote')setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){status.textContent=messages[e.message]||'PDFを取得できません。ARA-TECHへお問い合わせください。';}}
-function fill(snapshot){const c=snapshot.case,u=snapshot.customer,e=snapshot.estimate,t=snapshot.terms;$('event').textContent=c.event_name;$('datetime').textContent=date(c.event_date)+(c.event_time?' '+c.event_time:'');$('organization').textContent=[u.organization,u.department].filter(Boolean).join(' ')||u.display_name;$('contact').textContent=withHonorific(u.contact_name||u.display_name);$('quote-version').textContent=`見積 第${e.revision_number||'—'}版`;$('quote-filename').textContent=e.original_filename;$('amount').textContent=money(e.amount_minor,e.currency);
-const conditions=$('conditions'),details=$('condition-details-list');addPair(conditions,'対象業務',c.service_scope);addPair(conditions,'対象見積',`第${e.revision_number||'—'}版／${e.original_filename}`);addPair(conditions,'請求書',t.invoice_terms||'原則PDFにてご案内いたします。所定の会計手続きがある場合は事前にご相談ください。');addPair(conditions,'振込手数料',t.transfer_fee_terms||'恐れ入りますが、お客様にてご負担をお願いいたします。');addPair(details,'天候・日程変更',t.weather_change_terms||'天候や主催者様のご事情による変更・中止については、状況を確認のうえご相談させていただきます。');const labels={'担当者・機材について':'担当者・機材','内容変更について':'内容変更','主催者様にお願いする事項':'主催者へのお願い','安全上の対応':'安全','持込音源・機材について':'特殊音源・機材','責任について':'責任'};for(const s of t.other_terms_sections||[])addPair(details,labels[s.title]||s.title,s.text);
-if(t.cancellation_bands?.length){for(const b of t.cancellation_bands){const cell=document.createElement('div'),label=document.createElement('span'),rate=document.createElement('strong'),dates=document.createElement('small');label.textContent=b.label;rate.textContent=b.rate===0?'無料':b.rate+'%';dates.textContent=(b.from?short(b.from)+'〜':'〜')+short(b.to);cell.append(label,rate,dates);$('cancel-bands').append(cell);}$('cancel-text').hidden=true;}else{$('cancel-bands').hidden=true;$('cancel-text').textContent=t.cancellation_terms;}$('weather').textContent=t.weather_change_terms||'天候・会場事情・日程変更など、通常のキャンセルとは異なる事情がある場合は、一律に判断せず状況を確認のうえご相談させていただきます。';$('due-date').textContent=t.payment_due_date?date(t.payment_due_date):'個別の合意条件';$('payment-summary').textContent=t.payment_summary||t.banking_day_treatment||t.payment_terms;$('payment-consult').textContent=t.payment_consult_terms||'行政機関・法人・団体等の所定のお手続きにより、お支払時期の調整が必要な場合は事前にご相談ください。可能な範囲で対応いたします。';$('confirmer').value=u.contact_name||'';updateSubmit();}
-function accepted(){const s=offer.snapshot;$('accepted').hidden=false;$('confirm-area').hidden=true;$('accepted-at').textContent=datetime(offer.confirmed_at||s.acceptance.confirmed_at);$('accepted-estimate').textContent=`見積 第${s.estimate.revision_number||'—'}版／${money(s.estimate.amount_minor,s.estimate.currency)}`;$('accepted-due').textContent=s.terms.payment_due_date?date(s.terms.payment_due_date):s.terms.payment_terms;$('save-receipt').onclick=()=>save('customer_receipt',`正式受注確認書_${s.case.event_name.replace(/[\\/:*?"<>|]/g,'').replace(/\s+/g,'')}.pdf`,$('accepted-download-status'));$('save-accepted-quote').onclick=()=>save('quote',s.estimate.original_filename,$('accepted-download-status'));}
-async function load(){if(!/^[a-f0-9]{64}$/.test(token))throw Error('invalid_link');offer=await request('view');fill(offer.snapshot);$('page').hidden=false;$('status').textContent='';$('save-quote').onclick=()=>save('quote',offer.snapshot.estimate.original_filename,$('quote-status'));$('preview').onclick=async()=>{const wrap=$('viewer-wrap');wrap.hidden=false;$('quote-status').textContent='見積書を読み込んでいます。';try{const f=await quoteBlob();$('pdf-viewer').src=f.url+'#toolbar=1&navpanes=0&view=FitH';$('quote-status').textContent='表示できない場合は「PDFを保存」からご確認ください。';}catch(e){$('quote-status').textContent=messages[e.message]||'見積書を表示できません。';}};if(offer.state==='accepted')accepted();}
-function updateSubmit(){$('submit').disabled=busy||!$('agree').checked||!$('confirmer').value.trim();}$('agree').addEventListener('change',updateSubmit);$('confirmer').addEventListener('input',updateSubmit);
-$('accept-form').addEventListener('submit',e=>{e.preventDefault();if($('submit').disabled)return;const root=$('dialog-facts');root.replaceChildren();const s=offer.snapshot;addPair(root,'イベント',s.case.event_name);addPair(root,'開催日時',date(s.case.event_date)+(s.case.event_time?' '+s.case.event_time:''));addPair(root,'見積版',`第${s.estimate.revision_number||'—'}版`);addPair(root,'金額',money(s.estimate.amount_minor,s.estimate.currency));addPair(root,'支払期限',s.terms.payment_due_date?date(s.terms.payment_due_date):s.terms.payment_terms);addPair(root,'確認者',$('confirmer').value.trim());dialogReturn=document.activeElement;$('final-dialog').showModal();$('dialog-back').focus();});
-$('final-dialog').addEventListener('close',()=>{if(!busy)dialogReturn?.focus();});$('final-dialog').addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=[$('dialog-back'),$('dialog-accept')].filter(v=>!v.disabled),first=f[0],last=f.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
-$('dialog-accept').addEventListener('click',async e=>{e.preventDefault();if(busy)return;busy=true;$('dialog-accept').disabled=true;$('dialog-back').disabled=true;$('dialog-status').textContent='正式依頼を受け付けています。';try{const result=await request('accept',{offer_id:offer.offer_id,snapshot_sha256:offer.snapshot_sha256,confirmer_name:$('confirmer').value.trim(),agree:$('agree').checked});offer=await request('view');dialogReturn=null;busy=false;$('final-dialog').close();accepted();$('accepted-download-status').textContent=result.email_status==='failed'?'正式依頼は受け付けました。確認メールは再送準備中です。':'';}catch(error){$('dialog-status').textContent=messages[error.message]||'受付結果を確認できません。ページを開き直し、回答受付済みかご確認ください。';busy=false;$('dialog-accept').disabled=false;$('dialog-back').disabled=false;updateSubmit();}});
-window.addEventListener('pagehide',()=>{if(quoteFile)URL.revokeObjectURL(quoteFile.url);});load().catch(e=>{$('status').textContent=messages[e.message]||'確認内容を読み込めません。しばらくしてから案内されたURLを開き直してください。';});
+(() => {
+    "use strict";
+    const renderer = window.PAContractRenderer;
+    const byId = (id) => document.getElementById(id);
+    const messages = { expired_link: "このURLの有効期限が切れています。ARA-TECHへ再発行をご依頼ください。", revoked_link: "この確認は失効しています。最新のご案内をご確認ください。", invalid_link: "このURLは利用できません。ARA-TECHへお問い合わせください。", case_unavailable: "現在この案件の回答を受け付けていません。ARA-TECHへお問い合わせください。", contract_changed: "確認内容が一致しません。案内されたURLを開き直してください。", consent_required: "同意と確認者氏名をご入力ください。", receipt_unavailable: "正式受注確認書は準備中です。時間をおいてお試しください。", rate_limited: "操作が集中しています。しばらくしてからお試しください。" };
+    const previewMode = new URLSearchParams(location.search).get("mode") === "admin-pre-issue";
+    let token = "", offer, busy = false, quoteFile = null, dialogReturn = null;
+
+    if (previewMode) {
+        document.body.classList.add("pre-issue-preview");
+        byId("preview-only-banner").hidden = false;
+        byId("status").textContent = "送信前プレビューを読み込んでいます。";
+        window.addEventListener("message", (event) => {
+            if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "pa-contract-preview-model") return;
+            try {
+                renderer.fill(event.data.snapshot);
+                byId("page").hidden = false;
+                byId("status").textContent = "";
+                for (const id of ["agree", "confirmer", "submit", "preview", "save-quote"]) byId(id).disabled = true;
+            } catch { byId("status").textContent = "プレビュー内容を表示できません。"; }
+        });
+        window.parent.postMessage({ type: "pa-contract-preview-ready" }, location.origin);
+        return;
+    }
+
+    token = location.hash.slice(1);
+    history.replaceState(null, "", location.pathname);
+    window.addEventListener("hashchange", () => { if (location.hash) location.reload(); });
+    const datetime = (value) => new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+    async function request(action, extra = {}, binary = false) {
+        const response = await fetch("/api/pa-contract", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", referrerPolicy: "no-referrer", body: JSON.stringify({ action, token, ...extra }) });
+        if (binary && response.ok) return response.blob();
+        let data; try { data = await response.json(); } catch { /* handled below */ }
+        if (!response.ok || !data?.ok) throw Error(data?.code || "service_unavailable");
+        return data.result;
+    }
+    async function quoteBlob() {
+        if (quoteFile) return quoteFile;
+        const blob = await request("quote", {}, true);
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())), (value) => value.toString(16).padStart(2, "0")).join("");
+        if (hash !== offer.snapshot.estimate.sha256) throw Error("contract_changed");
+        quoteFile = { blob, url: URL.createObjectURL(blob) };
+        return quoteFile;
+    }
+    async function save(action, filename, status) {
+        try {
+            const blob = action === "quote" ? (await quoteBlob()).blob : await request(action, {}, true), link = document.createElement("a"), url = action === "quote" ? (await quoteBlob()).url : URL.createObjectURL(blob);
+            link.href = url; link.download = filename; link.click(); status.textContent = "PDFを保存しました。";
+            if (action !== "quote") setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) { status.textContent = messages[error.message] || "PDFを取得できません。ARA-TECHへお問い合わせください。"; }
+    }
+    function updateSubmit() { byId("submit").disabled = busy || !byId("agree").checked || !byId("confirmer").value.trim(); }
+    function accepted() {
+        const snapshot = offer.snapshot;
+        byId("accepted").hidden = false; byId("confirm-area").hidden = true;
+        byId("accepted-at").textContent = datetime(offer.confirmed_at || snapshot.acceptance.confirmed_at);
+        byId("accepted-estimate").textContent = `見積 第${snapshot.estimate.revision_number || "—"}版／${renderer.money(snapshot.estimate.amount_minor, snapshot.estimate.currency)}`;
+        byId("accepted-due").textContent = snapshot.terms.payment_due_date ? renderer.date(snapshot.terms.payment_due_date) : snapshot.terms.payment_terms;
+        byId("save-receipt").onclick = () => save("customer_receipt", `正式受注確認書_${snapshot.case.event_name.replace(/[\\/:*?"<>|]/gu, "").replace(/\s+/gu, "")}.pdf`, byId("accepted-download-status"));
+        byId("save-accepted-quote").onclick = () => save("quote", snapshot.estimate.original_filename, byId("accepted-download-status"));
+    }
+    async function load() {
+        if (!/^[a-f0-9]{64}$/u.test(token)) throw Error("invalid_link");
+        offer = await request("view"); renderer.fill(offer.snapshot); updateSubmit(); byId("page").hidden = false; byId("status").textContent = "";
+        byId("save-quote").onclick = () => save("quote", offer.snapshot.estimate.original_filename, byId("quote-status"));
+        byId("preview").onclick = async () => {
+            byId("viewer-wrap").hidden = false; byId("quote-status").textContent = "見積書を読み込んでいます。";
+            try { const file = await quoteBlob(); byId("pdf-viewer").src = `${file.url}#toolbar=1&navpanes=0&view=FitH`; byId("quote-status").textContent = "表示できない場合は「PDFを保存」からご確認ください。"; }
+            catch (error) { byId("quote-status").textContent = messages[error.message] || "見積書を表示できません。"; }
+        };
+        if (offer.state === "accepted") accepted();
+    }
+    byId("agree").addEventListener("change", updateSubmit); byId("confirmer").addEventListener("input", updateSubmit);
+    byId("accept-form").addEventListener("submit", (event) => {
+        event.preventDefault(); if (byId("submit").disabled) return;
+        const root = byId("dialog-facts"), snapshot = offer.snapshot; root.replaceChildren();
+        renderer.addPair(root, "イベント", snapshot.case.event_name);
+        renderer.addPair(root, "開催日時", renderer.date(snapshot.case.event_date) + (snapshot.case.event_time ? ` ${snapshot.case.event_time}` : ""));
+        renderer.addPair(root, "見積版", `第${snapshot.estimate.revision_number || "—"}版`);
+        renderer.addPair(root, "金額", renderer.money(snapshot.estimate.amount_minor, snapshot.estimate.currency));
+        renderer.addPair(root, "支払期限", snapshot.terms.payment_due_date ? renderer.date(snapshot.terms.payment_due_date) : snapshot.terms.payment_terms);
+        renderer.addPair(root, "確認者", byId("confirmer").value.trim()); dialogReturn = document.activeElement; byId("final-dialog").showModal(); byId("dialog-back").focus();
+    });
+    byId("final-dialog").addEventListener("close", () => { if (!busy) dialogReturn?.focus(); });
+    byId("final-dialog").addEventListener("keydown", (event) => {
+        if (event.key !== "Tab") return;
+        const focusable = [byId("dialog-back"), byId("dialog-accept")].filter((item) => !item.disabled), first = focusable[0], last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    byId("dialog-accept").addEventListener("click", async (event) => {
+        event.preventDefault(); if (busy) return; busy = true; byId("dialog-accept").disabled = true; byId("dialog-back").disabled = true; byId("dialog-status").textContent = "正式依頼を受け付けています。";
+        try {
+            const result = await request("accept", { offer_id: offer.offer_id, snapshot_sha256: offer.snapshot_sha256, confirmer_name: byId("confirmer").value.trim(), agree: byId("agree").checked });
+            offer = await request("view"); dialogReturn = null; busy = false; byId("final-dialog").close(); accepted(); byId("accepted-download-status").textContent = result.email_status === "failed" ? "正式依頼は受け付けました。確認メールは再送準備中です。" : "";
+        } catch (error) { byId("dialog-status").textContent = messages[error.message] || "受付結果を確認できません。ページを開き直し、回答受付済みかご確認ください。"; busy = false; byId("dialog-accept").disabled = false; byId("dialog-back").disabled = false; updateSubmit(); }
+    });
+    window.addEventListener("pagehide", () => { if (quoteFile) URL.revokeObjectURL(quoteFile.url); });
+    load().catch((error) => { byId("status").textContent = messages[error.message] || "確認内容を読み込めません。しばらくしてから案内されたURLを開き直してください。"; });
 })();

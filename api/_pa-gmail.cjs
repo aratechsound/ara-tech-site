@@ -603,7 +603,7 @@ const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySource
     if (!source || (explicit && source.direction !== "inbound")) throw new Error("invalid_reply_source");
     return { explicit, link, source };
 };
-const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
+const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
     const { explicit, link, source } = await resolveReplySource({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
     const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
@@ -629,8 +629,8 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
     const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
-    const expiresAt = Date.now() + PREVIEW_TTL_MS;
-    return {
+    const expiresAt = issueConfirmationToken ? Date.now() + PREVIEW_TTL_MS : null;
+    const preview = {
         inquiry_id: inquiryId,
         gmail_thread_id: link.gmail_thread_id,
         reply_source_explicit: explicit,
@@ -643,11 +643,19 @@ const replyPreview = async ({ inquiryId, actorId, body, attachments = [], mode =
         body: normalizedBody,
         html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
-        attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size })),
-        confirmation_token: replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt }),
-        expires_at: new Date(expiresAt).toISOString()
+        attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
     };
+    if (issueConfirmationToken) {
+        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt });
+        preview.expires_at = new Date(expiresAt).toISOString();
+    }
+    return preview;
 };
+const replyPreview = (input, fetchImpl = fetch) => buildReplyPreview(input, fetchImpl);
+// Read-only rendering path for the formal pre-issue gate. It resolves the same
+// Gmail thread, recipient, CC, subject, normalized text and HTML as sendReply,
+// but deliberately creates no send confirmation token.
+const replyContentPreview = (input, fetchImpl = fetch) => buildReplyPreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
 const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl = fetch) => {
     const normalizedAttachments = normalizeReplyAttachments(attachments);
@@ -705,4 +713,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

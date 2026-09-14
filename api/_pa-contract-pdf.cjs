@@ -124,7 +124,9 @@ async function buildConfirmationReceipt(snapshot,quote) {
  };
  const paragraph=(page,value,options={})=>paint.paragraph(page,value,{color:BODY,...options});
  const shortDate=value=>{const d=new Date(`${value}T00:00:00Z`);return Number.isFinite(+d)?`${d.getUTCMonth()+1}月${d.getUTCDate()}日`:String(value||'');};
+ const preIssuePreview=snapshot.preview_mode==='pre_issue';
  const acceptedAt=()=>{
+  if(preIssuePreview)return 'お客様承認時に自動記録';
   const value=acceptance.confirmed_at||snapshot.confirmed_at;
   if(!value)return '';
   const d=new Date(value);if(!Number.isFinite(+d))return String(value);
@@ -153,7 +155,7 @@ async function buildConfirmationReceipt(snapshot,quote) {
  const dateValues=bands.map(b=>b.from?`${shortDate(b.from)}〜${shortDate(b.to)}`:`${shortDate(b.to)}まで`);
  dateValues.forEach((value,index)=>paint.draw(page1,value,margin+78,354-index*24.5,8.25,BODY));
  bold(page1,terms.payment_due_date?japaneseDate(terms.payment_due_date):terms.payment_terms,margin+289,371.5,12.5,INK);
- bold(page1,honorific(acceptance.confirmer_name||snapshot.confirmer_name),margin+12,101,9.8,INK);
+ bold(page1,preIssuePreview?'お客様承認時に自動記録':honorific(acceptance.confirmer_name||snapshot.confirmer_name),margin+12,101,9.8,INK);
  bold(page1,acceptedAt(),margin+216,101,9.8,INK);
 
  const {issuanceTermsV4}=require('./_pa-contract-terms.cjs'),expected=issuanceTermsV4(event.event_date);

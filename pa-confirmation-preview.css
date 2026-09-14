@@ -1,0 +1,87 @@
+.pa-confirmation-preview-dialog {
+    border: 0;
+    border-radius: 16px;
+    box-shadow: 0 24px 80px rgba(14, 28, 44, .34);
+    color: var(--ink);
+    height: min(94vh, 1120px);
+    max-width: 1240px;
+    overflow: auto;
+    padding: 0;
+    width: min(96vw, 1240px);
+}
+
+.pa-confirmation-preview-dialog::backdrop,
+.pa-confirmation-final-dialog::backdrop { background: rgba(12, 24, 36, .64); }
+
+.pa-confirmation-preview__header {
+    align-items: center;
+    background: #f5faff;
+    border-bottom: 1px solid #c9dced;
+    display: flex;
+    gap: 20px;
+    justify-content: space-between;
+    padding: 18px 22px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.pa-confirmation-preview__header h2 { font-size: 1.35rem; margin: 2px 0; }
+.pa-confirmation-preview__header p { margin: 0; }
+.pa-confirmation-preview__eyebrow { color: #0877ea; font-size: .75rem; font-weight: 900; letter-spacing: .08em; }
+.pa-confirmation-preview__body { background: #f3f6f9; display: grid; gap: 14px; padding: 18px; }
+.pa-confirmation-preview__section { background: #fff; border: 1px solid #dce3ea; border-radius: 12px; min-width: 0; padding: 18px; }
+.pa-confirmation-preview__section > h3 { color: #17466f; font-size: 1rem; margin: 0 0 14px; }
+.pa-confirmation-preview__section h4 { font-size: .86rem; margin: 14px 0 8px; }
+.pa-confirmation-preview__facts { display: grid; grid-template-columns: minmax(150px, .3fr) minmax(0, 1fr); margin: 0; }
+.pa-confirmation-preview__facts dt,
+.pa-confirmation-preview__facts dd { border-bottom: 1px solid #e3e8ee; margin: 0; padding: 8px 10px; }
+.pa-confirmation-preview__facts dt { color: #627181; font-size: .75rem; font-weight: 900; }
+.pa-confirmation-preview__facts dd { overflow-wrap: anywhere; }
+.pa-confirmation-preview__pdf,
+.pa-confirmation-preview__customer,
+.pa-confirmation-preview__email { background: #fff; border: 1px solid #cbd7e2; border-radius: 9px; display: block; width: 100%; }
+.pa-confirmation-preview__pdf { height: 650px; }
+.pa-confirmation-preview__pdf--receipt { height: 790px; }
+.pa-confirmation-preview__customer { height: 820px; }
+.pa-confirmation-preview__email { height: 650px; }
+.pa-confirmation-preview__two-column { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pa-confirmation-preview__two-column article { background: #f8fbfe; border: 1px solid #dce7f0; border-radius: 10px; min-width: 0; padding: 14px; }
+.pa-confirmation-preview__two-column pre,
+.pa-confirmation-preview__mail-text { font: inherit; line-height: 1.7; margin: 0; max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pa-confirmation-preview__due { color: #064f91; display: block; font-size: 1.3rem; }
+.pa-confirmation-preview__note { color: #53677a; overflow-wrap: anywhere; }
+.pa-confirmation-preview__gate { border: 2px solid #67a4dd; }
+.pa-confirmation-preview__fingerprint { color: #526474; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .78rem; }
+.pa-confirmation-preview__check { align-items: flex-start; background: #f5faff; border: 1px solid #b9d7f3; border-radius: 9px; display: flex; gap: 10px; margin: 14px 0; padding: 13px; }
+.pa-confirmation-preview__check input { height: 20px; margin: 2px 0 0; width: 20px; }
+.pa-confirmation-preview__loading,
+.pa-confirmation-preview__error,
+.pa-confirmation-preview__stale { border-radius: 9px; margin: 0; padding: 14px; }
+.pa-confirmation-preview__loading { background: #eef5fb; }
+.pa-confirmation-preview__error { background: #fff1f1; color: #8f2e2e; }
+.pa-confirmation-preview__stale { background: #fff7df; color: #765300; }
+.pa-confirmation-final-dialog { border: 0; border-radius: 14px; box-shadow: 0 22px 70px rgba(14, 28, 44, .35); max-width: 650px; padding: 0; width: calc(100% - 28px); }
+.pa-confirmation-final-dialog__body { padding: 26px; }
+.pa-confirmation-final-dialog__body h2 { margin: 0 0 10px; }
+.pa-confirmation-final-dialog__actions { justify-content: flex-end; margin-top: 20px; }
+body:has(.pa-confirmation-preview-dialog[open]) { overflow: hidden; }
+
+@media (max-width: 940px) {
+    .pa-confirmation-preview-dialog { width: min(98vw, 940px); }
+    .pa-confirmation-preview__header { align-items: flex-start; flex-direction: column; }
+    .pa-confirmation-preview__two-column { grid-template-columns: 1fr; }
+    .pa-confirmation-preview__customer { height: 720px; }
+}
+
+@media (max-width: 520px) {
+    .pa-confirmation-preview__body { padding: 8px; }
+    .pa-confirmation-preview__section { padding: 13px; }
+    .pa-confirmation-preview__facts { grid-template-columns: 1fr; }
+    .pa-confirmation-preview__facts dt { border-bottom: 0; padding-bottom: 2px; }
+    .pa-confirmation-preview__facts dd { padding-top: 2px; }
+    .pa-confirmation-preview__pdf { height: 500px; }
+    .pa-confirmation-preview__customer { height: 660px; }
+    .pa-confirmation-preview__email { height: 520px; }
+    .pa-confirmation-final-dialog__actions { flex-direction: column-reverse; }
+}

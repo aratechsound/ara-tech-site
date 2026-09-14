@@ -99,11 +99,9 @@ async function initialize(nextScenario = 'pending') {
     await service.dispatch({ job_id: issued.outbox_id }, { id: fixture.actorId });
     let confirmation = null;
     if (!['revision', 'preissue'].includes(nextScenario)) {
+      const preview = await service.confirmationPreview({ case_id: fixture.inquiryId }, { id: fixture.actorId });
       confirmation = await service.issueConfirmation({
-        case_id: fixture.inquiryId, expected_revision: 1, estimate_revision_id: issued.id,
-        offer_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), event_name: '龍姫湖まつり2026（検証用）', event_date: '2026-10-18',
-        customer_acknowledgement: { source: 'local_fixture', estimate_revision_id: issued.id },
-        body_template: '正式受注確認の内容をご確認ください。\n\n{{CONFIRMATION_URL}}', cc_addresses: ['venue@example.invalid']
+        case_id: fixture.inquiryId, preview_fingerprint: preview.fingerprint, operation_id: crypto.randomUUID()
       }, { id: fixture.actorId });
       await service.dispatch({ job_id: confirmation.outbox_id }, { id: fixture.actorId });
     }

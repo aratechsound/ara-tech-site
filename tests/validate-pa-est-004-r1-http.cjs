@@ -62,15 +62,14 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
     assert.equal(response.statusCode, 400); assert.equal(response.body.code, 'idempotency_payload_mismatch');
     await request({ action: 'dispatch_outbox', case_id: fixture.inquiryId, job_id: estimate.outbox_id });
 
-    const confirmationOperation = crypto.randomUUID(); const offerId = crypto.randomUUID();
-    const confirmationRequest = {
-      action: 'issue_confirmation', case_id: fixture.inquiryId, expected_revision: 1,
-      estimate_revision_id: estimate.id, offer_id: offerId, operation_id: confirmationOperation,
-      event_name: 'HTTP fixture event', event_date: '2026-10-18', customer_acknowledgement: { source: 'HTTP fixture' },
-      body_template: 'HTTP confirmation {{CONFIRMATION_URL}}', cc_addresses: ['venue@example.invalid']
-    };
+    response = await request({ action: 'confirmation_preview', case_id: fixture.inquiryId });
+    assert.equal(response.statusCode, 200); assert.equal(response.body.result.email.confirmation_token, undefined);
+    const previewFingerprint = response.body.result.fingerprint;
+    const confirmationOperation = crypto.randomUUID();
+    const confirmationRequest = { action: 'issue_confirmation', case_id: fixture.inquiryId, preview_fingerprint: previewFingerprint, operation_id: confirmationOperation };
     response = await request(confirmationRequest); assert.equal(response.statusCode, 200);
     const confirmation = response.body.result;
+    const offerId = confirmation.id;
     const issuedOffer = (await fixture.db.query('select snapshot from public.pa_contract_offers where id=$1', [offerId])).rows[0];
     assert.equal(issuedOffer.snapshot.snapshot_schema_version, 'PA-FORMAL-V5-20260914-1');
     assert.equal(issuedOffer.snapshot.case.event_name, '龍姫湖まつり2026（検証用）');
@@ -79,8 +78,8 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
     assert.equal(issuedOffer.snapshot.estimate.original_filename, 'http-estimate.pdf');
     assert.equal(issuedOffer.snapshot.customer.contact_name, '管理下テスト担当者');
     response = await request(confirmationRequest); assert.equal(response.body.result.already_committed, true); assert.equal(response.body.result.secret_url_returned_once, null);
-    response = await request({ ...confirmationRequest, customer_acknowledgement: { source: 'changed payload' } });
-    assert.equal(response.statusCode, 400); assert.equal(response.body.code, 'idempotency_payload_mismatch');
+    response = await request({ ...confirmationRequest, operation_id: crypto.randomUUID(), preview_fingerprint: '0'.repeat(64) });
+    assert.equal(response.statusCode, 409); assert.equal(response.body.code, 'stale_confirmation_preview');
     await request({ action: 'dispatch_outbox', case_id: fixture.inquiryId, job_id: confirmation.outbox_id });
     process.env.PA_MAIL_ADAPTER = 'gmail';
     const defaultTransportService = createService({ fetchImpl: fixture.fetchImpl });

@@ -1,7 +1,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
 import { renderContractPanel } from "./pa-contract-admin.js";
-import { getCommercialDraftContext, renderCommercialWorkspace } from "./pa-commercial-admin.js";
+import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -447,6 +447,7 @@ const openEstimateSubmission = (options = {}) => {
 
 const openSharedComposer = (mode = "normal", options = {}) => {
     if (mode === "estimate_submission") return openEstimateSubmission(options);
+    if (mode === "confirmation") return openConfirmationPreviewForCurrentCase();
     if (!currentCase || !currentGmailLink) {
         setMessage(gmailSyncState, "既存のGmail threadが確認できません。同期または明示的な紐付けを先に行ってください。", "error");
         $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3435,17 +3436,7 @@ const sendCommercialComposer = async (snapshot) => {
             reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
         });
     } else if (snapshot.mode === "confirmation") {
-        if (!context.currentEstimate || context.acceptedContract || context.activeConfirmation) throw new Error("invalid_confirmation");
-        const bodyTemplate = snapshot.rawDraftBody.includes("{{CONFIRMATION_URL}}")
-            ? snapshot.rawDraftBody : `${snapshot.rawDraftBody}\n\n{{CONFIRMATION_URL}}`;
-        issued = await callCommercialApi({
-            action: "issue_confirmation", case_id: snapshot.inquiryId, expected_revision: context.state.revision,
-            estimate_revision_id: context.currentEstimate.id, offer_id: commercialComposerOperation.aggregateId, operation_id: operationId,
-            event_name: currentCase.event_name || currentCase.request_summary || "PA案件", event_date: currentCase.event_date,
-            customer_acknowledgement: { estimate_revision_id: context.currentEstimate.id, amount_minor: context.currentEstimate.amount_minor, source: "shared_composer_final_confirmation" },
-            body_template: bodyTemplate, cc_addresses: snapshot.ccAddresses,
-            reply_source: snapshot.replySourceExplicit ? { message_id: snapshot.replySourceMessageId, thread_id: snapshot.replySourceThreadId } : null
-        });
+        throw new Error("preview_required");
     } else if (snapshot.mode === "invoice") {
         if (!context.currentEstimate || !context.acceptedContract || context.billing) throw new Error("invalid_billing");
         const pdfAttachment = snapshot.attachments.find(({ file }) => file.type === "application/pdf" || /\.pdf$/iu.test(file.name));

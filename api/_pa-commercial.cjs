@@ -7,6 +7,10 @@ const { issuanceTermsV4 } = require('./_pa-contract-terms.cjs');
 const { canonicalAssetKey } = require('./_pa-portal-candidates.cjs');
 
 const FORMAL_SNAPSHOT_VERSION = 'PA-FORMAL-V5-20260914-1';
+const PRE_ISSUE_PREVIEW_VERSION = 'PA-EST-006-PREVIEW-1';
+const CUSTOMER_CONFIRMATION_TEMPLATE_VERSION = 'PA-CUSTOMER-WEB-V3.2';
+const RECEIPT_TEMPLATE_VERSION = 'PA-RECEIPT-V4.1';
+const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 
 const SAFE = new Set([
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
@@ -32,6 +36,7 @@ const SAFE = new Set([
   'change_proposal_not_found', 'change_already_agreed', 'change_not_agreeable',
   'change_proposal_not_sent', 'change_after_billing_not_allowed', 'unresolved_change_orders', 'settlement_amount_mismatch',
   'commercial_history_immutable'
+  ,'stale_confirmation_preview'
 ]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -204,7 +209,7 @@ const buildRelatedMaterials = ({ caseId, state, estimates = [], documents = [], 
     || String(right.source_date || '').localeCompare(String(left.source_date || '')) || left.material_id.localeCompare(right.material_id));
 };
 
-function createService({ fetchImpl = fetch, sendTransport } = {}) {
+function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issuanceTermsV4, createReceipt = pdf.createReceipt } = {}) {
   const db = async (path, options = {}) => {
     const { url, serviceRoleKey } = mail.supabaseConfig();
     const response = await fetchImpl(url + '/rest/v1/' + path, {
@@ -314,6 +319,129 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     cc_addresses: preview.cc_addresses || []
   });
 
+  const confirmationBodyTemplate = (inquiry) => {
+    const contact = String(inquiry.contact_name || inquiry.customer_name || 'ご担当者').trim().replace(/\s*様\s*$/u, '');
+    return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
+  };
+
+  async function confirmationAuthority(caseId, actor) {
+    const safeCaseId = uuid(caseId);
+    const current = await snapshot(safeCaseId);
+    const estimate = current.estimates.find((item) => item.id === current.state.current_estimate_revision_id);
+    if (!estimate) throw Error('estimate_not_found');
+    if (current.offers.some((item) => item.state === 'accepted')) throw Error('contract_already_accepted');
+    if (current.offers.some((item) => item.state === 'active')) throw Error('confirmation_already_active');
+    const [inquiry, documentRow] = await Promise.all([
+      mail.getInquiry(safeCaseId, fetchImpl),
+      one('pa_commercial_documents', {
+        id: 'eq.' + estimate.document_id, inquiry_id: 'eq.' + safeCaseId,
+        select: 'id,original_filename,mime_type,content,sha256,created_at'
+      })
+    ]);
+    if (!documentRow) throw Error('document_identity_mismatch');
+    const quoteBytes = fromBytea(documentRow.content);
+    if (documentRow.mime_type !== 'application/pdf' || pdf.sha(quoteBytes) !== documentRow.sha256) throw Error('document_identity_mismatch');
+    await pdf.validatePdf(quoteBytes, documentRow.sha256);
+    const agreement = termsForIssue(text(inquiry.event_date, 10));
+    const bodyTemplate = confirmationBodyTemplate(inquiry);
+    const previewBody = bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER);
+    const email = await gmail.replyContentPreview({
+      inquiryId: safeCaseId, actorId: actor.id, body: previewBody, mode: 'confirmation'
+    }, fetchImpl);
+    if (emailAddress(email.recipient) !== emailAddress(inquiry.email)) throw Error('invalid_contract');
+    const contactName = String(inquiry.contact_name || inquiry.customer_name || '').trim();
+    const organization = String(inquiry.organization_name || '').trim();
+    const customerDisplay = [organization, contactName].filter(Boolean).join(' ');
+    const customerSnapshot = {
+      snapshot_schema_version: FORMAL_SNAPSHOT_VERSION,
+      presentation_version: 5,
+      preview_mode: 'pre_issue',
+      case: {
+        event_name: String(inquiry.event_name || '').trim(), event_date: String(inquiry.event_date || ''),
+        event_time: String(inquiry.event_time || '').trim() || null, venue: String(inquiry.venue || '').trim(),
+        service_scope: String(inquiry.request_summary || '').trim(),
+        requested_services: Array.isArray(inquiry.requested_services) ? inquiry.requested_services.map((item) => String(item || '').trim()).filter(Boolean) : []
+      },
+      customer: { organization: organization || null, department: null, contact_name: contactName, display_name: customerDisplay },
+      estimate: {
+        estimate_id: estimate.id, revision_number: Number(estimate.revision_number), amount_minor: Number(estimate.amount_minor),
+        currency: estimate.currency, original_filename: documentRow.original_filename, document_id: documentRow.id,
+        mime_type: documentRow.mime_type, sha256: documentRow.sha256, sent_at: estimate.source_sent_at || estimate.issued_at || documentRow.created_at
+      },
+      terms: agreement,
+      issuance: { issued_at: null, expires_at: null },
+      acceptance: { confirmer_name: '', confirmed_at: null, agreed: false },
+      customer_acknowledgement: { estimate_revision_id: estimate.id, amount_minor: Number(estimate.amount_minor), source: 'owner_pre_issue_preview' },
+      conditions: estimate.conditions_snapshot || {},
+      event_name: String(inquiry.event_name || '').trim(), event_date: String(inquiry.event_date || ''),
+      recipient: String(inquiry.email || '').trim(), customer_name: customerDisplay, confirmer_name: contactName,
+      amount: Number(estimate.amount_minor), amount_minor: Number(estimate.amount_minor), currency: estimate.currency,
+      estimate_revision_id: estimate.id, estimate_revision_number: Number(estimate.revision_number), estimate_sha256: documentRow.sha256,
+      order_scope: { performance_time: String(inquiry.event_time || '').trim(), venue: String(inquiry.venue || '').trim(), services: String(inquiry.request_summary || '').trim() },
+      request_summary: String(inquiry.request_summary || '').trim(), payment_due_date: agreement.payment_due_date,
+      payment_summary: agreement.payment_summary, payment_terms: agreement.payment_terms,
+      cancellation_terms: agreement.cancellation_terms, cancellation_bands: agreement.cancellation_bands,
+      business_terms: agreement.business_terms, other_terms_sections: agreement.other_terms_sections,
+      terms_text: agreement.terms_text, quote: { filename: documentRow.original_filename, mime_type: documentRow.mime_type, sha256: documentRow.sha256, size: quoteBytes.length },
+      related_documents: []
+    };
+    const authority = {
+      preview_version: PRE_ISSUE_PREVIEW_VERSION,
+      case_id: safeCaseId,
+      case_revision: inquiry.updated_at || null,
+      commercial_state_revision: Number(current.state.revision),
+      event: customerSnapshot.case,
+      customer: customerSnapshot.customer,
+      inquiry_recipient_email: String(inquiry.email || '').trim(),
+      recipient_email: email.recipient,
+      recipient_thread: email.gmail_thread_id,
+      reply_source_message_id: email.reply_source_message_id,
+      cc: email.cc_addresses || [],
+      current_estimate: customerSnapshot.estimate,
+      estimate_conditions: estimate.conditions_snapshot || {},
+      terms_version: agreement.terms_version,
+      terms_content_sha256: pdf.sha(Buffer.from(canonical(agreement), 'utf8')),
+      payment_due_date: agreement.payment_due_date,
+      receipt_template_version: RECEIPT_TEMPLATE_VERSION,
+      receipt_template_sha256: pdf.RECEIPT_V41_TEMPLATE_SHA,
+      customer_confirmation_template_version: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION,
+      customer_service_summary: pdf.customerServiceSummary(customerSnapshot.case),
+      email_subject: email.subject,
+      email_body_template: bodyTemplate,
+      email_html_sha256: pdf.sha(Buffer.from(email.html, 'utf8'))
+    };
+    const fingerprint = pdf.sha(Buffer.from(canonical(authority), 'utf8'));
+    return { current, inquiry, estimate, documentRow, quoteBytes, agreement, bodyTemplate, email, customerSnapshot, authority, fingerprint };
+  }
+
+  async function confirmationPreview(input, actor) {
+    const result = await confirmationAuthority(input.case_id, actor);
+    return {
+      preview_route: '/api/pa-mail?surface=commercial',
+      fingerprint: result.fingerprint,
+      fingerprint_short: result.fingerprint.slice(0, 12),
+      fingerprint_fields: Object.keys(result.authority),
+      customer_snapshot: result.customerSnapshot,
+      service_summary: pdf.customerServiceSummary(result.customerSnapshot.case),
+      recipient: {
+        customer_name: result.customerSnapshot.customer.contact_name,
+        organization: result.customerSnapshot.customer.organization,
+        to: result.email.recipient, gmail_thread_id: result.email.gmail_thread_id,
+        reply_source_message_id: result.email.reply_source_message_id, cc: result.email.cc_addresses || []
+      },
+      estimate: { ...result.customerSnapshot.estimate, bytes: result.quoteBytes.length },
+      email: { subject: result.email.subject, body: result.email.body, html: result.email.html },
+      versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
+    };
+  }
+
+  async function confirmationReceiptPreview(input, actor) {
+    const result = await confirmationAuthority(input.case_id, actor);
+    if (result.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
+    const receipt = await createReceipt(result.customerSnapshot, result.quoteBytes);
+    return { bytes: receipt.bytes, filename: `正式受注確認書_送信前プレビュー_${result.customerSnapshot.case.event_name}.pdf`, mime_type: 'application/pdf' };
+  }
+
   async function issueEstimate(input, actor) {
     const bytes = Buffer.from(text(input.content_base64, 8000000), 'base64');
     await pdf.validatePdf(bytes, text(input.sha256, 64));
@@ -377,43 +505,54 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
     const priorJob = await one('pa_commercial_outbox', { operation_id: 'eq.' + operationId, select: '*' });
     if (priorJob) {
       const priorOffer = await one('pa_contract_offers', { id: 'eq.' + priorJob.aggregate_id, select: '*' });
-      const expectedBody = text(input.body_template, 20000);
-      if (priorJob.job_kind !== 'confirmation' || !priorOffer || priorOffer.id !== input.offer_id
-        || priorOffer.estimate_revision_id !== input.estimate_revision_id || priorJob.body_text !== expectedBody
-        || canonical(priorOffer.snapshot?.customer_acknowledgement) !== canonical(input.customer_acknowledgement)) throw Error('idempotency_payload_mismatch');
+      if (priorJob.job_kind !== 'confirmation' || !priorOffer || priorOffer.inquiry_id !== input.case_id) throw Error('idempotency_payload_mismatch');
       return { id: priorOffer.id, version: priorOffer.version, outbox_id: priorJob.id, already_committed: true, secret_url_returned_once: null };
     }
-    const current = await snapshot(input.case_id);
-    if (current.state.revision !== integer(input.expected_revision) || current.state.current_estimate_revision_id !== input.estimate_revision_id) {
-      throw Error('commercial_state_changed');
+    let prepared;
+    try {
+      prepared = await confirmationAuthority(input.case_id, actor);
+    } catch (error) {
+      if (['invalid_contract', 'estimate_not_found', 'document_identity_mismatch', 'gmail_thread_not_linked', 'reply_target_unavailable', 'invalid_reply_source', 'confirmation_already_active', 'contract_already_accepted'].includes(error.message)) {
+        throw Error('stale_confirmation_preview');
+      }
+      throw error;
     }
-    const estimate = current.estimates.find((item) => item.id === input.estimate_revision_id);
-    const document = current.documents.find((item) => item.id === estimate?.document_id);
-    if (!estimate || !document) throw Error('estimate_not_found');
-    const inquiry = await mail.getInquiry(uuid(input.case_id), fetchImpl);
-    const agreement = issuanceTermsV4(text(inquiry.event_date, 10));
+    if (prepared.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
+    const { current, estimate, inquiry, agreement, bodyTemplate } = prepared;
     const token = crypto.randomBytes(32).toString('hex');
     const origin = String(process.env.PA_PUBLIC_ORIGIN || 'https://ara-tech.cc').replace(/\/+$/u, '');
     const confirmationUrl = origin + '/pa-contract.html#' + token;
-    const bodyTemplate = text(input.body_template, 20000);
-    if (!bodyTemplate.includes('{{CONFIRMATION_URL}}')) throw Error('invalid_commercial_request');
     const body = bodyTemplate.replace('{{CONFIRMATION_URL}}', confirmationUrl);
-    const preview = await mailPreview({ caseId: input.case_id, actor, body, replySource: input.reply_source || null, ccAddresses: input.cc_addresses || [] });
-    const offerId = uuid(input.offer_id);
-    const result = await rpc('pa_v5_issue_confirmation', {
-      p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: current.state.revision,
-      p_estimate: uuid(estimate.id), p_offer: offerId, p_operation: operationId,
-      p_token_hash: pdf.sha(token), p_secret_envelope: encryptSecret(confirmationUrl),
-      p_snapshot: {
-        snapshot_schema_version: FORMAL_SNAPSHOT_VERSION,
-        customer_acknowledgement: object(input.customer_acknowledgement),
-        conditions: estimate.conditions_snapshot,
-        ...agreement
-      },
-      p_recipient: preview.recipient, p_subject: preview.subject,
-      p_body: bodyTemplate, p_reply_binding: replyBinding(preview)
-    });
-    return { ...result, secret_url_returned_once: confirmationUrl };
+    let preview;
+    try {
+      preview = await mailPreview({ caseId: input.case_id, actor, body, ccAddresses: prepared.email.cc_addresses || [] });
+    } catch (error) {
+      if (['invalid_reply_cc', 'gmail_thread_not_linked', 'reply_target_unavailable', 'invalid_reply_source'].includes(error.message)) throw Error('stale_confirmation_preview');
+      throw error;
+    }
+    if (preview.gmail_thread_id !== prepared.email.gmail_thread_id || preview.reply_source_message_id !== prepared.email.reply_source_message_id
+      || preview.recipient !== prepared.email.recipient || preview.subject !== prepared.email.subject) throw Error('stale_confirmation_preview');
+    const offerId = crypto.randomUUID();
+    let result;
+    try {
+      result = await rpc('pa_v5_issue_confirmation', {
+        p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: current.state.revision,
+        p_estimate: uuid(estimate.id), p_offer: offerId, p_operation: operationId,
+        p_token_hash: pdf.sha(token), p_secret_envelope: encryptSecret(confirmationUrl),
+        p_snapshot: {
+          snapshot_schema_version: FORMAL_SNAPSHOT_VERSION,
+          customer_acknowledgement: { estimate_revision_id: estimate.id, amount_minor: Number(estimate.amount_minor), source: 'owner_pre_issue_preview', preview_fingerprint: prepared.fingerprint },
+          conditions: estimate.conditions_snapshot,
+          ...agreement
+        },
+        p_recipient: preview.recipient, p_subject: preview.subject,
+        p_body: bodyTemplate, p_reply_binding: replyBinding(preview)
+      });
+    } catch (error) {
+      if (['commercial_state_changed', 'confirmation_already_active', 'contract_already_accepted', 'estimate_not_found', 'document_identity_mismatch', 'estimate_delivery_not_confirmed', 'invalid_contract'].includes(error.message)) throw Error('stale_confirmation_preview');
+      throw error;
+    }
+    return { ...result, secret_url_returned_once: result.already_committed ? null : confirmationUrl };
   }
 
   async function createBilling(input, actor) {
@@ -642,7 +781,7 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
   }
 
   return {
-    snapshot, document, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
+    snapshot, document, confirmationPreview, confirmationReceiptPreview, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     revoke: (input, actor) => rpc('pa_v5_revoke_confirmation', { p_actor: actor.id, p_case: uuid(input.case_id), p_offer: uuid(input.offer_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) }),
     settle: (input, actor) => rpc('pa_v5_confirm_fulfillment_and_settlement', { p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_amount_minor: integer(input.amount_minor), p_unresolved: input.unresolved_changes === true, p_evidence: object(input.evidence) }),
@@ -654,4 +793,4 @@ function createService({ fetchImpl = fetch, sendTransport } = {}) {
   };
 }
 
-module.exports = { createService, SAFE, encryptSecret, decryptSecret, buildRelatedMaterials, businessAttachment, materialCategory };
+module.exports = { createService, SAFE, encryptSecret, decryptSecret, buildRelatedMaterials, businessAttachment, materialCategory, PRE_ISSUE_PREVIEW_VERSION, CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, RECEIPT_TEMPLATE_VERSION };
