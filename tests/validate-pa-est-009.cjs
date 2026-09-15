@@ -20,7 +20,16 @@ async function main() {
     let fixture;
     try {
         fixture = await createFixture();
-        await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql') + '\n' + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n' + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'));
+        const r7 = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+        const r7Cut = r7.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+        assert(r7Cut > 0);
+        await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n'
+            + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
+            + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n'
+            + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql') + '\n'
+            + read('20260914170000_pa_est_007r1_production_e2e.sql') + '\n'
+            + r7.slice(0, r7Cut) + '\ncommit;\n'
+            + read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
         process.env.PA_COMMERCIAL_OUTBOX_KEY = '77'.repeat(32);
         process.env.PA_PUBLIC_ORIGIN = 'https://example.invalid';
         let transportCalls = 0;
@@ -54,7 +63,8 @@ async function main() {
         assert.equal(fixture.state.sendCount, 0, 'issue and issued preview must not call Gmail');
         process.env.PA_MAIL_ADAPTER = 'gmail';
         const adapterService = createService({ fetchImpl: fixture.fetchImpl });
-        const delivery = await adapterService.dispatch({ job_id: issued.outbox_id }, actor);
+        const delivery = await adapterService.dispatch({ case_id: fixture.inquiryId, offer_id: issued.id,
+            job_id: issued.outbox_id, preview_fingerprint: sendPreview.fingerprint }, actor);
         assert.equal(delivery.state, 'sent');
         assert.equal(fixture.state.sendCount, 1, 'explicit dispatch sends exactly once with a fresh preview authorization');
 
@@ -65,13 +75,14 @@ async function main() {
         assert.equal(afterRevoke.offers.filter((item) => item.state === 'accepted').length, 0);
 
         const secondPreview = await service.confirmationPreview({ case_id: fixture.inquiryId }, actor);
-        await assert.rejects(
-            service.issueConfirmation({ case_id: fixture.inquiryId, preview_fingerprint: secondPreview.fingerprint, operation_id: crypto.randomUUID() }, actor),
-            /service_unavailable/u,
-            'the current schema must fail closed instead of silently bypassing the same-estimate unique index'
-        );
-        const index = await fixture.db.query("select indexdef from pg_indexes where schemaname='public' and indexname='pa_contract_offers_one_active_estimate'");
-        assert.match(index.rows[0].indexdef, /WHERE \(estimate_revision_id IS NOT NULL\)/u);
+        const reissued = await service.issueConfirmation({ case_id: fixture.inquiryId,
+            preview_fingerprint: secondPreview.fingerprint, operation_id: crypto.randomUUID() }, actor);
+        assert.equal(reissued.version, 2);
+        assert.equal(reissued.estimate_revision_id, issued.estimate_revision_id);
+        const oldIndex = await fixture.db.query("select count(*)::int n from pg_indexes where schemaname='public' and indexname='pa_contract_offers_one_active_estimate'");
+        assert.equal(oldIndex.rows[0].n, 0);
+        const historyIndex = await fixture.db.query("select indexdef from pg_indexes where schemaname='public' and indexname='pa_contract_offers_estimate_history'");
+        assert.match(historyIndex.rows[0].indexdef, /estimate_revision_id, version/u);
 
         const admin = fs.readFileSync(path.join(root, 'js', 'pa-commercial-admin.js'), 'utf8');
         const adminShell = fs.readFileSync(path.join(root, 'js', 'pa-admin.js'), 'utf8');
@@ -81,7 +92,7 @@ async function main() {
         assert.doesNotMatch(admin, /issue_confirmation"[^\n]+dispatch_outbox/u);
         assert.match(adminShell, /caseResult\.error \|\| trashResult\.error \|\| progressResult\.error[\s\S]+PA案件一覧を読み込めませんでした/u);
         assert.doesNotMatch(adminShell, /if \(error \|\| !item\) \{\s*setMessage\(listStatus/u);
-        console.log(JSON.stringify({ pass: true, stale_archive_reference: 'cleared', two_stage_issue: 'active_queued_without_gmail', explicit_fake_dispatch: 1, same_estimate_reissue: 'BLOCKED_BY_UNIQUE_INDEX', gmail_sent_by_issue: 0, contract_count: 0 }));
+        console.log(JSON.stringify({ pass: true, stale_archive_reference: 'cleared', two_stage_issue: 'active_queued_without_gmail', explicit_fake_dispatch: 1, same_estimate_reissue: 'ALLOWED_WITH_HISTORY', gmail_sent_by_issue: 0, contract_count: 0 }));
     } finally {
         if (fixture) await fixture.db.close();
     }

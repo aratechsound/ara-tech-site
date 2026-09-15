@@ -4,7 +4,7 @@ const { streamAttachmentResponse } = require('./_pa-gmail.cjs');
 const { applyOriginPolicy, checkRateLimit } = require('./_request-security.cjs');
 
 const ACTIONS = new Set([
-  'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'revoke_confirmation',
+  'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
   'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
   'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview',
@@ -47,6 +47,7 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'begin_revision': result = await service.beginRevision(input, actor); break;
         case 'issue_estimate': result = await service.issueEstimate(input, actor); break;
         case 'issue_confirmation': result = await service.issueConfirmation(input, actor); break;
+        case 'replace_confirmation': result = await service.replaceConfirmation(input, actor); break;
         case 'revoke_confirmation': result = await service.revoke(input, actor); break;
         case 'confirm_settlement': result = await service.settle(input, actor); break;
         case 'create_billing': result = await service.createBilling(input, actor); break;

@@ -23,7 +23,16 @@ async function main() {
     const pageErrors = [], apiActions = [];
     try {
         fixture = await createFixture();
-        await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql') + '\n' + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n' + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'));
+        const r7 = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+        const r7Cut = r7.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+        assert(r7Cut > 0);
+        await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n'
+            + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
+            + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n'
+            + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql') + '\n'
+            + read('20260914170000_pa_est_007r1_production_e2e.sql') + '\n'
+            + r7.slice(0, r7Cut) + '\ncommit;\n'
+            + read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
         const service = createService({ fetchImpl: fixture.fetchImpl, sendTransport: async (job) => ({ gmail_message_id: `fake-${job.id}`, gmail_thread_id: 'thread_123' }) });
         const estimate = await service.issueEstimate({ case_id: fixture.inquiryId, expected_revision: 0, expected_current: null, operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: '見積書 2026.09.11 龍姫湖まつり（改訂）.pdf', content_base64: fixture.quote.toString('base64'), sha256: sha(fixture.quote), amount_minor: 198550, currency: 'JPY', tax_basis: 'tax_included', conditions: { source: 'pa-est-006-browser' }, source_kind: 'managed_send', source_sent_at: '2026-09-11T12:00:00Z', body: '見積書を送付します。', cc_addresses: [] }, { id: fixture.actorId });
         await service.dispatch({ job_id: estimate.outbox_id }, { id: fixture.actorId });
@@ -85,7 +94,31 @@ async function main() {
         await page.getByLabel('上記の内容を確認しました。').check(); await page.getByRole('button', { name: '正式受注確認を送る' }).last().click();
         await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' }); assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0);
         await page.getByRole('button', { name: '戻って確認する' }).click(); await page.getByRole('button', { name: '閉じる' }).click();
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, real_issue: 0, real_email: 0 };
+
+        const firstOffer = (await fixture.db.query('select id,version from public.pa_contract_offers where inquiry_id=$1 order by version desc limit 1', [fixture.inquiryId])).rows[0];
+        const firstJob = (await fixture.db.query("select id from public.pa_commercial_outbox where inquiry_id=$1 and aggregate_id=$2 and job_kind='confirmation'", [fixture.inquiryId, firstOffer.id])).rows[0];
+        await fixture.db.query("update public.pa_commercial_outbox set state='unknown' where id=$1", [firstJob.id]);
+        const replaceBefore = await counts(fixture.db, fixture.inquiryId);
+        await page.goto(`${base}/harness.html`);
+        await page.getByRole('button', { name: 'この確認を失効して再発行準備' }).click();
+        await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' });
+        await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint'));
+        assert.match(await page.locator('.pa-confirmation-preview-dialog').innerText(), /失効し、新しい確認を同じ見積で準備します。案内メールは送信しません/u);
+        await page.getByLabel('上記の内容を確認しました。').check();
+        await page.getByRole('button', { name: '旧確認を失効して新しい確認を準備（送信しない）' }).click();
+        await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' });
+        assert.deepEqual(await counts(fixture.db, fixture.inquiryId), replaceBefore, 'replacement final dialog opens without mutation');
+        await page.getByRole('button', { name: '旧確認を失効して新しい確認を発行する（送信しない）' }).click();
+        await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        const replaceAfter = await counts(fixture.db, fixture.inquiryId);
+        assert.equal(replaceAfter.offers, replaceBefore.offers + 1);
+        assert.equal(replaceAfter.tokens, replaceBefore.tokens + 1);
+        assert.equal(replaceAfter.outbox, replaceBefore.outbox + 1);
+        assert.equal(replaceAfter.contracts, replaceBefore.contracts);
+        assert.equal((await fixture.db.query("select state from public.pa_commercial_outbox where id=$1", [firstJob.id])).rows[0].state, 'unknown');
+        assert.equal(Number((await fixture.db.query("select count(*) n from public.pa_contract_tokens t join public.pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1 and t.state='active'", [fixture.inquiryId])).rows[0].n), 1);
+        assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0, 'replacement never dispatches provider');
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, old_unknown_preserved: true, active_token_count: 1, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
 }

@@ -37,6 +37,8 @@ const SAFE = new Set([
   'delivery_outcome_unresolved', 'document_identity_mismatch', 'invalid_estimate',
   'estimate_delivery_not_confirmed', 'estimate_not_found', 'confirmation_already_active',
   'contract_already_accepted', 'invalid_contract', 'invalid_confirmation', 'accepted_contract_immutable',
+  'invalid_confirmation_replacement', 'replacement_target_changed', 'confirmation_delivery_in_progress',
+  'confirmation_send_owner_approval_required', 'confirmation_send_authority_changed',
   'revoke_reason_required', 'invalid_revision_start', 'outbox_not_found', 'outbox_busy',
   'outbox_unknown_requires_reconciliation', 'outbox_lease_changed', 'invalid_outbox_result',
   'mail_outcome_unknown',
@@ -503,13 +505,24 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     cc_addresses: preview.cc_addresses || []
   });
 
-  async function confirmationAuthority(caseId, actor) {
+  async function confirmationAuthority(caseId, actor, options = {}) {
     const safeCaseId = uuid(caseId);
+    const replaceOfferId = options.replace_offer_id ? uuid(options.replace_offer_id) : null;
     const current = await snapshot(safeCaseId);
     const estimate = current.estimates.find((item) => item.id === current.state.current_estimate_revision_id);
     if (!estimate) throw Error('estimate_not_found');
     if (current.offers.some((item) => item.state === 'accepted')) throw Error('contract_already_accepted');
-    if (current.offers.some((item) => item.state === 'active')) throw Error('confirmation_already_active');
+    const activeOffers = current.offers.filter((item) => item.state === 'active');
+    if (replaceOfferId) {
+      if (activeOffers.length !== 1 || activeOffers[0].id !== replaceOfferId
+        || activeOffers[0].estimate_revision_id !== estimate.id) throw Error('replacement_target_changed');
+      const deliveryInProgress = current.outbox.some((item) => item.aggregate_id === replaceOfferId
+        && ['confirmation', 'confirmation_reminder'].includes(item.job_kind)
+        && item.state === 'processing' && Number(new Date(item.lease_expires_at)) > Date.now());
+      if (deliveryInProgress) {
+        throw Error('confirmation_delivery_in_progress');
+      }
+    } else if (activeOffers.length) throw Error('confirmation_already_active');
     const [inquiry, documentRow] = await Promise.all([
       mail.getInquiry(safeCaseId, fetchImpl),
       one('pa_commercial_documents', {
@@ -549,7 +562,11 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       terms: agreement,
       issuance: { issued_at: null, expires_at: null },
       acceptance: { confirmer_name: '', confirmed_at: null, agreed: false },
-      customer_acknowledgement: { estimate_revision_id: estimate.id, amount_minor: Number(estimate.amount_minor), source: 'owner_pre_issue_preview' },
+      customer_acknowledgement: {
+        estimate_revision_id: estimate.id, amount_minor: Number(estimate.amount_minor),
+        source: replaceOfferId ? 'owner_confirmation_replacement_preview' : 'owner_pre_issue_preview',
+        ...(replaceOfferId ? { replaced_offer_id: replaceOfferId } : {})
+      },
       conditions: estimate.conditions_snapshot || {},
       event_name: String(inquiry.event_name || '').trim(), event_date: String(inquiry.event_date || ''),
       recipient: String(inquiry.email || '').trim(), customer_name: customerDisplay, confirmer_name: contactName,
@@ -586,7 +603,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       customer_service_summary: pdf.customerServiceSummary(customerSnapshot.case),
       email_subject: email.subject,
       email_body_template: bodyTemplate,
-      email_html_sha256: pdf.sha(Buffer.from(email.html, 'utf8'))
+      email_html_sha256: pdf.sha(Buffer.from(email.html, 'utf8')),
+      replacement_offer_id: replaceOfferId
     };
     const fingerprint = pdf.sha(Buffer.from(canonical(authority), 'utf8'));
     return { current, inquiry, estimate, documentRow, quoteBytes, confirmationAttachment, agreement, bodyTemplate, email, customerSnapshot, authority, fingerprint };
@@ -603,7 +621,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       one('pa_contract_offers', { id: 'eq.' + offerId, inquiry_id: 'eq.' + caseId, select: '*' }),
       one('pa_commercial_outbox', { inquiry_id: 'eq.' + caseId, aggregate_id: 'eq.' + offerId, job_kind: 'eq.confirmation', select: '*' })
     ]);
-    if (!offer || !job || job.state !== 'queued' || !job.secret_envelope || Number(new Date(offer.expires_at)) <= Date.now()) throw Error('invalid_contract');
+    if (!offer || !job || !['queued', 'failed'].includes(job.state) || !job.secret_envelope || Number(new Date(offer.expires_at)) <= Date.now()) throw Error('invalid_contract');
     const estimate = current.estimates.find((item) => item.id === offer.estimate_revision_id);
     const documentRow = estimate && current.documents.find((item) => item.id === estimate.document_id);
     if (!estimate || !documentRow || current.state.current_estimate_revision_id !== estimate.id
@@ -637,9 +655,11 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   }
 
   async function confirmationPreview(input, actor) {
-    const result = await confirmationAuthority(input.case_id, actor);
+    const result = await confirmationAuthority(input.case_id, actor, { replace_offer_id: input.replace_offer_id });
     return {
       preview_route: '/api/pa-mail?surface=commercial',
+      preview_kind: input.replace_offer_id ? 'replacement_not_sent' : 'new_not_sent',
+      replacement_offer_id: input.replace_offer_id || null,
       fingerprint: result.fingerprint,
       fingerprint_short: result.fingerprint.slice(0, 12),
       fingerprint_fields: Object.keys(result.authority),
@@ -658,7 +678,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   }
 
   async function confirmationReceiptPreview(input, actor) {
-    const result = await confirmationAuthority(input.case_id, actor);
+    const result = await confirmationAuthority(input.case_id, actor, { replace_offer_id: input.replace_offer_id });
     if (result.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
     const receipt = await createReceipt(result.customerSnapshot, result.quoteBytes);
     return { bytes: receipt.bytes, filename: `正式受注確認書_送信前プレビュー_${result.customerSnapshot.case.event_name}.pdf`, mime_type: 'application/pdf' };
@@ -667,7 +687,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   async function confirmationSendPreview(input, actor) {
     const prepared = await issuedConfirmationAuthority(input, actor);
     return {
-      preview_route: '/api/pa-mail?surface=commercial', preview_kind: 'issued_unsent',
+      preview_route: '/api/pa-mail?surface=commercial', preview_kind: 'issued_unsent', case_id: prepared.offer.inquiry_id,
       fingerprint: prepared.fingerprint, fingerprint_short: prepared.fingerprint.slice(0, 12),
       fingerprint_fields: Object.keys(prepared.authority), offer_id: prepared.offer.id,
       confirmation_version: Number(prepared.offer.version), outbox_id: prepared.job.id,
@@ -800,6 +820,83 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       });
     } catch (error) {
       if (['commercial_state_changed', 'confirmation_already_active', 'contract_already_accepted', 'estimate_not_found', 'document_identity_mismatch', 'estimate_delivery_not_confirmed', 'invalid_contract'].includes(error.message)) throw Error('stale_confirmation_preview');
+      throw error;
+    }
+    return { ...result, secret_url_returned_once: result.already_committed ? null : confirmationUrl };
+  }
+
+  async function replaceConfirmation(input, actor) {
+    const operationId = uuid(input.operation_id);
+    const oldOfferId = uuid(input.old_offer_id);
+    const priorJob = await one('pa_commercial_outbox', { operation_id: 'eq.' + operationId, select: '*' });
+    if (priorJob) {
+      const priorOffer = await one('pa_contract_offers', { id: 'eq.' + priorJob.aggregate_id, select: '*' });
+      if (priorJob.job_kind !== 'confirmation' || !priorOffer || priorOffer.inquiry_id !== input.case_id
+        || priorOffer.snapshot?.customer_acknowledgement?.replaced_offer_id !== oldOfferId) {
+        throw Error('idempotency_payload_mismatch');
+      }
+      return { id: priorOffer.id, version: priorOffer.version, outbox_id: priorJob.id,
+        replaced_offer_id: oldOfferId, already_committed: true, secret_url_returned_once: null };
+    }
+    let prepared;
+    try {
+      prepared = await confirmationAuthority(input.case_id, actor, { replace_offer_id: oldOfferId });
+    } catch (error) {
+      if (['invalid_contract', 'estimate_not_found', 'document_identity_mismatch', 'gmail_thread_not_linked',
+        'reply_target_unavailable', 'invalid_reply_source', 'replacement_target_changed',
+        'contract_already_accepted', 'confirmation_delivery_in_progress'].includes(error.message)) {
+        throw Error('stale_confirmation_preview');
+      }
+      throw error;
+    }
+    if (prepared.fingerprint !== text(input.preview_fingerprint, 64)) throw Error('stale_confirmation_preview');
+    const { current, estimate, agreement, bodyTemplate } = prepared;
+    const token = crypto.randomBytes(32).toString('hex');
+    const origin = String(process.env.PA_PUBLIC_ORIGIN || 'https://ara-tech.cc').replace(/\/+$/u, '');
+    const confirmationUrl = origin + '/pa-contract.html#' + token;
+    const body = bodyTemplate.replace('{{CONFIRMATION_URL}}', confirmationUrl);
+    let preview;
+    try {
+      preview = await confirmationMailPreview({ caseId: input.case_id, actor, body,
+        attachments: prepared.confirmationAttachment, ccAddresses: prepared.email.cc_addresses || [] });
+    } catch (error) {
+      if (['invalid_reply_cc', 'gmail_thread_not_linked', 'reply_target_unavailable', 'invalid_reply_source'].includes(error.message)) {
+        throw Error('stale_confirmation_preview');
+      }
+      throw error;
+    }
+    if (preview.gmail_thread_id !== prepared.email.gmail_thread_id
+      || preview.reply_source_message_id !== prepared.email.reply_source_message_id
+      || preview.recipient !== prepared.email.recipient || preview.subject !== prepared.email.subject) {
+      throw Error('stale_confirmation_preview');
+    }
+    const offerId = crypto.randomUUID();
+    let result;
+    try {
+      result = await rpc('pa_v5_replace_confirmation', {
+        p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: current.state.revision,
+        p_old_offer: oldOfferId, p_expected_old_version: integer(input.expected_old_version, 1),
+        p_estimate: uuid(estimate.id), p_offer: offerId, p_operation: operationId,
+        p_reason: text(input.reason, 2000), p_token_hash: pdf.sha(token),
+        p_secret_envelope: encryptSecret(confirmationUrl),
+        p_snapshot: {
+          snapshot_schema_version: FORMAL_SNAPSHOT_VERSION,
+          customer_acknowledgement: { estimate_revision_id: estimate.id, amount_minor: Number(estimate.amount_minor),
+            source: 'owner_confirmation_replacement_preview', preview_fingerprint: prepared.fingerprint,
+            replaced_offer_id: oldOfferId },
+          conditions: estimate.conditions_snapshot,
+          ...agreement
+        },
+        p_recipient: preview.recipient, p_subject: preview.subject,
+        p_body: bodyTemplate, p_reply_binding: replyBinding(preview)
+      });
+    } catch (error) {
+      if (['commercial_state_changed', 'confirmation_already_active', 'contract_already_accepted',
+        'estimate_not_found', 'document_identity_mismatch', 'estimate_delivery_not_confirmed',
+        'invalid_contract', 'invalid_confirmation_replacement', 'replacement_target_changed',
+        'accepted_contract_immutable', 'confirmation_delivery_in_progress'].includes(error.message)) {
+        throw Error('stale_confirmation_preview');
+      }
       throw error;
     }
     return { ...result, secret_url_returned_once: result.already_committed ? null : confirmationUrl };
@@ -1026,6 +1123,22 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const jobId = uuid(input.job_id);
     if (internal.legacyRecoveryAuthorization && (jobId !== legacyRecoveryAuthority.outbox_id
       || internal.legacyRecoveryAuthorization.job_id !== jobId)) throw Error('production_e2e_recovery_blocked');
+    const staged = await one('pa_commercial_outbox', {
+      id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,provider_message_id'
+    });
+    if (!staged) throw Error('outbox_not_found');
+    if (staged.job_kind === 'confirmation' && !internal.legacyRecoveryAuthorization && staged.state !== 'sent') {
+      const caseId = uuid(input.case_id);
+      const offerId = uuid(input.offer_id);
+      if (caseId !== staged.inquiry_id || offerId !== staged.aggregate_id) throw Error('confirmation_send_authority_changed');
+      const prepared = await issuedConfirmationAuthority({ case_id: caseId, offer_id: offerId }, actor);
+      const fingerprint = text(input.preview_fingerprint, 64);
+      if (prepared.job.id !== jobId || prepared.fingerprint !== fingerprint) throw Error('stale_confirmation_preview');
+      await rpc('pa_v5_authorize_confirmation_send', {
+        p_actor: actor.id, p_case: caseId, p_offer: offerId, p_job: jobId,
+        p_authority_sha256: fingerprint
+      });
+    }
     const lease = crypto.randomUUID();
     const claimed = await rpc('pa_v5_outbox_claim', { p_actor: actor.id, p_job: jobId, p_lease: lease });
     if (claimed?.state === 'cancelled') return claimed;
@@ -1304,7 +1417,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   });
 
   return {
-    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, createBilling, dispatch,
+    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, replaceConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,
     productionE2eRecoveryPreview, recoverProductionE2eDelivery, archiveProductionE2eCase,

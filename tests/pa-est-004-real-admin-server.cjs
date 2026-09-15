@@ -36,12 +36,18 @@ async function initialize(nextScenario = 'pending') {
   if (fixture) await fixture.db.close();
   fixture = await createFixture();
   process.env.ALLOWED_ORIGINS = `http://127.0.0.1:${port}`;
+  const r7 = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+  const r7Cut = r7.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+  if (r7Cut < 1) throw Error('PA-EST-007R3 schema boundary not found');
   await fixture.db.exec(
     read('20260913110000_pa_case_management_v5.sql') + '\n'
     + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
     + read('20260913170000_pa_case_management_v5_payment_race.sql') + '\n'
     + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n'
-    + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql')
+    + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql') + '\n'
+    + read('20260914170000_pa_est_007r1_production_e2e.sql') + '\n'
+    + r7.slice(0, r7Cut) + '\ncommit;\n'
+    + read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql')
   );
   await fixture.db.exec('create table if not exists public.pa_portals(id uuid primary key,case_id uuid not null unique);');
   const revisedPdf = await PDFDocument.create();
@@ -103,7 +109,9 @@ async function initialize(nextScenario = 'pending') {
       confirmation = await service.issueConfirmation({
         case_id: fixture.inquiryId, preview_fingerprint: preview.fingerprint, operation_id: crypto.randomUUID()
       }, { id: fixture.actorId });
-      await service.dispatch({ job_id: confirmation.outbox_id }, { id: fixture.actorId });
+      const sendPreview = await service.confirmationSendPreview({ case_id: fixture.inquiryId, offer_id: confirmation.id }, { id: fixture.actorId });
+      await service.dispatch({ case_id: fixture.inquiryId, offer_id: confirmation.id,
+        job_id: confirmation.outbox_id, preview_fingerprint: sendPreview.fingerprint }, { id: fixture.actorId });
     }
     if (nextScenario === 'recovered') {
       const documentId = crypto.randomUUID();

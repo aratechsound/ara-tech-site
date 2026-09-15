@@ -300,10 +300,11 @@ const contractApi = async (context, action, input = {}, binary = false) => {
 };
 const saveBlob = (blob, filename) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => { const link = document.createElement("a"); link.href = String(reader.result); link.download = filename; link.click(); resolve(); }; reader.readAsDataURL(blob); });
 
-const openConfirmationPreview = async (context, issuedConfirmation = null) => {
+const openConfirmationPreview = async (context, issuedConfirmation = null, replacementConfirmation = null) => {
     if (confirmationPreviewOpening || !context?.getCurrentCase()?.id) return false;
     confirmationPreviewOpening = true;
     const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
+    const replacementMode = !issuedMode && Boolean(replacementConfirmation?.offer_id && replacementConfirmation?.version);
     const caseId = context.getCurrentCase().id;
     const dialog = element("dialog", "pa-confirmation-preview-dialog");
     dialog.setAttribute("aria-labelledby", "pa-confirmation-preview-title");
@@ -314,7 +315,9 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
         title,
         element("p", "", issuedMode
             ? `正式受注確認 #${issuedConfirmation.version}は発行済みです。案内メールはまだ送信されていません。`
-            : "まだ正式受注確認は発行・送信されていません。")
+            : replacementMode
+                ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい確認を同じ見積で準備します。案内メールは送信しません。`
+                : "まだ正式受注確認は発行・送信されていません。")
     );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
     headerActions.append(refreshButton, closeButton); header.append(heading, headerActions);
@@ -333,13 +336,15 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
     const finalDialog = (model) => new Promise((resolve, reject) => {
         const final = element("dialog", "pa-confirmation-final-dialog"), wrap = element("div", "pa-confirmation-final-dialog__body");
         wrap.append(
-            element("h2", "", issuedMode ? "正式受注確認メール送信の最終確認" : "正式受注確認発行の最終確認"),
+            element("h2", "", issuedMode ? "正式受注確認メール送信の最終確認" : replacementMode ? "正式受注確認置換の最終確認" : "正式受注確認発行の最終確認"),
             element("p", "", issuedMode
                 ? `${honorific(model.recipient.customer_name)}へ正式受注確認 #${model.confirmation_version}の案内メールを送信します。`
-                : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
+                : replacementMode
+                    ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい専用URLと送信待ちメールを原子的に準備します。この操作では案内メールを送信しません。`
+                    : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
         );
         const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", money(model.estimate.amount_minor, model.estimate.currency)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
-        const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode ? "正式受注確認を送信する" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
+        const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
         actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
         let settled = false;
         const fail = (error) => { if (settled) return; settled = true; final.remove(); reject(error); };
@@ -361,7 +366,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
             api(context, "document", { document_id: model.estimate.document_id }, true),
             api(context, issuedMode ? "confirmation_send_receipt_preview" : "confirmation_receipt_preview", {
                 preview_fingerprint: model.fingerprint,
-                ...(issuedMode ? { offer_id: issuedConfirmation.offer_id } : {})
+                ...(issuedMode ? { offer_id: issuedConfirmation.offer_id } : {}),
+                ...(replacementMode ? { replace_offer_id: replacementConfirmation.offer_id } : {})
             }, true)
         ]);
         if (epoch !== loadEpoch || !dialog.open) return;
@@ -382,7 +388,7 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
         const receiptFrame = element("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; receiptFrame.src = `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`; receipt.append(receiptFrame);
         const gate = section("Owner最終確認"); gate.classList.add("pa-confirmation-preview__gate");
         const identity = element("p", "pa-confirmation-preview__fingerprint", `内容確認ID：${model.fingerprint_short}`), checkLabel = element("label", "pa-confirmation-preview__check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkLabel.append(checkbox, element("span", "", "上記の内容を確認しました。"));
-        const actionLabel = issuedMode ? "正式受注確認を送る" : "この内容で正式受注確認を発行する（送信しない）";
+        const actionLabel = issuedMode ? "正式受注確認を送る" : replacementMode ? "旧確認を失効して新しい確認を準備（送信しない）" : "この内容で正式受注確認を発行する（送信しない）";
         const dialogError = element("p", "pa-confirmation-preview__error hidden"); dialogError.setAttribute("role", "alert");
         const finalButton = button(actionLabel, async () => {
             if (busy || !checkbox.checked || model !== preview) return;
@@ -392,10 +398,19 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
                 if (!await finalDialog(model)) return;
                 phase = issuedMode ? "dispatch" : "issue";
                 finalButton.textContent = issuedMode ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
-                if (issuedMode) await api(context, "dispatch_outbox", { job_id: model.outbox_id });
+                if (issuedMode) await api(context, "dispatch_outbox", {
+                    job_id: model.outbox_id, offer_id: model.offer_id,
+                    preview_fingerprint: model.fingerprint
+                });
                 else {
                     operationId ||= crypto.randomUUID();
-                    await api(context, "issue_confirmation", { preview_fingerprint: model.fingerprint, operation_id: operationId });
+                    if (replacementMode) await api(context, "replace_confirmation", {
+                        preview_fingerprint: model.fingerprint, operation_id: operationId,
+                        old_offer_id: replacementConfirmation.offer_id,
+                        expected_old_version: replacementConfirmation.version,
+                        reason: "Owner判断による旧確認終了・同一見積で再発行"
+                    });
+                    else await api(context, "issue_confirmation", { preview_fingerprint: model.fingerprint, operation_id: operationId });
                 }
                 dialog.close(); await context.refreshCommercial();
             } catch (error) {
@@ -411,7 +426,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null) => {
     async function load() {
         const epoch = ++loadEpoch; preview = null; operationId = null; revokeUrls(); body.replaceChildren(status); status.className = "pa-confirmation-preview__loading"; status.textContent = "Production authorityを読み込んでいます…"; refreshButton.disabled = true;
         try {
-            const model = await api(context, issuedMode ? "confirmation_send_preview" : "confirmation_preview", issuedMode ? { offer_id: issuedConfirmation.offer_id } : {});
+            const model = await api(context, issuedMode ? "confirmation_send_preview" : "confirmation_preview",
+                issuedMode ? { offer_id: issuedConfirmation.offer_id } : replacementMode ? { replace_offer_id: replacementConfirmation.offer_id } : {});
             if (epoch !== loadEpoch || !dialog.open || context.getCurrentCase()?.id !== caseId) return;
             preview = model; await renderPreview(model, epoch);
         }
@@ -795,6 +811,12 @@ const render = async (context, data, epoch) => {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
         actions.append(button("案内内容を確認", () => context.openFileSearch()));
+        if (!data.production_e2e_test && current && active.estimate_revision_id === current.id) {
+            actions.append(button("この確認を失効して再発行準備", () => openConfirmationPreview(context, null, {
+                offer_id: active.id,
+                version: active.version
+            }), "button button--small"));
+        }
         if (activeDelivery?.state === "queued") {
             actions.append(button("正式受注確認を送る", () => openConfirmationPreview(context, {
                 offer_id: active.id,

@@ -15,11 +15,20 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
   const fixture = await createFixture();
   try {
     process.env.ALLOWED_ORIGINS = 'http://127.0.0.1:8766';
-    await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n' + read('20260913130000_pa_case_management_v5_r1.sql') + '\n' + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n' + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql'));
+    const r7 = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+    const r7Cut = r7.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+    assert(r7Cut > 0);
+    await fixture.db.exec(read('20260913110000_pa_case_management_v5.sql') + '\n'
+      + read('20260913130000_pa_case_management_v5_r1.sql') + '\n'
+      + read('20260913190000_pa_estimate_recovery_ux.sql') + '\n'
+      + read('20260914100000_pa_est_005a_confirmation_snapshot_compat.sql') + '\n'
+      + read('20260914170000_pa_est_007r1_production_e2e.sql') + '\n'
+      + r7.slice(0, r7Cut) + '\ncommit;\n'
+      + read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
     let mode = 'success'; let transportCalls = 0; let loseFinishResponseFor = null;
     const guardedFetch = async (url, options = {}) => {
       const response = await fixture.fetchImpl(url, options);
-      if (new URL(String(url)).pathname.endsWith('/rpc/pa_v5_outbox_finish') && loseFinishResponseFor) {
+      if (/\/rpc\/pa_v5_outbox_finish(?:_v2)?$/u.test(new URL(String(url)).pathname) && loseFinishResponseFor) {
         const body = JSON.parse(String(options.body || '{}'));
         if (body.p_job === loseFinishResponseFor && body.p_state === 'sent') {
           loseFinishResponseFor = null;
@@ -80,7 +89,10 @@ process.env.PA_COMMERCIAL_OUTBOX_KEY = '55'.repeat(32);
     response = await request(confirmationRequest); assert.equal(response.body.result.already_committed, true); assert.equal(response.body.result.secret_url_returned_once, null);
     response = await request({ ...confirmationRequest, operation_id: crypto.randomUUID(), preview_fingerprint: '0'.repeat(64) });
     assert.equal(response.statusCode, 409); assert.equal(response.body.code, 'stale_confirmation_preview');
-    await request({ action: 'dispatch_outbox', case_id: fixture.inquiryId, job_id: confirmation.outbox_id });
+    const sendPreviewResponse = await request({ action: 'confirmation_send_preview', case_id: fixture.inquiryId, offer_id: offerId });
+    assert.equal(sendPreviewResponse.statusCode, 200);
+    await request({ action: 'dispatch_outbox', case_id: fixture.inquiryId, offer_id: offerId,
+      job_id: confirmation.outbox_id, preview_fingerprint: sendPreviewResponse.body.result.fingerprint });
     process.env.PA_MAIL_ADAPTER = 'gmail';
     const defaultTransportService = createService({ fetchImpl: fixture.fetchImpl });
     const reminder = await defaultTransportService.remindConfirmation({

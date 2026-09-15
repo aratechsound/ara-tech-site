@@ -11,7 +11,8 @@ const migrationChain = [
   '20260913190000_pa_estimate_recovery_ux.sql',
   '20260914100000_pa_est_005a_confirmation_snapshot_compat.sql',
   '20260914170000_pa_est_007r1_production_e2e.sql',
-  '20260914213000_pa_est_007r3_delivery_recovery.sql'
+  '20260914213000_pa_est_007r3_delivery_recovery.sql',
+  '20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'
 ];
 
 (async () => {
@@ -34,7 +35,11 @@ const migrationChain = [
     const confirmation = await service.issueConfirmation({
       case_id: fixture.inquiryId, preview_fingerprint: confirmationPreview.fingerprint, operation_id: crypto.randomUUID()
     }, { id: fixture.actorId });
-    const confirmationSent = await service.dispatch({ job_id: confirmation.outbox_id }, { id: fixture.actorId });
+    const sendPreview = await service.confirmationSendPreview({ case_id: fixture.inquiryId, offer_id: confirmation.id }, { id: fixture.actorId });
+    const confirmationSent = await service.dispatch({
+      case_id: fixture.inquiryId, offer_id: confirmation.id, job_id: confirmation.outbox_id,
+      preview_fingerprint: sendPreview.fingerprint
+    }, { id: fixture.actorId });
     assert.equal(confirmationSent.state, 'sent', 'formal confirmation token is bound to the actual estimate attachment');
     const confirmationRow = (await fixture.db.query('select * from public.pa_commercial_outbox where id=$1', [confirmation.outbox_id])).rows[0];
     assert.equal(confirmationRow.delivery_state, 'sent'); assert.equal(confirmationRow.provider_response_received, true);
