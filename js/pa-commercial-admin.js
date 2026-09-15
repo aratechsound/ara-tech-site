@@ -1,5 +1,11 @@
 import { createMaterialPreview } from "./pa-material-preview.js";
-import { confirmationDisplayState } from "./pa-confirmation-display.mjs";
+import {
+    confirmationDisplayState,
+    confirmationNextAction,
+    selectConfirmationContext,
+    selectCurrentDeliveryIssues,
+    selectHistoricalConfirmationIssues
+} from "./pa-confirmation-display.mjs";
 
 let activeCaseId = null;
 let refreshEpoch = 0;
@@ -612,10 +618,25 @@ const render = async (context, data, epoch) => {
     const estimates = data.estimates || [];
     const current = estimates.find((item) => item.id === state.current_estimate_revision_id);
     const billing = (data.billings || []).find((item) => item.state === "open") || data.billings?.[0];
-    const accepted = (data.offers || []).find((item) => item.state === "accepted");
-    const active = (data.offers || []).find((item) => item.state === "active");
+    const confirmation = selectConfirmationContext(data);
+    const { accepted, active, delivery: activeDelivery, receiptDelivery: acceptedReceiptDelivery } = confirmation;
     const change = data.change_orders?.[0];
-    const pendingJob = (data.outbox || []).find((item) => ["queued", "failed", "unknown", "processing"].includes(item.state));
+    const currentDeliveryIssues = selectCurrentDeliveryIssues({
+        outbox: data.outbox,
+        offers: data.offers,
+        estimates: data.estimates,
+        billings: data.billings,
+        currentEstimate: current,
+        billing,
+        accepted,
+        active
+    });
+    const historicalConfirmationIssues = selectHistoricalConfirmationIssues({
+        offers: data.offers,
+        outbox: data.outbox,
+        accepted,
+        active
+    });
     const paid = (data.payments || []).reduce((sum, item) => sum + Number(item.amount || 0), 0)
         + (data.adjustments || []).reduce((sum, item) => sum + Number(item.delta_minor || 0), 0);
     activeCommercialDraftContext = Object.freeze({
@@ -789,9 +810,6 @@ const render = async (context, data, epoch) => {
 
     const contractRoot = byId("pa-contract-v5-summary");
     contractRoot.replaceChildren();
-    const activeDelivery = active
-        ? data.outbox.find((item) => item.aggregate_id === active.id && item.job_kind === "confirmation")
-        : null;
     const confirmationStatus = confirmationDisplayState({ accepted, active, delivery: activeDelivery });
     contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${confirmationStatus.tone}`, `現在：${confirmationStatus.label}`));
     appendLine(contractRoot, "対象", accepted ? `見積 第${accepted.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${accepted.version}` : active ? `見積 第${active.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${active.version}` : current ? `見積 第${current.revision_number}版` : "見積なし");
@@ -851,7 +869,7 @@ const render = async (context, data, epoch) => {
     }
     if (accepted) {
         const actions = element("div", "pa-commercial__compact-actions");
-        const receiptJob = data.outbox.find((item) => item.aggregate_id === accepted.id && item.job_kind === "accept_receipt");
+        const receiptJob = acceptedReceiptDelivery;
         const acceptedEstimate = data.estimates.find((item) => item.id === accepted.estimate_revision_id);
         appendLine(contractRoot, "契約金額", money(accepted.snapshot?.amount_minor ?? accepted.snapshot?.estimate?.amount_minor, accepted.snapshot?.currency || accepted.snapshot?.estimate?.currency || "JPY"));
         appendLine(contractRoot, "確認メール", receiptJob ? stateLabel("outbox", receiptJob.state) : "対象外");
@@ -872,15 +890,24 @@ const render = async (context, data, epoch) => {
         }));
         contractRoot.append(actions);
     }
+    if (historicalConfirmationIssues.length) {
+        const history = element("details", "pa-estimate-history pa-confirmation-delivery-history");
+        history.append(element("summary", "", `過去の配送要確認 ${historicalConfirmationIssues.length}件`));
+        historicalConfirmationIssues.forEach((item) => {
+            const row = element("p", "pa-commercial__warning", `履歴：正式受注確認 #${item.confirmation_version}／${stateLabel("outbox", item.state)}`);
+            row.dataset.aggregateId = item.aggregate_id;
+            history.append(row);
+        });
+        contractRoot.append(history);
+    }
 
     const nextRoot = byId("pa-next-action-summary");
     nextRoot.replaceChildren();
     byId("pa-data-freshness").textContent = `取得 ${dateTime(new Date().toISOString())}`;
     const next = data.case_status === "closed" ? "案件は完了済みです。必要な場合だけ、理由を記録して再開してください。"
-        : pendingJob?.state === "unknown" ? "送信結果を照合してください。盲目的な再送・再発行はできません。"
         : state.estimate_change_state === "reconfirming" ? "条件再確認中です。新しい見積を作成してください。"
             : !current ? "最初の見積PDF・金額・条件を確認してください。"
-                : !accepted ? active ? "お客様の正式回答を待っています。" : "顧客了承の根拠を確認し、正式受注確認を準備してください。"
+                : !accepted ? confirmationNextAction({ accepted, active, delivery: activeDelivery })
                     : state.fulfillment_state !== "confirmed" ? "開催終了後、実施・追加費用を人が確認してください。"
                         : state.settlement_state !== "confirmed" ? "最終精算額と未処理変更を確認してください。"
                             : !billing ? "請求書を別途発行するか、既存書類を使用するか選択してください。"
@@ -890,16 +917,17 @@ const render = async (context, data, epoch) => {
     appendLine(nextRoot, "業務", stateLabel("fulfillment", state.fulfillment_state));
     appendLine(nextRoot, "精算", stateLabel("settlement", state.settlement_state));
     appendLine(nextRoot, "最終更新", dateTime(state.updated_at));
-    if (pendingJob) {
-        const kind = { estimate: "見積", confirmation: "正式受注確認", invoice: "請求書", confirmation_reminder: "再案内" }[pendingJob.job_kind] || pendingJob.job_kind;
+    currentDeliveryIssues.forEach((pendingJob) => {
+        const confirmationVersion = pendingJob.aggregate_id === (accepted || active)?.id ? (accepted || active)?.version : null;
+        const kind = { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || pendingJob.job_kind;
         const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
         nextRoot.append(alert);
-        if (["queued", "failed"].includes(pendingJob.state) && !(data.production_e2e_test && pendingJob.job_kind === "confirmation")) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();
         }, "button button--small"));
-    }
+    });
     nextRoot.append(button("実施・精算／入金・完了へ", () => context.focusBilling(), "button button--secondary button--small"));
 
     const filesRoot = byId("pa-related-files");

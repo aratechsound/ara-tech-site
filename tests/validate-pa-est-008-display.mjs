@@ -28,7 +28,7 @@ assert.equal(classify(false, false), "未発行");
 assert.doesNotMatch(legacyPanel, /active:'回答待ち'/);
 assert.doesNotMatch(legacyPanel, /pending\?'正式受注確認：お客様の回答待ち'/);
 assert.match(legacyPanel, /active:'発行済み'/);
-assert.match(admin, /pa-commercial-admin\.js\?v=pa-est-009/);
-assert.match(html, /pa-admin\.js\?v=pa-est-009/);
+assert.match(admin, /pa-commercial-admin\.js\?v=pa-est-010r2/);
+assert.match(html, /pa-admin\.js\?v=pa-est-010r2/);
 
 console.log("PASS PA-EST-008 delivery/response display separation and cache binding");
