@@ -1,5 +1,6 @@
 import { createMaterialPreview } from "./pa-material-preview.js";
 import {
+    DELIVERY_SCOPE,
     confirmationDisplayState,
     confirmationNextAction,
     selectConfirmationContext,
@@ -919,10 +920,13 @@ const render = async (context, data, epoch) => {
     appendLine(nextRoot, "最終更新", dateTime(state.updated_at));
     currentDeliveryIssues.forEach((pendingJob) => {
         const confirmationVersion = pendingJob.aggregate_id === (accepted || active)?.id ? (accepted || active)?.version : null;
-        const kind = { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || pendingJob.job_kind;
+        const safeJobKind = /^[a-z0-9_]{1,48}$/u.test(String(pendingJob.job_kind || "")) ? pendingJob.job_kind : "unknown";
+        const kind = pendingJob.delivery_scope === DELIVERY_SCOPE.UNCLASSIFIED
+            ? `関連先を確認できない配送（種別：${safeJobKind}）`
+            : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || safeJobKind;
         const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
         nextRoot.append(alert);
-        if (["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();

@@ -53,7 +53,7 @@ assert.deepEqual(selectCurrentDeliveryIssues({ outbox: [oldUnknown, currentInvoi
 const unmappedUnknown = { id: "unmapped-job", aggregate_id: "unknown-aggregate", job_kind: "future_delivery", state: "unknown" };
 assert.deepEqual(selectCurrentDeliveryIssues({ outbox: [unmappedUnknown], offers: mixed.offers, active: activeOffer }).map((item) => item.id), [unmappedUnknown.id]);
 
-const olderOffer = { id: "offer-5", version: 5, state: "expired" };
+const olderOffer = { id: "offer-5", version: 5, state: "revoked" };
 const olderUnknown = { id: "job-5", aggregate_id: olderOffer.id, job_kind: "confirmation", state: "unknown", created_at: "2026-09-13T01:00:00Z" };
 const reordered = { offers: [olderOffer, oldOffer, activeOffer], outbox: [activeSent, olderUnknown, oldUnknown] };
 assert.equal(selectConfirmationContext(reordered).delivery.id, activeSent.id);

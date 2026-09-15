@@ -7,6 +7,11 @@ const DEFINITELY_NOT_SENT_STATES = new Set([
     "processing"
 ]);
 const UNRESOLVED_STATES = new Set(["queued", "processing", "failed", "unknown"]);
+export const DELIVERY_SCOPE = Object.freeze({
+    CURRENT: "current",
+    HISTORICAL: "historical",
+    UNCLASSIFIED: "unclassified"
+});
 
 const timestamp = (item) => Date.parse(item?.finished_at || item?.updated_at || item?.created_at || 0) || 0;
 const newest = (items) => [...(items || [])].sort((left, right) => timestamp(right) - timestamp(left))[0] || null;
@@ -29,34 +34,53 @@ export const selectConfirmationContext = ({ offers = [], outbox = [] } = {}) => 
     return { accepted, active, current, delivery, receiptDelivery };
 };
 
-export const selectCurrentDeliveryIssues = ({ outbox = [], offers = [], estimates = [], billings = [], currentEstimate, billing, accepted, active } = {}) => {
-    const knownAggregates = new Set([
-        ...offers.map((item) => item.id),
-        ...estimates.map((item) => item.id),
-        ...billings.map((item) => item.id)
-    ]);
-    const belongsToCurrent = (item) => {
-        if (item.job_kind === "estimate") return Boolean(currentEstimate && item.aggregate_id === currentEstimate.id);
-        if (item.job_kind === "invoice") return Boolean(billing && item.aggregate_id === billing.id);
-        if (item.job_kind === "accept_receipt") return Boolean(accepted && item.aggregate_id === accepted.id);
-        if (["confirmation", "confirmation_reminder"].includes(item.job_kind)) {
-            return Boolean(active && item.aggregate_id === active.id);
-        }
-        return !knownAggregates.has(item.aggregate_id);
-    };
+export const classifyDeliveryScope = ({ item, offers = [], estimates = [], billings = [], currentEstimate, billing, accepted, active } = {}) => {
+    const aggregateId = item?.aggregate_id;
+    const offer = offers.find((candidate) => candidate.id === aggregateId);
+    const estimate = estimates.find((candidate) => candidate.id === aggregateId);
+    const invoiceBilling = billings.find((candidate) => candidate.id === aggregateId);
+
+    if (item?.job_kind === "estimate") {
+        if (currentEstimate && aggregateId === currentEstimate.id) return DELIVERY_SCOPE.CURRENT;
+        if (currentEstimate && estimate) return DELIVERY_SCOPE.HISTORICAL;
+        return DELIVERY_SCOPE.UNCLASSIFIED;
+    }
+    if (item?.job_kind === "invoice") {
+        if (billing && aggregateId === billing.id) return DELIVERY_SCOPE.CURRENT;
+        if (billing && invoiceBilling) return DELIVERY_SCOPE.HISTORICAL;
+        return DELIVERY_SCOPE.UNCLASSIFIED;
+    }
+    if (item?.job_kind === "accept_receipt") {
+        if (accepted && aggregateId === accepted.id) return DELIVERY_SCOPE.CURRENT;
+        if (offer?.state === "revoked" || offer?.state === "accepted") return DELIVERY_SCOPE.HISTORICAL;
+        return DELIVERY_SCOPE.UNCLASSIFIED;
+    }
+    if (["confirmation", "confirmation_reminder"].includes(item?.job_kind)) {
+        if (active && aggregateId === active.id) return DELIVERY_SCOPE.CURRENT;
+        if (offer?.state === "revoked" || (accepted && aggregateId === accepted.id)) return DELIVERY_SCOPE.HISTORICAL;
+        return DELIVERY_SCOPE.UNCLASSIFIED;
+    }
+    return DELIVERY_SCOPE.UNCLASSIFIED;
+};
+
+export const selectCurrentDeliveryIssues = (input = {}) => {
+    const { outbox = [] } = input;
     return [...outbox]
-        .filter((item) => UNRESOLVED_STATES.has(item.state) && belongsToCurrent(item))
+        .filter((item) => UNRESOLVED_STATES.has(item.state))
+        .map((item) => ({ ...item, delivery_scope: classifyDeliveryScope({ ...input, item }) }))
+        .filter((item) => item.delivery_scope !== DELIVERY_SCOPE.HISTORICAL)
         .sort((left, right) => timestamp(right) - timestamp(left));
 };
 
-export const selectHistoricalConfirmationIssues = ({ offers = [], outbox = [], accepted, active } = {}) => {
-    const currentId = (accepted || active)?.id;
+export const selectHistoricalConfirmationIssues = (input = {}) => {
+    const { offers = [], outbox = [] } = input;
     const versions = new Map(offers.map((offer) => [offer.id, offer.version]));
     return [...outbox]
         .filter((item) => ["confirmation", "confirmation_reminder"].includes(item.job_kind)
-            && UNRESOLVED_STATES.has(item.state)
-            && item.aggregate_id !== currentId
-            && versions.has(item.aggregate_id))
+            && UNRESOLVED_STATES.has(item.state))
+        .map((item) => ({ ...item, delivery_scope: classifyDeliveryScope({ ...input, item }) }))
+        .filter((item) => item.delivery_scope === DELIVERY_SCOPE.HISTORICAL
+            && offers.find((offer) => offer.id === item.aggregate_id)?.state === "revoked")
         .sort((left, right) => timestamp(right) - timestamp(left))
         .map((item) => ({ ...item, confirmation_version: versions.get(item.aggregate_id) }));
 };
