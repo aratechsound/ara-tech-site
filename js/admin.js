@@ -1086,6 +1086,7 @@ if (!isSupabaseConfigured) {
                 official_announcement_url: officialAnnouncementUrlInput.value.trim() || null,
                 announcement_confirmed_on: announcementConfirmedOnInput.value || null,
                 service_types: serviceTypes,
+                assignment_items: serviceTypes.length ? ['pa_operation'] : null,
                 participant_groups: participantGroupsInput.value.trim() || null,
                 system_setup: systemSetupInput.value.trim() || null,
                 ...(!editingPost ? { role_type: artistPaSelected ? 'artist_pa_operation' : null, role_types: artistPaSelected ? ['artist_pa_operation'] : [] } : {}),
