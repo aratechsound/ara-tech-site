@@ -354,10 +354,21 @@ const sendJson = (response, status, payload) => {
 
 module.exports = async (request, response) => {
     if (request.method === "GET" && String(request.url || "").includes("general_config")) {
-        let enabled = false;
-        let publicPolicy={};
-        try { const p=require('./_ara-intake.cjs').policy(); enabled = true; publicPolicy={spam_adapter:p.spam_adapter,captcha_site_key:p.spam_adapter==='turnstile'?p.captcha_site_key:null}; } catch {}
-        return sendJson(response, 200, { enabled, ...publicPolicy });
+        // A missing/invalid configuration must never choose the legacy route.
+        const gate = process.env.ARA_GENERAL_INQUIRY_ENABLED;
+        if (gate === 'false') {
+            return sendJson(response, 200, { mode: 'LEGACY', enabled: false });
+        }
+        try {
+            if (gate !== 'true') throw Error('CONFIG_REQUIRED');
+            const p = require('./_ara-intake.cjs').policy();
+            if (p.spam_adapter === 'turnstile' &&
+                (typeof p.captcha_site_key !== 'string' || !p.captcha_site_key.trim() ||
+                 typeof p.captcha_hostname !== 'string' || !p.captcha_hostname.trim())) throw Error('CONFIG_REQUIRED');
+            return sendJson(response, 200, { mode: 'COMMON', enabled: true, spam_adapter: p.spam_adapter, captcha_site_key: p.spam_adapter === 'turnstile' ? p.captcha_site_key : null });
+        } catch {
+            return sendJson(response, 503, { mode: 'UNAVAILABLE', enabled: null, code: 'CONFIG_REQUIRED' });
+        }
     }
     if (request.method !== "POST") {
         response.setHeader("Allow", "POST");
