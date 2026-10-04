@@ -85,6 +85,7 @@ const thread = {
 };
 const previewFetch = async (url) => {
     if (url.includes("/rest/v1/pa_gmail_thread_links?")) return json([{ gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);
+    if (url.endsWith("/profile")) return json({ emailAddress: "aratechsound@gmail.com" });
     if (url === "https://oauth2.googleapis.com/token") return json({ access_token: "mock-access-token" });
     if (url.includes("/threads/thread_123?format=full")) return json(thread);
     throw new Error(`unexpected preview URL: ${url}`);

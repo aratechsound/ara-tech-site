@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { isPaCase, requirePaCase } = require("./_ara-case.cjs");
 const {
     OFFICIAL_EMAIL,
     buildRawMessage,
@@ -63,6 +64,12 @@ const replyReferences = (references, messageId) => {
 
 const gmailJson = async (path, options = {}, fetchImpl = fetch) => {
     const token = await getGmailAccessToken(mailConfig(), fetchImpl);
+    if (path !== '/profile') {
+        const profileResponse = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+        if (!profileResponse.ok) throw new Error(`gmail_read_${profileResponse.status}`);
+        const profile = await profileResponse.json();
+        if (String(profile?.emailAddress || '').toLowerCase() !== OFFICIAL_EMAIL) throw new Error('gmail_mailbox_mismatch');
+    }
     const response = await fetchImpl(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
         ...options,
         headers: {
@@ -343,15 +350,7 @@ const resolveThread = async (inquiry, fetchImpl) => {
     primary = links.find((link) => link.conversation_role === "primary_conversation") || primary;
     if (primary) return { links, primary, candidates: [] };
     const candidates = await fallbackCandidates(inquiry, hearing, fetchImpl);
-    if (candidates.length === 1) {
-        primary = await linkThread({
-            inquiryId: inquiry.id,
-            threadId: candidates[0],
-            source: "case_reference",
-            role: "primary_conversation"
-        }, fetchImpl);
-        return { links: await getLinks(inquiry.id, fetchImpl), primary, candidates: [] };
-    }
+    // A reference match is an Owner candidate only; exact provider IDs above may bind.
     return { links, primary: null, candidates };
 };
 
@@ -419,7 +418,9 @@ const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
     const managedMetadata = await managedReplyMetadata(inquiryId, fetchImpl);
     const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiryId, threadId: link.gmail_thread_id, managedMetadata }, fetchImpl)));
     const messages = [...new Map(indexed.flatMap((result) => result.messages).map((message) => [message.id, message])).values()];
-    const portalCandidateDetection = await detectCandidatesFailIsolated({ inquiryId, actorId, messages }, fetchImpl);
+    const portalCandidateDetection = isPaCase(inquiry)
+        ? await detectCandidatesFailIsolated({ inquiryId, actorId, messages }, fetchImpl)
+        : { status: "not_applicable" };
     const summary = await recordSync({ inquiryId, actorId, links: resolved.links, messages }, fetchImpl);
     return {
         linked: Boolean(resolved.primary),
@@ -534,6 +535,7 @@ const streamAttachmentResponse = async (response, attachment) => {
     response.end();
 };
 const reconcileEstimateSubmission = async ({ inquiryId, gmailMessageId, gmailThreadId, expected, accessToken }, fetchImpl = fetch) => {
+    requirePaCase(await getInquiry(inquiryId, fetchImpl));
     if (!isUuid(inquiryId) || !validGmailId(gmailMessageId) || !validGmailId(gmailThreadId)
         || !expected || Array.isArray(expected) || typeof expected !== "object"
         || !["status", "case_updated_at", "progress_updated_at", "estimate_created_on", "sent_at"].every((key) => typeof expected[key] === "string" && expected[key])) {
@@ -680,6 +682,7 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
+    if (normalizedMode !== "normal") requirePaCase(await getInquiry(inquiryId, fetchImpl));
     const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
     const expiresAt = issueConfirmationToken ? Date.now() + PREVIEW_TTL_MS : null;
     const preview = {
@@ -869,4 +872,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };

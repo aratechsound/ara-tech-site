@@ -1,4 +1,5 @@
 const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 
@@ -8,6 +9,9 @@ const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require(".
 // unbounded base64 body.
 const MAX_BODY_BYTES = 4_500_000;
 const ACTION_POLICY = Object.freeze({
+    inbox_list: "PA_GMAIL_SYNC",
+    inbox_sync: "PA_GMAIL_SYNC",
+    inbox_decide: "PA_GMAIL_MANUAL_LINK",
     sync: "PA_GMAIL_SYNC",
     manual_link: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
@@ -50,6 +54,11 @@ module.exports = async (request, response) => {
             response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
+        if (input.action === "inbox_list") return sendJson(response, 200, { ok: true, candidates: await listUnlinkedMail() });
+        if (input.action === "inbox_sync") return sendJson(response, 200, { ok: true, result: await syncUnlinkedMail({ actorId: user.id }) });
+        if (input.action === "inbox_decide") return sendJson(response, 200, { ok: true, result: await decideUnlinkedMail({ actorId: user.id,
+            messageId: input.gmail_message_id, action: input.decision, caseId: input.inquiry_id,
+            customerName: input.customer_name, customerEmail: input.customer_email, caseType: input.case_type }) });
         if (input.action === "sync") {
             const result = await syncCase({ inquiryId: input.inquiry_id, actorId: user.id });
             return sendJson(response, 200, { ok: true, result });
@@ -104,8 +113,10 @@ module.exports = async (request, response) => {
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
         const code = String(error?.message || "");
+        if (code === "mail_operation_conflict") return sendJson(response, 409, { ok: false, code });
+        if (code === "gmail_mailbox_mismatch") return sendJson(response, 503, { ok: false, code });
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (["invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "invalid_reply_source", "reply_target_unavailable", "invalid_reply_cc", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
+        if (["invalid_mail_decision", "pa_only_operation", "invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "invalid_reply_source", "reply_target_unavailable", "invalid_reply_cc", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";
         const diagnostic = /^(?:gmail_(?:read|send|oauth)|supabase_)\d{3}$|^(?:gmail_send_invalid|gmail_not_configured|primary_conversation_exists|ambiguous_thread_link)$/u.test(code)

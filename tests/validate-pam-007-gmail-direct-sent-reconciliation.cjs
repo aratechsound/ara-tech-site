@@ -30,6 +30,7 @@ const directMessage = {
     const indexWrites = [];
     let auditWrites = 0;
     const fetchFixture = async (url, options = {}) => {
+        if (url.endsWith("/profile")) return json({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return json({ access_token: "fixture-token" });
         if (url.includes("/rest/v1/pa_inquiries?")) return json([{ id: inquiryId, inquiry_number: "PA-TEST-001" }]);
         if (url.includes("/rest/v1/pa_gmail_thread_links?")) return json([{ inquiry_id: inquiryId, gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);

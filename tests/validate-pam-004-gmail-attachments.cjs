@@ -115,6 +115,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         if (url.includes("/rest/v1/pa_gmail_message_index?")) {
             return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "0.1" }] }]);
         }
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) {
             return jsonResponse({ payload: { parts: [{
@@ -138,6 +139,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
     }, async (url) => {
         partIdAttachmentCalls.push(url);
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "0.9" }] }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{
             partId: "0.9", filename: "part-id.pdf", mimeType: "application/pdf", body: { attachmentId: "opaque_attachment_9" }
@@ -155,6 +157,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         gmailAttachmentId: "0.10"
     }, async (url) => {
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "0.10", filename: "index-filename.pdf", mime_type: "application/pdf" }] }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{
             partId: "0.10", mimeType: "application/pdf", body: { attachmentId: "opaque_attachment_10" }
@@ -170,6 +173,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         gmailAttachmentId: "attachment_indexed_only"
     }, async (url) => {
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "attachment_indexed_only", filename: "indexed-only.pdf", mime_type: "application/pdf" }] }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [] } });
         if (url.includes("/messages/mail_123/attachments/attachment_indexed_only")) return jsonResponse({ data: base64Url("indexed fallback attachment") });
@@ -185,6 +189,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         gmailPartId: "2.1"
     }, async (url) => {
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "current_opaque", part_id: "2.1", filename: "canonical.pdf", mime_type: "application/pdf" }] }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{ partId: "2.1", filename: "canonical.pdf", mimeType: "application/pdf", body: { attachmentId: "current_opaque" } }] } });
         if (url.includes("/messages/mail_123/attachments/current_opaque")) return jsonResponse({ data: base64Url("canonical resolver attachment") });
@@ -200,6 +205,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
     }, async (url) => {
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", gmail_thread_id: "thread_123" }]);
         if (url.includes("/rest/v1/pa_gmail_thread_links?")) return jsonResponse([{ id: "123e4567-e89b-42d3-a456-426614174001" }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123/attachments/historical_opaque")) return jsonResponse({ data: base64Url("historical exact bytes") });
         throw new Error(`unexpected URL: ${url}`);
@@ -225,6 +231,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         if (url.includes("/rest/v1/pa_gmail_message_index?")) {
             return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "attachment_456" }] }]);
         }
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) {
             return jsonResponse({ payload: { parts: [{
@@ -245,6 +252,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
         gmailAttachmentId: "attachment_large"
     }, async (url) => {
         if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "attachment_large" }] }]);
+        if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
         if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
         if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{ filename: "ステージ写真（参考）.JPG", mimeType: "image/jpeg", body: { attachmentId: "attachment_large" } }] } });
         if (url.includes("/messages/mail_123/attachments/attachment_large")) return jsonResponse({ data: largeBytes.toString("base64url") });
@@ -269,6 +277,7 @@ assert.match(css, /\.gmail-attachment \{ align-items: flex-start; flex-direction
             gmailAttachmentId: "attachment_bad_data"
         }, async (url) => {
             if (url.includes("/rest/v1/pa_gmail_message_index?")) return jsonResponse([{ gmail_message_id: "mail_123", attachment_metadata: [{ id: "attachment_bad_data" }] }]);
+            if (url.endsWith("/profile")) return jsonResponse({ emailAddress: "aratechsound@gmail.com" });
             if (url === "https://oauth2.googleapis.com/token") return jsonResponse({ access_token: "test-access-token" });
             if (url.includes("/messages/mail_123?format=full")) return jsonResponse({ payload: { parts: [{ filename: "broken.pdf", mimeType: "application/pdf", body: { attachmentId: "attachment_bad_data" } }] } });
             if (url.includes("/messages/mail_123/attachments/attachment_bad_data")) return jsonResponse({ data: "not+base64" });

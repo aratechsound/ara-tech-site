@@ -25,6 +25,7 @@ async function createFixture(){
   if(state.failPostSendRead&&state.sendCount>state.failPostSendReadAfter&&u.host==='gmail.googleapis.com'&&u.pathname.includes('/threads/'))return json({},503);
   if(u.host==='oauth2.googleapis.com')return json({access_token:'fixture-access',expires_in:3600});
   if(u.host==='gmail.googleapis.com'){
+   if(u.pathname.endsWith('/profile'))return json({emailAddress:'aratechsound@gmail.com'});
    if(u.pathname.endsWith('/messages/send')){state.sendCount++;state.lastRaw=JSON.parse(options.body);if(state.transport==='uncertain')throw Error('network_response_lost');if(state.transport==='fail')return json({},400);return json({id:'sent_contract_1',threadId:'thread_123'});}
    if(u.pathname.includes('/attachments/')){const bytes=u.pathname.endsWith('/r11_attachment')&&state.revisedQuote?state.revisedQuote:u.pathname.endsWith('/attachment_2')&&state.related?state.related:state.quote;return json({data:bytes.toString('base64url'),size:bytes.length});}
    if(u.pathname.includes('/threads/'))return json({id:'thread_123',messages:[rawMessage()]});

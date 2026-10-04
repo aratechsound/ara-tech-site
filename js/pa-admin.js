@@ -4,6 +4,8 @@ import { renderContractPanel } from "./pa-contract-admin.js";
 import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=pa-est-010r3";
 import { resolveRequestedCase, withoutRequestedCase } from "./pa-admin-selection.mjs?v=pa-est-009";
 
+import { isPaCase, caseTypeLabel, matchesCaseType, setupUnlinkedMail } from "./ara-case.mjs";
+
 const $ = (selector) => document.querySelector(selector);
 const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
 const isProductionE2eTest = (item) => String(item?.internal_memo || "").startsWith(PRODUCTION_E2E_MARKER);
@@ -305,6 +307,8 @@ let supabase;
 let cases = [];
 let trashedCases = [];
 let currentCase = null;
+let caseSelectionSerial = 0;
+let unlinkedMailUI = null;
 let currentProgress = null;
 let currentPayments = [];
 let currentToken = null;
@@ -898,9 +902,9 @@ const renderCurrentSituation = () => {
 };
 
 const renderOverview = () => {
-    renderContractPanel({ case: currentCase, progress: currentProgress, gmailRef: currentGmailTimeline, getCurrentCase: () => currentCase, getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token });
+    renderContractPanel({ case: isPaCase(currentCase) ? currentCase : null, progress: currentProgress, gmailRef: currentGmailTimeline, getCurrentCase: () => currentCase, getAccessToken: async () => (await supabase.auth.getSession()).data.session?.access_token });
     renderCommercialWorkspace({
-        case: currentCase,
+        case: isPaCase(currentCase) ? currentCase : null,
         progress: currentProgress,
         gmailRef: currentGmailTimeline,
         getCurrentCase: () => currentCase,
@@ -927,17 +931,27 @@ const renderOverview = () => {
         }
     });
     const portalLink = $("#open-case-portal");
-    if (currentCase?.id) {
+    if (currentCase?.id && isPaCase(currentCase)) {
         portalLink.href = `/pa/cases/${encodeURIComponent(currentCase.id)}/portal`;
-        portalLink.hidden = false;
+        portalLink.hidden = false; portalLink.classList.remove("hidden");
     } else {
-        portalLink.hidden = true;
+        portalLink.hidden = true; portalLink.classList.add("hidden");
     }
     $("#overview-number").textContent = currentCase?.inquiry_number || "保存時に発行";
     $("#overview-date").textContent = formatDate(currentProgress?.confirmed_event_date || currentCase?.event_date);
     $("#overview-contact").textContent = currentCase?.contact_name || currentCase?.customer_name || "未設定";
     $("#overview-venue").textContent = currentCase?.venue || "未設定";
-    if (currentCase) {
+    const pa = isPaCase(currentCase);
+    document.querySelectorAll('[data-pa-only]').forEach(field => field.classList.toggle("hidden", !pa));
+    $("#overview-date-label").textContent = pa ? "開催希望日" : "希望時期";
+    if (!pa) $("#overview-date").textContent = currentCase?.desired_period || "未定";
+    ["workflow-section","current-situation-section","next-action-section","progress-management-section","payment-section","response-section","schedule-section"].forEach(id => { if (!pa) document.getElementById(id)?.classList.add("hidden"); });
+    document.querySelectorAll('[data-gmail-composer-mode]').forEach(button => { button.hidden = !pa && button.dataset.gmailComposerMode !== "normal"; button.classList.toggle("hidden", button.hidden); });
+    $("#open-estimate-submission").hidden = !pa; $("#open-estimate-submission").classList.toggle("hidden", !pa);
+    document.querySelector(".detail-section--public")?.classList.toggle("hidden", !pa);
+    if (currentCase && pa) {
+        $("#workflow-section").classList.remove("hidden");
+        $("#response-section").classList.remove("hidden"); $("#schedule-section").classList.remove("hidden");
         renderCurrentSituation();
         renderWorkflowPhaseNav();
         renderProgressSteps();
@@ -1276,8 +1290,8 @@ const renderProgressSummary = () => {
     const section = $("#progress-summary-section");
     const summary = $("#progress-summary");
     const clearButton = $("#clear-progress-filter");
-    const activeCases = cases.filter((item) => !isClosedCase(item));
-    const show = activeCaseTab === "active";
+    const activeCases = cases.filter((item) => isPaCase(item) && !isClosedCase(item));
+    const show = activeCaseTab === "active" && ["", "PA_EVENT"].includes($("#case-type-filter").value);
     section.classList.toggle("hidden", !show);
     summary.replaceChildren();
     clearButton.classList.toggle("hidden", !activeProgressFilter);
@@ -1309,6 +1323,7 @@ const filteredCases = () => {
     const query = $("#case-search").value.trim().toLocaleLowerCase("ja");
     const status = $("#case-status-filter").value;
     const result = cases.filter((item) => {
+        if (!matchesCaseType(item, $("#case-type-filter").value)) return false;
         if (activeCaseTab === "active" && isClosedCase(item)) return false;
         if (activeCaseTab.startsWith("year-")) {
             const year = Number(activeCaseTab.replace("year-", ""));
@@ -1343,7 +1358,7 @@ const renderCases = () => {
         const isCompleted = isCompletedStatus(item.status, progress);
         row.classList.toggle("case-row--completed", isCompleted);
         row.dataset.completionState = isCompleted ? "completed" : "active";
-        row.dataset.workflowStep = String(workflowStepForCase(item));
+        if (isPaCase(item)) row.dataset.workflowStep = String(workflowStepForCase(item));
 
         const numberCell = document.createElement("td");
         const caseReference = document.createElement("div");
@@ -1363,6 +1378,7 @@ const renderCases = () => {
             caseReference.append(completedStamp);
         }
         numberCell.append(caseReference);
+        const typeLabel = document.createElement("span"); typeLabel.textContent = caseTypeLabel(item); numberCell.append(typeLabel);
 
         const receivedCell = document.createElement("td");
         receivedCell.textContent = formatDateTime(item.received_at);
@@ -1370,12 +1386,12 @@ const renderCases = () => {
         const customerCell = document.createElement("td");
         customerCell.append(textBlock(
             item.organization_name || item.customer_name,
-            item.organization_name ? `${item.customer_name} ／ ${adminEventName(item)}` : adminEventName(item)
+            item.organization_name ? `${item.customer_name} ／ ${item.case_subject || adminEventName(item)}` : item.case_subject || adminEventName(item)
         ));
 
         const eventCell = document.createElement("td");
         eventCell.append(textBlock(
-            formatDate(progress.confirmed_event_date || item.event_date),
+            isPaCase(item) ? formatDate(progress.confirmed_event_date || item.event_date) : item.desired_period || "未定",
             item.venue
         ));
 
@@ -1383,18 +1399,20 @@ const renderCases = () => {
         const stepBadge = document.createElement("span");
         stepBadge.className = `badge badge--stage${isCompleted ? " badge--closed" : ""}`;
         stepBadge.textContent = `工程${workflowStepForCase(item)} ${workflowStepLabel(item)}`;
-        stateCell.append(stepBadge);
+        if (isPaCase(item)) stateCell.append(stepBadge);
         stateCell.append(statusBadge(item.status));
         const scheduleBadge = document.createElement("span");
         scheduleBadge.className = `badge badge--${item.schedule_state === "completed" ? "confirmed" : "unconfirmed"}`;
         scheduleBadge.textContent = item.schedule_state === "completed" ? "日程確保完了" : "日程未確定";
-        stateCell.append(scheduleBadge);
+        if (isPaCase(item)) stateCell.append(scheduleBadge);
 
         const formCell = document.createElement("td");
         formCell.append(textBlock(
             item.second_form_issued_at ? "発行済み" : "未発行",
             item.second_form_answered_at ? `回答：${formatDateTime(item.second_form_answered_at)}` : "未回答"
         ));
+
+        if (!isPaCase(item)) formCell.textContent = item.mail_attention?.attention_state === "new_customer_reply" ? "要対応" : "メール同期で確認";
 
         const updatedCell = document.createElement("td");
         updatedCell.textContent = formatDateTime(
@@ -1794,6 +1812,9 @@ const populateCaseForm = (item) => {
     $("#event-time").value = item.event_time || "";
     $("#venue").value = item.venue || "";
     $("#request-summary").value = item.request_summary || "";
+    $("#case-subject").value = item.case_subject || "";
+    $("#desired-period").value = item.desired_period || "";
+    $("#next-action").value = item.next_action || "";
     $("#internal-memo").value = item.internal_memo || "";
     $("#public-addressee").value = item.public_addressee || item.customer_name || "";
     $("#public-event-name").value = item.public_event_name || item.event_name || "";
@@ -1803,7 +1824,7 @@ const populateCaseForm = (item) => {
     $("#public-request-summary").value = item.public_request_summary || "";
     $("#public-guidance").value = item.public_guidance || "";
     $("#public-conditions").value = item.public_conditions || defaultConditions;
-    $("#detail-title").textContent = isProductionE2eTest(item) ? PRODUCTION_E2E_MARKER : item.event_name || "問い合わせ案件";
+    $("#detail-title").textContent = isProductionE2eTest(item) ? PRODUCTION_E2E_MARKER : item.case_subject || item.event_name || "問い合わせ案件";
     const sourceLabel = item.submission_source === "public_form" ? "Webフォーム" : "手入力";
     $("#detail-number").textContent = `${item.inquiry_number} ／ 受付 ${formatDateTime(item.received_at)} ／ ${sourceLabel}`;
     renderFirstFormData(item);
@@ -1914,7 +1935,7 @@ const resetPaymentConfirmation = () => {
 };
 
 const populateProgressManagement = () => {
-    if (!currentCase || !currentProgress) {
+    if (!isPaCase(currentCase) || !currentProgress) {
         progressManagementSection.classList.add("hidden");
         paymentSection.classList.add("hidden");
         return;
@@ -2138,13 +2159,14 @@ const appendFirstFormDetail = (term, description) => {
 
 const renderFirstFormData = (item) => {
     firstFormDetails.replaceChildren();
-    const isPublicForm = item.submission_source === "public_form";
+    const isPublicForm = item.submission_source === "public_form" || Boolean(item.first_form_data?.import_source);
     firstFormSection.classList.toggle("hidden", !isPublicForm);
     if (!isPublicForm) return;
 
     const data = item.first_form_data && typeof item.first_form_data === "object"
         ? item.first_form_data
         : {};
+    if (data.original_body) appendFirstFormDetail("問い合わせ原文", data.original_body);
     for (const [key, label] of Object.entries(firstFormLabels)) {
         const value = data[key];
         const displayValue = Array.isArray(value)
@@ -2467,6 +2489,7 @@ const renderScheduleState = () => {
 };
 
 const openCase = async (id) => {
+    const selection = ++caseSelectionSerial;
     clearMessage(caseStatusMessage);
     const { data: item, error } = await supabase
         .from("pa_inquiries")
@@ -2475,6 +2498,7 @@ const openCase = async (id) => {
         .is("deleted_at", null)
         .single();
 
+    if (selection !== caseSelectionSerial) return;
     if (error || !item) {
         if (currentCase?.id === id) currentCase = null;
         detailCard.classList.add("hidden");
@@ -2519,7 +2543,7 @@ const openCase = async (id) => {
             .from("pa_case_progress")
             .select("*")
             .eq("inquiry_id", id)
-            .single(),
+            .maybeSingle(),
         supabase
             .from("pa_payment_records")
             .select("*")
@@ -2527,6 +2551,7 @@ const openCase = async (id) => {
             .order("confirmed_at", { ascending: false })
     ]);
 
+    if (selection !== caseSelectionSerial) return;
     const relatedError = [
         tokenResult.error,
         responseResult.error,
@@ -2606,6 +2631,7 @@ const casePayload = () => ({
     event_time: valueOrNull("#event-time"),
     venue: valueOrNull("#venue"),
     request_summary: valueOrNull("#request-summary"),
+    case_subject: valueOrNull("#case-subject"), desired_period: valueOrNull("#desired-period"), next_action: valueOrNull("#next-action"),
     internal_memo: valueOrNull("#internal-memo"),
     public_addressee: valueOrNull("#public-addressee"),
     public_event_name: valueOrNull("#public-event-name"),
@@ -3252,8 +3278,7 @@ const syncGmail = async ({ automatic = false, inquiryId = currentCase?.id } = {}
         applyGmailSyncResult(response.result);
     } catch (error) {
         if (currentCase !== selectedCase || currentCase.id !== inquiryId) return;
-        currentGmailTimeline = [];
-        currentMailAttention = "none";
+        // Failed sync does not replace cached history/attention with a successful empty result.
         gmailReplyPanel.classList.add("hidden");
         setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
         renderEmailHistory();
@@ -3265,17 +3290,25 @@ const syncGmail = async ({ automatic = false, inquiryId = currentCase?.id } = {}
 
 const previewGmailReply = async () => {
     if (!currentCase) return;
+    const selectedCase = currentCase;
+    const selectedMode = gmailReplyMode;
+    const selectedSource = gmailReplySource;
+    const selectedAttachments = [...gmailReplyAttachments];
+    const selectedCc = $("#gmail-reply-cc")?.value || "";
+    const stillSelected = () => currentCase === selectedCase && gmailReplyMode === selectedMode && $("#gmail-reply-body").value.trim() === rawDraftBody && sameGmailReplyAttachments(selectedAttachments, gmailReplyAttachments);
     const rawDraftBody = $("#gmail-reply-body").value.trim();
     if (!rawDraftBody) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
-        const attachments = await gmailReplyAttachmentPayload();
-        const replySource = typeof gmailReplySource === "undefined" ? null : gmailReplySource;
-        const ccAddresses = [...new Set(($("#gmail-reply-cc")?.value || "").split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))];
+        const attachments = await gmailReplyAttachmentPayload(selectedAttachments);
+        if (!stillSelected()) return;
+        const replySource = selectedSource;
+        const ccAddresses = [...new Set(selectedCc.split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))];
         const response = await callGmailApi({
-            action: "reply_preview", inquiry_id: currentCase.id, body: rawDraftBody, attachments, mode: gmailReplyMode,
+            action: "reply_preview", inquiry_id: selectedCase.id, body: rawDraftBody, attachments, mode: selectedMode,
             cc_addresses: ccAddresses,
             ...(replySource ? { reply_source_message_id: replySource.messageId, reply_source_thread_id: replySource.threadId } : {})
         });
+        if (!stillSelected()) return;
         gmailReplyPreview = response.preview;
         gmailReplyPreviewBinding = Object.freeze({
             inquiryId: response.preview.inquiry_id,
@@ -3310,6 +3343,7 @@ const previewGmailReply = async () => {
         $("#send-gmail-reply").disabled = false;
         setMessage($("#gmail-reply-message"), "内容を確認し、最終確認ボタンを押すまで送信されません。", "warning");
     } catch (error) {
+        if (!stillSelected()) return;
         gmailReplyPreview = null;
         gmailReplyPreviewBinding = null;
         $("#send-gmail-reply").disabled = true;
@@ -3322,7 +3356,7 @@ const isGmailReplySnapshotSelected = (snapshot) => currentCase === snapshot.sele
     && currentCase?.id === snapshot.inquiryId
     && currentCase.status === snapshot.caseStatus
     && currentCase.updated_at === snapshot.caseUpdatedAt
-    && currentProgress?.updated_at === snapshot.progressUpdatedAt;
+    && (currentProgress?.updated_at || null) === snapshot.progressUpdatedAt;
 
 const sameGmailReplyAttachments = (left, right) => Array.isArray(left) && Array.isArray(right)
     && left.length === right.length && left.every((attachment, index) => attachment === right[index]);
@@ -3955,6 +3989,9 @@ const showDashboard = async (user) => {
     dashboard.classList.remove("hidden");
     $("#session-email").textContent = user.email || "";
     await loadCases();
+    unlinkedMailUI ||= setupUnlinkedMail({ callApi: callGmailApi, loadCases, openCase, getCases: () => cases });
+    await unlinkedMailUI.refresh(false);
+    await unlinkedMailUI.refresh(true);
     await openRequestedCase();
 };
 
@@ -4056,6 +4093,7 @@ if (!isSupabaseConfigured) {
         });
     });
     $("#send-email").addEventListener("click", sendEmail);
+    $("#case-type-filter").addEventListener("change", () => { activeProgressFilter = ""; renderCases(); renderProgressSummary(); });
     $("#sync-gmail").addEventListener("click", () => syncGmail());
     $("#open-estimate-submission").addEventListener("click", openEstimateSubmission);
     document.querySelectorAll("[data-gmail-composer-mode]").forEach((button) => button.addEventListener("click", () => {

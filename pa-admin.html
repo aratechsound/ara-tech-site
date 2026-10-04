@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex, nofollow, noarchive">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#007bff">
-    <title>PA案件管理 | ARA-TECH</title>
+    <title>ARA-TECH 案件管理</title>
     <link rel="icon" href="img/favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,14 +21,14 @@
         <a class="brand" href="./"><img src="img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"><span>PRIVATE ADMIN</span></a>
         <nav class="admin-nav" aria-label="管理画面">
             <a class="admin-nav__link--works" href="admin.html">WORKS管理</a>
-            <a class="admin-nav__link--pa" href="pa-admin.html" aria-current="page">PA案件管理</a>
+            <a class="admin-nav__link--pa" href="pa-admin.html" aria-current="page">案件管理</a>
         </nav>
     </header>
 
     <main>
         <p class="eyebrow">PA CASE ADMINISTRATION</p>
-        <h1>PA案件管理</h1>
-        <p class="intro">正式14工程を正本として、顧客コミュニケーション、日程確保、見積、予約、実施、請求、入金の業務記録を一つの案件に集約します。</p>
+        <h1>ARA-TECH 案件管理</h1>
+        <p class="intro">問い合わせと顧客コミュニケーションを案件ごとに管理します。PA・イベント音響は、既存の正式14工程と見積・受注・精算の機能を使用します。</p>
 
         <section id="config-message" class="card hidden" aria-live="polite"></section>
 
@@ -67,11 +67,13 @@
                 <div class="section-head">
                     <div>
                         <p class="eyebrow">PA CASES</p>
-                        <h2>PA案件管理</h2>
+                        <h2>ARA-TECH 案件管理</h2>
                     </div>
                     <button id="refresh-cases" class="button button--secondary button--small" type="button">再読み込み</button>
                 </div>
 
+                <div class="filters"><label for="case-type-filter">案件種別</label><select id="case-type-filter"><option value="">すべて</option><option value="PA_EVENT">PA・イベント</option><option value="INSTALL">施工</option><option value="EQUIPMENT_RENTAL">レンタル</option><option value="OTHER">その他</option></select></div>
+                <section class="subsection" aria-label="未紐付けメール"><div class="actions actions--compact"><button id="sync-unlinked-mail" class="button button--secondary" type="button">Gmailを同期</button><span id="unlinked-last-sync">最終成功：未取得</span></div><p id="unlinked-mail-status" aria-live="polite"></p><details><summary id="unlinked-mail-count">未紐付けメール 未取得</summary><div id="unlinked-mail-list"></div></details></section>
                 <div id="case-tabs" class="case-tabs" role="tablist" aria-label="案件の表示期間"></div>
 
                 <div id="normal-case-panel">
@@ -126,10 +128,10 @@
                             <tr>
                                 <th>問い合わせ</th>
                                 <th>受付日時</th>
-                                <th>お客様／イベント</th>
+                                <th>種別／顧客／件名</th>
                                 <th>希望日／会場</th>
                                 <th>現在工程／状態</th>
-                                <th>日程確保フォーム</th>
+                                <th>要対応／日程フォーム</th>
                                 <th>最終更新</th>
                             </tr>
                         </thead>
@@ -182,7 +184,7 @@
 
                 <section id="case-overview" class="case-overview" aria-label="案件概要">
                     <div><span>受付番号</span><strong id="overview-number">未発行</strong></div>
-                    <div><span>開催希望日</span><strong id="overview-date">未設定</strong></div>
+                    <div><span id="overview-date-label">開催希望日</span><strong id="overview-date">未設定</strong></div>
                     <div><span>担当者</span><strong id="overview-contact">未設定</strong></div>
                     <div><span>会場</span><strong id="overview-venue">未設定</strong></div>
                 </section>
@@ -647,14 +649,19 @@
                                 <input id="customer-phone" type="tel" maxlength="60">
                             </div>
                             <div class="field field--full">
+                                <label for="case-subject">件名／概要</label><input id="case-subject" type="text" maxlength="500">
+                                <label for="desired-period">希望時期（未定可）</label><input id="desired-period" type="text" maxlength="500">
+                                <label for="next-action">次の対応</label><textarea id="next-action" maxlength="5000"></textarea>
+                            </div>
+                            <div class="field field--full" data-pa-only>
                                 <label for="event-name">イベント名・案件名</label>
                                 <input id="event-name" type="text" maxlength="240">
                             </div>
-                            <div class="field">
+                            <div class="field" data-pa-only>
                                 <label for="event-date">開催希望日</label>
                                 <input id="event-date" type="date">
                             </div>
-                            <div class="field">
+                            <div class="field" data-pa-only>
                                 <label for="event-time">開催予定時間</label>
                                 <input id="event-time" type="text" maxlength="120" placeholder="例：13:00〜19:00">
                             </div>
@@ -663,7 +670,7 @@
                                 <input id="venue" type="text" maxlength="300">
                             </div>
                             <div class="field field--full">
-                                <label for="request-summary">PA予約・お問い合わせ内容</label>
+                                <label for="request-summary">問い合わせ内容</label>
                                 <textarea id="request-summary" maxlength="20000"></textarea>
                             </div>
                         </div>
@@ -709,7 +716,7 @@
                     </details>
 
                     <details id="first-form-section" class="detail-section hidden">
-                        <summary>PA予約・お問い合わせフォームの元入力</summary>
+                        <summary>問い合わせ原文・受付元入力</summary>
                         <p class="small-note detail-section__note">初回受付時の元データです。通常の確認では上部の案件概要と依頼内容を使用してください。</p>
                         <dl id="first-form-details" class="detail-list detail-section__body"></dl>
                     </details>

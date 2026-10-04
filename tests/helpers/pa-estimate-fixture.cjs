@@ -76,6 +76,10 @@ async function invoke(db, { inquiry = inquiryId, message = 'direct_sent_001', th
 }
 
 const rpcFetch = (db) => async (target, options) => {
+    if (new URL(target).pathname === '/rest/v1/pa_inquiries' && !options.method) {
+        const id = new URL(target).searchParams.get('id').slice(3);
+        return json((await db.query('select * from public.pa_inquiries where id=$1 and deleted_at is null', [id])).rows);
+    }
     assert.equal(new URL(target).pathname, '/rest/v1/rpc/reconcile_pa_estimate_submission');
     assert.equal(options.method, 'POST');
     assert.equal(options.headers.authorization, 'Bearer fixture-user-jwt', 'RPC must use the verified user JWT, never service-role authority');
