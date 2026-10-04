@@ -1,0 +1,75 @@
+{
+  "task": "PAM-010",
+  "base_commit": "0c264f87914afacfb29a14a1c49fa9e41be3d72a",
+  "accepted_production_source": "999ec1b3077f4e3ac1a72188a4e94ed1f719b757",
+  "supabase_project": "kogbnremsouajxxsgxro",
+  "initial_rollout_mode": "LEGACY_EXPLICIT",
+  "initial_environment": {
+    "ARA_GENERAL_INQUIRY_ENABLED": "false"
+  },
+  "future_common_policy": {
+    "verified": false,
+    "notification_recipient": "aratechsound@gmail.com",
+    "receipt_enabled": false,
+    "spam_adapter": "turnstile",
+    "captcha_hostname": "ara-tech.cc",
+    "captcha_site_key": null
+  },
+  "turnstile_action": "general-inquiry",
+  "actual_turnstile_keys": "NOT_PROVEN / NOT_CONFIGURED in accepted Vercel evidence",
+  "activation_authorized": false,
+  "live_oauth_profile_proof": "NOT_EXECUTED; candidate only",
+  "auth_boundary": {
+    "mandatory_verifyAdmin": true,
+    "supabase_auth_get": 1,
+    "work_admins_select": 1,
+    "db_mutations": 0,
+    "post_auth_db_calls": 0,
+    "total_db_call_zero": "NOT_SATISFIED; Commander decision pending"
+  },
+  "migrations": [
+    {
+      "file": "20261005145900_ara_classification_archive_guard.sql",
+      "sha256": "2defaa3b4faef01aaabc318df16175748b779e75de72154fb184acc739b81087",
+      "git_blob_sha256": "2defaa3b4faef01aaabc318df16175748b779e75de72154fb184acc739b81087"
+    },
+    {
+      "file": "20261005150000_ara_case_common_mail.sql",
+      "sha256": "e8e92627645172e98f72c31364adb64bcb9f55ed3a3a3d8b9874c9de539ae8c1",
+      "git_blob_sha256": "84cb8c879ac6a496b3002ed09724bf388398fd907b91606f4d9b7a0d2dca316b"
+    },
+    {
+      "file": "20261005160000_ara_case_r2_intake_coverage.sql",
+      "sha256": "3920f65a931bd66182e3bc3bf5ed61ee742d6f719e8770e9a93aca0949f43a4d",
+      "git_blob_sha256": "3920f65a931bd66182e3bc3bf5ed61ee742d6f719e8770e9a93aca0949f43a4d"
+    }
+  ],
+  "accepted_evidence": {
+    "catalog_observed_at": "2026-10-04T23:09:43.417055+00:00",
+    "catalog_sha256": "7a23b2d96723dae2caf9c2414d7be5e05cc8fc58316e44923995c1e5a6b0221a",
+    "classification_sha256": "2ab9a31f0d31ccde653649e640ac67d977189211139bd4549c9eef8897624ee9",
+    "exact_diff_sha256": "4e364e0f33fcab61a2ea6f923f2772bebbe250bb6870dcad4ae448d5a893748b"
+  },
+  "predicted_backfill": {
+    "migration2_roots": 6,
+    "migration3_roots": 5,
+    "total_roots": 11,
+    "audit_case_updated_rows": 11,
+    "root_updated_at_rows": 11,
+    "sync_state_rows": 0,
+    "actually_applied": 0
+  },
+  "function_count_forecast": 12,
+  "boundaries": {
+    "A": "schema: exact three migrations after independent authorization",
+    "B": "compatible source + explicit false gate after independent authorization",
+    "C": "authenticated mailbox_profile returns official email + true; wrong/missing/error HOLD",
+    "D": "actual Turnstile keys, hostname/action/config proven; currently HOLD",
+    "E": "separate explicit activation authorization required after C and D PASS"
+  },
+  "first_rollback": "ARA_GENERAL_INQUIRY_ENABLED=false; verify LEGACY API and Formspree route",
+  "schema_rollback": "forward-fix only; retain data and expanded compatible schema; no destructive downgrade",
+  "production_mutation": 0,
+  "push": false,
+  "deploy": false
+}

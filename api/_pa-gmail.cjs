@@ -82,6 +82,16 @@ const gmailJson = async (path, options = {}, fetchImpl = fetch) => {
     return response.json();
 };
 
+// Identity readback: one Gmail GET, no mail/index/rate-limit operations.
+// Return an allowlist, never the upstream mailbox counters or credentials.
+const mailboxProfile = async (fetchImpl = fetch) => {
+    const profile = await gmailJson('/profile', { method: 'GET' }, fetchImpl);
+    if (typeof profile?.emailAddress !== 'string' || profile.emailAddress.length > 320
+        || !EMAIL.test(profile.emailAddress)) throw new Error('gmail_profile_invalid');
+    return { emailAddress: profile.emailAddress,
+        matchesOfficialMailbox: profile.emailAddress.toLowerCase() === OFFICIAL_EMAIL };
+};
+
 const gmailMessage = (id, fetchImpl) => gmailJson(
     `/messages/${encodeURIComponent(id)}?format=full`, {}, fetchImpl
 );
@@ -876,3 +886,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
 };
 
 module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports.mailboxProfile = mailboxProfile;

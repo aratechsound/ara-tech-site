@@ -1,6 +1,7 @@
 const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail, reviewUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
+const { mailboxProfile } = require("./_pa-gmail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 
 // Reply attachments are transferred only through this authenticated JSON route.
@@ -50,7 +51,12 @@ module.exports = async (request, response) => {
     try {
         const user = await verifyAdmin(bearer(request));
         const input = parseBody(request);
-        if (!ACTION_POLICY[input.action]) throw new Error("invalid_action");
+        // Keep mandatory admin/Origin checks. This diagnostic must not consume
+        // a DB rate bucket; verifyAdmin's existing work_admins SELECT remains.
+        if (input.action === "mailbox_profile") return sendJson(response, 200, {
+            ok: true, result: await mailboxProfile()
+        });
+        if (typeof input.action !== "string" || !Object.hasOwn(ACTION_POLICY, input.action)) throw new Error("invalid_action");
         const rate = await checkRateLimit({ request, policyName: ACTION_POLICY[input.action], scope: user.id });
         if (!rate.allowed) {
             response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
