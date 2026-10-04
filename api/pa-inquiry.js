@@ -353,6 +353,12 @@ const sendJson = (response, status, payload) => {
 };
 
 module.exports = async (request, response) => {
+    if (request.method === "GET" && String(request.url || "").includes("general_config")) {
+        let enabled = false;
+        let publicPolicy={};
+        try { const p=require('./_ara-intake.cjs').policy(); enabled = true; publicPolicy={spam_adapter:p.spam_adapter,captcha_site_key:p.spam_adapter==='turnstile'?p.captcha_site_key:null}; } catch {}
+        return sendJson(response, 200, { enabled, ...publicPolicy });
+    }
     if (request.method !== "POST") {
         response.setHeader("Allow", "POST");
         return sendJson(response, 405, { ok: false, code: "method_not_allowed" });
@@ -362,7 +368,9 @@ module.exports = async (request, response) => {
     }
 
     try {
-        const record = normalizeInquiry(parseBody(request));
+        const input = parseBody(request);
+        const general = input.form_kind === 'general';
+        const record = general ? null : normalizeInquiry(input);
         const rate = await checkRateLimit({
             request,
             policyName: RATE_LIMIT_POLICY
@@ -370,6 +378,10 @@ module.exports = async (request, response) => {
         if (!rate.allowed) {
             response.setHeader("Retry-After", String(Math.max(1, rate.retryAfter)));
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
+        }
+        if (general) {
+            const result = await require('./_ara-intake.cjs').accept(input);
+            return sendJson(response, 200, { ok: true, ...result });
         }
         const result = await registerInquiry(record);
         let customerReceiptStatus = "unchanged";
@@ -391,6 +403,8 @@ module.exports = async (request, response) => {
             internal_notification_status: internalNotificationStatus
         });
     } catch (error) {
+        if (['CONFIG_REQUIRED','general_intake_disabled','spam_verification_failed','invalid_input'].includes(error?.message)) return sendJson(response, error.message === 'invalid_input' ? 400 : 503, { ok: false, code: error.message });
+        if (error?.message === 'supabase_400' || error?.message === 'supabase_409') return sendJson(response, error.safeDatabaseReason === 'submission_content_conflict' ? 409 : 400, { ok: false, code: error.safeDatabaseReason || 'intake_database_rejected', phase: 'intake_commit', database_code: error.databaseCode });
         if (error instanceof ValidationError) {
             return sendJson(response, 400, { ok: false, code: "invalid_input" });
         }

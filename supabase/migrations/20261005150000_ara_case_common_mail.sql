@@ -6,11 +6,13 @@ alter table public.pa_inquiries add column case_type text
  add column desired_period text check (char_length(desired_period)<=500),
  add column next_action text check (char_length(next_action)<=5000);
 -- Only the exact captured PA public-form provenance is backfilled. Unknown stays NULL.
+set local app.pa_case_delete_mode='case_type_backfill';
 update public.pa_inquiries set case_type='PA_EVENT'
  where submission_source='public_form' and submission_key is not null
  and first_form_data->>'form_source' in ('direct','contact','pa-rental','stage-production')
  and first_form_data->>'confirmation_consent'='true'
  and first_form_data ? 'requested_services' and first_form_data ? 'event_overview';
+set local app.pa_case_delete_mode='';
 create function public.ara_mark_pa_form() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.case_type is null and new.submission_source='public_form' and new.submission_key is not null

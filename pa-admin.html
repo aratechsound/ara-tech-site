@@ -604,6 +604,7 @@
                             </div>
                             <div class="field">
                                 <label for="case-status">現在の状態</label>
+                                <label for="case-type">案件種別（不明な既存行はOwnerが分類）</label><select id="case-type"><option value="">要分類・選択してください</option><option value="PA_EVENT">PA・イベント音響</option><option value="AUDIO_INSTALL">音響設備施工</option><option value="AV_INSTALL">AV設備施工</option><option value="LIGHTING_INSTALL">照明設備施工</option><option value="VIDEO_INSTALL">映像設備施工</option><option value="EQUIPMENT_RENTAL">機材レンタル</option><option value="OTHER">その他</option></select>
                                 <select id="case-status" required>
                                     <option value="new_inquiry">新規問い合わせ</option>
                                     <option value="follow_up_pending">担当者フォロー待ち</option>

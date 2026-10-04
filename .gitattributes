@@ -1,0 +1,3 @@
+
+# Preserve literal whitespace/line endings in the existing vendored test client.
+tests/fixtures/ara-case-supabase.umd.js -text -whitespace

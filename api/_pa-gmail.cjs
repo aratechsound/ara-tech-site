@@ -658,6 +658,7 @@ const resolveReplySource = async ({ inquiryId, replySourceMessageId, replySource
     return { explicit, link, source };
 };
 const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
     const { explicit, link, source } = await resolveReplySource({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
     const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
@@ -667,6 +668,8 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
         ? safeAddress(latest.reply_to || latest.from_address)
         : safeAddress(Array.isArray(latest?.to_addresses) ? latest.to_addresses.find((address) => EMAIL.test(safeAddress(address))) : "");
     if (!EMAIL.test(recipient) || sameAddress(recipient, OFFICIAL_EMAIL)) throw new Error("reply_target_unavailable");
+    const ownerImport = ['gmail_owner_confirmed','general_public_form'].includes(inquiry.first_form_data?.import_source);
+    if ((ownerImport && !sameAddress(recipient, inquiry.email)) || /(?:^|[+._-])(?:no-?reply|notifications?)(?:[+._-]|@)/i.test(recipient) || /@(?:[^@.]+\.)?formspree\.io$/i.test(recipient)) throw new Error("reply_target_unavailable");
     const allowedCc = uniqueAddresses([
         latest?.from_address, latest?.reply_to,
         ...(Array.isArray(latest?.to_addresses) ? latest.to_addresses : []),

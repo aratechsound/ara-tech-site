@@ -305,6 +305,7 @@ const brandMailTestMessage = $("#brand-mail-test-message");
 
 let supabase;
 let cases = [];
+let caseSchemaAvailable = false;
 let trashedCases = [];
 let currentCase = null;
 let caseSelectionSerial = 0;
@@ -1728,6 +1729,7 @@ const loadCases = async () => {
     const progressByInquiry = new Map(
         (progressResult.data || []).map((progress) => [progress.inquiry_id, progress])
     );
+    caseSchemaAvailable = caseResult.data?.some(item=>Object.hasOwn(item,'case_type')) || !(await supabase.from('pa_inquiries').select('case_type').limit(1)).error;
     cases = (caseResult.data || []).map((item) => ({
         ...item,
         progress: progressByInquiry.get(item.id) || progressForCase(item)
@@ -1745,6 +1747,7 @@ const loadCases = async () => {
 };
 
 const resetForm = () => {
+    ++caseSelectionSerial;
     caseForm.reset();
     $("#case-id").value = "";
     $("#case-received-at").value = toLocalDateTimeInput(new Date().toISOString());
@@ -1799,6 +1802,7 @@ const resetForm = () => {
 };
 
 const populateCaseForm = (item) => {
+    $("#case-type").value = item.case_type || (!Object.hasOwn(item,'case_type') ? 'PA_EVENT' : '');
     $("#case-id").value = item.id;
     $("#case-received-at").value = toLocalDateTimeInput(item.received_at);
     $("#case-status").value = item.status;
@@ -2631,7 +2635,7 @@ const casePayload = () => ({
     event_time: valueOrNull("#event-time"),
     venue: valueOrNull("#venue"),
     request_summary: valueOrNull("#request-summary"),
-    case_subject: valueOrNull("#case-subject"), desired_period: valueOrNull("#desired-period"), next_action: valueOrNull("#next-action"),
+    ...(caseSchemaAvailable ? {case_type:$("#case-type").value||null,case_subject:valueOrNull("#case-subject"),desired_period:valueOrNull("#desired-period"),next_action:valueOrNull("#next-action")} : {}),
     internal_memo: valueOrNull("#internal-memo"),
     public_addressee: valueOrNull("#public-addressee"),
     public_event_name: valueOrNull("#public-event-name"),
@@ -2644,6 +2648,7 @@ const casePayload = () => ({
 });
 
 const validateCase = (payload) => {
+    if (Object.hasOwn(payload,'case_type') && !payload.case_type) return "案件種別を選択してください。";
     if (!payload.received_at) return "受付日時を入力してください。";
     if (!payload.customer_name) return "お客様名・担当者名を入力してください。";
     if (!payload.email) return "メールアドレスを入力してください。";
@@ -2654,6 +2659,8 @@ const validateCase = (payload) => {
 };
 
 const saveCase = async () => {
+    const selectedCase = currentCase;
+    const selection = caseSelectionSerial;
     clearMessage(caseStatusMessage);
     const payload = casePayload();
     const validationMessage = validateCase(payload);
@@ -2679,6 +2686,7 @@ const saveCase = async () => {
             .single();
     }
     $("#save-case").disabled = false;
+    if (selection !== caseSelectionSerial || currentCase !== selectedCase) return;
 
     if (result.error) {
         setMessage(caseStatusMessage, `保存できませんでした。${result.error.message || ""}`, "error");
@@ -2694,7 +2702,9 @@ const saveCase = async () => {
     tokenSection.classList.remove("hidden");
     $("#token-expiry").value = toLocalDateTimeInput(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
     await loadCases();
-    await openCase(currentCase.id);
+    if (selection !== caseSelectionSerial || currentCase !== result.data) return;
+    await openCase(result.data.id);
+    if (currentCase?.id !== result.data.id) return;
     setMessage(caseStatusMessage, "案件を保存しました。", "success");
 };
 
@@ -3295,7 +3305,7 @@ const previewGmailReply = async () => {
     const selectedSource = gmailReplySource;
     const selectedAttachments = [...gmailReplyAttachments];
     const selectedCc = $("#gmail-reply-cc")?.value || "";
-    const stillSelected = () => currentCase === selectedCase && gmailReplyMode === selectedMode && $("#gmail-reply-body").value.trim() === rawDraftBody && sameGmailReplyAttachments(selectedAttachments, gmailReplyAttachments);
+    const stillSelected = () => currentCase === selectedCase && gmailReplyMode === selectedMode && gmailReplySource === selectedSource && ($("#gmail-reply-cc")?.value || "") === selectedCc && $("#gmail-reply-body").value.trim() === rawDraftBody && sameGmailReplyAttachments(selectedAttachments, gmailReplyAttachments);
     const rawDraftBody = $("#gmail-reply-body").value.trim();
     if (!rawDraftBody) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
@@ -3523,8 +3533,9 @@ const sendGmailReply = async () => {
         snapshot = createGmailReplySendSnapshot();
         if (!snapshot) return;
         const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
-        if (["invoice", "confirmation"].includes(gmailReplyMode)
-            || (gmailReplyMode === "estimate_submission" && typeof getCommercialDraftContext === "function")) {
+        if (["invoice", "confirmation"].includes(snapshot.mode)
+            || (snapshot.mode === "estimate_submission" && typeof getCommercialDraftContext === "function")) {
+            if (!isGmailReplySnapshotSelected(snapshot)) return;
             await sendCommercialComposer(snapshot);
             if (isGmailReplySnapshotSelected(snapshot)) {
                 gmailReplyPreview = null;
@@ -3989,7 +4000,7 @@ const showDashboard = async (user) => {
     dashboard.classList.remove("hidden");
     $("#session-email").textContent = user.email || "";
     await loadCases();
-    unlinkedMailUI ||= setupUnlinkedMail({ callApi: callGmailApi, loadCases, openCase, getCases: () => cases });
+    unlinkedMailUI ||= setupUnlinkedMail({ callApi: callGmailApi, loadCases, openCase, getCases: () => cases, downloadAttachment:async payload=>{const file=await downloadGmailAttachmentStream(payload);const url=URL.createObjectURL(file.blob);const a=document.createElement('a');a.href=url;a.download=file.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);} });
     await unlinkedMailUI.refresh(false);
     await unlinkedMailUI.refresh(true);
     await openRequestedCase();
@@ -4045,8 +4056,9 @@ if (!isSupabaseConfigured) {
         renderProgressSummary();
         renderCases();
     });
-    $("#close-detail").addEventListener("click", () => { detailCard.classList.add("hidden"); clearSelectedCaseReference(); });
-    $("#cancel-case-edit").addEventListener("click", () => { detailCard.classList.add("hidden"); clearSelectedCaseReference(); });
+    const closeSelectedCase = () => { ++caseSelectionSerial; currentCase=null; currentProgress=null; invalidateGmailReplyPreview(); detailCard.classList.add("hidden"); clearSelectedCaseReference(); };
+    $("#close-detail").addEventListener("click", closeSelectedCase);
+    $("#cancel-case-edit").addEventListener("click", closeSelectedCase);
 
     caseForm.addEventListener("submit", async (event) => {
         event.preventDefault();

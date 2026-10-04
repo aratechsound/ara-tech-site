@@ -382,6 +382,12 @@ const supabaseRequest = async (path, options = {}, fetchImpl = fetch) => {
     if (!response.ok) {
         const error = new Error(`supabase_${response.status}`);
         error.status = response.status;
+        try {
+            const detail = await response.json();
+            error.databaseCode = /^[A-Z0-9]{5}$/.test(detail?.code || '') ? detail.code : null;
+            const allowed = ['submission_content_conflict','mail_page_conflict','mail_link_conflict','inquiry_archived','invalid_intake','invalid_notification','not_authorized','invalid_mail_cursor','pa_history_preserved'];
+            error.safeDatabaseReason = allowed.includes(detail?.message) ? detail.message : null;
+        } catch {}
         throw error;
     }
     if (response.status === 204) return null;
@@ -1261,6 +1267,7 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 };
 
 module.exports = {
+    sendGmail,
     supabaseConfig,
     ADMIN_URL,
     AUTOMATIC_TYPES,
