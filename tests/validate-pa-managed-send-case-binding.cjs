@@ -7,7 +7,8 @@ const client = fs.readFileSync(path.join(__dirname, "..", "js", "pa-admin.js"), 
 const start = client.indexOf("const isGmailReplySnapshotSelected");
 const end = client.indexOf("const callBrandMailTestApi");
 assert(start >= 0 && end > start, "managed-send binding implementation is present");
-const managedSendCode = client.slice(start, end);
+const extract = name => client.match(new RegExp(`^const ${name} = [\\s\\S]*?(?=^const |$(?![\\s\\S]))`, 'm'))[0];
+const managedSendCode = ['gmailReplyMessageKey','isCurrentGmailReplyMessage','isGmailReplyContextCurrent'].map(extract).join('\n') + '\n' + client.slice(start, end);
 
 const clone = (value) => structuredClone(value);
 const deferred = () => {
@@ -23,6 +24,7 @@ const progressB = Object.freeze({ inquiry_id: "case-B", estimate_created_on: "20
 const attachment = (name) => ({ file: { name, type: "application/pdf", size: 1 } });
 const preview = (id, threadId, mode, body) => ({
     inquiry_id: id, gmail_thread_id: threadId, recipient: `${id}@example.invalid`, subject: `${id} subject`, body, mode,
+    reply_source_message_id: 'message-A', reply_source_explicit: false, cc_addresses: [],
     confirmation_token: `${id}-${threadId}-${mode}-confirmation`
 });
 
@@ -47,10 +49,12 @@ function createUi({ mode = "estimate_submission", attachments = [attachment("A.p
     const ui = {
         $, currentCase: caseA, currentProgress: progressA,
         gmailReplyPreview: preview("case-A", "thread-A", mode, "A body"), gmailReplyAttachments: attachments, gmailReplyMode: mode,
+        gmailReplyContext: null, gmailReplySource: null, gmailReplyRevision: 0,
         gmailReplyPreviewBinding: Object.freeze({
             inquiryId: "case-A", threadId: "thread-A", confirmationToken: `case-A-thread-A-${mode}-confirmation`,
             recipient: "case-A@example.invalid", subject: "case-A subject", canonicalBody: "A body", mode,
             rawDraftBody: "A body", attachments: Object.freeze([...attachments])
+            , replySourceMessageId: 'message-A', replySourceThreadId: 'thread-A', replySourceExplicit: false, ccAddresses: []
         }),
         window: { confirm: () => true },
         gmailReplyAttachmentPayload: attachmentPayload,
@@ -73,6 +77,13 @@ function createUi({ mode = "estimate_submission", attachments = [attachment("A.p
         setMessage: (_element, message, type) => messages.push({ message, type }),
         gmailErrorMessage: (code) => code
     };
+    const message = { id: 'message-A', thread_id: 'thread-A', direction: 'inbound', from_address: 'case-A@example.invalid', subject: 'case-A subject' };
+    ui.currentGmailTimeline = [message];
+    ui.currentGmailLink = { inquiry_id: caseA.id, gmail_thread_id: 'thread-A' };
+    ui.gmailReplyContext = Object.freeze({ selectedCase: caseA, inquiryId: caseA.id, messageId: message.id, threadId: message.thread_id,
+        messageKey: JSON.stringify([message.id, message.thread_id, message.direction, message.from_address, message.reply_to, message.to_addresses, message.cc_addresses, message.subject]) });
+    $('#gmail-reply-recipient').value = 'case-A@example.invalid';
+    $('#gmail-reply-subject').value = 'case-A subject';
     vm.createContext(ui);
     vm.runInContext(`${managedSendCode}\nthis.runManagedSend = sendGmailReply;`, ui);
     return { ui, $, backend, writes, renders, messages };
@@ -125,7 +136,7 @@ async function test(name, run) {
 }
 
 (async () => {
-    await test("R1-A attachment wait A -> B keeps authority, write and render on A only", async () => {
+    await test("R1-A attachment wait A -> B cancels before provider send and progress writes", async () => {
         const wait = deferred();
         const attachmentInputs = [];
         const subject = createUi({
@@ -138,20 +149,21 @@ async function test(name, run) {
         await run;
         assert.equal(attachmentInputs.length, 1);
         assert.equal(attachmentInputs[0][0].file.name, "A.pdf", "attachment read is bound before the switch");
-        assert.equal(subject.backend.A.history, 1);
-        assert.equal(subject.backend.A.progress.estimate_sent_on !== undefined, true);
-        assert.equal(subject.writes.length, 1);
-        assert.equal(subject.writes[0].p_inquiry_id, "case-A");
+        assert.equal(subject.backend.A.history, 0);
+        assert.equal(subject.backend.A.progress.estimate_sent_on, undefined);
+        assert.equal(subject.writes.length, 0);
         assertBUnchanged(subject, bBefore);
     });
 
     await test("R1-B Gmail response wait A -> B updates A only and never renders B", async () => {
         const response = deferred();
+        const started = deferred();
         const subject = createUi({
             attachmentPayload: async (attachments) => attachments.map(({ file }) => ({ filename: file.name })),
-            sendReply: async (args, backend) => { await response.promise; return successfulSend(["A.pdf"])(args, backend); }
+            sendReply: async (args, backend) => { started.resolve(); await response.promise; return successfulSend(["A.pdf"])(args, backend); }
         });
         const run = subject.ui.runManagedSend();
+        await started.promise;
         const bBefore = switchToB(subject);
         response.resolve();
         await run;
@@ -162,12 +174,14 @@ async function test(name, run) {
 
     await test("R1-C Gmail send failure after A -> B leaves A and B stage/progress unchanged", async () => {
         const response = deferred();
+        const started = deferred();
         const subject = createUi({
             attachmentPayload: async (attachments) => attachments.map(({ file }) => ({ filename: file.name })),
-            sendReply: async () => response.promise
+            sendReply: async () => { started.resolve(); return response.promise; }
         });
         const aBefore = clone(subject.backend.A);
         const run = subject.ui.runManagedSend();
+        await started.promise;
         const bBefore = switchToB(subject);
         response.reject(new Error("gmail_send_503"));
         await run;
@@ -194,7 +208,7 @@ async function test(name, run) {
         assert.equal(subject.ui.gmailReplyMode, "normal");
     });
 
-    await test("R1-E multiple attachments remain bound to A through attachment wait and B switch", async () => {
+    await test("R1-E multiple attachments cancel before provider send after B switch", async () => {
         const wait = deferred();
         const subject = createUi({
             attachments: [attachment("A-1.pdf"), attachment("A-2.pdf")],
@@ -205,23 +219,26 @@ async function test(name, run) {
         const bBefore = switchToB(subject);
         wait.resolve();
         await run;
-        assert.equal(subject.backend.A.history, 1);
-        assert.equal(subject.writes.length, 1);
+        assert.equal(subject.backend.A.history, 0);
+        assert.equal(subject.writes.length, 0);
         assertBUnchanged(subject, bBefore);
     });
 
     await test("R1 identity-mismatched sync response fails closed without a B fallback", async () => {
         const response = deferred();
+        const started = deferred();
         const subject = createUi({
             attachmentPayload: async (attachments) => attachments.map(({ file }) => ({ filename: file.name })),
             sendReply: async (args, backend) => {
                 assert.equal(args.inquiry_id, "case-A");
+                started.resolve();
                 await response.promise;
                 backend.A.history += 1;
                 return { result: { linked: true, primary_link: { inquiry_id: "case-A", gmail_thread_id: "thread-mismatch" }, messages: [] } };
             }
         });
         const run = subject.ui.runManagedSend();
+        await started.promise;
         const bBefore = switchToB(subject);
         response.resolve();
         await run;

@@ -335,6 +335,9 @@ let gmailReplyPreviewBinding = null;
 let gmailReplyAttachments = [];
 let gmailReplyMode = "normal";
 let gmailReplySource = null;
+let gmailReplyContext = null;
+let gmailReplyRevision = 0;
+let gmailSyncSerial = 0;
 let commercialComposerOperation = null;
 const MAX_GMAIL_REPLY_ATTACHMENTS = 10;
 const MAX_GMAIL_REPLY_ATTACHMENT_BYTES = 3 * 1024 * 1024;
@@ -377,12 +380,15 @@ const formatAttachmentSize = (value) => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 const invalidateGmailReplyPreview = () => {
+    ++gmailReplyRevision;
     gmailReplyPreview = null;
     gmailReplyPreviewBinding = null;
     $("#send-gmail-reply").disabled = true;
     $("#gmail-reply-preview").classList.add("hidden");
     $("#gmail-reply-preview-frame").srcdoc = "";
     $("#gmail-reply-preview-frame").hidden = true;
+    ["recipient", "cc", "subject", "body"].forEach((field) => { $("#gmail-reply-preview-" + field).textContent = ""; });
+    $("#gmail-reply-preview-attachments").replaceChildren();
 };
 const isEstimateSubmissionMode = () => gmailReplyMode === "estimate_submission";
 const isCommercialComposerMode = () => ["estimate_submission", "invoice", "confirmation"].includes(gmailReplyMode);
@@ -412,8 +418,70 @@ const setGmailReplyMode = (mode = "normal") => {
     const context = getCommercialDraftContext();
     if (context && !$("#gmail-commercial-amount").value) $("#gmail-commercial-amount").value = context.state.final_settlement_minor ?? context.currentEstimate?.amount_minor ?? "";
 };
+const resetGmailReplyComposer = () => {
+    gmailReplySource = null;
+    gmailReplyContext = null;
+    gmailReplyAttachments = [];
+    commercialComposerOperation = null;
+    ["recipient", "cc", "subject", "body", "attachments-input"].forEach((field) => { $("#gmail-reply-" + field).value = ""; });
+    invalidateGmailReplyPreview();
+    setGmailReplyMode("normal");
+    $("#gmail-commercial-amount").value = "";
+    $("#gmail-commercial-due").value = "";
+    renderGmailReplyAttachments();
+    clearMessage($("#gmail-reply-message"));
+    gmailReplyPanel.classList.add("hidden");
+};
+const resetCaseGmailState = () => {
+    ++gmailSyncSerial;
+    clearGmailAttachmentCache();
+    currentGmailTimeline = [];
+    currentGmailLink = null;
+    currentMailAttention = "none";
+    resetGmailReplyComposer();
+    gmailCandidates.classList.add("hidden");
+    gmailCandidates.replaceChildren();
+    $("#open-estimate-submission").disabled = true;
+    $("#sync-gmail").disabled = false;
+    gmailSyncState.textContent = "Gmailは未同期です。";
+};
+const gmailReplyMessageKey = (message) => JSON.stringify([message?.id, message?.thread_id, message?.direction,
+    message?.from_address, message?.reply_to, message?.to_addresses, message?.cc_addresses, message?.subject]);
+const isCurrentGmailReplyMessage = (message) => Boolean(currentCase && message?.id && message?.thread_id
+    && currentGmailTimeline.includes(message) && (!message.inquiry_id || message.inquiry_id === currentCase.id));
+const isGmailReplyContextCurrent = () => Boolean(gmailReplyContext && currentCase === gmailReplyContext.selectedCase
+    && currentCase.id === gmailReplyContext.inquiryId
+    && currentGmailTimeline.some((message) => isCurrentGmailReplyMessage(message) && gmailReplyMessageKey(message) === gmailReplyContext.messageKey)
+    && (gmailReplySource ? gmailReplySource.inquiryId === currentCase.id && gmailReplySource.messageId === gmailReplyContext.messageId
+        && gmailReplySource.threadId === gmailReplyContext.threadId
+        : currentGmailLink?.gmail_thread_id === gmailReplyContext.threadId
+            && (!currentGmailLink.inquiry_id || currentGmailLink.inquiry_id === currentCase.id)));
+const bindGmailReplyMessage = (message, explicit = false) => {
+    if (!isCurrentGmailReplyMessage(message)) return false;
+    const recipient = message.direction === "inbound" ? gmailReplyRecipientForMessage(message)
+        : (message.to_addresses || []).find((address) => gmailReplyRecipientForMessage({ from_address: address })) || "";
+    const address = gmailReplyRecipientForMessage({ from_address: recipient });
+    if (!address || address.toLowerCase() === GMAIL_OFFICIAL_ADDRESS) return false;
+    gmailReplyContext = Object.freeze({ selectedCase: currentCase, inquiryId: currentCase.id, messageId: message.id,
+        threadId: message.thread_id, messageKey: gmailReplyMessageKey(message) });
+    gmailReplySource = explicit ? Object.freeze({ inquiryId: currentCase.id, messageId: message.id, threadId: message.thread_id }) : null;
+    $("#gmail-reply-recipient").value = address;
+    $("#gmail-reply-cc").value = [...new Set([...(explicit ? [] : [message.from_address, message.reply_to]), ...(message.to_addresses || []), ...(message.cc_addresses || [])]
+        .map((value) => gmailReplyRecipientForMessage({ from_address: value }).toLowerCase())
+        .filter((value) => value && value !== GMAIL_OFFICIAL_ADDRESS && value !== address.toLowerCase()))].join(", ");
+    $("#gmail-reply-subject").value = gmailReplySubjectForMessage(message.subject);
+    return true;
+};
+const ensureGmailReplyContext = () => {
+    if (isGmailReplyContextCurrent()) return true;
+    resetGmailReplyComposer();
+    if (!currentCase || !currentGmailLink || (currentGmailLink.inquiry_id && currentGmailLink.inquiry_id !== currentCase.id)) return false;
+    const message = [...currentGmailTimeline].filter((entry) => entry.thread_id === currentGmailLink.gmail_thread_id)
+        .sort((a, b) => String(a.occurred_at || "").localeCompare(String(b.occurred_at || ""))).at(-1);
+    return bindGmailReplyMessage(message);
+};
 const openGmailReply = (message) => {
-    if (!currentCase || message?.direction !== "inbound" || !message.id || !message.thread_id) return false;
+    if (!isCurrentGmailReplyMessage(message) || message.direction !== "inbound") return false;
     const recipient = gmailReplyRecipientForMessage(message);
     if (!recipient || recipient.toLowerCase() === GMAIL_OFFICIAL_ADDRESS) {
         setMessage($("#gmail-reply-message"), "この受信メールには有効な返信先がありません。Reply-To / Fromを確認してください。", "error");
@@ -421,20 +489,16 @@ const openGmailReply = (message) => {
     }
     const sameSource = gmailReplySource?.inquiryId === currentCase.id
         && gmailReplySource.messageId === message.id && gmailReplySource.threadId === message.thread_id;
-    if (sameSource) {
+    if (sameSource && isGmailReplyContextCurrent()) {
         gmailReplyPanel.classList.remove("hidden");
         $("#gmail-reply-body").focus();
         return true;
     }
     const hasDraft = Boolean($("#gmail-reply-body").value || gmailReplyAttachments.length || gmailReplyPreview);
     if (hasDraft && !window.confirm("現在のComposerに入力中の本文または添付があります。選択した受信メールへの返信に切り替えると、現在の入力内容を消去します。続行しますか？")) return false;
-    gmailReplySource = Object.freeze({ inquiryId: currentCase.id, messageId: message.id, threadId: message.thread_id });
+    resetGmailReplyComposer();
+    if (!bindGmailReplyMessage(message, true)) return false;
     setGmailReplyMode("normal");
-    $("#gmail-reply-recipient").value = recipient;
-    if ($("#gmail-reply-cc")) $("#gmail-reply-cc").value = [...new Set([...(message?.to_addresses || []), ...(message?.cc_addresses || [])]
-        .map((value) => String(value).trim().toLowerCase())
-        .filter((value) => value && value !== GMAIL_OFFICIAL_ADDRESS && value !== recipient.toLowerCase()))].join(", ");
-    $("#gmail-reply-subject").value = gmailReplySubjectForMessage(message.subject);
     $("#gmail-reply-body").value = "";
     gmailReplyAttachments = [];
     $("#gmail-reply-attachments-input").value = "";
@@ -457,6 +521,7 @@ const openEstimateSubmission = (options = {}) => {
         $("#communication-section").scrollIntoView({ behavior: "smooth", block: "start" });
         return false;
     }
+    if (!ensureGmailReplyContext()) return false;
     setGmailReplyMode("estimate_submission");
     if (!$("#gmail-reply-body").value.trim()) {
         $("#gmail-reply-body").value = "見積書および関連資料を添付いたします。ご確認をお願いいたします。";
@@ -482,6 +547,7 @@ const openSharedComposer = (mode = "normal", options = {}) => {
         setMessage(gmailSyncState, "先に現在の見積版を確定してください。", "error");
         return;
     }
+    if (!ensureGmailReplyContext()) return false;
     setGmailReplyMode(mode);
     if (mode === "confirmation" && !$("#gmail-reply-body").value.trim()) $("#gmail-reply-body").value = "正式受注確認の内容をご確認ください。\n\n確認ページ：{{CONFIRMATION_URL}}";
     if (mode === "invoice" && !$("#gmail-reply-body").value.trim()) $("#gmail-reply-body").value = "請求書を添付いたします。合意した支払期限とあわせてご確認ください。";
@@ -1574,6 +1640,8 @@ const confirmTrashCase = async () => {
         closeCaseDialog("trash-case-dialog");
         detailCard.classList.add("hidden");
         currentCase = null;
+        ++caseSelectionSerial;
+        resetCaseGmailState();
         clearSelectedCaseReference();
         selectedTrashCase = null;
         activeCaseTab = "trash";
@@ -1746,6 +1814,8 @@ const loadCases = async () => {
     trashedCases = trashResult.data || [];
     if (currentCase && !cases.some((item) => item.id === currentCase.id)) {
         currentCase = null;
+        ++caseSelectionSerial;
+        resetCaseGmailState();
         detailCard.classList.add("hidden");
         clearSelectedCaseReference();
     }
@@ -1757,6 +1827,7 @@ const loadCases = async () => {
 
 const resetForm = () => {
     ++caseSelectionSerial;
+    resetCaseGmailState();
     caseForm.reset();
     $("#case-id").value = "";
     $("#case-received-at").value = toLocalDateTimeInput(new Date().toISOString());
@@ -2508,6 +2579,10 @@ const renderScheduleState = () => {
 
 const openCase = async (id) => {
     const selection = ++caseSelectionSerial;
+    currentCase = null;
+    currentProgress = null;
+    resetCaseGmailState();
+    detailCard.classList.add("hidden");
     clearMessage(caseStatusMessage);
     const { data: item, error } = await supabase
         .from("pa_inquiries")
@@ -2593,20 +2668,6 @@ const openCase = async (id) => {
     currentToken = tokenResult.data || null;
     currentResponse = responseResult.data || null;
     currentDeliveries = deliveryResult.data || [];
-    clearGmailAttachmentCache();
-    currentGmailTimeline = [];
-    currentMailAttention = "none";
-    currentGmailLink = null;
-    gmailReplyPreview = null;
-    gmailReplyPreviewBinding = null;
-    gmailReplyAttachments = [];
-    gmailReplySource = null;
-    $("#gmail-reply-attachments-input").value = "";
-    renderGmailReplyAttachments();
-    gmailReplyPanel.classList.add("hidden");
-    gmailCandidates.classList.add("hidden");
-    gmailCandidates.replaceChildren();
-    gmailSyncState.textContent = "Gmailは未同期です。";
     caseTrashSection.classList.remove("hidden");
     issuedRawToken = "";
     emailOperationKey = "";
@@ -3311,6 +3372,7 @@ const renderGmailCandidates = (candidates = []) => {
             if (!currentCase || !window.confirm(primaryTarget
                 ? "このGmail threadを、この案件のお客様返信用の主たる会話として明示的に紐付けますか？"
                 : "このGmail threadを、この案件の追加会話として明示的に紐付けますか？")) return;
+            const selectedCase = currentCase;
             button.disabled = true;
             try {
                 const response = await callGmailApi({
@@ -3319,9 +3381,11 @@ const renderGmailCandidates = (candidates = []) => {
                     gmail_thread_id: threadId,
                     conversation_role: primaryTarget ? "primary_conversation" : "secondary_conversation"
                 });
+                if (currentCase !== selectedCase) return;
                 applyGmailSyncResult(response.result);
                 setMessage(gmailSyncState, "Gmail threadを手動で紐付け、同期しました。", "success");
             } catch (error) {
+                if (currentCase !== selectedCase) return;
                 setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
             } finally {
                 button.disabled = false;
@@ -3333,6 +3397,12 @@ const renderGmailCandidates = (candidates = []) => {
 };
 
 const applyGmailSyncResult = (result) => {
+    const links = Array.isArray(result?.links) ? result.links : [result?.primary_link].filter(Boolean);
+    const messages = Array.isArray(result?.messages) ? result.messages : [];
+    if (!currentCase || links.some((link) => link.inquiry_id !== currentCase.id)
+        || (result?.primary_link && result.primary_link.inquiry_id !== currentCase.id)
+        || messages.some((message) => (message.inquiry_id && message.inquiry_id !== currentCase.id)
+            || !links.some((link) => link.gmail_thread_id === message.thread_id))) throw new Error("invalid_gmail_reply_binding");
     currentGmailTimeline = Array.isArray(result?.messages) ? result.messages : [];
     currentMailAttention = result?.attention || "none";
     currentGmailLink = result?.primary_link || null;
@@ -3342,40 +3412,47 @@ const applyGmailSyncResult = (result) => {
     renderGmailCandidates(result?.candidates || []);
     renderEmailHistory();
     renderOverview();
-    gmailReplyPanel.classList.toggle("hidden", !currentGmailLink);
+    const replyAvailable = ensureGmailReplyContext();
+    gmailReplyPanel.classList.toggle("hidden", !replyAvailable);
     $("#open-estimate-submission").disabled = !currentGmailLink;
 };
 
 const syncGmail = async ({ automatic = false, inquiryId = currentCase?.id } = {}) => {
     if (!currentCase || currentCase.id !== inquiryId) return;
     const selectedCase = currentCase;
+    const syncSerial = ++gmailSyncSerial;
     const button = $("#sync-gmail");
     button.disabled = true;
     gmailSyncState.textContent = automatic ? "Gmailを同期中です…" : "Gmailを同期中です…";
     try {
         const response = await callGmailApi({ action: "sync", inquiry_id: inquiryId });
-        if (currentCase !== selectedCase || currentCase.id !== inquiryId) return;
+        if (currentCase !== selectedCase || currentCase.id !== inquiryId || syncSerial !== gmailSyncSerial) return;
         applyGmailSyncResult(response.result);
     } catch (error) {
-        if (currentCase !== selectedCase || currentCase.id !== inquiryId) return;
+        if (currentCase !== selectedCase || currentCase.id !== inquiryId || syncSerial !== gmailSyncSerial) return;
         // Failed sync does not replace cached history/attention with a successful empty result.
         gmailReplyPanel.classList.add("hidden");
         setMessage(gmailSyncState, gmailErrorMessage(error.message), "error");
         renderEmailHistory();
         renderOverview();
     } finally {
-        if (currentCase === selectedCase && currentCase.id === inquiryId) button.disabled = false;
+        if (currentCase === selectedCase && currentCase.id === inquiryId && syncSerial === gmailSyncSerial) button.disabled = false;
     }
 };
 
 const previewGmailReply = async () => {
-    if (!currentCase) return;
+    if (!currentCase || !isGmailReplyContextCurrent()) return;
+    invalidateGmailReplyPreview();
     const selectedCase = currentCase;
     const selectedMode = gmailReplyMode;
     const selectedSource = gmailReplySource;
+    const selectedContext = gmailReplyContext;
+    const selectedRevision = gmailReplyRevision;
     const selectedAttachments = [...gmailReplyAttachments];
     const selectedCc = $("#gmail-reply-cc")?.value || "";
-    const stillSelected = () => currentCase === selectedCase && gmailReplyMode === selectedMode && gmailReplySource === selectedSource && ($("#gmail-reply-cc")?.value || "") === selectedCc && $("#gmail-reply-body").value.trim() === rawDraftBody && sameGmailReplyAttachments(selectedAttachments, gmailReplyAttachments);
+    const stillSelected = () => currentCase === selectedCase && gmailReplyMode === selectedMode && gmailReplySource === selectedSource
+        && gmailReplyContext === selectedContext && gmailReplyRevision === selectedRevision && isGmailReplyContextCurrent()
+        && ($("#gmail-reply-cc")?.value || "") === selectedCc && $("#gmail-reply-body").value.trim() === rawDraftBody && sameGmailReplyAttachments(selectedAttachments, gmailReplyAttachments);
     const rawDraftBody = $("#gmail-reply-body").value.trim();
     if (!rawDraftBody) return setMessage($("#gmail-reply-message"), "本文を入力してください。", "error");
     try {
@@ -3389,6 +3466,11 @@ const previewGmailReply = async () => {
             ...(replySource ? { reply_source_message_id: replySource.messageId, reply_source_thread_id: replySource.threadId } : {})
         });
         if (!stillSelected()) return;
+        if (response.preview?.inquiry_id !== selectedContext.inquiryId || response.preview.gmail_thread_id !== selectedContext.threadId
+            || response.preview.reply_source_message_id !== selectedContext.messageId || response.preview.mode !== selectedMode
+            || Boolean(response.preview.reply_source_explicit) !== Boolean(selectedSource)
+            || response.preview.recipient !== $("#gmail-reply-recipient").value
+            || response.preview.subject !== $("#gmail-reply-subject").value) throw new Error("invalid_gmail_reply_binding");
         gmailReplyPreview = response.preview;
         gmailReplyPreviewBinding = Object.freeze({
             inquiryId: response.preview.inquiry_id,
@@ -3441,8 +3523,16 @@ const isGmailReplySnapshotSelected = (snapshot) => currentCase === snapshot.sele
 const sameGmailReplyAttachments = (left, right) => Array.isArray(left) && Array.isArray(right)
     && left.length === right.length && left.every((attachment, index) => attachment === right[index]);
 
+const isGmailReplySendContextSelected = (snapshot) => isGmailReplySnapshotSelected(snapshot) && isGmailReplyContextCurrent()
+    && gmailReplyContext === snapshot.replyContext && gmailReplySource === snapshot.selectedSource
+    && gmailReplyRevision === snapshot.replyRevision && gmailReplyMode === snapshot.mode
+    && $("#gmail-reply-body").value.trim() === snapshot.rawDraftBody
+    && $("#gmail-reply-recipient").value === snapshot.recipient && $("#gmail-reply-subject").value === snapshot.subject
+    && JSON.stringify(snapshot.ccAddresses) === JSON.stringify([...new Set(($("#gmail-reply-cc").value || "").split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))])
+    && sameGmailReplyAttachments(gmailReplyAttachments, snapshot.attachments);
+
 const createGmailReplySendSnapshot = () => {
-    if (!currentCase || !gmailReplyPreview || !gmailReplyPreviewBinding) return null;
+    if (!currentCase || !gmailReplyPreview || !gmailReplyPreviewBinding || !isGmailReplyContextCurrent()) return null;
     const preview = gmailReplyPreview;
     const previewBinding = gmailReplyPreviewBinding;
     const snapshot = {
@@ -3465,7 +3555,10 @@ const createGmailReplySendSnapshot = () => {
         attachments: Object.freeze([...gmailReplyAttachments]),
         replySourceExplicit: Boolean(preview.reply_source_explicit),
         replySourceMessageId: preview.reply_source_message_id,
-        replySourceThreadId: preview.gmail_thread_id
+        replySourceThreadId: preview.gmail_thread_id,
+        replyContext: gmailReplyContext,
+        selectedSource: gmailReplySource,
+        replyRevision: gmailReplyRevision
     };
     if (preview.inquiry_id !== snapshot.inquiryId || preview.gmail_thread_id !== snapshot.threadId
         || preview.mode !== snapshot.mode || previewBinding.inquiryId !== snapshot.inquiryId
@@ -3478,6 +3571,11 @@ const createGmailReplySendSnapshot = () => {
         || (previewBinding.replySourceThreadId || previewBinding.threadId) !== snapshot.replySourceThreadId
         || previewBinding.rawDraftBody !== snapshot.rawDraftBody
         || !sameGmailReplyAttachments(previewBinding.attachments, snapshot.attachments)
+        || gmailReplyContext.inquiryId !== snapshot.inquiryId || gmailReplyContext.threadId !== snapshot.threadId
+        || gmailReplyContext.messageId !== snapshot.replySourceMessageId
+        || snapshot.recipient !== $("#gmail-reply-recipient").value || snapshot.subject !== $("#gmail-reply-subject").value
+        || JSON.stringify(snapshot.ccAddresses) !== JSON.stringify([...new Set(($("#gmail-reply-cc").value || "").split(/[;,\n]/u).map((value) => value.trim().toLowerCase()).filter(Boolean))])
+        || Boolean(gmailReplySource) !== snapshot.replySourceExplicit
         || !snapshot.threadId || !snapshot.confirmationToken) throw new Error("invalid_gmail_reply_binding");
     return Object.freeze(snapshot);
 };
@@ -3603,6 +3701,7 @@ const sendGmailReply = async () => {
         snapshot = createGmailReplySendSnapshot();
         if (!snapshot) return;
         const attachments = await gmailReplyAttachmentPayload(snapshot.attachments);
+        if (!isGmailReplySendContextSelected(snapshot)) return;
         if (["invoice", "confirmation"].includes(snapshot.mode)
             || (snapshot.mode === "estimate_submission" && typeof getCommercialDraftContext === "function")) {
             if (!isGmailReplySnapshotSelected(snapshot)) return;
@@ -4126,7 +4225,7 @@ if (!isSupabaseConfigured) {
         renderProgressSummary();
         renderCases();
     });
-    const closeSelectedCase = () => { ++caseSelectionSerial; currentCase=null; currentProgress=null; invalidateGmailReplyPreview(); detailCard.classList.add("hidden"); clearSelectedCaseReference(); };
+    const closeSelectedCase = () => { ++caseSelectionSerial; currentCase=null; currentProgress=null; resetCaseGmailState(); detailCard.classList.add("hidden"); clearSelectedCaseReference(); };
     $("#close-detail").addEventListener("click", closeSelectedCase);
     $("#cancel-case-edit").addEventListener("click", closeSelectedCase);
 

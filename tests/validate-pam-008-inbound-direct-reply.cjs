@@ -52,6 +52,7 @@ const fetchFixture = async (url, options = {}) => {
     if (target.hostname === "oauth2.googleapis.com") return json({ access_token: "fixture-token" });
     if (target.hostname === "gmail.googleapis.com") {
         events.providerCalls++;
+        if (target.pathname.endsWith("/profile")) return json({ emailAddress: "aratechsound@gmail.com" });
         if (target.pathname.endsWith("/messages/send")) {
             const payload = JSON.parse(options.body);
             events.sends.push({ threadId: payload.threadId, raw: Buffer.from(payload.raw, "base64url").toString("utf8") });
@@ -84,6 +85,17 @@ const createElement = (tag) => ({
     scrollIntoView() { this.scrolled = true; }
 });
 const descendants = (node) => [node, ...(node.children || []).flatMap(descendants)];
+const replyContextCode = ["invalidateGmailReplyPreview", "gmailReplyMessageKey", "isCurrentGmailReplyMessage", "isGmailReplyContextCurrent",
+    "resetGmailReplyComposer", "bindGmailReplyMessage", "sameGmailReplyAttachments"].map(extract).join("\n");
+const prepareReplyBox = (box, message) => {
+    box.currentGmailTimeline = [message];
+    box.currentGmailLink = { inquiry_id: box.currentCase.id, gmail_thread_id: message.thread_id };
+    box.gmailReplyContext = null;
+    box.gmailReplyRevision = 0;
+    box.gmailReplyPreviewBinding = null;
+    box.clearMessage = () => {};
+    return box;
+};
 
 let count = 0;
 async function test(name, run) {
@@ -111,14 +123,17 @@ async function test(name, run) {
             window: { confirm: () => true }, setGmailReplyMode() {}, invalidateGmailReplyPreview() {}, renderGmailReplyAttachments() {},
             setMessage() {}
         };
-        vm.createContext(box);
-        vm.runInContext(`${extract("gmailReplyRecipientForMessage")}\n${extract("gmailReplySubjectForMessage")}\n${extract("openGmailReply")}\nthis.open = openGmailReply;`, box);
-        assert.equal(box.open({
+        const uiMessage = {
             id: "selected_message", thread_id: threadId, direction: "inbound", from_address: "from@example.invalid",
-            reply_to: "reply@example.invalid", subject: "ABC"
-        }), true);
+            reply_to: "reply@example.invalid", subject: "ABC", to_addresses: ["aratechsound@gmail.com", "copied@example.invalid"], cc_addresses: ["original-cc@example.invalid"]
+        };
+        prepareReplyBox(box, uiMessage);
+        vm.createContext(box);
+        vm.runInContext(`${extract("gmailReplyRecipientForMessage")}\n${extract("gmailReplySubjectForMessage")}\n${replyContextCode}\n${extract("openGmailReply")}\nthis.open = openGmailReply;`, box);
+        assert.equal(box.open(uiMessage), true);
         assert.equal($("#gmail-reply-recipient").value, "reply@example.invalid");
         assert.equal($("#gmail-reply-subject").value, "Re: ABC");
+        assert.equal($("#gmail-reply-cc").value, "copied@example.invalid, original-cc@example.invalid", "explicit source preserves original To/CC policy without adding From when Reply-To differs");
         assert.equal($("#gmail-reply-body").value, "");
         assert.equal(box.gmailReplySource.inquiryId, inquiryId);
         assert.equal(box.gmailReplySource.messageId, "selected_message");
@@ -215,12 +230,14 @@ async function test(name, run) {
             gmailReplyAttachmentPayload: async () => [],
             callGmailApi: async (payload) => {
                 request = payload;
-                return { preview: { inquiry_id: inquiryId, gmail_thread_id: threadId, recipient: "latest@example.invalid", subject: "Re: Latest", body: "通常本文", html: "<p>通常本文</p>", mode: "normal", attachments: [], confirmation_token: "token" } };
+                return { preview: { inquiry_id: inquiryId, gmail_thread_id: threadId, reply_source_message_id: "newest_message", recipient: "latest@example.invalid", subject: "Re: Latest", body: "通常本文", html: "<p>通常本文</p>", mode: "normal", attachments: [], confirmation_token: "token" } };
             },
             renderGmailReplyPreviewAttachments() {}, setMessage() {}, gmailErrorMessage: (code) => code, Object
         };
+        prepareReplyBox(box, { id: "newest_message", thread_id: threadId, direction: "inbound", from_address: "latest@example.invalid", subject: "Latest" });
+        box.GMAIL_OFFICIAL_ADDRESS = "aratechsound@gmail.com";
         vm.createContext(box);
-        vm.runInContext(`${extract("previewGmailReply")}\nthis.preview = previewGmailReply;`, box);
+        vm.runInContext(`${extract("gmailReplyRecipientForMessage")}\n${extract("gmailReplySubjectForMessage")}\n${replyContextCode}\nbindGmailReplyMessage(currentGmailTimeline[0]);\n${extract("previewGmailReply")}\nthis.preview = previewGmailReply;`, box);
         await box.preview();
         assert.equal(Object.hasOwn(request, "reply_source_message_id"), false);
         assert.equal(Object.hasOwn(request, "reply_source_thread_id"), false);
@@ -240,9 +257,11 @@ async function test(name, run) {
             window: { confirm: () => { confirms++; return false; } }, setGmailReplyMode() {}, invalidateGmailReplyPreview() {},
             renderGmailReplyAttachments() {}, setMessage() {}
         };
+        const uiMessage = { id: "selected_message", thread_id: threadId, direction: "inbound", from_address: "from@example.invalid", subject: "ABC" };
+        prepareReplyBox(box, uiMessage);
         vm.createContext(box);
-        vm.runInContext(`${extract("gmailReplyRecipientForMessage")}\n${extract("gmailReplySubjectForMessage")}\n${extract("openGmailReply")}\nthis.open = openGmailReply;`, box);
-        assert.equal(box.open({ id: "selected_message", thread_id: threadId, direction: "inbound", from_address: "from@example.invalid", subject: "ABC" }), false);
+        vm.runInContext(`${extract("gmailReplyRecipientForMessage")}\n${extract("gmailReplySubjectForMessage")}\n${replyContextCode}\n${extract("openGmailReply")}\nthis.open = openGmailReply;`, box);
+        assert.equal(box.open(uiMessage), false);
         assert.equal(confirms, 1);
         assert.equal($("#gmail-reply-body").value, "入力中の本文");
         assert.equal(box.gmailReplySource, null);

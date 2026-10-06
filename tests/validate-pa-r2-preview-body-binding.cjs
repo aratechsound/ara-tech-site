@@ -17,8 +17,10 @@ const extract = (name) => {
     return match[0];
 };
 const implementation = [
+    "invalidateGmailReplyPreview",
     "base64UrlForFile", "gmailReplyAttachmentPayload", "previewGmailReply",
     "isGmailReplySnapshotSelected", "sameGmailReplyAttachments",
+    "gmailReplyMessageKey", "isCurrentGmailReplyMessage", "isGmailReplyContextCurrent", "isGmailReplySendContextSelected",
     "createGmailReplySendSnapshot", "recordEstimateSubmissionProgress", "sendGmailReply"
 ].map(extract).join("\n");
 const inquiryId = "123e4567-e89b-42d3-a456-426614174000";
@@ -38,7 +40,7 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
     const $ = (key) => {
         if (!elements.has(key)) elements.set(key, {
             value: key === "#gmail-reply-body" ? body : "", textContent: "", disabled: false,
-            classList: { add() {}, remove() {} }
+            classList: { add() {}, remove() {} }, replaceChildren() {}
         });
         return elements.get(key);
     };
@@ -46,6 +48,7 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
     const fetchFixture = async (url, options = {}) => {
         const target = new URL(url);
         if (target.hostname === "oauth2.googleapis.com") return json({ access_token: "fixture-token" });
+        if (target.hostname === "gmail.googleapis.com" && target.pathname.endsWith("/profile")) return json({ emailAddress: "aratechsound@gmail.com" });
         if (target.hostname === "gmail.googleapis.com" && target.pathname.endsWith("/messages/send")) {
             const payload = JSON.parse(options.body);
             events.sent.push({ threadId: payload.threadId, raw: Buffer.from(payload.raw, "base64url").toString("utf8") });
@@ -64,15 +67,16 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
         $, currentCase: { id: inquiryId, status: "rough_estimate", updated_at: "case-v1" },
         currentProgress: { inquiry_id: inquiryId, estimate_created_on: "2026-09-01", updated_at: "progress-v1" },
         gmailReplyPreview: null, gmailReplyPreviewBinding: null, gmailReplyAttachments: attachments, gmailReplyMode: mode,
+        gmailReplySource: null, gmailReplyContext: null, gmailReplyRevision: 0,
         window: { confirm: () => true }, Uint8Array, btoa, Date,
         callGmailApi: async (args) => {
             events.requests.push(structuredClone(args));
             if (args.action === "reply_preview") return { preview: await gmail.replyPreview({
-                inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments, mode: args.mode
+                inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments, mode: args.mode, ccAddresses: args.cc_addresses
             }, fetchFixture) };
             return { result: await gmail.sendReply({
                 inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments,
-                mode: args.mode, confirmationToken: args.confirmation_token
+                mode: args.mode, confirmationToken: args.confirmation_token, ccAddresses: args.cc_addresses
             }, fetchFixture) };
         },
         supabase: { rpc: async (_name, args) => {
@@ -86,6 +90,13 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
         renderOverview() {}, setGmailReplyMode: (next) => { box.gmailReplyMode = next; },
         setMessage: (_element, message, type) => { events.messages.push({ message, type }); }, gmailErrorMessage: (code) => code
     };
+    const message = gmail.normalizeMessage(makeThread(subjectRef?.value).messages[0]);
+    box.currentGmailTimeline = [message];
+    box.currentGmailLink = { inquiry_id: inquiryId, gmail_thread_id: message.thread_id };
+    box.gmailReplyContext = Object.freeze({ selectedCase: box.currentCase, inquiryId, messageId: message.id, threadId: message.thread_id,
+        messageKey: JSON.stringify([message.id, message.thread_id, message.direction, message.from_address, message.reply_to, message.to_addresses, message.cc_addresses, message.subject]) });
+    $("#gmail-reply-recipient").value = "customer@example.invalid";
+    $("#gmail-reply-subject").value = message.subject;
     vm.createContext(box);
     vm.runInContext(`${implementation}\nthis.preview = previewGmailReply; this.send = sendGmailReply;`, box);
     return { box, $, events };
@@ -104,7 +115,7 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
         assert.equal($("#gmail-reply-body").value, "見積書をお送りします。");
         await box.send();
         assert.equal(events.sent.length, 0);
-        assert.equal(events.commercial, 1);
+        assert.equal(events.commercial, 1, JSON.stringify(events.messages));
         assert.equal(events.progressWrites, 0);
     });
     await test("R2-2 raw ordinary reply sends and never writes estimate progress", async () => {

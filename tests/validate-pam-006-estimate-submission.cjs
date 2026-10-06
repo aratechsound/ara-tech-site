@@ -60,6 +60,7 @@ assert.match(normalWithAttachment, /Content-Type: multipart\/mixed/u);
 assert.match(estimateWithAttachment, /Content-Type: multipart\/mixed/u);
 const fixtureFetch = async (url, options = {}) => {
     if (url === "https://oauth2.googleapis.com/token") return json({ access_token: "fixture-token" });
+    if (url === "https://gmail.googleapis.com/gmail/v1/users/me/profile") return json({ emailAddress: "aratechsound@gmail.com" });
     if (url === "https://gmail.googleapis.com/gmail/v1/users/me/messages/send") {
         sentCount += 1;
         const payload = JSON.parse(options.body);
