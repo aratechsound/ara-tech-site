@@ -1,4 +1,5 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
+import { initStaffLinkManagement } from "./pa-staff-link-admin.mjs";
 
 let createClient;
 let pdfjsLib;
@@ -999,6 +1000,7 @@ const start = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { $("#portal-loading").hidden = true; $("#portal-login").hidden = false; return; }
     accessToken = session.access_token;
+    initStaffLinkManagement(portalRequest);
     $("#stage-plot-admin-area").hidden = false;
     $("#stage-plot-create").href = stagePlotUrls().create;
     const [{ data: item, error }, { data: progress }] = await Promise.all([supabase.from("pa_inquiries").select("*").eq("id", caseId).is("deleted_at", null).maybeSingle(), supabase.from("pa_case_progress").select("confirmed_event_date").eq("inquiry_id", caseId).maybeSingle()]);
