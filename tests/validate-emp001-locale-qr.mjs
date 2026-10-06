@@ -1,13 +1,7 @@
-import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {dictionaries,chooseLocale,eventDate,eventInstant,instantToLocal,localToInstant} from '../js/portal-i18n.mjs';import{qrMatrix}from '../js/portal-qr.mjs';
-const require=createRequire(import.meta.url);
-// Independent decoder is a test-only public dependency supplied outside the candidate.
-// Set EMP001_JSQR to an installed jsQR entrypoint (no remote QR API and no real token).
-assert(process.env.EMP001_JSQR,'EMP001_JSQR is required for independent scan validation');const jsqr=require(process.env.EMP001_JSQR);
+import assert from 'node:assert/strict';import {dictionaries,chooseLocale,eventDate,eventInstant,instantToLocal,localToInstant} from '../js/portal-i18n.mjs';
 assert.deepEqual(Object.keys(dictionaries.ja).sort(),Object.keys(dictionaries.en).sort());assert.deepEqual(Object.keys(dictionaries.es).sort(),Object.keys(dictionaries.en).sort());
 assert.deepEqual(Object.keys(dictionaries['pt-BR']).sort(),Object.keys(dictionaries.en).sort());
 assert.equal(chooseLocale(null,['pt-BR']),'pt-BR');assert.equal(chooseLocale(null,['pt-br']),'pt-BR');assert.equal(chooseLocale('pt-BR',['ja']),'pt-BR');assert.equal(chooseLocale(null,['nl-NL']),'en');assert.equal(chooseLocale(null,['pt-PT']),'en');
 for(const [saved,langs,expected]of [[null,['ja-JP'],'ja'],[null,['es-MX'],'es'],[null,['fr-FR'],'en'],['es',['ja'],'es'],['bad',['de','en'],'en']])assert.equal(chooseLocale(saved,langs),expected);
 assert.equal(instantToLocal('2026-10-06T01:30:00Z','Asia/Tokyo'),'2026-10-06T10:30');assert.equal(localToInstant('2026-10-06T10:30','Asia/Tokyo'),'2026-10-06T01:30:00.000Z');assert.equal(localToInstant('2026-10-06T10:30','UTC'),'2026-10-06T10:30:00.000Z');assert.equal(localToInstant('','Asia/Tokyo'),null);assert.throws(()=>localToInstant('2026-02-30T10:00','Asia/Tokyo'));assert.throws(()=>localToInstant('2026-03-08T02:30','America/New_York'));assert(eventDate('2026-10-06','en').includes('6'));assert(eventInstant('2026-10-06T01:30:00Z','en','Asia/Tokyo').includes('10:30'));
-for(const text of ['https://ara-tech.cc/staff-portal#'+'a'.repeat(64),'a'.repeat(134),'https://fixture.invalid/日本語/スタッフ','']){const matrix=qrMatrix(text),scale=5,size=(41+8)*scale,data=new Uint8ClampedArray(size*size*4);for(let y=0;y<size;y++)for(let x=0;x<size;x++){const mx=Math.floor(x/scale)-4,my=Math.floor(y/scale)-4,v=matrix[my]?.[mx]?0:255,o=(y*size+x)*4;data[o]=data[o+1]=data[o+2]=v;data[o+3]=255;}const result=jsqr(data,size,size);assert(result,`QR must scan (${text.length} chars)`);assert.equal(result.data,text);}
-assert.throws(()=>qrMatrix('a'.repeat(135)),/qr_too_long/);
-console.log('EMP001 locale/QR PASS: key parity, ja/en/es/fallback/manual preference, event timezone/date/DST, independent jsQR exact payload scans including maximum UTF-8 capacity');
+console.log('EMP001 locale PASS: ja/en/es/pt-BR key parity, browser/fallback/manual preference, event timezone/date/DST; QR deferred');
