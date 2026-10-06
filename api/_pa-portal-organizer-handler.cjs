@@ -36,10 +36,15 @@ const handleOrganizerPortal = async (request, response) => {
         if (!session) throw new Error("link_unavailable");
         if (input.action === "read") return json(response, 200, { ok: true, result: await organizer.read(session) });
         if (input.action === "download") return streamAttachmentResponse(response, await organizer.download({ session, assetRef: input.asset_ref, kind: input.asset_kind }));
+        if (String(input.action || '').startsWith('staff_link_')) {
+            if (Object.keys(input).some(key => !['action','grade','inquiry_id','portal_ref'].includes(key))) throw new Error('invalid_input');
+            const staff = require('./_pa-portal-staff.cjs');
+            return json(response, 200, { ok: true, result: await staff.manageOrganizerLink({ session, grade: input.grade, action: input.action.slice(11), caseId: input.inquiry_id, portalRef: input.portal_ref }) });
+        }
         return json(response, 200, { ok: true, result: await organizer.mutate({ session, operation: input.action, payload: input.payload, idempotencyKey: input.idempotency_key }) });
     } catch (error) {
         const code = String(error?.message || "service_unavailable");
-        if (/^(link_unavailable|not_permitted|duplicate_submit|invalid_|cannot_archive_current|portal_source_already_used|asset_unavailable)$/u.test(code)) { if (code === "link_unavailable") clearSession(response); return json(response, code === "link_unavailable" ? 401 : 400, { ok: false, code: code === "link_unavailable" ? "link_unavailable" : code }); }
+        if (/^(link_unavailable|not_permitted|duplicate_submit|invalid_[A-Za-z_]+|staff_url_unavailable|cannot_archive_current|portal_source_already_used|asset_unavailable)$/u.test(code)) { if (code === "link_unavailable") clearSession(response); return json(response, code === "link_unavailable" ? 401 : 400, { ok: false, code: code === "link_unavailable" ? "link_unavailable" : code }); }
         if (isRateLimitUnavailable(error)) return json(response, 503, { ok: false, code: "service_unavailable" });
         console.error("event portal operation failed", { diagnostic: /^storage_\d{3}$/u.test(code) ? code : "unclassified", error_type: String(error?.name || "Error").replace(/[^A-Za-z0-9_]/gu, "").slice(0, 80) });
         return json(response, 503, { ok: false, code: "service_unavailable" });

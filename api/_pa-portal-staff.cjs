@@ -4,12 +4,55 @@ const { getAttachmentBinary } = require('./_pa-gmail.cjs');
 const { randomSecret, sha256, SECRET, SESSION_SECONDS } = require('./_pa-portal-organizer.cjs');
 const requireSecret = value => { if (!SECRET.test(String(value || ''))) throw new Error('link_unavailable'); return String(value); };
 const serviceRpc = (name, input, fetchImpl) => portal.rpc(portal.bearerConfig().key, name, input, fetchImpl);
+const envelopeCrypto = require('./_pa-staff-link-crypto.cjs');
+const ACTIONS = ['status','redisplay','create','rotate','revoke','expiry','settings'];
+async function redisplay(rpc, caseId, grade) {
+  const envelope = await rpc('envelope', {});
+  if (!envelope?.ok || !envelope.ciphertext) return { url_redisplay: false };
+  if (envelope.case_id !== caseId || envelope.grade !== grade) throw new Error('link_unavailable');
+  const secret = envelopeCrypto.open(envelope);
+  // After decrypting, authorize the same ACTIVE identity again, including expiry/revoke.
+  const checked = await rpc('envelope', { expectedLinkId: envelope.link_id, expectedTokenHash: envelope.token_hash });
+  if (!checked?.ok || checked.link_id !== envelope.link_id || checked.token_hash !== envelope.token_hash) throw new Error('link_unavailable');
+  return { url_redisplay: true, share_url: '/staff-portal#' + secret };
+}
 async function manageLink({ accessToken, caseId, grade, action, expiresAt, timezone, eventEndAt }, fetchImpl = fetch) {
-  caseId=String(caseId||'').toLowerCase();
-  if (!['GENERAL','TECHNICAL'].includes(grade) || !['status','create','rotate','revoke','expiry','settings'].includes(action)) throw new Error('invalid_staff_action');
+  caseId = String(caseId || '').toLowerCase();
+  if (!['GENERAL','TECHNICAL'].includes(grade) || !ACTIONS.includes(action)) throw new Error('invalid_staff_action');
+  const rpc = (operation, extra) => operation === 'envelope'
+    ? portal.rpc(accessToken, 'pa_portal_staff_link_envelope', { p_case_id: caseId, p_grade: grade, p_expected_link_id: extra.expectedLinkId || null, p_expected_token_hash: extra.expectedTokenHash || null }, fetchImpl)
+    : portal.rpc(accessToken, 'pa_portal_staff_manage_link_v2', { p_case_id: caseId, p_grade: grade, p_action: operation, p_token_hash: extra.hash || null, p_expires_at: expiresAt || null, p_timezone: timezone || null, p_event_end_at: eventEndAt || null, p_envelope: extra.envelope || null }, fetchImpl);
+  if (action === 'redisplay') return redisplay(rpc, caseId, grade);
   const secret = ['create','rotate'].includes(action) ? randomSecret() : null;
-  const result = await portal.rpc(accessToken, 'pa_portal_staff_manage_link', { p_case_id: caseId, p_grade: grade, p_action: action, p_token_hash: secret ? sha256(secret) : null, p_expires_at: expiresAt || null, p_timezone: timezone || null, p_event_end_at: eventEndAt || null }, fetchImpl);
-  return secret ? { ...result, share_url: `/staff-portal#${secret}` } : result;
+  const hash = secret ? sha256(secret) : null;
+  // Seal before any mutation. Missing/malformed key configuration cannot create a hash-only link.
+  const envelope = secret ? envelopeCrypto.seal(secret, { link_id: crypto.randomUUID(), case_id: caseId, grade, token_hash: hash }) : null;
+  const result = await rpc(action, { hash, envelope });
+  if (secret) return { ...result, url_redisplay: true, share_url: '/staff-portal#' + secret };
+  if (action === 'status' && result.active) {
+    try { return { ...result, ...await redisplay(rpc, caseId, grade) }; }
+    catch (error) { if (error.message !== 'staff_url_unavailable') throw error; return { ...result, url_redisplay: false }; }
+  }
+  return result;
+}
+async function manageOrganizerLink({ session, grade, action, caseId, portalRef }, fetchImpl = fetch) {
+  if (!['GENERAL','TECHNICAL'].includes(grade) || !['status','redisplay','create','rotate','revoke'].includes(action)) throw new Error('invalid_staff_action');
+  const rpc = (operation, extra = {}) => serviceRpc('pa_portal_organizer_staff_manage_link', { p_session_hash: sha256(requireSecret(session)), p_grade: grade, p_action: operation, p_case_id: caseId || null, p_portal_ref: portalRef || null, p_token_hash: extra.hash || null, p_envelope: extra.envelope || null, p_expected_link_id: extra.expectedLinkId || null, p_expected_token_hash: extra.expectedTokenHash || null }, fetchImpl);
+  const status = await rpc('status');
+  if (!status?.ok) throw new Error('link_unavailable');
+  const eventCase = status.case_id;
+  if (action === 'redisplay') return redisplay(rpc, eventCase, grade);
+  if (action === 'status') {
+    if (!status.active) return status;
+    try { return { ...status, ...await redisplay(rpc, eventCase, grade) }; }
+    catch (error) { if (error.message !== 'staff_url_unavailable') throw error; return { ...status, url_redisplay: false }; }
+  }
+  const secret = ['create','rotate'].includes(action) ? randomSecret() : null;
+  const hash = secret ? sha256(secret) : null;
+  const envelope = secret ? envelopeCrypto.seal(secret, { link_id: crypto.randomUUID(), case_id: eventCase, grade, token_hash: hash }) : null;
+  const result = await rpc(action, { hash, envelope });
+  if (!result?.ok) throw new Error('link_unavailable');
+  return secret ? { ...result, url_redisplay: true, share_url: '/staff-portal#' + secret } : result;
 }
 async function exchange(rawToken, fetchImpl = fetch) {
   const session = randomSecret();
@@ -33,4 +76,4 @@ async function download({ session, assetRef, kind }, fetchImpl = fetch) {
   if (crypto.createHash('sha256').update(bytes).digest('hex') !== asset.source_ref.sha256) throw new Error('asset_unavailable');
   return { bytes, filename: asset.display_filename, mime_type: asset.mime_type };
 }
-module.exports = { manageLink, exchange, read, download, SESSION_SECONDS };
+module.exports = { manageLink, manageOrganizerLink, exchange, read, download, SESSION_SECONDS };

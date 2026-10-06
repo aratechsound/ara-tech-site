@@ -397,3 +397,32 @@ body.organizer-portal .organizer-only { display: block; }
   .candidate-card__preview { border-bottom: 1px solid var(--line); border-right: 0; height: 230px; min-height: 0; }
   .candidate-inbox__head { flex-direction: column; }
 }
+
+/* EMP-013: shared portal parity / staff sharing panel */
+.visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.portal-language{display:inline-flex;align-items:center}
+.portal-language select{background:#fff;border:1px solid #bfd4e6;border-radius:9px;color:#31546d;font:inherit;font-size:11px;font-weight:800;max-width:none;min-height:32px;padding:6px 28px 6px 9px}
+.venue-map-link{color:inherit;text-decoration:underline;text-decoration-color:#adc6d9;text-underline-offset:2px}
+.venue-map-link:hover{color:var(--brand-2)}
+.venue-map-mark{font-size:10px;margin-left:3px}
+.venue-address{color:var(--muted);display:block;font-size:10.5px;font-weight:600;margin-top:2px;overflow-wrap:anywhere}
+.staff-share-section{margin-top:30px}
+.staff-share-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.staff-share-card{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 7px 24px rgba(25,48,73,.06);padding:16px}
+.staff-share-card__head{align-items:flex-start;display:flex;gap:10px;justify-content:space-between}
+.staff-share-card__head h3{font-size:16px;margin:0}
+.grade-pill{background:#eef6ff;border-radius:999px;color:var(--brand-2);font-size:10px;font-weight:900;padding:4px 8px}
+.link-state{border-radius:999px;font-size:10px;font-weight:900;padding:4px 8px;white-space:nowrap}
+.link-state.active{background:#e8f7f0;color:#0c794c}.link-state.none{background:#eef2f5;color:#607080}.link-state.revoked{background:#faecee;color:#a23c46}
+.share-scope{color:var(--muted);font-size:11px;margin:7px 0 12px}
+.share-url-box{background:#f7fafc;border:1px solid #cedce7;border-radius:9px;color:#31546d;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;line-height:1.55;min-height:64px;overflow-wrap:anywhere;padding:10px;user-select:all}
+.share-url-box.empty{color:#8795a2;font-family:inherit}
+.share-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}.share-buttons button{background:#fff;border:1px solid #bfd4e6;border-radius:8px;color:#31546d;font-size:10.5px;font-weight:900;padding:7px 10px}.share-buttons button.primary{background:var(--brand);border-color:var(--brand);color:#fff}.share-buttons button.danger{border-color:#e3b6ba;color:#a23c46}.share-buttons button:disabled{cursor:not-allowed;opacity:.42}
+.share-foot{border-top:1px solid #e8eef3;color:#7a8996;font-size:10px;margin-top:12px;padding-top:9px}.staff-share-note{background:#f7fbff;border:1px solid #d5e7f6;border-radius:11px;color:#526879;font-size:11px;margin-bottom:12px;padding:11px 13px}
+.staff-share-error{background:#fff0f1;border:1px solid #edc7ca;border-radius:11px;color:#933b43;font-size:11px;grid-column:1/-1;padding:11px 13px}
+body.staff-portal-view .portal-tools,body.staff-portal-view .candidate-inbox,body.staff-portal-view .staff-share-section,body.staff-portal-view .manage-only,body.staff-portal-view .admin-only{display:none!important}
+body.staff-portal-view.staff-general #performer-section{display:none!important}
+@media(max-width:680px){.staff-share-grid{grid-template-columns:1fr}.staff-share-card{padding:14px}.share-buttons button{flex:1 1 auto}.portal-tools{align-items:center;flex-wrap:wrap}.portal-language{margin-right:auto}}
+
+body.staff-portal-view .header-inner{justify-content:space-between;gap:12px}
+body.staff-portal-view .performer-document__label{grid-column:1 / -1}

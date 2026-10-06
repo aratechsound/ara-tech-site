@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow, noarchive"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#007bff">
-<title>イベント資料ポータル | ARA-TECH</title><link rel="icon" href="/img/favicon.ico"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/pa-case-portal.css?v=production-review-fixes">
+<title>イベント資料ポータル | ARA-TECH</title><link rel="icon" href="/img/favicon.ico"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/pa-case-portal.css?v=emp014-integration">
 <link rel="stylesheet" href="/pa-staff-portal.css"></head><body>
 <header class="portal-header"><div class="header-inner"><div class="brand"><img src="/img/ARA-TECH ロゴ横 白.png" alt="ARA-TECH"></div></div></header>
 <main class="portal-shell">
@@ -11,7 +11,7 @@
 <div class="portal-tools"><button id="share-link-manage" class="edit-mode-toggle manage-only admin-only" type="button" data-i18n="orgOrganizer">主催者共有</button><button id="edit-mode-toggle" class="edit-mode-toggle" type="button" aria-pressed="false" data-i18n="orgEdit">資料を編集</button></div>
 <section class="hero">
   <div class="hero-copy"><span class="kicker" data-i18n="orgKicker">EVENT DOCUMENT PORTAL</span><h1 id="portal-event-name">イベント資料ポータル</h1><p data-i18n="orgIntro">イベント運営資料の最新版と履歴を確認できます。</p></div>
-  <dl class="event-meta" aria-label="イベント基本情報" data-i18n-aria="orgEventInfo"><div><dt data-i18n="date">開催日</dt><dd id="portal-date">未設定</dd></div><div><dt data-i18n="time">本番時間</dt><dd id="portal-time">未設定</dd></div><div><dt data-i18n="venue">会場</dt><dd id="portal-venue">未設定</dd></div></dl>
+  <dl class="event-meta" aria-label="イベント基本情報" data-i18n-aria="orgEventInfo"><div><dt data-i18n="date">開催日</dt><dd id="portal-date">未設定</dd></div><div><dt data-i18n="time">本番時間</dt><dd id="portal-time">未設定</dd></div><div><dt data-i18n="venue">会場</dt><dd><a id="portal-venue-map" class="venue-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden><span id="portal-venue">未設定</span><span class="venue-map-mark" aria-hidden="true">↗</span></a><span id="portal-venue-plain">未設定</span><span id="portal-address" class="venue-address" hidden></span></dd></div></dl>
 </section>
 
 <section id="candidate-inbox" class="section candidate-inbox manage-only admin-only" aria-labelledby="candidate-inbox-title"><div class="candidate-inbox__head"><div><div class="candidate-title-row"><h2 id="candidate-inbox-title">新着資料候補</h2><span id="candidate-count" class="candidate-count" aria-label="未処理件数">0</span></div><p>案件メールで検出した添付です。内容と分類候補を確認してから登録してください。</p></div><button id="candidate-backfill" class="section-manage" type="button">過去メールを再確認</button></div><div id="candidate-content" class="candidate-grid"></div></section>
@@ -22,11 +22,18 @@
 
 <section class="section"><div class="section-head"><div><h2 data-i18n="orgPhotos">会場・ステージ写真</h2><p data-i18n="orgPhotoHint">現調写真や会場写真を同じレベルで並べるギャラリーです。クリックで拡大できます。</p></div><button class="manage-only section-manage" data-manage="add-photo" type="button" data-i18n="orgAddPhoto">写真を追加</button></div><div class="photo-album"><div id="photo-content" class="photo-grid"></div></div></section>
 
-<section class="section"><div class="section-head"><div><h2 data-i18n="orgPerformer">出演者資料</h2><p data-i18n="orgPerformerHint">出演順に資料が並びます。実資料が登録されるまでは完成イメージを表示します。</p></div></div><div class="performer-wrap"><div id="performer-note" class="sample-note"><span data-i18n="orgSampleNote">資料登録後は、出演者名・出演順・ステージ資料が下のように並びます。</span><span class="sample-tag" data-i18n="orgExample">表示例</span></div><div id="performer-content" class="performer-list"></div><section id="stage-plot-admin-area" class="stage-plot-subarea admin-only" aria-labelledby="stage-plot-title" hidden><div class="stage-plot-subarea__head"><div><h3 id="stage-plot-title">ステージプロット</h3><p>保存済みStage Plotを出演順に表示します。</p></div><a id="stage-plot-create" class="stage-plot-action stage-plot-action--primary" href="#">＋ ステージプロットを作成</a></div><div id="stage-plot-content" class="stage-plot-list" aria-live="polite"><div class="stage-plot-loading">ステージプロットを読み込んでいます…</div></div></section><p class="coming-soon organizer-only" data-i18n="orgStageDeferred">ステージ配置図作成機能：準備中</p></div></section>
-
 <section class="section"><div class="section-head"><div><h2 data-i18n="orgOtherSection">その他の共通資料</h2><p data-i18n="orgOtherHint">上の分類に入らない共通資料をカード単位で確認できます。</p></div><button class="manage-only section-manage" data-manage="create-card" data-category="other" type="button" data-i18n="orgAddCommon">資料を追加</button></div><div id="other-content" class="grid3"></div></section>
+
+<section id="performer-section" class="section"><div class="section-head"><div><h2 data-i18n="orgPerformer">出演者資料</h2><p data-i18n="orgPerformerHint">出演順に資料が並びます。実資料が登録されるまでは完成イメージを表示します。</p></div></div><div class="performer-wrap"><div id="performer-note" class="sample-note"><span data-i18n="orgSampleNote">資料登録後は、出演者名・出演順・ステージ資料が下のように並びます。</span><span class="sample-tag" data-i18n="orgExample">表示例</span></div><div id="performer-content" class="performer-list"></div><section id="stage-plot-admin-area" class="stage-plot-subarea admin-only" aria-labelledby="stage-plot-title" hidden><div class="stage-plot-subarea__head"><div><h3 id="stage-plot-title">ステージプロット</h3><p>保存済みStage Plotを出演順に表示します。</p></div><a id="stage-plot-create" class="stage-plot-action stage-plot-action--primary" href="#">＋ ステージプロットを作成</a></div><div id="stage-plot-content" class="stage-plot-list" aria-live="polite"><div class="stage-plot-loading">ステージプロットを読み込んでいます…</div></div></section><p class="coming-soon organizer-only" data-i18n="orgStageDeferred">ステージ配置図作成機能：準備中</p></div></section>
+
+
+<section id="staff-share-section" class="section staff-share-section admin-organizer-only" aria-labelledby="staff-share-title" hidden>
+  <div class="section-head"><div><h2 id="staff-share-title" data-i18n="staffShare">スタッフ共有</h2><p data-i18n="staffShareSub">この案件専用の一般スタッフ用／技術スタッフ用URLを管理します。</p></div></div>
+  <div class="staff-share-note" data-i18n="staffNote">発行したURLはこの欄に残り、後日ページを開き直してコピーできます。案件クローズ時に失効します。</div>
+  <div id="staff-share-root" class="staff-share-grid" aria-live="polite"></div>
+</section>
 </section></main>
 <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-dialog-title"><div class="preview-dialog__inner"><div class="preview-dialog__head"><strong id="preview-dialog-title">資料プレビュー</strong><button id="preview-close" class="icon-button" type="button" aria-label="プレビューを閉じる" data-i18n-aria="close" data-i18n="close">閉じる ×</button></div><div id="preview-dialog-body" class="preview-dialog__body"></div></div></dialog>
 <dialog id="manage-dialog" class="manage-dialog" aria-labelledby="manage-dialog-title"><form id="manage-form" class="manage-dialog__inner"><div class="manage-dialog__head"><strong id="manage-dialog-title">資料を管理</strong><button id="manage-close" class="icon-button" type="button" data-i18n="close">閉じる ×</button></div><div id="manage-dialog-body" class="manage-dialog__body"></div><div class="manage-dialog__foot"><button id="manage-submit" class="button" type="submit" data-i18n="orgSave">保存</button></div></form></dialog>
 <div id="portal-toast" class="portal-toast" role="status" aria-live="polite"></div>
-<script type="module" src="/js/pa-case-portal.js?v=production-review-fixes"></script></body></html>
+<script type="module" src="/js/pa-case-portal.js?v=emp014-integration"></script></body></html>

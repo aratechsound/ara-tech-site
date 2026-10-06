@@ -1,5 +1,7 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./supabase-config.js";
-import { initStaffLinkManagement } from "./pa-staff-link-admin.mjs";
+import { createStaffShareBridge } from "./pa-staff-share-bridge.mjs";
+import { createStaffSharePanel } from "./pa-staff-share-panel.mjs";
+import { applyTranslations, setVenueMap } from "./portal-ui-contract.mjs";
 import { organizerI18n } from "./portal-organizer-i18n.mjs";
 import { eventDate } from "./portal-i18n.mjs";
 
@@ -36,11 +38,12 @@ let stagePlotObserver = null;
 let stagePlotRefreshPromise = null;
 let stagePlotEventDate = "";
 let stagePlotAssignments = new Map();
+let staffSharePanel;
 const stagePlotPreviewCache = new Map();
 const organizerMode = /^\/event-portal\/?$/u.test(location.pathname);
 if (organizerMode) { document.body.classList.add("organizer-portal"); document.querySelector("#candidate-inbox")?.remove(); document.querySelector("#stage-plot-admin-area")?.remove(); }
 
-const orgLocale = organizerI18n(organizerMode, () => {
+const orgLocale = organizerI18n(true, () => {
     const item = portalModel?.event;
     if (item) {
         orgUi($("#portal-event-name"), text(item.event_name, orgText("orgTitle")));
@@ -50,13 +53,16 @@ const orgLocale = organizerI18n(organizerMode, () => {
         renderPortalDocuments();
     }
     orgUi($("#edit-mode-toggle"), orgText(editMode ? "orgFinishEdit" : "orgEdit"));
+    applyTranslations(orgLocale.locale);
+    staffSharePanel?.setLocale(orgLocale.locale);
 });
+const languageLabel=document.createElement("label");languageLabel.className="portal-language";languageLabel.append($("#organizer-language"));$(".portal-tools").prepend(languageLabel);
 const orgText = orgLocale.message;
 const orgUi = orgLocale.ui;
 const text = (value, fallback = orgText("orgUnset")) => String(value || "").trim() || fallback;
-const dateText = (value) => value ? (organizerMode ? eventDate(value,orgLocale.locale) : new Intl.DateTimeFormat("ja-JP", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`))) : orgText("orgUnset");
+const dateText = (value) => value ? eventDate(value,orgLocale.locale) : orgText("orgUnset");
 const timeText = (value) => text(value);
-const documentTime = (item) => (item.source_created_at || item.occurred_at || item.created_at) ? new Intl.DateTimeFormat(organizerMode ? orgLocale.locale : "ja-JP", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(item.source_created_at || item.occurred_at || item.created_at)) : orgText("orgNoTime");
+const documentTime = (item) => (item.source_created_at || item.occurred_at || item.created_at) ? new Intl.DateTimeFormat(orgLocale.locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(item.source_created_at || item.occurred_at || item.created_at)) : orgText("orgNoTime");
 const isImage = (item) => /^image\//iu.test(item.mime_type || "");
 const isPdf = (item) => String(item.mime_type || "").toLowerCase() === "application/pdf" || /\.pdf$/iu.test(item.filename || "");
 const canPreview = (item) => isImage(item) || isPdf(item);
@@ -978,6 +984,12 @@ const renderPortalDocuments = () => {
     renderPerformers(cards.filter((card) => card.category === "performer"));
     renderVersioned($("#other-content"), versions("other"), { collection: true, multiple: true, empty: { title: orgText("orgOtherSection"), message: orgText("orgOtherEmpty"), icon: "📄", collection: true } });
 };
+const mountStaffSharePanel = async () => {
+ if (!staffSharePanel) staffSharePanel=createStaffSharePanel({root:$("#staff-share-root"),bridge:createStaffShareBridge(portalRequest),locale:orgLocale.locale,toast:showToast});
+ try { await staffSharePanel.refresh(); $("#staff-share-section").hidden=false; }
+ catch { $("#staff-share-section").hidden=false; $("#staff-share-root").textContent=String(orgText("error")); }
+ applyTranslations(orgLocale.locale);
+};
 const populate = async (item, progress) => {
     stagePlotEventDate = String(progress?.confirmed_event_date || item.event_date || "");
     orgUi($("#portal-event-name"), text(item.event_name, orgText("orgTitle")));
@@ -988,6 +1000,8 @@ const populate = async (item, progress) => {
     if (!portalModel) throw new Error("portal_not_initialized");
     renderPortalDocuments();
     await refreshStagePlots();
+    setVenueMap(item);
+    await mountStaffSharePanel();
 };
 const populateOrganizer = async () => {
     portalModel = await portalRequest("read");
@@ -998,6 +1012,8 @@ const populateOrganizer = async () => {
     orgUi($("#portal-time"), timeText(item.event_time));
     orgUi($("#portal-venue"), text(item.venue));
     renderPortalDocuments();
+    setVenueMap(item);
+    await mountStaffSharePanel();
 };
 const start = async () => {
     if (organizerMode) {
@@ -1017,7 +1033,6 @@ const start = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { $("#portal-loading").hidden = true; $("#portal-login").hidden = false; return; }
     accessToken = session.access_token;
-    initStaffLinkManagement(portalRequest);
     $("#stage-plot-admin-area").hidden = false;
     $("#stage-plot-create").href = stagePlotUrls().create;
     const [{ data: item, error }, { data: progress }] = await Promise.all([supabase.from("pa_inquiries").select("*").eq("id", caseId).is("deleted_at", null).maybeSingle(), supabase.from("pa_case_progress").select("confirmed_event_date").eq("inquiry_id", caseId).maybeSingle()]);
