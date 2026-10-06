@@ -14,7 +14,7 @@ const editorCss = read('css/stage-plot-editor.css');
 const api = read('api/pa-portal.js');
 const vercel = JSON.parse(read('vercel.json'));
 
-assert.match(html, /<h2>出演者資料<\/h2>[\s\S]+id="stage-plot-admin-area"/u);
+assert.match(html, /<h2(?:\s[^>]*)?>出演者資料<\/h2>[\s\S]+id="stage-plot-admin-area"/u);
 assert.doesNotMatch(html, /<h2>ステージプロット<\/h2>/u, 'Stage Plot must not become a top-level Portal section');
 assert.match(html, /ステージプロットはまだありません|stage-plot-content/u);
 assert.match(html, /＋ ステージプロットを作成/u);

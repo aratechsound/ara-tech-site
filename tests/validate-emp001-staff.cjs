@@ -7,6 +7,7 @@ async function main(){const db=new PGlite();try{
  for(const name of ['20260908143000_pa_portal_document_management.sql','20260908213000_pa_portal_organizer_access.sql','20260909060000_pa_portal_document_candidates.sql','20260909093000_pa_portal_candidate_canonical_identity.sql'])await db.exec(fs.readFileSync(path.join(root,'supabase/migrations',name),'utf8'));
  const before=(await db.query('select jsonb_agg(to_jsonb(p)) payload from pa_inquiries p')).rows[0].payload;
  await db.exec(fs.readFileSync(path.join(root,'supabase/migrations/20261006010000_emp001_staff_portal.sql'),'utf8'));
+ await db.exec(fs.readFileSync(path.join(root,'supabase/migrations/20261006020000_emp001_staff_link_redisplay.sql'),'utf8'));
  assert.deepEqual((await db.query('select jsonb_agg(to_jsonb(p)) payload from pa_inquiries p')).rows[0].payload,before);
  assert.equal(Number((await db.query("select count(*) n from information_schema.columns where column_name='staff_visibility'")).rows[0].n),0);
  const q=async(sql,params=[])=>(await db.query(sql,params)).rows[0].result;

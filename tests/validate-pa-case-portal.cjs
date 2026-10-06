@@ -41,7 +41,7 @@ assert.doesNotMatch(client, /const makePreview = \(document\)/u, "rendering does
 assert.match(client, /音響/u, "layout classification covers audio/power layouts");
 assert.match(client, /isImage\(item\).*写真/u, "photo classification covers stage photos");
 assert.match(client, /isCommercialDocument/u, "contract and payment documents stay outside the portal");
-assert.match(client, /まだ登録されていません/u, "empty states are rendered");
+assert.match(client, /orgEmptyTitle/u, "empty states use shared locale keys");
 assert.match(page, /ステージ配置図作成機能：準備中/u, "performer integration is explicitly deferred");
 assert.doesNotMatch(page, /PA案件管理へ戻る|管理者専用|PRIVATE ADMIN/u, "shared portal removes internal navigation and admin-only wording");
 assert.doesNotMatch(page, /portal-case-number|portal-status|portal-state|案件状態/u, "shared portal hides internal case metadata and status");
