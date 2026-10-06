@@ -24,6 +24,7 @@ const read = name => fs.readFileSync(path.join(root, name), "utf8");
     const context = vm.createContext({
         $: () => ({ value: ui.ownerPaidCompletionStatus }),
         ownerPaidCompletionStatus: ui.ownerPaidCompletionStatus,
+        formalOrderStatus: "formal_order_confirmed",
         saveOwnerPaidCompletion: async () => { paidSaves++; }
     });
     await vm.runInContext(saveSource + "\nsaveCase();", context);

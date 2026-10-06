@@ -8,6 +8,11 @@ import { isPaCase, caseTypeLabel, matchesCaseType, setupUnlinkedMail } from "./a
 
 import { ownerPaidCompletionStatus, caseEditorStatus, recordOwnerPaidCompletion } from "./pa-owner-paid-completion.mjs";
 
+import { formalOrderStatus, formalOrderDisplayStatus, verifyExistingFormalOrder } from "./pa-formal-order-status.mjs";
+
+const editorStatus = (item, progress) => caseEditorStatus(item, progress) === ownerPaidCompletionStatus
+    ? ownerPaidCompletionStatus : formalOrderDisplayStatus(item, progress);
+
 const $ = (selector) => document.querySelector(selector);
 const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
 const isProductionE2eTest = (item) => String(item?.internal_memo || "").startsWith(PRODUCTION_E2E_MARKER);
@@ -16,6 +21,7 @@ const adminEventName = (item) => isProductionE2eTest(item)
     : item?.event_name || "イベント名未設定";
 
 const statusLabels = {
+    [formalOrderStatus]: "正式受注済",
     new: "新規問い合わせ（既存）",
     new_inquiry: "新規問い合わせ",
     follow_up_pending: "担当者フォロー待ち",
@@ -40,6 +46,7 @@ const statusLabels = {
 };
 
 const statusBadgeClasses = {
+    [formalOrderStatus]: "confirmed",
     new: "new",
     new_inquiry: "new",
     follow_up_pending: "reviewing",
@@ -1333,7 +1340,7 @@ const filteredCases = () => {
             if (!isClosedCase(item) || eventYearForCase(item) !== year) return false;
         }
         if (activeProgressFilter && progressGroupForCase(item) !== activeProgressFilter) return false;
-        if (status && item.status !== status) return false;
+        if (status && formalOrderDisplayStatus(item, progressForCase(item)) !== status) return false;
         if (!query) return true;
         return [
             item.inquiry_number,
@@ -1403,7 +1410,7 @@ const renderCases = () => {
         stepBadge.className = `badge badge--stage${isCompleted ? " badge--closed" : ""}`;
         stepBadge.textContent = `工程${workflowStepForCase(item)} ${workflowStepLabel(item)}`;
         if (isPaCase(item)) stateCell.append(stepBadge);
-        stateCell.append(statusBadge(item.status));
+        stateCell.append(statusBadge(formalOrderDisplayStatus(item, progress)));
         const scheduleBadge = document.createElement("span");
         scheduleBadge.className = `badge badge--${item.schedule_state === "completed" ? "confirmed" : "unconfirmed"}`;
         scheduleBadge.textContent = item.schedule_state === "completed" ? "日程確保完了" : "日程未確定";
@@ -1755,6 +1762,7 @@ const resetForm = () => {
     $("#case-received-at").value = toLocalDateTimeInput(new Date().toISOString());
     $("#case-status").value = "new_inquiry";
     $("#owner-paid-completion-option").disabled = true;
+    $("#formal-order-option").disabled = true;
     $("#public-conditions").value = defaultConditions;
     $("#detail-title").textContent = "問い合わせを手入力";
     $("#detail-number").textContent = "保存時に問い合わせ番号を発行します。";
@@ -1808,7 +1816,8 @@ const populateCaseForm = (item) => {
     $("#case-type").value = item.case_type || (!Object.hasOwn(item,'case_type') ? 'PA_EVENT' : '');
     $("#case-id").value = item.id;
     $("#case-received-at").value = toLocalDateTimeInput(item.received_at);
-    $("#case-status").value = caseEditorStatus(item, currentProgress);
+    $("#case-status").value = editorStatus(item, currentProgress);
+    $("#formal-order-option").disabled = formalOrderDisplayStatus(item, currentProgress) !== formalOrderStatus;
     $("#owner-paid-completion-option").disabled = !isPaCase(item)
         || (isClosedCase({ ...item, progress: currentProgress }) && currentProgress?.close_reason !== "payment_received");
     $("#customer-name").value = item.customer_name || "";
@@ -2689,7 +2698,33 @@ const saveOwnerPaidCompletion = async () => {
     setMessage(caseStatusMessage, "入金確認済みで完了を保存しました。金額・入金日・方法は登録していません。", "success");
 };
 
+const confirmExistingFormalOrder = async () => {
+    const selectedCase = currentCase;
+    const selection = caseSelectionSerial;
+    clearMessage(caseStatusMessage);
+    if (!selectedCase) return;
+    $("#save-case").disabled = true;
+    try {
+        await verifyExistingFormalOrder(supabase, selectedCase.id);
+        if (selection !== caseSelectionSerial || currentCase !== selectedCase) return;
+        await loadCases();
+        if (selection !== caseSelectionSerial || currentCase !== selectedCase) return;
+        await openCase(selectedCase.id);
+        if (currentCase?.id !== selectedCase.id) return;
+        setMessage(caseStatusMessage, "保存済みの正式受注記録を確認しました。契約・日付・金額は追加せず、他の編集内容も保存していません。", "success");
+    } catch (error) {
+        if (selection === caseSelectionSerial && currentCase === selectedCase)
+            setMessage(caseStatusMessage, error.message, "error");
+    } finally {
+        $("#save-case").disabled = false;
+    }
+};
+
 const saveCase = async () => {
+    if ($("#case-status").value === formalOrderStatus) {
+        await confirmExistingFormalOrder();
+        return;
+    }
     if ($("#case-status").value === ownerPaidCompletionStatus) {
         await saveOwnerPaidCompletion();
         return;
@@ -2859,7 +2894,7 @@ const applyContentHearingCaseState = (caseState) => {
     if (currentProgress) {
         currentProgress.current_step = initialWorkflowStep(currentCase.status);
     }
-    $("#case-status").value = caseEditorStatus(currentCase, currentProgress);
+    $("#case-status").value = editorStatus(currentCase, currentProgress);
     renderOverview();
 };
 
@@ -3934,7 +3969,7 @@ const applyCaseState = (caseState) => {
             ? caseState.result_at
             : null;
     }
-    $("#case-status").value = caseEditorStatus(currentCase, currentProgress);
+    $("#case-status").value = editorStatus(currentCase, currentProgress);
     $("#result-email-kind").value = "";
     resultEmailSection.classList.add("hidden");
     renderScheduleState();
