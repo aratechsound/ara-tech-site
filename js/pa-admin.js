@@ -6,6 +6,8 @@ import { resolveRequestedCase, withoutRequestedCase } from "./pa-admin-selection
 
 import { isPaCase, caseTypeLabel, matchesCaseType, setupUnlinkedMail } from "./ara-case.mjs";
 
+import { ownerPaidCompletionStatus, caseEditorStatus, recordOwnerPaidCompletion } from "./pa-owner-paid-completion.mjs";
+
 const $ = (selector) => document.querySelector(selector);
 const PRODUCTION_E2E_MARKER = "[TEST] 2026龍姫湖まつり 正式受注E2E";
 const isProductionE2eTest = (item) => String(item?.internal_memo || "").startsWith(PRODUCTION_E2E_MARKER);
@@ -114,7 +116,7 @@ const progressGroups = [
 ];
 
 const closeReasonLabels = {
-    payment_received: "入金完了",
+    payment_received: "入金確認済みで完了",
     schedule_unavailable: "日程確保不可",
     declined: "見送り",
     cancelled: "取消",
@@ -1752,6 +1754,7 @@ const resetForm = () => {
     $("#case-id").value = "";
     $("#case-received-at").value = toLocalDateTimeInput(new Date().toISOString());
     $("#case-status").value = "new_inquiry";
+    $("#owner-paid-completion-option").disabled = true;
     $("#public-conditions").value = defaultConditions;
     $("#detail-title").textContent = "問い合わせを手入力";
     $("#detail-number").textContent = "保存時に問い合わせ番号を発行します。";
@@ -1805,7 +1808,9 @@ const populateCaseForm = (item) => {
     $("#case-type").value = item.case_type || (!Object.hasOwn(item,'case_type') ? 'PA_EVENT' : '');
     $("#case-id").value = item.id;
     $("#case-received-at").value = toLocalDateTimeInput(item.received_at);
-    $("#case-status").value = item.status;
+    $("#case-status").value = caseEditorStatus(item, currentProgress);
+    $("#owner-paid-completion-option").disabled = !isPaCase(item)
+        || (isClosedCase({ ...item, progress: currentProgress }) && currentProgress?.close_reason !== "payment_received");
     $("#customer-name").value = item.customer_name || "";
     $("#organization-name").value = item.organization_name || "";
     $("#contact-name").value = item.contact_name || "";
@@ -2658,7 +2663,37 @@ const validateCase = (payload) => {
     return "";
 };
 
+const saveOwnerPaidCompletion = async () => {
+    const selectedCase = currentCase;
+    const selection = caseSelectionSerial;
+    clearMessage(caseStatusMessage);
+    if (!selectedCase || !isPaCase(selectedCase)) {
+        setMessage(caseStatusMessage, "既存のPA案件を選択してください。", "error");
+        return;
+    }
+    if (!window.confirm("入金済みであることを確認し、この案件を完了しますか？終了理由と確認者を履歴に残します。金額・入金日・方法や、他の編集内容は保存しません。")) return;
+    $("#save-case").disabled = true;
+    const result = await recordOwnerPaidCompletion(supabase, selectedCase.id);
+    $("#save-case").disabled = false;
+    if (selection !== caseSelectionSerial || currentCase !== selectedCase) return;
+    if (result.error) {
+        setMessage(caseStatusMessage, "完了の保存を確認できませんでした。再読み込みして状態を確認してください。" + (result.error.message || ""), "error");
+        return;
+    }
+    activeCaseTab = "year-" + eventYearForCase({ ...selectedCase, progress: result.data });
+    activeProgressFilter = "";
+    await loadCases();
+    if (selection !== caseSelectionSerial || currentCase !== selectedCase) return;
+    await openCase(selectedCase.id);
+    if (currentCase?.id !== selectedCase.id) return;
+    setMessage(caseStatusMessage, "入金確認済みで完了を保存しました。金額・入金日・方法は登録していません。", "success");
+};
+
 const saveCase = async () => {
+    if ($("#case-status").value === ownerPaidCompletionStatus) {
+        await saveOwnerPaidCompletion();
+        return;
+    }
     const selectedCase = currentCase;
     const selection = caseSelectionSerial;
     clearMessage(caseStatusMessage);
@@ -2824,7 +2859,7 @@ const applyContentHearingCaseState = (caseState) => {
     if (currentProgress) {
         currentProgress.current_step = initialWorkflowStep(currentCase.status);
     }
-    $("#case-status").value = currentCase.status;
+    $("#case-status").value = caseEditorStatus(currentCase, currentProgress);
     renderOverview();
 };
 
@@ -3899,7 +3934,7 @@ const applyCaseState = (caseState) => {
             ? caseState.result_at
             : null;
     }
-    $("#case-status").value = currentCase.status;
+    $("#case-status").value = caseEditorStatus(currentCase, currentProgress);
     $("#result-email-kind").value = "";
     resultEmailSection.classList.add("hidden");
     renderScheduleState();

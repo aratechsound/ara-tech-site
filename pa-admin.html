@@ -627,7 +627,9 @@
                                     <option value="on_hold">保留</option>
                                     <option value="cancelled">取消</option>
                                     <option value="closed">対応終了</option>
+                                    <option id="owner-paid-completion-option" value="owner_payment_completed" disabled>入金確認済みで完了</option>
                                 </select>
+                                <p class="small-note">「入金確認済みで完了」は、確認した入金済みの事実と終了理由だけを保存します。金額・入金日・方法は登録せず、他の編集内容も保存しません。</p>
                             </div>
                             <div class="field">
                                 <label for="customer-name">お客様名・担当者名</label>
@@ -862,6 +864,6 @@
         </div>
     </dialog>
 
-    <script type="module" src="js/pa-admin.js?v=pa-est-010r3"></script>
+    <script type="module" src="js/pa-admin.js?v=case-close-002"></script>
 </body>
 </html>
