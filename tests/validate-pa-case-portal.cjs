@@ -5,6 +5,7 @@ const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const page = read("pa-case-portal.html");
 const client = read("js/pa-case-portal.js");
+const documentView = read("js/portal-document-view.mjs");
 const styles = read("pa-case-portal.css");
 const gmailApi = read("api/pa-gmail.js");
 const portalApi = read("api/pa-portal.js");
@@ -27,8 +28,8 @@ assert.match(portalService, /getAttachmentBinary/u, "existing attachments remain
 assert.match(portalService, /portalDocuments/u, "existing attachment candidates use the canonical Gmail index");
 assert.match(client, /pdfjs-dist@6\.3\.289/u, "PDF first pages use pinned PDF.js rendering");
 assert.match(client, /GlobalWorkerOptions\.workerSrc\s*=\s*"\/pdfjs\/pdf\.worker\.min\.mjs\?v=6\.3\.289"/u, "PDF cards use the same-origin worker path that avoids the iOS Blob-worker path");
-assert.match(client, /getPage\(1\)|renderPdfPage\(item, 1/u, "PDF cards render the first page");
-assert.match(client, /document\.createElement\("canvas"\)/u, "PDF previews render to canvas without a browser toolbar");
+assert.match(documentView, /getPage\(1\)|renderPdfPage\(item, 1/u, "PDF cards render the first page");
+assert.match(documentView, /document\.createElement\("canvas"\)/u, "PDF previews render to canvas without a browser toolbar");
 assert.doesNotMatch(client, /createElement\("object"\)/u, "no embedded browser PDF viewer exposes toolbar or blob UUID");
 assert.match(client, /frame\.src = stagePlotUrls\(plot\.id\)\.preview/u, "the only iframe renderer is the shared Stage Plot Editor preview route");
 assert.match(gmailApi, /portal_documents/u, "server authorizes the portal metadata action");
