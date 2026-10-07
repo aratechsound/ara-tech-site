@@ -42,6 +42,7 @@ const normalizeSnapshot=s=>{
  const related=Array.isArray(s.related_documents)?s.related_documents.map(publicDocument):[];
  return {
   snapshot_schema_version:marker||'legacy',presentation_version:current?5:Number(s.presentation_version)||null,
+  confirmation_mode:s.confirmation_mode||'LEGACY',
   case:{event_name:String(event.event_name),event_date:String(event.event_date),event_time:event.event_time?String(event.event_time):null,venue:String(event.venue||''),service_scope:String(event.service_scope)},
   customer:{organization:String(customer.organization||''),department:customer.department?String(customer.department):null,contact_name:String(customer.contact_name||''),display_name:String(customer.display_name||customer.contact_name)},
   estimate:{revision_number:Number(estimate.revision_number)||null,amount_minor:amount,currency:String(estimate.currency||'JPY'),original_filename:quote.filename,mime_type:quote.mime_type,sha256:quote.sha256,sent_at:estimate.sent_at||null},
