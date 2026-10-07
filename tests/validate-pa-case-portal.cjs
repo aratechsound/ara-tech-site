@@ -27,7 +27,7 @@ assert.match(client, /\/api\/pa-portal/u, "preview and management use the authen
 assert.match(portalService, /getAttachmentBinary/u, "existing attachments remain backed by the canonical Gmail resolver");
 assert.match(portalService, /portalDocuments/u, "existing attachment candidates use the canonical Gmail index");
 assert.match(client, /pdfjs-dist@6\.3\.289/u, "PDF first pages use pinned PDF.js rendering");
-assert.match(client, /GlobalWorkerOptions\.workerSrc\s*=\s*"\/pdfjs\/pdf\.worker\.min\.mjs\?v=6\.3\.289"/u, "PDF cards use the same-origin worker path that avoids the iOS Blob-worker path");
+assert.match(client, /GlobalWorkerOptions\.workerSrc\s*=\s*"\/pdfjs\/pdf\.worker\.min\.mjs\?v=6\.3\.289-legacy"/u, "PDF cards use the same-origin worker path that avoids the iOS Blob-worker path");
 assert.match(documentView, /getPage\(1\)|renderPdfPage\(item, 1/u, "PDF cards render the first page");
 assert.match(documentView, /document\.createElement\("canvas"\)/u, "PDF previews render to canvas without a browser toolbar");
 assert.doesNotMatch(client, /createElement\("object"\)/u, "no embedded browser PDF viewer exposes toolbar or blob UUID");
@@ -57,7 +57,7 @@ assert.match(styles, /grid-template-columns:\s*repeat\(3/u, "V8 desktop collecti
 assert.match(styles, /@media \(max-width:\s*390px\)/u, "390px-specific responsive rules exist");
 assert.match(client, /○○BAND/u, "V8 performer sample state is visible");
 assert.match(config.headers.find((rule) => rule.source === "/pa/cases/:caseId/portal").headers.find((header) => header.key === "Content-Security-Policy").value, /worker-src 'self' blob: https:\/\/cdn\.jsdelivr\.net/u, "PDF.js worker is permitted only on the private portal route");
-assert.ok(config.rewrites.some((rule) => rule.source === "/pdfjs/pdf.worker.min.mjs" && rule.destination === "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs"), "the pinned PDF.js worker is proxied on the portal origin");
+assert.ok(config.rewrites.some((rule) => rule.source === "/pdfjs/pdf.worker.min.mjs" && rule.destination === "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/legacy/build/pdf.worker.min.mjs"), "the pinned PDF.js worker is proxied on the portal origin");
 assert.doesNotMatch(client, /action:\s*"send_reply"/u, "portal cannot send customer email");
 assert.match(page, /id="edit-mode-toggle"[^>]*aria-pressed="false"/u, "management controls start off in normal viewing mode");
 assert.match(page, /資料カードを追加|写真を追加/u, "admin edit mode exposes document and photo management");

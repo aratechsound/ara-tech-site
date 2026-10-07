@@ -1,12 +1,12 @@
 import {applyTranslations,setVenueMap,translate} from "./portal-ui-contract.mjs";
 import {createLocaleController,languagePicker,eventDate,eventInstant} from './portal-i18n.mjs';
-import {createPortalDocumentView} from './portal-document-view.mjs';
+import {createPortalDocumentView} from './portal-document-view.mjs?v=emp022-legacy';
 const $=id=>document.getElementById(id);let model=null;let refreshPromise=null;let errorKey='';const records=new Map();let pdfjs;
 const locale=createLocaleController(()=>render());$('staff-language').append(languagePicker(locale));
 async function request(action,extra={}){const response=await fetch('/api/staff-portal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra}),cache:'no-store',credentials:'same-origin'});if(!response.ok)throw new Error(response.status===401?'invalid':'error');return action==='download'?response.blob():(await response.json()).result;}
 const documentView=createPortalDocumentView({
  getAttachmentRecord:async(d,{fresh=false}={})=>{const key=`${d.asset_kind}:${d.asset_id}`;if(!fresh&&records.has(key))return records.get(key);const blob=await request('download',{asset_ref:d.asset_id,asset_kind:d.asset_kind});const record={blob,url:URL.createObjectURL(blob)};if(!fresh)records.set(key,record);return record;},
- getPdfjs:async()=>{pdfjs ||= await import('/pdfjs/pdf.min.mjs');pdfjs.GlobalWorkerOptions.workerSrc='/pdfjs/pdf.worker.min.mjs?v=6.3.289';return pdfjs;},
+ getPdfjs:async()=>{pdfjs ||= await import('/pdfjs/pdf.min.mjs?v=6.3.289-legacy');pdfjs.GlobalWorkerOptions.workerSrc='/pdfjs/pdf.worker.min.mjs?v=6.3.289-legacy';return pdfjs;},
  orgText:(key,params)=>locale.t(key,params),
  sourceLabel:()=>locale.t('latest'),documentTime:d=>eventInstant(d.updated_at,locale.locale,model?.event.timezone),
  showToast:()=>{$('staff-status').hidden=false;$('staff-status').textContent=locale.t('orgOriginalError');},

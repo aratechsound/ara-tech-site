@@ -3,7 +3,7 @@ import { createStaffShareBridge } from "./pa-staff-share-bridge.mjs";
 import { createStaffSharePanel } from "./pa-staff-share-panel.mjs";
 import { applyTranslations, setVenueMap } from "./portal-ui-contract.mjs";
 import { organizerI18n } from "./portal-organizer-i18n.mjs";
-import { createPortalDocumentView } from "./portal-document-view.mjs";
+import { createPortalDocumentView } from "./portal-document-view.mjs?v=emp022-legacy";
 import { eventDate } from "./portal-i18n.mjs";
 
 let createClient;
@@ -14,12 +14,12 @@ const loadBrowserDependencies = async (withAdminClient) => {
         pdfjsLib = testDependencies.pdfjsLib;
         createClient = testDependencies.createClient;
     } else {
-        pdfjsLib = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs");
+        pdfjsLib = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/legacy/build/pdf.min.mjs");
         if (withAdminClient) ({ createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"));
     }
     // Keep the PDF.js worker same-origin. PDF.js otherwise wraps the CDN module
     // worker in a Blob URL, which can fail before rendering in iOS Safari.
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs?v=6.3.289";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs?v=6.3.289-legacy";
 };
 
 const $ = (selector) => document.querySelector(selector);
