@@ -61,7 +61,7 @@ assert.match(adminJs, /openButton\.addEventListener\("click", \(\) => openCase\(
 assert.match(adminJs, /#case-search"\)\.addEventListener\("input", renderCases\)/);
 assert.match(adminJs, /#case-status-filter"\)\.addEventListener\("change", renderCases\)/);
 assert.match(adminJs, /#case-sort"\)\.addEventListener\("change", renderCases\)/);
-assert.match(adminJs, /stateCell\.append\(statusBadge\(item\.status\)\)/);
+assert.match(adminJs, /stateCell\.append\(statusBadge\(formalOrderDisplayStatus\(item, progress\)\)\)/);
 assert.match(adminJs, /currentCase = result\.data;[\s\S]*?await loadCases\(\);[\s\S]*?await openCase\(currentCase\.id\)/);
 assert.match(adminJs, /applyCaseState\(apiResult\.case_state\);[\s\S]*?await loadCases\(\)/);
 assert.match(adminJs, /const renderCaseTabs = \(\) =>/);
@@ -157,7 +157,34 @@ assert.deepEqual(
     [9, 8, 7, 6]
 );
 
-console.log("ARA-20260724-002 completed-state and list-order regression validation passed");
+
+// Evaluate the actual current-main projections; display-only states never replace storage statuses.
+const projectionContext = {};
+vm.runInNewContext([
+    read("js/pa-formal-order-status.mjs").replace(/\bexport /g, ""),
+    read("js/pa-owner-paid-completion.mjs").replace(/\bexport /g, ""),
+    adminJs.match(/const editorStatus = [\s\S]*?;\r?\n/)[0],
+    "this.projections = { formalOrderDisplayStatus, editorStatus, caseEditorStatus };"
+].join("\n"), projectionContext);
+const projections = projectionContext.projections;
+const orderedCase = { case_type: "PA_EVENT", status: "rough_estimate" };
+assert.equal(projections.formalOrderDisplayStatus(orderedCase, { formal_contract_id: "known-contract" }), "formal_order_confirmed");
+assert.equal(projections.formalOrderDisplayStatus(orderedCase, { booking_confirmed_on: "2026-10-07", estimate_approved_on: "2026-10-07" }), "formal_order_confirmed");
+for (const [item, progress, expected] of [
+    [orderedCase, {}, "rough_estimate"],
+    [{ ...orderedCase, case_type: "OTHER" }, { formal_contract_id: "known-contract" }, "rough_estimate"],
+    [{ ...orderedCase, deleted_at: "2026-10-07" }, { formal_contract_id: "known-contract" }, "rough_estimate"],
+    [{ ...orderedCase, status: "on_hold" }, { formal_contract_id: "known-contract" }, "on_hold"],
+    [orderedCase, { formal_contract_id: "known-contract", is_on_hold: true }, "rough_estimate"],
+    [{ ...orderedCase, status: "closed" }, { formal_contract_id: "known-contract" }, "closed"],
+    [orderedCase, { formal_contract_id: "known-contract", closed_at: "2026-10-07" }, "rough_estimate"]
+]) assert.equal(projections.formalOrderDisplayStatus(item, progress), expected);
+assert.equal(projections.editorStatus({ ...orderedCase, status: "closed" }, { close_reason: "payment_received" }), "owner_payment_completed");
+assert.equal(projections.editorStatus({ ...orderedCase, status: "closed" }, { close_reason: "other_closed" }), "closed");
+assert.equal(projections.editorStatus(orderedCase, { close_reason: "payment_received" }), "rough_estimate");
+assert.equal(orderedCase.status, "rough_estimate", "display projection never mutates canonical storage status");
+
+console.log("ARA-20260724-002 completed-state, list-order and current formal/paid display regression validation passed");
 
 function inquirySequenceNumberForTest(inquiryNumber) {
     return Number.parseInt(inquiryNumber.match(/(\d+)$/)[1], 10);
