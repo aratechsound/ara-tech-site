@@ -80,8 +80,20 @@ assert.doesNotMatch(adminCss, /\.case-row--completed[^{]*\{[^}]*opacity:/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*max-width:\s*100%/s);
 assert.match(adminCss, /\.table-wrap\s*\{[^}]*overflow-x:\s*auto/s);
 
-assert.match(adminHtml, /pa-admin\.css\?v=pam-001-workflow/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
+for (const [tag, attribute, pathname] of [["link","href","/pa-admin.css"],["script","src","/js/pa-admin.js"]]) {
+    const references = [...adminHtml.matchAll(new RegExp(`<${tag}\\b[^>]*>`, 'gi'))]
+        .map(([element]) => ({ element, value: element.match(new RegExp(`\\b${attribute}="([^"]+)"`))?.[1] }))
+        .filter(({ value }) => value && new URL(value, 'http://local.test/').pathname === pathname);
+    assert.equal(references.length, 1, `one active reference required for ${pathname}`);
+    const { element, value } = references[0];
+    const url = new URL(value.replaceAll('&amp;', '&'), 'http://local.test/');
+    assert.equal(url.origin, 'http://local.test');
+    assert.equal(url.pathname, pathname);
+    assert.ok(url.searchParams.get('v')?.trim(), `cache query required for ${pathname}`);
+    assert.equal(url.hash, '');
+    assert.match(element, tag === 'link' ? /\brel="stylesheet"/ : /\btype="module"/);
+    assert.ok(fs.statSync(path.join(root, pathname.slice(1))).isFile(), `asset must exist: ${pathname}`);
+}
 
 new vm.Script(adminJs.replace(/^import .*$/gm, ""), {
     filename: "js/pa-admin.js"

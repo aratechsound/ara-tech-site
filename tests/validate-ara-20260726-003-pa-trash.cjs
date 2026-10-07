@@ -33,7 +33,20 @@ assert.match(adminHtml, /案件の進捗状態は保持されますが、通常�
 assert.match(adminHtml, /顧客用URLは利用できなくなります。メールは送信されません。/);
 assert.match(adminHtml, /この操作は元に戻せません。/);
 assert.match(adminHtml, /進捗・入金・専用URL／トークン・回答・メール送信履歴・監査履歴/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
+for (const [tag, attribute, pathname] of [["script","src","/js/pa-admin.js"]]) {
+    const references = [...adminHtml.matchAll(new RegExp(`<${tag}\\b[^>]*>`, 'gi'))]
+        .map(([element]) => ({ element, value: element.match(new RegExp(`\\b${attribute}="([^"]+)"`))?.[1] }))
+        .filter(({ value }) => value && new URL(value, 'http://local.test/').pathname === pathname);
+    assert.equal(references.length, 1, `one active reference required for ${pathname}`);
+    const { element, value } = references[0];
+    const url = new URL(value.replaceAll('&amp;', '&'), 'http://local.test/');
+    assert.equal(url.origin, 'http://local.test');
+    assert.equal(url.pathname, pathname);
+    assert.ok(url.searchParams.get('v')?.trim(), `cache query required for ${pathname}`);
+    assert.equal(url.hash, '');
+    assert.match(element, tag === 'link' ? /\brel="stylesheet"/ : /\btype="module"/);
+    assert.ok(fs.statSync(path.join(root, pathname.slice(1))).isFile(), `asset must exist: ${pathname}`);
+}
 
 assert.match(adminCss, /\.case-dialog\s*\{/);
 assert.match(adminCss, /\.case-dialog::backdrop/);

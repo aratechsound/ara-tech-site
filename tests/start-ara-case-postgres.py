@@ -38,13 +38,18 @@ grant usage on schema auth to anon,authenticated,service_role;
 from re import findall
 fixture=(root/'tests/helpers/ara-case-fixture.cjs').read_text(encoding='utf8')
 migrations=findall(r"'([^']+\.sql)'",fixture.split('const migrations = ')[1].split(';')[0])
-migrations.remove('20261005150000_ara_case_common_mail.sql')
-migrations+=['20260914170000_pa_est_007r1_production_e2e.sql','20260914213000_pa_est_007r3_delivery_recovery.sql','20260915093000_pa_est_010r1_safe_confirmation_reissue.sql','20261005150000_ara_case_common_mail.sql','20261005160000_ara_case_r2_intake_coverage.sql']
-migrations.insert(migrations.index('20261005150000_ara_case_common_mail.sql'),'20261005145900_ara_classification_archive_guard.sql')
-if legacy:migrations=[m for m in migrations if not m.startswith('20261005')]
-check=run(psql,"select to_regclass('public.pa_inquiries');")
+common_migrations=['20261005145900_ara_classification_archive_guard.sql','20261005150000_ara_case_common_mail.sql','20261005160000_ara_case_r2_intake_coverage.sql']
+pa_migrations=[m for m in migrations if m not in common_migrations]+['20260914170000_pa_est_007r1_production_e2e.sql','20260914213000_pa_est_007r3_delivery_recovery.sql','20260915093000_pa_est_010r1_safe_confirmation_reissue.sql']
+migrations=pa_migrations+([] if legacy else common_migrations)
+def validate_migration_plan(plan,pa_order,legacy_mode):
+ if len(plan)!=len(set(plan)):raise RuntimeError('HOLD: duplicate fixture migration')
+ if [m for m in plan if m not in common_migrations]!=pa_order:raise RuntimeError('HOLD: PA fixture migration order changed')
+ if [m for m in plan if m in common_migrations]!=([] if legacy_mode else common_migrations):raise RuntimeError('HOLD: COMMON fixture migration order/count changed')
+ if not legacy_mode and plan[-3:]!=common_migrations:raise RuntimeError('HOLD: COMMON fixture migrations must follow PA dependencies')
+validate_migration_plan(migrations,pa_migrations,legacy)
+check=run(psql,"select case when count(*)=0 then 'PAM033_FRESH_EMPTY_FIXTURE' else 'PAM033_EXISTING_FIXTURE_HOLD' end from information_schema.tables where table_schema in ('public','auth');")
 results=[]
-if 'pa_inquiries' not in check:
+if 'PAM033_FRESH_EMPTY_FIXTURE' in check:
  run(psql,prelude)
  for name in migrations:
   if final and name=='20261005150000_ara_case_common_mail.sql':
@@ -62,14 +67,8 @@ if 'pa_inquiries' not in check:
   if guards and name=='20261005150000_ara_case_common_mail.sql':run(psql,(root/'tests/fixtures/ara-case-indirect-parent-seed.sql').read_text(encoding='utf8'))
   if final and name=='20261005160000_ara_case_r2_intake_coverage.sql':run(psql,"update pa_inquiries set case_type='OTHER' where customer_name='CLASS_INDIRECT_NON_PA';")
   run(psql,(root/'supabase/migrations'/name).read_text(encoding='utf8'));results.append(dict(migration=name,result='APPLIED'))
-elif final:
- # Resume only the previously failed final-fixture tail, preserving earlier evidence.
- check_rpc=run(psql,"select to_regprocedure('public.ara_register_general(uuid,text,jsonb,jsonb)');")
- if 'ara_register_general' not in check_rpc:
-  for name in ['20261005145900_ara_classification_archive_guard.sql','20261005160000_ara_case_r2_intake_coverage.sql']:
-   if guards and name=='20261005150000_ara_case_common_mail.sql':run(psql,(root/'tests/fixtures/ara-case-indirect-parent-seed.sql').read_text(encoding='utf8'))
-  if final and name=='20261005160000_ara_case_r2_intake_coverage.sql':run(psql,"update pa_inquiries set case_type='OTHER' where customer_name='CLASS_INDIRECT_NON_PA';")
-  run(psql,(root/'supabase/migrations'/name).read_text(encoding='utf8'));results.append(dict(migration=name,result='APPLIED_RESUMED_TAIL'))
+else:
+ raise RuntimeError('HOLD: existing or incomplete fixture requires independently verified source/plan/state identity; automatic legacy tail resume is forbidden')
 run(psql,'grant usage on schema public to anon,authenticated,service_role;grant all on all tables in schema public to service_role;grant all on all sequences in schema public to service_role;')
 run(psql,"alter table public.work_admins enable row level security;drop policy if exists fixture_admin_self_read on public.work_admins;create policy fixture_admin_self_read on public.work_admins for select to authenticated using(user_id=auth.uid());grant select on public.work_admins to authenticated;")
 config=rt/('postgrest-guards.conf' if guards else 'postgrest-final.conf' if final else 'postgrest-legacy.conf' if legacy else 'postgrest.conf')

@@ -11,9 +11,11 @@ const adminCss = read("pa-admin.css");
 const adminJs = read("js/pa-admin.js");
 const migration = read("supabase/migrations/2026-07-24-pa-case-progress.sql");
 
-assert.match(adminHtml, /<title>PA案件管理 \| ARA-TECH<\/title>/);
-assert.match(adminHtml, /<h1>PA案件管理<\/h1>/);
-assert.match(adminHtml, /正式14工程を正本として/);
+assert.match(adminHtml, /<title>\s*ARA-TECH\s+案件管理\s*<\/title>/);
+assert.match(adminHtml, /<h1>\s*ARA-TECH\s+案件管理\s*<\/h1>/);
+const mainHeadingTail = adminHtml.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1]
+    ?.match(/<h1\b[^>]*>[^<]*<\/h1>([\s\S]*)/)?.[1] || "";
+assert.match(mainHeadingTail, /^\s*<p class="intro">\s*[^<\s][^<]*<\/p>/);
 assert.match(adminHtml, /id="case-tabs"[^>]*role="tablist"/);
 assert.match(adminHtml, /id="progress-summary"/);
 assert.match(adminHtml, /id="progress-management-section"/);
@@ -22,8 +24,20 @@ assert.match(adminHtml, /id="payment-mismatch-confirmed"/);
 assert.match(adminHtml, /id="payment-confirmation-panel"/);
 assert.match(adminHtml, /id="confirm-payment-close"/);
 assert.match(adminHtml, /入金確認とケースクローズを同一トランザクションで確定/);
-assert.match(adminHtml, /pa-admin\.css\?v=pam-001-workflow/);
-assert.match(adminHtml, /js\/pa-admin\.js\?v=pam-001-workflow/);
+for (const [tag, attribute, pathname] of [["link","href","/pa-admin.css"],["script","src","/js/pa-admin.js"]]) {
+    const references = [...adminHtml.matchAll(new RegExp(`<${tag}\\b[^>]*>`, 'gi'))]
+        .map(([element]) => ({ element, value: element.match(new RegExp(`\\b${attribute}="([^"]+)"`))?.[1] }))
+        .filter(({ value }) => value && new URL(value, 'http://local.test/').pathname === pathname);
+    assert.equal(references.length, 1, `one active reference required for ${pathname}`);
+    const { element, value } = references[0];
+    const url = new URL(value.replaceAll('&amp;', '&'), 'http://local.test/');
+    assert.equal(url.origin, 'http://local.test');
+    assert.equal(url.pathname, pathname);
+    assert.ok(url.searchParams.get('v')?.trim(), `cache query required for ${pathname}`);
+    assert.equal(url.hash, '');
+    assert.match(element, tag === 'link' ? /\brel="stylesheet"/ : /\btype="module"/);
+    assert.ok(fs.statSync(path.join(root, pathname.slice(1))).isFile(), `asset must exist: ${pathname}`);
+}
 
 const workflowSource = adminJs.match(/const workflowSteps = \[([\s\S]*?)\];/);
 assert.ok(workflowSource, "14-step workflow declaration must exist");

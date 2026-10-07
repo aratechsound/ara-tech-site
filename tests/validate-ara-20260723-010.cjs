@@ -25,7 +25,52 @@ assert.match(inquiryHtml, /予約や日程確保は成立しません/);
 assert.match(scheduleHtml, /日程確保フォーム/);
 assert.match(scheduleHtml, /条件確認・同意/);
 assert.match(scheduleHtml, /専用URLをご案内したお客様だけが使用します/);
-assert.match(adminHtml, /正式14工程を正本として/);
+// The PA workflow authority is source behavior, not the admin introduction copy.
+// Reuse PAM-001's existing stage labels, projection migration and UI contracts.
+require("./validate-pam-001-workflow-consolidation.cjs");
+const workflowDeclaration = (name) => {
+    const declaration = adminJs.match(new RegExp(`^const ${name} = [\\s\\S]*?;\\r?$(?=\\r?\\n\\r?\\n)`, "m"))?.[0];
+    assert.ok(declaration, `PA workflow declaration missing: ${name}`);
+    return declaration;
+};
+const workflow = vm.runInNewContext([
+    "completedStatuses", "workflowSteps", "workflowPhases", "initialWorkflowStep",
+    "progressForCase", "isCompletedStatus", "workflowStepForCase"
+].map(workflowDeclaration).join("\n") + "\n({ workflowSteps, workflowPhases, workflowStepForCase });");
+assert.equal(workflow.workflowSteps.length, 14, "PA authority has 14 stages");
+assert.deepEqual(JSON.parse(JSON.stringify(workflow.workflowPhases.map(({ id, steps }) => ({ id, steps })))), [
+    { id: "sales", steps: [1, 2, 3, 4] },
+    { id: "order", steps: [5, 6, 7, 8] },
+    { id: "preparation", steps: [9, 10] },
+    { id: "delivery", steps: [11] },
+    { id: "settlement", steps: [12, 13, 14] }
+], "PA authority has five canonical phases");
+const projectionCases = [
+    ...["new_inquiry", "waiting_customer_reply", "rough_estimate", "customer_intent_confirmed", "schedule_coordination"]
+        .map((status, index) => [index + 1, { status }]),
+    ...[{}, { estimate_created_on: "fixture" }, { estimate_created_on: "fixture", estimate_sent_on: "fixture" },
+        { estimate_approved_on: "fixture" }, { booking_confirmed_on: "fixture" },
+        { event_preparation_completed_on: "fixture" }, { event_completed_on: "fixture" }, { invoice_sent: true }]
+        .reduce((cases, fields, index) => {
+            const progress = { ...(cases.at(-1)?.[1].progress || {}), ...fields };
+            cases.push([index + 6, { status: "schedule_confirmed", progress }]);
+            return cases;
+        }, []),
+    [14, { status: "closed" }]
+];
+projectionCases.forEach(([step, item]) => {
+    const row = { ...item, progress: { ...item.progress, current_step: 14 } };
+    assert.equal(workflow.workflowStepForCase(row), step, `PAM-001 authority projection stage ${step}`);
+    assert.equal(row.progress.current_step, 14, "legacy persisted stage remains unchanged");
+});
+const paDeclaration = read("js/ara-case.mjs").match(/^export const isPaCase = .*;\r?$/m)?.[0];
+assert.ok(paDeclaration, "PA applicability declaration exists");
+const appliesToPa = vm.runInNewContext(paDeclaration.replace(/^export /, "") + "\nisPaCase;");
+[
+    [{ case_type: "PA_EVENT" }, true], [{}, true], [{ case_type: null }, false],
+    ...["AUDIO_INSTALL", "AV_INSTALL", "LIGHTING_INSTALL", "VIDEO_INSTALL", "EQUIPMENT_RENTAL", "OTHER"]
+        .map((case_type) => [{ case_type }, false])
+].forEach(([row, expected]) => assert.equal(appliesToPa(row), expected, `PA applicability: ${JSON.stringify(row)}`));
 assert.match(adminHtml, /日程確保フォームURLを発行/);
 assert.match(adminHtml, /この内容でGmail送信/);
 assert.match(adminHtml, /正式署名は送信時にサーバー側で自動付与/);
