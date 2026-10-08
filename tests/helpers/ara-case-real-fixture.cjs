@@ -2,8 +2,8 @@ const crypto=require('node:crypto');const {spawnSync}=require('node:child_proces
 const actor='123e4567-e89b-42d3-a456-426614174001';
 const secret='ara-case-r2-fixture-secret-at-least-32-characters';
 const jwt=(role,sub=actor)=>{const header=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');const body=Buffer.from(JSON.stringify({role,sub,exp:Math.floor(Date.now()/1000)+86400})).toString('base64url');return `${header}.${body}.${crypto.createHmac('sha256',secret).update(`${header}.${body}`).digest('base64url')}`;};
-const psql=path.resolve(__dirname,'../../../r2-runtime/pgsql/bin/psql.exe');
-function sql(query,database='ara_case_r2_verify'){if(!['ara_case_r2_verify','ara_case_r2_guards','ara_case_r2_legacy'].includes(database))throw Error('fixture database');const p=spawnSync(psql,['-h','127.0.0.1','-p','55437','-U','fixture_admin','-d',database,'-v','ON_ERROR_STOP=1','-At'],{input:query,encoding:'utf8',env:{...process.env,PGCLIENTENCODING:'UTF8'}});if(p.status)throw Error(p.stderr);return p.stdout.replace(/\r/g,'').trim();}
+const psql=process.platform==='win32'?path.resolve(__dirname,'../../../r2-runtime/pgsql/bin/psql.exe'):'psql';
+function sql(query,database='ara_case_r2_verify'){if(!['ara_case_r2_verify','ara_case_r2_guards','ara_case_r2_legacy','ara_case_r3_verify'].includes(database))throw Error('fixture database');const p=spawnSync(psql,['-h','127.0.0.1','-p','55437','-U','fixture_admin','-d',database,'-v','ON_ERROR_STOP=1','-At'],{input:query,encoding:'utf8',env:{...process.env,PGCLIENTENCODING:'UTF8'}});if(p.error||p.status!==0)throw p.error||Error(p.stderr);return p.stdout.replace(/\r/g,'').trim();}
 function fixture({database='ara_case_r2_verify',restPort=55442}={}){
  const live=global.fetch.bind(globalThis);
  const state={mailbox:'aratechsound@gmail.com',messages:new Map(),sends:0,failSend:false,failPage:null,queries:[],pageQueries:new Map(),restPort};
@@ -12,7 +12,7 @@ function fixture({database='ara_case_r2_verify',restPort=55442}={}){
  Object.assign(process.env,{SUPABASE_URL:`http://127.0.0.1:${restPort}`,SUPABASE_SERVICE_ROLE_KEY:jwt('service_role'),GMAIL_CLIENT_ID:'fixture-id',GMAIL_CLIENT_SECRET:'fixture-secret',GMAIL_REFRESH_TOKEN:'fixture-refresh',GMAIL_SENDER_ADDRESS:'aratechsound@gmail.com',GMAIL_REPLY_TO:'aratechsound@gmail.com',GMAIL_NOTIFICATION_ADDRESS:'aratechsound@gmail.com',RATE_LIMIT_HASH_SECRET:'fixture-rate',ALLOWED_ORIGINS:'http://127.0.0.1:8872,https://ara-tech.cc',ARA_GENERAL_INQUIRY_ENABLED:'true',ARA_GENERAL_FIXTURE:'true',ARA_GENERAL_NOTIFICATION_POLICY:JSON.stringify({verified:true,notification_recipient:'aratechsound@gmail.com',receipt_enabled:false,spam_adapter:'fixture'})});
  async function fetchImpl(target,options={}){
   const u=new URL(target);
-  if(u.hostname==='127.0.0.1'&&['55442','55443','55439'].includes(u.port)){
+  if(u.hostname==='127.0.0.1'&&['55442','55443','55439','55444'].includes(u.port)){
    if(u.pathname==='/auth/v1/user'){
     try{const token=String(options.headers.authorization||'').slice(7),[h,b,s]=token.split('.');const claims=JSON.parse(Buffer.from(b,'base64url'));if(claims.sub===actor&&claims.role==='authenticated'&&s===crypto.createHmac('sha256',secret).update(`${h}.${b}`).digest('base64url'))return json({id:actor,email:'owner@example.invalid'});}catch{}return json({},401);
    }

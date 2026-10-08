@@ -12,34 +12,28 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
-      - name: Check out repository
+      - name: Check out repository with validator baseline history
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 22
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate ARA-20260724-010
-        run: node tests/validate-ara-20260724-010.cjs
-
-      - name: Run all ARA validators
+      - name: Run isolated Ubuntu Node 22 Security checks
         shell: bash
-        run: |
-          set -euo pipefail
-          for test_file in tests/validate-ara-*.cjs; do
-            node "$test_file"
-          done
+        env:
+          ARA_CI_DEDICATED: node tests/validate-ara-20260724-010.cjs
+          ARA_CI_VALIDATORS: tests/validate-ara-*.cjs
+          ARA_CI_SYNTAX: node --check
+          ARA_CI_WHITESPACE: git diff --check HEAD
+        run: bash tests/ci/run-security-checks.sh
 
-      - name: Check JavaScript syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r source_file; do
-            node --check "$source_file"
-          done < <(git ls-files '*.js' '*.cjs')
-
-      - name: Check patch whitespace
-        run: git diff --check
+      - name: Save local fixture and validator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-checks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ara-ci-audit.*/
+          if-no-files-found: warn
+          retention-days: 7
