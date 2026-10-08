@@ -25,7 +25,18 @@ begin
   v_state:=public.pa_v5_state(p_case);
   if v_state.revision<>p_expected_revision or v_state.current_estimate_revision_id is distinct from p_expected_current then raise exception 'commercial_state_changed'; end if;
   if exists(select 1 from public.pa_contracts where inquiry_id=p_case) then raise exception 'post_contract_change_required'; end if;
-  if exists(select 1 from public.pa_commercial_outbox where inquiry_id=p_case and state in ('processing','unknown')) then raise exception 'delivery_outcome_unresolved'; end if;
+  -- Only deliveries competing with this operation/current revision can stop it.
+  -- Keep ambiguous provider failures and related expired processing leases on hold.
+  if exists(select 1 from public.pa_commercial_outbox x where x.inquiry_id=p_case
+    and (x.operation_id=p_operation
+      or (x.job_kind='estimate' and x.aggregate_id=p_expected_current)
+      or (x.job_kind in ('confirmation','confirmation_reminder') and exists(
+        select 1 from public.pa_contract_offers o where o.id=x.aggregate_id
+          and o.inquiry_id=p_case and o.estimate_revision_id=p_expected_current)))
+    and (x.state in ('processing','unknown') or x.delivery_state='unknown_after_provider_start'
+      or ((x.state='failed' or (x.state='cancelled' and x.last_error_code='confirmation_revoked')) and x.provider_request_started
+        and (not x.provider_response_received or x.provider_http_status>=500 or x.provider_http_status between 200 and 299))))
+  then raise exception 'delivery_outcome_unresolved'; end if;
   for v_token in select t.offer_id,o.estimate_revision_id from public.pa_contract_tokens t join public.pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=p_case and t.state='active' for update of t loop
     if v_token.estimate_revision_id is null then raise exception 'legacy_confirmation_reconciliation_required'; end if;
     update public.pa_contract_tokens set state='revoked' where offer_id=v_token.offer_id;
@@ -117,18 +128,27 @@ begin
  if exists(select 1 from public.pa_contract_tokens t join public.pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=p_case and t.state='active') then raise exception 'confirmation_already_active'; end if;
  -- The legacy guard remains explicit; a prepared-only estimate is not sent.
  if v_mode='LEGACY' and not (
-   exists(select 1 from public.pa_estimate_revisions e where e.id=p_estimate and e.inquiry_id=p_case and e.source_kind='sent_recovery' and e.source_sent_at is not null)
-   or exists(select 1 from public.pa_commercial_outbox x where x.inquiry_id=p_case and x.job_kind='estimate' and x.aggregate_id=p_estimate and x.state='sent')
+   exists(select 1 from public.pa_estimate_delivery_evidence e where e.estimate_revision_id=p_estimate and e.inquiry_id=p_case
+     and e.gmail_message_id<>'' and e.gmail_attachment_id<>'' and e.source_sent_at is not null)
+   or exists(select 1 from public.pa_commercial_outbox x where x.inquiry_id=p_case and x.job_kind='estimate' and x.aggregate_id=p_estimate and x.state='sent'
+     and x.provider_message_id is not null and x.provider_thread_id is not null)
    or exists(select 1 from public.pa_commercial_outbox x join public.pa_contract_offers o on o.id=x.aggregate_id
      where x.inquiry_id=p_case and o.inquiry_id=p_case and o.estimate_revision_id=p_estimate
        and o.snapshot->>'confirmation_mode'='DIRECT_CONFIRM_WITH_ESTIMATE' and x.job_kind='confirmation'
        and x.state='sent' and x.provider_message_id is not null and x.provider_thread_id is not null)
  ) then raise exception 'estimate_delivery_not_confirmed'; end if;
  if v_mode='LEGACY' and exists(select 1 from public.pa_commercial_outbox where inquiry_id=p_case and job_kind='estimate' and aggregate_id=p_estimate and state not in ('sent','cancelled')) then raise exception 'estimate_delivery_not_confirmed'; end if;
- if v_mode='DIRECT_CONFIRM_WITH_ESTIMATE' and exists(select 1 from public.pa_commercial_outbox
-   where inquiry_id=p_case and job_kind='estimate' and aggregate_id=p_estimate
-     and (state in ('processing','unknown') or delivery_state='unknown_after_provider_start'
-       or (state='failed' and provider_request_started and (not provider_response_received or provider_http_status>=500 or provider_http_status between 200 and 299))))
+ if exists(select 1 from public.pa_commercial_outbox x where x.inquiry_id=p_case
+   and (x.operation_id=p_operation
+     or (x.job_kind='estimate' and x.aggregate_id=p_estimate)
+     or (x.job_kind in ('confirmation','confirmation_reminder') and (x.aggregate_id=p_offer or exists(
+       select 1 from public.pa_contract_offers o where o.id=x.aggregate_id
+         and o.inquiry_id=p_case and o.estimate_revision_id=p_estimate))))
+   and (x.state in ('processing','unknown') or x.delivery_state='unknown_after_provider_start'
+     -- The existing replacement RPC cancels failed rows before calling here.
+     -- That cancellation must not erase an ambiguous provider outcome.
+     or ((x.state='failed' or (x.state='cancelled' and x.last_error_code='confirmation_revoked')) and x.provider_request_started
+       and (not x.provider_response_received or x.provider_http_status>=500 or x.provider_http_status between 200 and 299))))
  then raise exception 'delivery_outcome_unresolved'; end if;
 
  select * into v_est from public.pa_estimate_revisions where id=p_estimate and inquiry_id=p_case;
@@ -140,7 +160,23 @@ begin
  if v_contact is null then raise exception 'invalid_contract'; end if;
  v_display:=concat_ws(' ',nullif(btrim(v_case.organization_name),''),v_contact);
  v_event_time:=nullif(btrim(v_case.event_time),'');
- v_estimate_sent_at:=coalesce(v_est.source_sent_at,v_est.issued_at,v_doc.created_at);
+ -- Select immutable, exact-revision sent evidence independently of guide state.
+ select proof.sent_at into v_estimate_sent_at from (
+   select e.source_sent_at as sent_at from public.pa_estimate_delivery_evidence e
+     where e.inquiry_id=p_case and e.estimate_revision_id=p_estimate
+       and e.gmail_message_id<>'' and e.gmail_attachment_id<>''
+   union all
+   select x.finished_at from public.pa_commercial_outbox x
+     left join public.pa_contract_offers o on o.id=x.aggregate_id and o.inquiry_id=p_case
+     where x.inquiry_id=p_case and x.state='sent'
+       and x.provider_message_id is not null and x.provider_thread_id is not null
+       and x.attachment_ids=array[v_doc.id]
+       and ((x.job_kind='estimate' and x.aggregate_id=p_estimate)
+         or (x.job_kind='confirmation' and o.estimate_revision_id=p_estimate
+           and o.snapshot->>'confirmation_mode'='DIRECT_CONFIRM_WITH_ESTIMATE'
+           and o.snapshot->'estimate'->>'document_id'=v_doc.id::text
+           and o.snapshot->'estimate'->>'sha256'=v_doc.sha256))
+ ) proof where proof.sent_at is not null order by proof.sent_at asc limit 1;
  if v_mode='DIRECT_CONFIRM_WITH_ESTIMATE' then
    if p_reply_binding->>'confirmation_mode' is distinct from v_mode
      or p_snapshot->'preview_binding'->>'case_updated_at' is null
@@ -158,17 +194,6 @@ begin
      or not exists(select 1 from public.pa_gmail_thread_links where inquiry_id=p_case
        and conversation_role='primary_conversation' and gmail_thread_id=p_reply_binding->>'thread_id')
    then raise exception 'stale_confirmation_preview'; end if;
-   select x.finished_at into v_estimate_sent_at from public.pa_commercial_outbox x
-     left join public.pa_contract_offers o on o.id=x.aggregate_id and o.inquiry_id=p_case
-     where x.inquiry_id=p_case and x.state='sent'
-       and x.provider_message_id is not null and x.provider_thread_id is not null
-       and ((x.job_kind='estimate' and x.aggregate_id=p_estimate)
-         or (x.job_kind='confirmation' and o.estimate_revision_id=p_estimate
-           and o.snapshot->>'confirmation_mode'='DIRECT_CONFIRM_WITH_ESTIMATE'
-           and o.snapshot->'estimate'->>'document_id'=v_doc.id::text
-           and o.snapshot->'estimate'->>'sha256'=v_doc.sha256 and x.attachment_ids=array[v_doc.id]))
-     order by x.finished_at asc nulls last,x.created_at asc limit 1;
-   if v_est.source_kind='sent_recovery' then v_estimate_sent_at:=v_est.source_sent_at; end if;
    -- Supersede unsent estimate-only jobs under the same case lock. A single
    -- confirmation job supplies both delivery states and provider evidence.
    update public.pa_commercial_outbox set state='cancelled',delivery_state='cancelled',finished_at=v_now,

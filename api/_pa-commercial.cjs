@@ -20,7 +20,7 @@ const confirmationMode = (value) => {
 };
 // The confirmation outbox is also the estimate delivery authority in direct mode.
 // Never create a second estimate delivery record or infer delivery from issued_at.
-const estimateDelivery = (estimate, outbox, offers) => {
+const estimateDelivery = (estimate, outbox, offers, recoveryEvidence, gmailMessages) => {
   const direct = outbox.filter((job) => job.job_kind === 'confirmation'
     && offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimate.id
       && offer.snapshot?.confirmation_mode === DIRECT_CONFIRM_WITH_ESTIMATE));
@@ -31,9 +31,40 @@ const estimateDelivery = (estimate, outbox, offers) => {
   // revision. Keep its first successful provider evidence; each confirmation
   // still exposes its own delivery state through the unchanged outbox rows.
   const delivered = [...direct, ...estimateJobs].filter((job) => job.state === 'sent'
-    && job.provider_message_id && job.provider_thread_id)
-    .sort((a, b) => Date.parse(a.finished_at || a.created_at) - Date.parse(b.finished_at || b.created_at));
-  return delivered[0] || direct[0] || estimateJobs[0] || null;
+    && job.provider_message_id && job.provider_thread_id
+    && job.attachment_ids?.includes(estimate.document_id)
+    && (job.job_kind === 'estimate' || offers.some((offer) => offer.id === job.aggregate_id
+      && offer.snapshot?.estimate?.document_id === estimate.document_id)))
+    .map((job) => ({ ...job, sent_at: job.finished_at || null,
+      evidence_source: job.job_kind === 'estimate' ? 'estimate_outbox' : 'direct_confirmation_outbox' }));
+  // Recovery can attach genuine Gmail evidence to an existing managed revision.
+  // Source timestamps or matching PDF bytes alone never establish delivery.
+  for (const proof of recoveryEvidence) {
+    if (proof.inquiry_id !== estimate.inquiry_id || proof.estimate_revision_id !== estimate.id
+      || !proof.gmail_message_id || !proof.gmail_attachment_id || !proof.source_sent_at) continue;
+    delivered.push({ id: null, state: 'sent', estimate_revision_id: estimate.id,
+      provider_message_id: proof.gmail_message_id,
+      provider_thread_id: gmailMessages.find((message) => message.gmail_message_id === proof.gmail_message_id)?.gmail_thread_id || null,
+      finished_at: proof.source_sent_at, sent_at: proof.source_sent_at,
+      evidence_source: 'gmail_recovery', delivery_evidence_id: proof.id });
+  }
+  delivered.sort((a, b) => Date.parse(a.sent_at || a.created_at) - Date.parse(b.sent_at || b.created_at));
+  const pending = direct[0] || estimateJobs[0] || null;
+  return delivered[0] || (pending?.state === 'sent'
+    ? { ...pending, state: 'unknown', sent_at: null, evidence_source: null }
+    : pending);
+};
+const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offers }) => {
+  const related = (operationId && job.operation_id === operationId)
+    || (job.job_kind === 'estimate' && job.aggregate_id === estimateId)
+    || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
+      && (job.aggregate_id === confirmationId
+        || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
+  return related && (['processing', 'unknown'].includes(job.state)
+    || job.delivery_state === 'unknown_after_provider_start'
+    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
+      && (!job.provider_response_received || job.provider_http_status >= 500
+        || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
 };
 const LEGACY_CONFIRMATION_RECOVERY_AUTHORITY = Object.freeze({
   case_id: '21073084-a71f-4892-b97d-7717aeda0672',
@@ -460,7 +491,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       rows('pa_change_orders', { inquiry_id: 'eq.' + caseId, select: '*', order: 'created_at.desc', limit: '100' }),
       rows('pa_estimate_delivery_evidence', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
       rows('pa_estimate_import_corrections', { inquiry_id: 'eq.' + caseId, select: '*', order: 'recorded_at.desc', limit: '200' }),
-      rows('pa_gmail_message_index', { inquiry_id: 'eq.' + caseId, select: 'gmail_message_id,direction,sent_at,received_at,indexed_at,attachment_metadata', order: 'indexed_at.desc', limit: '200' }),
+      rows('pa_gmail_message_index', { inquiry_id: 'eq.' + caseId, select: 'gmail_message_id,gmail_thread_id,direction,sent_at,received_at,indexed_at,attachment_metadata', order: 'indexed_at.desc', limit: '200' }),
       one('pa_portals', { case_id: 'eq.' + caseId, select: 'id' }),
       one('pa_gmail_thread_links', { inquiry_id: 'eq.' + caseId, conversation_role: 'eq.primary_conversation', select: 'gmail_thread_id' }),
       emailAddress(inquiry.email) === 'tonokun@gmail.com' ? productionE2eMetadata(caseId) : Promise.resolve(null)
@@ -477,7 +508,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     return {
       case_status: inquiry.status,
       state: effectiveState,
-      estimates: estimates.map((estimate) => ({ ...estimate, delivery: estimateDelivery(estimate, safeOutbox, offers) })), documents, offers: offers.map((offer) => ({
+      estimates: estimates.map((estimate) => ({ ...estimate, delivery: estimateDelivery(estimate, safeOutbox, offers, deliveryEvidence, gmailMessages) })), documents, offers: offers.map((offer) => ({
         ...offer,
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
@@ -542,11 +573,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const estimate = current.estimates.find((item) => item.id === current.state.current_estimate_revision_id);
     if (!estimate) throw Error('estimate_not_found');
     if (current.state.estimate_change_state !== 'ready') throw Error('commercial_state_changed');
-    const estimateJobs = current.outbox.filter((job) => job.job_kind === 'estimate' && job.aggregate_id === estimate.id);
-    if (mode === DIRECT_CONFIRM_WITH_ESTIMATE && estimateJobs.some((job) => ['processing', 'unknown'].includes(job.state)
-      || (job.state === 'failed' && job.provider_request_started
-        && (!job.provider_response_received || job.provider_http_status >= 500
-          || (job.provider_http_status >= 200 && job.provider_http_status < 300))))) throw Error('delivery_outcome_unresolved');
+    if (current.outbox.some((job) => deliveryConflicts(job, { operationId: options.operation_id,
+      estimateId: estimate.id, confirmationId: replaceOfferId, offers: current.offers }))) throw Error('delivery_outcome_unresolved');
     if (current.offers.some((item) => item.state === 'accepted')) throw Error('contract_already_accepted');
     const activeOffers = current.offers.filter((item) => item.state === 'active');
     if (replaceOfferId) {
@@ -596,7 +624,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         estimate_id: estimate.id, revision_number: Number(estimate.revision_number), amount_minor: Number(estimate.amount_minor),
         currency: estimate.currency, original_filename: documentRow.original_filename, document_id: documentRow.id,
         mime_type: documentRow.mime_type, sha256: documentRow.sha256,
-        sent_at: mode === DIRECT_CONFIRM_WITH_ESTIMATE ? (estimate.delivery?.state === 'sent' ? estimate.delivery.finished_at : estimate.source_kind === 'sent_recovery' ? estimate.source_sent_at : null) : estimate.source_sent_at || estimate.issued_at || documentRow.created_at
+        sent_at: estimate.delivery?.state === 'sent' ? estimate.delivery.sent_at || estimate.delivery.finished_at || null : null
       },
       terms: agreement,
       issuance: { issued_at: null, expires_at: null },
@@ -853,7 +881,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
     let prepared;
     try {
-      prepared = await confirmationAuthority(input.case_id, actor, { confirmation_mode: mode });
+      prepared = await confirmationAuthority(input.case_id, actor, { confirmation_mode: mode, operation_id: operationId });
     } catch (error) {
       if (['invalid_contract', 'estimate_not_found', 'document_identity_mismatch', 'gmail_thread_not_linked', 'reply_target_unavailable', 'invalid_reply_source', 'confirmation_already_active', 'contract_already_accepted'].includes(error.message)) {
         throw Error('stale_confirmation_preview');
@@ -929,7 +957,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
     let prepared;
     try {
-      prepared = await confirmationAuthority(input.case_id, actor, { replace_offer_id: oldOfferId });
+      prepared = await confirmationAuthority(input.case_id, actor, { replace_offer_id: oldOfferId, operation_id: operationId });
     } catch (error) {
       if (['invalid_contract', 'estimate_not_found', 'document_identity_mismatch', 'gmail_thread_not_linked',
         'reply_target_unavailable', 'invalid_reply_source', 'replacement_target_changed',

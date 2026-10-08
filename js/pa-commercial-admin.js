@@ -43,10 +43,11 @@ const appendLine = (root, label, value, className = "") => {
 };
 const estimateDeliveryFor = (outbox, estimateId) => (outbox || [])
     .filter((item) => item.job_kind === "estimate" && item.aggregate_id === estimateId)
-    .sort((left, right) => Date.parse(right.finished_at || right.created_at || 0) - Date.parse(left.finished_at || left.created_at || 0))[0];
+    .sort((left, right) => Number(right.state === "sent" && Boolean(right.provider_message_id && right.provider_thread_id))
+        - Number(left.state === "sent" && Boolean(left.provider_message_id && left.provider_thread_id))
+        || Date.parse(right.finished_at || right.created_at || 0) - Date.parse(left.finished_at || left.created_at || 0))[0];
 const appendEstimateDates = (root, estimate, delivery) => {
-    const sentAt = estimate.source_sent_at
-        || (delivery?.state === "sent" ? delivery.finished_at : null);
+    const sentAt = delivery?.state === "sent" ? delivery.sent_at || delivery.finished_at : null;
     if (sentAt) appendLine(root, "送信", dateTime(sentAt));
     if (estimate.source_kind === "sent_recovery") appendLine(root, "V5登録", dateTime(estimate.issued_at));
     else if (!sentAt) appendLine(root, "V5発行", dateTime(estimate.issued_at));
@@ -662,7 +663,7 @@ const render = async (context, data, epoch) => {
         estimateRoot.append(element("p", "pa-commercial__amount", money(current.amount_minor, current.currency)));
         const estimateDelivery = current.delivery || estimateDeliveryFor(data.outbox, current.id);
         appendEstimateDates(estimateRoot, current, estimateDelivery);
-        appendLine(estimateRoot, "送信状態", estimateDelivery ? stateLabel("outbox", estimateDelivery.state) : current.source_kind === "sent_recovery" ? "送信済みメールから復旧" : "送信履歴なし");
+        appendLine(estimateRoot, "送信状態", estimateDelivery ? stateLabel("outbox", estimateDelivery.state) : "送信履歴なし");
         const historical = estimates.filter((item) => item.id !== current.id).sort((left, right) => right.revision_number - left.revision_number);
         if (historical.length) {
             const history = element("details", "pa-estimate-history");
