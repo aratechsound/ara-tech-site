@@ -42,7 +42,18 @@ async function createFixture(){
   }
   const table=u.pathname.split('/').at(-1);assert(/^(pa_[a-z0-9_]+|work_admins)$/.test(table));
   const values=[],where=[];
-  for(const [key,value] of u.searchParams){if(['select','limit','order','on_conflict'].includes(key))continue;assert(/^[a-z0-9_]+$/.test(key));if(value==='is.null')where.push(`${key} is null`);else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}else throw Error('Unexpected filter '+key);}
+  for(const [key,value] of u.searchParams){
+   if(['select','limit','order','on_conflict'].includes(key))continue;
+   assert(/^[a-z0-9_]+$/.test(key));
+   if(value==='is.null')where.push(`${key} is null`);
+   else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}
+   else if(table==='pa_gmail_message_index'&&key==='gmail_message_id'&&/^in\.\([A-Za-z0-9_-]{1,200}(?:,[A-Za-z0-9_-]{1,200})*\)$/u.test(value)){
+    // Read the real global index, including foreign-case rows; never synthesize ownership.
+    const ids=value.slice(4,-1).split(',');assert(ids.length<=100);
+    const parameters=ids.map(id=>{values.push(id);return '$'+values.length;});
+    where.push(`${key} in (${parameters.join(',')})`);
+   }else throw Error('Unexpected filter '+key);
+  }
   const suffix=where.length?' where '+where.join(' and '):'';
   try{
    if((options.method||'GET')==='GET'){
