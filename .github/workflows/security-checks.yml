@@ -26,7 +26,7 @@ jobs:
           ARA_CI_DEDICATED: node tests/validate-ara-20260724-010.cjs
           ARA_CI_VALIDATORS: tests/validate-ara-*.cjs
           ARA_CI_SYNTAX: node --check
-          ARA_CI_WHITESPACE: git diff --check HEAD
+          ARA_CI_WHITESPACE: git diff --check
         run: bash tests/ci/run-security-checks.sh
 
       - name: Save local fixture and validator evidence
