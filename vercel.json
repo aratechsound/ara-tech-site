@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "review/pam-048-ci-validation": false
+    }
+  },
   "functions": {
     "api/pa-contract.js": { "includeFiles": "{api/contract-fonts/**,api/contract-assets/pa-receipt-v4-1-template.pdf,img/ara-tech-logo-horizontal-white.png}", "maxDuration": 60 }
   },
