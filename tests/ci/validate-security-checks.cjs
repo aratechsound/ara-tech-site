@@ -15,7 +15,9 @@ function commit(cwd, sha) {
   return sha;
 }
 function resolveWhitespaceRange(cwd, env) {
-  if (git(cwd, ['status', '--porcelain'])) throw Error('Whitespace range requires clean committed checkout');
+  // Compare tracked content, not copied Windows index stat metadata or generated dependencies.
+  try { git(cwd, ['diff', '--exit-code', 'HEAD', '--']); }
+  catch { throw Error('Whitespace range requires clean committed checkout'); }
   const target = commit(cwd, git(cwd, ['rev-parse', 'HEAD']));
   let base, source;
   if (env.GITHUB_ACTIONS === 'true') {

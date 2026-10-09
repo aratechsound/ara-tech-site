@@ -74,7 +74,7 @@ try {
   });
   record('PR malformed base SHA FAIL', () => assert.throws(() => checkWhitespace(repo, event('pull_request', { pull_request: { base: { sha: '--help' }, head: { sha: after } } }, merge)), /Invalid full commit SHA/));
   record('missing GitHub event payload FAIL', () => assert.throws(() => checkWhitespace(repo, { GITHUB_ACTIONS: 'true', GITHUB_SHA: merge }), /payload is required/));
-  save('uncommitted.txt', 'not yet committed\n');
+  save('later.txt', 'not yet committed\n');
   record('dirty checkout FAIL rather than omitting changes', () => assert.throws(() => checkWhitespace(repo, { ARA_CI_BASE_SHA: before }), /clean committed checkout/));
   console.log(JSON.stringify({ task: 'PAM-047', passed: checks.length, failed: 0, checks, real_github_actions: 'NOT_RUN' }, null, 2));
 } finally {
