@@ -86,7 +86,8 @@ const thread = {
 const previewFetch = async (url) => {
     // R2 validates the existing root/Owner recipient before signing a preview.
     if (url.includes("/rest/v1/pa_inquiries?")) return json([{ id: "123e4567-e89b-42d3-a456-426614174000", email: "customer@example.com" }]);
-    if (url.includes("/rest/v1/pa_gmail_thread_links?")) return json([{ gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);
+    if (url.includes("/rest/v1/pa_gmail_thread_links?")) return json([{ inquiry_id: "123e4567-e89b-42d3-a456-426614174000", gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);
+    if (url.includes("/rest/v1/pa_gmail_message_index?")) return json([{ inquiry_id: "123e4567-e89b-42d3-a456-426614174000", gmail_message_id: "message_123", gmail_thread_id: "thread_123" }]);
     if (url.endsWith("/profile")) return json({ emailAddress: "aratechsound@gmail.com" });
     if (url === "https://oauth2.googleapis.com/token") return json({ access_token: "mock-access-token" });
     if (url.includes("/threads/thread_123?format=full")) return json(thread);

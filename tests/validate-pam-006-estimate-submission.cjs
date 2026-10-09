@@ -41,6 +41,8 @@ const thread = {
 const attachment = (filename, text) => ({ filename, mime_type: "application/pdf", data: Buffer.from(text, "utf8").toString("base64url") });
 const auditWrites = [];
 let sentCount = 0;
+const inquiry = { id: inquiryId, inquiry_number: "PA-TEST-001", case_type: "PA_EVENT", email: "customer@example.com" };
+let indexMode = "known";
 const rawFixture = (attachments = []) => Buffer.from(mail.buildRawMessage({
     to: "customer@example.com", subject: "Re: thread subject", body: "Estimate body",
     messageType: "customer_receipt", replyHeaders: { inReplyTo: "<customer@example.com>", references: "<customer@example.com>" },
@@ -68,8 +70,13 @@ const fixtureFetch = async (url, options = {}) => {
         return json({ id: `sent_${sentCount}`, threadId: "thread_123" });
     }
     if (url.includes("/threads/thread_123?format=full")) return json(thread);
-    if (url.includes("/rest/v1/pa_inquiries?")) return json([{ id: inquiryId, inquiry_number: "PA-TEST-001" }]);
+    if (url.includes("/rest/v1/pa_inquiries?")) return json([inquiry]);
     if (url.includes("/rest/v1/pa_gmail_thread_links?")) return json([{ inquiry_id: inquiryId, gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);
+    if (url.includes("/rest/v1/pa_gmail_message_index?") && (options.method || "GET") === "GET") {
+        const ids = (new URL(url).searchParams.get("gmail_message_id") || "").slice(4, -1).split(",");
+        return json(indexMode === "unknown" ? [] : ids.map(id => ({ gmail_message_id: id, gmail_thread_id: "thread_123",
+            inquiry_id: indexMode === "conflict" ? actorId : inquiryId })));
+    }
     if (url.includes("/rest/v1/pa_inquiry_audit") && options.method === "POST") {
         auditWrites.push(JSON.parse(options.body));
         return json([]);
@@ -79,6 +86,20 @@ const fixtureFetch = async (url, options = {}) => {
 };
 
 (async () => {
+    const guarded = { inquiryId, actorId, body: "guard fixture", mode: "estimate_submission" };
+    delete inquiry.email;
+    await assert.rejects(() => gmail.replyPreview(guarded, fixtureFetch), /reply_target_unavailable/);
+    inquiry.email = "customer@example.com";
+    indexMode = "unknown";
+    await assert.rejects(() => gmail.replyPreview(guarded, fixtureFetch), /reply_attribution_unknown/);
+    indexMode = "conflict";
+    await assert.rejects(() => gmail.replyPreview(guarded, fixtureFetch), /reply_attribution_conflict/);
+    indexMode = "known";
+    inquiry.case_type = "OTHER";
+    await assert.rejects(() => gmail.replyPreview({ ...guarded, mode: "normal" }, fixtureFetch), /invalid_reply_source/);
+    inquiry.case_type = "PA_EVENT";
+    assert.equal(sentCount, 0);
+    assert.equal(auditWrites.length, 0, "invalid source evidence never sends or records success");
     const first = await gmail.replyPreview({
         inquiryId,
         actorId,

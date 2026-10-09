@@ -15,6 +15,8 @@
         byId("quote-version").textContent = `見積 第${estimate.revision_number || "—"}版`;
         byId("quote-filename").textContent = estimate.original_filename;
         byId("amount").textContent = money(estimate.amount_minor, estimate.currency);
+        const agreement = byId("agree")?.nextElementSibling;
+        if (agreement && snapshot.confirmation_mode === "DIRECT_CONFIRM_WITH_ESTIMATE") agreement.textContent = "上記の対象見積版・金額、ご依頼内容、キャンセル・変更条件、お支払条件およびその他の正式受注条件を確認し、同意したうえで正式に依頼します。";
         const conditions = byId("conditions"), details = byId("condition-details-list");
         conditions.replaceChildren(); details.replaceChildren();
         addPair(conditions, "対象業務", event.service_scope);

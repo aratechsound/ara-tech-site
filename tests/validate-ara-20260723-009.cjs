@@ -33,7 +33,14 @@ assert.doesNotMatch(installation, /一人運営|ひとり運営|一人で運営|
 assert.match(installation, /<i class="fas fa-tv"><\/i>/);
 assert.doesNotMatch(installation, /fa-display|LEDスクリーン/);
 assert.doesNotMatch(read('index.html'), /LEDスクリーン/);
-assert.match(installation, /href="general-inquiry\.html"/);
+const installationCtaSection = installation.match(/<section\b[^>]*aria-labelledby="installation-cta-title"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+assert.ok(installationCtaSection, 'installation CTA section is missing');
+const installationCtaHref = installationCtaSection.match(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/)?.[1];
+assert.ok(installationCtaHref, 'installation CTA href is missing');
+const installationCtaUrl = new URL(installationCtaHref.replaceAll('&amp;', '&'), 'http://local.test/');
+assert.equal(installationCtaUrl.origin, 'http://local.test', 'installation CTA must be local');
+assert.equal(installationCtaUrl.pathname, '/general-inquiry.html', 'installation CTA pathname');
+assert.deepEqual(installationCtaUrl.searchParams.getAll('case_type'), ['AUDIO_INSTALL'], 'installation CTA case_type');
 assert.doesNotMatch(installation, /<nav aria-label="パンくず">/);
 assert.doesNotMatch(installation, /class="container breadcrumb-wrap"/);
 assert.doesNotMatch(installation, /業界No\.1|最安|必ず改善|プロ集団|現場を知り尽くしたスタッフ/);

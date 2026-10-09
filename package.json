@@ -7,9 +7,12 @@
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.4.5"
+    "@electric-sql/pglite": "0.4.5",
+    "playwright": "1.64.0"
   },
   "scripts": {
-    "test:contract": "node tests/validate-pa-contract.cjs"
-  }
+    "test:contract": "node tests/validate-pa-contract.cjs",
+    "test:ci": "bash tests/ci/run-security-checks.sh"
+  },
+  "packageManager": "pnpm@11.19.0"
 }

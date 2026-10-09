@@ -3,7 +3,7 @@ const root=path.resolve(__dirname,'..'),out=path.resolve(root,'../../outputs/ARA
 const before=execFileSync('git',['show','cac44214dba8f273377ab66fc95b2aad7e4fc38d:js/ara-general-inquiry.js'],{cwd:root,encoding:'utf8'});
 const fake=`window.__widget={renders:0,resets:0};window.turnstile={render(node,options){window.__widget.renders++;window.__proofOptions=options;return 'fixture-widget';},reset(id){if(id!=='fixture-widget')throw Error('wrong widget');window.__widget.resets++;},};window.__solve=()=>{const t='single-use-'+crypto.randomUUID();if(window.__proofOptions)window.__proofOptions.callback(t);else{let i=document.querySelector('[name="cf-turnstile-response"]');if(!i){i=document.createElement('input');i.type='hidden';i.name='cf-turnstile-response';document.querySelector('#contact-form').append(i);}i.value=t;}};if(!document.querySelector('script[src*="render=explicit"]'))window.__solve();`;
 (async()=>{
- const browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});const records=[],beforeRecords=[];
+ const browser=await chromium.launch({headless:true});const records=[],beforeRecords=[];
  async function pageFor(scenario,old=false){
   const page=await browser.newPage();page.posts=[];page.configNetwork=scenario==='network';page.legacy=[];page.errors=[];page.on('pageerror',e=>page.errors.push(e.message));
   await page.request.post(base+'/fixture-control',{data:{scenario}});
