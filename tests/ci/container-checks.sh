@@ -4,13 +4,6 @@ export LC_ALL=C
 export ARA_CI_FIXTURE=isolated-container
 export CI=true
 mkdir -p /workspace/work/repo /workspace/outputs/ARA-CASE-001R2-audit /workspace/outputs/ARA-CASE-001R3-audit /tmp/ara-ci-fixture
-# Materialize the Git index, including staged repairs, with Linux checkout rules.
-# The read-only source worktree and ignored .env/node_modules are never copied.
-cp -a /source/.git /workspace/work/repo/.git
-cd /workspace/work/repo
-git config --local core.autocrlf false
-git checkout-index --all --force
-ln -s /opt/ara-ci/node_modules node_modules
 pids=()
 cleanup() {
   rc=$?
@@ -26,6 +19,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+bash /source/tests/ci/materialize-git-checkout.sh /ci-source.bundle /workspace/work/repo \
+  "${ARA_CI_SOURCE_HEAD:-}" "${ARA_CI_SOURCE_TREE:-}" "${ARA_CI_SOURCE_HISTORY:-}" > /workspace/outputs/GIT_CHECKOUT.txt
+cat /workspace/outputs/GIT_CHECKOUT.txt
+cd /workspace/work/repo
+ln -s /opt/ara-ci/node_modules node_modules
 [[ $(node --version) == v22.* ]]
 [[ $(git rev-parse --is-shallow-repository) == false ]]
 git cat-file -e cac44214dba8f273377ab66fc95b2aad7e4fc38d^{commit}
@@ -57,4 +55,6 @@ pids+=("$!")
 wait_url http://127.0.0.1:8872/fixture-info
 wait_url 'http://127.0.0.1:8875/api/pa-inquiry?general_config=1'
 printf 'postgresql=ready\npostgrest4=ready\nhttp_fixture2=ready\nnetwork=none\n' > /workspace/outputs/FIXTURE_READY.txt
+bash tests/ci/test-git-checkout.sh > /workspace/outputs/GIT_INITIALIZATION_TESTS.log
+cat /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 node tests/ci/validate-security-checks.cjs
