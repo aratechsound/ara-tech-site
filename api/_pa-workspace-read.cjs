@@ -215,4 +215,4 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}=
     }catch(e){const error=e instanceof ReadError?e:new ReadError('read_unavailable',503);return send({ok:false,code:error.code},error.status);}
   };
 }
-module.exports={createReadHandler,ReadError};
+module.exports={createReadHandler,ReadError,publicKey};
