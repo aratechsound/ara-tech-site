@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {excerpt,mailAttachments,messageAttention,fileType} from '../../pa-ui/js/mail-model.mjs';
+const tests=[];
+function check(name,fn){fn();tests.push({name,status:'PASS'});}
+check('English quote and signature removed',()=>assert.equal(excerpt('New line\nSecond line\n\n--\nSignature\nOn Tue somebody wrote:\n> Old'),'New line\nSecond line'));
+check('Japanese quote removed',()=>assert.equal(excerpt('新しい本文\n2026年10月12日 誰か 書きました:\n古い本文'),'新しい本文'));
+check('Indented quote removed',()=>assert.equal(excerpt('本文\n  > old'),'本文'));
+check('No new text is not fabricated',()=>assert.equal(excerpt('> Only quotation'),''));
+check('Excerpt bounded',()=>assert(excerpt('a'.repeat(50000)).length<=650));
+const row={gmail_message_id:'aaa1',direction:'inbound',received_at:'2026-10-12T00:00:00Z',attachment_metadata:[{id:'pdf1',filename:'見積書_日本語.pdf',mime_type:'application/pdf',size:120}]};
+check('Original Japanese filename preserved',()=>assert.equal(mailAttachments(row)[0].filename,'見積書_日本語.pdf'));
+check('Managed original filename preferred',()=>assert.equal(mailAttachments({...row,attachment_metadata:[{id:'x',original_filename:'日本語.xlsx',filename:'attachment.xlsx'}]})[0].filename,'日本語.xlsx'));
+check('Same attachment reference in different mail has distinct key',()=>assert.notEqual(mailAttachments(row)[0].key,mailAttachments({...row,gmail_message_id:'aaa2'})[0].key));
+check('Missing attachment ref is not retrievable',()=>assert.equal(mailAttachments({...row,attachment_metadata:[{filename:'ref missing.pdf'}]})[0].asset_id,null));
+check('Office file icon',()=>assert.equal(fileType({filename:'一覧.xlsx',mime_type:'application/octet-stream'}),'XLSX'));
+const attention={attention_state:'new_customer_reply',last_seen_inbound_at:row.received_at};
+check('Exact saved inbound timestamp gives NEW',()=>assert(messageAttention(row,attention,[row])));
+check('Case flag alone is not mail NEW',()=>assert(!messageAttention(row,{attention_state:'new_customer_reply'},[row])));
+check('Ambiguous timestamp is not mail NEW',()=>assert(!messageAttention(row,attention,[row,{...row,gmail_message_id:'aaa2'}])));
+check('Outbound not NEW',()=>assert(!messageAttention({...row,direction:'outbound'},attention,[row])));
+fs.writeFileSync(new URL('./MAIL_TESTS.local.json',import.meta.url),JSON.stringify({task_id:'PAUI-014',mode:'LOCAL_UNIT_ONLY',total:tests.length,tests},null,2));
+console.log(JSON.stringify({passed:tests.length,total:tests.length}));

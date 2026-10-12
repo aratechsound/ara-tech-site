@@ -1,3 +1,7 @@
 
 # Preserve literal whitespace/line endings in the existing vendored test client.
 tests/fixtures/ara-case-supabase.umd.js -text -whitespace
+
+# Preserve the accepted PAUI-014 R2 asset bytes and upstream license whitespace.
+pa-ui/** -text whitespace=cr-at-eol
+pa-ui/vendor/** -text -whitespace
