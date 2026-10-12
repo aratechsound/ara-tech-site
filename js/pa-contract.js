@@ -92,7 +92,7 @@
         event.preventDefault(); if (busy) return; busy = true; byId("dialog-accept").disabled = true; byId("dialog-back").disabled = true; byId("dialog-status").textContent = "正式依頼を受け付けています。";
         try {
             const result = await request("accept", { offer_id: offer.offer_id, snapshot_sha256: offer.snapshot_sha256, confirmer_name: byId("confirmer").value.trim(), agree: byId("agree").checked });
-            offer = await request("view"); dialogReturn = null; busy = false; byId("final-dialog").close(); accepted(); byId("accepted-download-status").textContent = result.email_status === "failed" ? "正式依頼は受け付けました。確認メールは再送準備中です。" : "";
+            offer = await request("view"); dialogReturn = null; busy = false; byId("final-dialog").close(); accepted(); byId("accepted-download-status").textContent = result.email_status === "failed" ? "正式依頼は受け付けました。確認メールの配送状況を確認中です。" : "";
         } catch (error) { byId("dialog-status").textContent = messages[error.message] || "受付結果を確認できません。ページを開き直し、回答受付済みかご確認ください。"; busy = false; byId("dialog-accept").disabled = false; byId("dialog-back").disabled = false; updateSubmit(); }
     });
     window.addEventListener("pagehide", () => { if (quoteFile) URL.revokeObjectURL(quoteFile.url); });
