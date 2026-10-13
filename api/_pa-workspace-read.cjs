@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const {resolveRegistered} = require('./_pa-attachment-identity.cjs');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SUPABASE = 'https://kogbnremsouajxxsgxro.supabase.co';
 
@@ -89,8 +90,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const portalId=assertId(portal[0].id);
     const cards=await allDirect('pa_portal_document_cards',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,category,title,owner_kind,sort_order,current_version_id,created_at',order:'sort_order.asc,id.asc'},token);
     if(cards.some(c=>c.portal_id!==portalId||!UUID.test(c.id)))throw new ReadError('case_binding_mismatch',403);
-    const versions=cards.length?await allDirect('pa_portal_document_versions',{card_id:`in.(${cards.map(c=>c.id).join(',')})`,archived_at:'is.null',select:'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at',order:'created_at.desc,id.asc'},token):[];
-    const photos=await allDirect('pa_portal_photo_items',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at',order:'sort_order.asc,id.asc'},token);
+    const identityFields=',gmail_part_id,canonical_attachment_key,source_content_sha256,source_byte_size';
+    const versions=cards.length?await allDirect('pa_portal_document_versions',{card_id:`in.(${cards.map(c=>c.id).join(',')})`,archived_at:'is.null',select:'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at'+identityFields,order:'created_at.desc,id.asc'},token):[];
+    const photos=await allDirect('pa_portal_photo_items',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at'+identityFields,order:'sort_order.asc,id.asc'},token);
     if(versions.some(v=>!cards.some(c=>c.id===v.card_id))||photos.some(p=>p.portal_id!==portalId))throw new ReadError('case_binding_mismatch',403);
     return {portal_exists:true,cards:cards.map(c=>({...c,versions:versions.filter(v=>v.card_id===c.id)})),photos};
   }
@@ -107,7 +109,17 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     // credential/session path; never get a refresh token or use an alternate path here.
     if(['gmail_attachment','pa_attachment'].includes(item.source_type)){
       const ref=item.source_ref||{};
-      const original=await mailAttachment(id,ref.gmail_message_id,ref.gmail_attachment_id,token);
+      const message=await mailMessage(id,ref.gmail_message_id,token);
+      const raw=await boundProviderMessage(message),cache=new Map();
+      const loadCurrent=metadata=>{
+        if(!cache.has(metadata))cache.set(metadata,readMailAttachment
+          ? readMailAttachment({caseId:id,messageId:ref.gmail_message_id,attachmentId:metadata.id,metadata,token})
+          : providerRead(()=>provider.attachment({messageId:ref.gmail_message_id,metadata,raw})));
+        return cache.get(metadata).then(file=>validateMailFile(metadata,file));
+      };
+      const original=await providerRead(()=>resolveRegistered({asset:item,messageId:ref.gmail_message_id,
+        attachments:Array.isArray(message.attachment_metadata)?message.attachment_metadata:[],loadCurrent,
+        loadHistorical:attachmentId=>providerRead(()=>provider.registeredVariant({messageId:ref.gmail_message_id,attachmentId,raw}))}));
       if(original.mime!==contentType(item.mime_type))throw new ReadError('asset_identity_mismatch',409);
       return original;
     }
@@ -148,6 +160,8 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       const code=String(e.message||'');
       if(['mail_binding_mismatch','attachment_mail_mismatch'].includes(code))throw new ReadError(code,403);
       if(code==='asset_identity_mismatch')throw new ReadError(code,409);
+      if(code==='attachment_identity_ambiguous')throw new ReadError(code,409);
+      if(code==='attachment_identity_unavailable')throw new ReadError(code,503);
       if(code==='gmail_read_404')throw new ReadError('not_found',404);
       if(code==='gmail_read_403')throw new ReadError('provider_read_denied',403);
       throw new ReadError(code==='gmail_not_configured'?'gmail_not_configured':'provider_read_failed',503);
@@ -196,10 +210,13 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const item=readMailAttachment
       ? await readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token})
       : await providerRead(async()=>provider.attachment({messageId,metadata:matches[0],raw:await boundProviderMessage(message)}));
-    const mime=contentType(matches[0].mime_type),bytes=item.bytes;
+    return validateMailFile(matches[0],item);
+  }
+  function validateMailFile(metadata,item){
+    const mime=contentType(metadata.mime_type),bytes=item.bytes;
     if(!MIME.has(mime))throw new ReadError('preview_type_refused',415);
     if(!Buffer.isBuffer(bytes)||bytes.length>MAX_BYTES)throw new ReadError('file_too_large',413);
-    if(contentType(item.mime)!==mime||!validMagic(bytes,mime)||matches[0].size!==undefined&&Number(matches[0].size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
+    if(contentType(item.mime)!==mime||!validMagic(bytes,mime)||metadata.size!==undefined&&Number(metadata.size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime};
   }
   async function commercial(id,token){
@@ -286,6 +303,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         }else if(segments.length===3&&segments[1]==='materials')result=await materials(assertId(segments[2]),token);
         else if(segments.length===5&&segments[1]==='material'){
           const item=await asset(assertId(segments[2]),segments[3],segments[4],token);
+          if(item.identityProof)res.setHeader('X-PA-Attachment-Identity',JSON.stringify(item.identityProof));
           res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
         }else if(segments.length===4&&segments[1]==='document'){
           const item=await document(assertId(segments[2]),segments[3],token);

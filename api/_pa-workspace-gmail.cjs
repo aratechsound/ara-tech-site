@@ -29,9 +29,14 @@ function createProvider(fetchImpl=fetch){
 async function message(id) { return hydrate(await gmailMessage(id,boundedFetch)); }
 async function thread(id) { return gmailJson('/threads/'+encodeURIComponent(id)+'?format=full',{method:'GET'},boundedFetch); }
 async function attachment({messageId,metadata,raw}) {
+  if(raw.id!==messageId)throw Error('mail_binding_mismatch');
   const normalized=normalizeMessage(raw);
-  const refs=[metadata.id,metadata.gmail_attachment_id,metadata.part_id].filter(Boolean);
-  const matches=normalized.attachments.filter(a=>refs.includes(a.id)||refs.includes(a.part_id));
+  const refs=[metadata.id,metadata.gmail_attachment_id].filter(Boolean);
+  const byId=normalized.attachments.filter(a=>refs.includes(a.id));
+  const byPart=metadata.part_id?normalized.attachments.filter(a=>a.part_id===metadata.part_id):[];
+  if(byId.length>1||byPart.length>1)throw Error('attachment_identity_ambiguous');
+  if(byId.length===1&&metadata.part_id&&byId[0].part_id!==metadata.part_id)throw Error('asset_identity_mismatch');
+  const matches=byId.length?byId:byPart;
   if(matches.length!==1)throw Error('attachment_mail_mismatch');
   const fresh=matches[0];
   if(fresh.mime_type!==metadata.mime_type || Number(fresh.size)!==Number(metadata.size))throw Error('asset_identity_mismatch');
@@ -44,6 +49,14 @@ async function attachment({messageId,metadata,raw}) {
   if(typeof payload?.data!=='string'||payload.data.length>Math.ceil(MAX*4/3)+4||! /^[A-Za-z0-9_-]*={0,2}$/.test(payload.data))throw Error('asset_identity_mismatch');
   return {bytes:Buffer.from(payload.data,'base64url'),mime:fresh.mime_type};
 }
-return {message,thread,attachment,normalize};
+// Internal registered-row alias loader. The Owner read adapter proves exact
+// case/message/thread ownership before calling; no public unknown-ID route.
+async function registeredVariant({messageId,attachmentId,raw}){
+  if(raw.id!==messageId||! /^[^\s\u0000-\u001f\\/]{1,1000}$/.test(attachmentId||''))throw Error('attachment_mail_mismatch');
+  const payload=await gmailJson('/messages/'+encodeURIComponent(messageId)+'/attachments/'+encodeURIComponent(attachmentId),{method:'GET'},boundedFetch);
+  if(typeof payload?.data!=='string'||!payload.data.length||payload.data.length>Math.ceil(MAX*4/3)+4||! /^[A-Za-z0-9_-]*={0,2}$/.test(payload.data))throw Error('asset_identity_mismatch');
+  return {bytes:Buffer.from(payload.data,'base64url')};
+}
+return {message,thread,attachment,registeredVariant,normalize};
 }
 module.exports={...createProvider(),createProvider};

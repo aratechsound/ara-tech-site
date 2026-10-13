@@ -49,7 +49,12 @@ async function api(url,{blob=false}={}){
   try{
     const response=await fetch(readUrl(url),{method:'GET',cache:'no-store',headers:{authorization:'Bearer '+session.access_token},signal:controller.signal});
     if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
-    if(blob)return response.blob();
+    if(blob){
+      const value=await response.blob(),proof=response.headers.get('X-PA-Attachment-Identity');
+      // Sanitized proof flags only, retained with the existing session Blob.
+      if(proof){try{value.identityProof=JSON.parse(proof);}catch{}}
+      return value;
+    }
     const data=await response.json();if(data.ok!==true)throw new ReadFailure('invalid_read_response',503);return data.result;
   }catch(error){if(error.name==='AbortError')throw new ReadFailure('read_timeout_or_cancelled',503);throw error;}
   finally{clearTimeout(timer);requests.delete(controller);}
