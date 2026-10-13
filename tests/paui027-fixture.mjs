@@ -1,0 +1,23 @@
+// Entirely invented content. Event labels identify requested review scenarios only.
+export const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
+export const request='  架空の問い合わせ原文です。\n音響・照明を希望します。\n'+('日本語の長い依頼内容、配置と準備条件を省略せず確認します。\n').repeat(24)+'最後の条件も保持します。';
+export const values={
+ '/data/cases':{cases:[{id:A,event_name:'龍姫湖まつり（匿名fixture）',event_date:'2026-10-18',event_time:'10:00–16:00',venue:'架空検証会場',organization_name:'架空主催者',customer_name:'架空顧客',contact_name:'架空担当',email:'fixture@example.invalid',phone:'電話番号fixture（架空）',case_type:'PA_EVENT',status:'waiting_customer_reply',requested_services:['音響','照明'],request_summary:request,first_form_data:{event_overview:'架空の開催概要。',estimate_notes:'原文の準備情報。',questions:'原文の質問。'},attachments:[{filename:'フォーム添付_原本参照未提供.pdf',mime_type:'application/pdf'}]},{id:B,event_name:'広島都市学園大学みやこ祭（匿名fixture）',event_date:'2026-11-01',status:'new',case_type:'PA_EVENT',request_summary:'別案件の問い合わせ原文'}],progress:[{inquiry_id:A,formal_contract_id:'33333333-3333-4333-8333-333333333333',current_step:2}]},
+ '/data/attention':[{inquiry_id:A,attention_state:'waiting_customer'}],
+ ['/data/materials/'+A]:{cards:[{id:'card1',title:'会場図',category:'図面',current_version_id:'v1',versions:[1,2,3].map(i=>({id:'v'+i,display_filename:'会場図_同じ名前.pdf',version_label:'v'+i,source_type:i===1?'pa_attachment':'portal_upload',mime_type:'application/pdf',created_at:'2026-10-0'+i+'T00:00:00Z',source_ref:{sha256:String(i).repeat(64)}}))},{id:'unassigned',title:'現在版未指定',current_version_id:null,versions:[{id:'saved',display_filename:'保存版_現在版未指定.pdf',mime_type:'application/pdf',version_label:'v1',created_at:'2026-10-01T00:00:00Z'}]},{id:'missing',title:'現在版の索引未取得',current_version_id:'absent',versions:[]}],photos:[]},
+ ['/data/materials/'+B]:{cards:[{id:'time',title:'タイムテーブル',versions:[]},{id:'script',title:'台本',versions:[]}],photos:[]},
+ ['/data/commercial/'+A]:{estimates:[1,2,3].map(i=>({id:'e'+i,revision_number:i,document_id:'d'+i,issued_at:'2026-10-0'+i+'T00:00:00Z',amount_minor:i*10000,currency:'JPY'})),documents:[1,2,3].map(i=>({id:'d'+i,original_filename:'見積書_第'+i+'版.pdf',mime_type:'application/pdf',sha256:String(i).repeat(64),created_at:'2026-10-0'+i+'T00:00:00Z'})),offers:[{id:'offer',version:1,issued_at:'2026-10-03T00:00:00Z'}],billings:[]},
+ ['/data/commercial/'+B]:{estimates:[],documents:[],offers:[],billings:[]},
+ ['/data/mail/'+A]:[{gmail_message_id:'formal',inquiry_id:A,direction:'outbound',sent_at:'2026-10-03T00:00:00Z',to_addresses:['fixture@example.invalid'],subject:'架空の正式確認',attachment_metadata:[{id:'formal-pdf',filename:'正式受注確認書_架空3ページ.pdf',mime_type:'application/pdf'}]},{gmail_message_id:'received',inquiry_id:A,direction:'inbound',from_address:'fixture@example.invalid',received_at:'2026-10-04T00:00:00Z',subject:'架空の添付',attachment_metadata:['タイムテーブル.pdf','台本.pdf','Stage Plot.pdf','請求書.pdf','領収書.pdf','イベント資料.pdf','その他.zip','会場写真.png','原本取得拒否.pdf'].map((filename,i)=>({id:'part'+i,filename,mime_type:filename.endsWith('.png')?'image/png':filename.endsWith('.zip')?'application/zip':'application/pdf'}))},{gmail_message_id:'quote',inquiry_id:A,direction:'outbound',sent_at:'2026-10-01T00:00:00Z',attachment_metadata:[{id:'quote1',filename:'見積書_Gmail.pdf',mime_type:'application/pdf'}]}],
+ ['/data/mail/'+B]:[],
+ ['/data/sent-estimates/'+A]:{messages:[{gmail_message_id:'quote',inquiry_id:A,direction:'outbound',sent_at:'2026-10-01T00:00:00Z',attachment_metadata:[{id:'quote1',filename:'見積書_Gmail.pdf',mime_type:'application/pdf'}]}],unknown:[]},
+ ['/data/sent-estimates/'+B]:{messages:[],unknown:[]},
+ ['/data/case/'+A+'/audit']:[{action:'gmail_threads_synced',occurred_at:'2026-10-01T00:00:00Z'}],
+ ['/data/case/'+A+'/responses']:[{request_summary:'後日の追加依頼（架空記録）',additional_notes:'後日の変更条件',submitted_at:'2026-10-04T00:00:00Z'}]
+};
+export function pdf(){
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Count 3 /Kids [3 0 R 4 0 R 5 0 R] >>',...[6,7,8].map(i=>'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents '+i+' 0 R >>'),...Array(3).fill('<< /Length 0 >>\nstream\n\nendstream')];
+ let source='%PDF-1.4\n',offsets=[];objects.forEach((o,i)=>{offsets.push(source.length);source+=(i+1)+' 0 obj\n'+o+'\nendobj\n';});const xref=source.length;
+ return source+'xref\n0 9\n0000000000 65535 f \n'+offsets.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+}
+export const image='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT1cAAAAASUVORK5CYII=';

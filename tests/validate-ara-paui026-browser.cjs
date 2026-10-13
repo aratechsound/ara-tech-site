@@ -29,6 +29,7 @@ const root=path.resolve(__dirname,'..'),baseline=process.env.PAUI026_BASELINE===
  await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+A+'"]').click();
  if(baseline)await page.getByText('gmail_threads_synced',{exact:true}).first().waitFor();
  if(!baseline){
+ await page.locator('.internal-history > summary').click();
  await page.getByText('Gmailのやり取りを同期',{exact:true}).waitFor();
  await page.locator('.legacy-workflow summary').click();
  const text=await page.locator('#detail-card').innerText();assert(text.includes('旧14工程'));assert(text.includes('契約成立・入金・案件完了の証明ではありません'));
@@ -46,14 +47,15 @@ const root=path.resolve(__dirname,'..'),baseline=process.env.PAUI026_BASELINE===
  }
  if(baseline){console.log(JSON.stringify({mode:'BASELINE',metrics,inspector:await page.locator('#inspector').innerText()}));return;}
  await page.locator('#sent-estimate-grid details').first().locator('summary').click();assert((await page.locator('#sent-estimate-grid details').first().innerText()).includes(filename));
+ await page.locator('.formal-history > summary').click();
  assert((await page.locator('#detail-card').innerText()).includes('取得できた正式確認の発行記録は0件'));
  assert((await page.locator('#detail-card').innerText()).includes('同意・契約成立記録の不存在を意味しません'));
  await page.setViewportSize({width:1440,height:900});await page.locator('[data-tab="documents"]').click();await page.getByText('対応不明 / メールの添付索引との紐付けを検証できません',{exact:true}).waitFor();
  assert((await page.locator('#material-grid').innerText()).includes('現在版の索引未取得'));
  assert((await page.locator('#material-grid').innerText()).includes('現在版未指定'));
  const disabled=page.locator('#material-grid .material-thumb:disabled');assert.equal(await disabled.count(),2);
- await page.locator('[data-case="'+B+'"]').click();await page.locator('.case-delivery').getByText('取得した配送記録にUNKNOWNはありません',{exact:false}).waitFor();assert(!(await page.locator('#inspector').innerText()).includes('この案件の配送UNKNOWN: 1件'));
- deny=true;await page.locator('[data-case="'+A+'"]').click();await page.locator('.case-delivery').getByText('この案件の配送記録を取得できません',{exact:false}).waitFor();await page.getByRole('button',{name:'見積・受注',exact:true}).click();await page.getByText('403 / 認証・ACL未解決',{exact:false}).first().waitFor();assert(!(await page.locator('#detail-card').innerText()).includes('取得できた正式確認の発行記録は0件'));
+ await page.locator('[data-case="'+B+'"]').click();await page.locator('#inspector').getByText('取得した配送記録にUNKNOWNはありません',{exact:false}).waitFor();assert(!(await page.locator('#inspector').innerText()).includes('この案件の配送UNKNOWN: 1件'));
+ deny=true;await page.locator('[data-case="'+A+'"]').click();await page.locator('#inspector').getByText('この案件の配送記録を取得できません',{exact:false}).waitFor();await page.getByRole('button',{name:'見積・受注',exact:true}).click();await page.getByText('403 / 認証・ACL未解決',{exact:false}).first().waitFor();await page.locator('.formal-history > summary').click();assert(!(await page.locator('#detail-card').innerText()).includes('取得できた正式確認の発行記録は0件'));
  assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log(JSON.stringify({mode:'CANDIDATE_PASS',metrics,caseSwitch:true,unavailableNotEmpty:true,methods:'GET only'}));
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

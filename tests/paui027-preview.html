@@ -1,0 +1,10 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>PAUI-027 匿名fixture</title></head><body>匿名fixtureを準備中…<script type="module">
+import {values,pdf,image} from './paui027-fixture.mjs';
+const integration=`const values=${JSON.stringify(values)};export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const legacyUrl=()=>{throw Error('fixture_read_only')};export function readUrl(p){if(['/data/material/','/data/document/','/data/mail-attachment/','/data/sent-estimate-attachment/'].some(prefix=>p.startsWith(prefix)))return p.endsWith('/part7')?'data:image/png;base64,${image}':'data:application/pdf;base64,${btoa(pdf())}';return 'data:application/json,'+encodeURIComponent(JSON.stringify({ok:true,result:values[p]??[]}));}`;
+const res=await fetch('/pa-admin.html',{cache:'no-store'});let html=await res.text();if(!res.ok||!html.includes('/pa-ui/js/desk.mjs'))throw Error('UI unavailable');
+const map=JSON.stringify({imports:{[new URL('/pa-ui/js/integration.mjs',location.href).href]:'data:text/javascript,'+encodeURIComponent(integration)}});
+html=html.replace('<head>','<head><base href="/"><script type="importmap">'+map+'</scr'+'ipt>').replace('<span class="topinfo">案件管理</span>','<span class="topinfo">匿名fixture・架空データのみ</span>');
+document.open();document.write(html);document.close();
+// Keep review fixtures inert even if an operator clicks a legacy write link.
+document.addEventListener('click',e=>{if(e.target.closest('[data-legacy],#new-case,#open-portal')){e.preventDefault();e.stopImmediatePropagation();}},true);
+</script></body></html>
