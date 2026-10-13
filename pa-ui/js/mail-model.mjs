@@ -1,9 +1,11 @@
 // Template contents are inert, including remote media. Never attach email HTML.
-export function htmlText(html, doc=globalThis.document) {
+export function htmlText(html, doc=globalThis.document, preserveQuotes=false) {
   if(!doc)return '';
   const template=doc.createElement('template');template.innerHTML=String(html||'').slice(0,50000);
   const fragment=template.content;
-  fragment.querySelectorAll('script,style,iframe,object,embed,svg,math,template,form,input,button,img,video,audio,link,meta,blockquote,.gmail_quote,.gmail_signature,[hidden],[aria-hidden="true"]').forEach(n=>n.remove());
+  fragment.querySelectorAll('script,style,iframe,object,embed,svg,math,template,form,input,button,img,video,audio,link,meta,[hidden],[aria-hidden="true"]').forEach(n=>n.remove());
+  if(preserveQuotes)fragment.querySelectorAll('blockquote,.gmail_quote').forEach(n=>n.prepend('\n> 引用\n'));
+  else fragment.querySelectorAll('blockquote,.gmail_quote,.gmail_signature').forEach(n=>n.remove());
   fragment.querySelectorAll('[style]').forEach(n=>{if(n.style.display==='none'||n.style.visibility==='hidden')n.remove();});
   fragment.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));
   fragment.querySelectorAll('p,div,li,tr,h1,h2,h3').forEach(n=>n.append('\n'));
@@ -43,4 +45,11 @@ export function fileType(item){
   if(item.mime_type==='application/pdf')return 'PDF';
   if(/^image\//.test(item.mime_type))return '画像';
   return (/\.([^.]+)$/.exec(item.filename||'')?.[1]||'FILE').toUpperCase().slice(0,12);
+}
+
+export function fullBody(row){
+  const text=String(row.body_text||htmlText(row.body_html||'',globalThis.document,true)||'').replace(/\r\n?/g,'\n').slice(0,50000);
+  const lines=text.split('\n');
+  const at=lines.findIndex(line=>/^\s*>|^On .{0,250}wrote:|^[-_]{3,}\s*(Original Message|Forwarded|元のメッセージ)|^Begin forwarded message:|^転送されたメッセージ|^\d{4}[年/.-].{0,160}(書きました|wrote):?\s*$|^(差出人|From):\s*.+/iu.test(line.trim()));
+  return {text:at<0?text:lines.slice(0,at).join('\n'),quoted:at<0?'':lines.slice(at).join('\n'),empty:!text.trim()};
 }
