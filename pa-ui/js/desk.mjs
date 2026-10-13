@@ -1,3 +1,4 @@
+import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} from './document-warehouse.mjs';
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
@@ -117,11 +118,16 @@ function renderInspector(){
   $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('案件状態',statusText(c))}<p class="hint">${escape(statusBasis(c))}</p>${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section>${deliveryNotice()}`;
 }
 function overview(c){
-  const p=c.progress||{},a=attention(c);
-  const next=p.next_action||p.next_action_memo||c.next_action||p.memo||'保存済みの進行状況を確認';
-  const step=Number(p.current_step);
-  return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2><div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="stage-info"><strong>現在の案件状態：${escape(statusText(c))}</strong><p>${escape(statusBasis(c))}</p></div><details class="legacy-workflow"><summary>旧14工程の保存値：${Number.isInteger(step)&&step>0&&step<=14?step+' / 14（'+escape(STEPS[step-1])+'）':'未取得'}${p.is_on_hold?' / 保留':''}</summary><p class="hint">旧工程の位置は契約成立・入金・案件完了の証明ではありません。前の工程を完了と推定しません。</p><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':''}">${i+1} ${escape(s)}</span>`).join('')}</div></details><div class="case-delivery">${deliveryNotice()}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>eventLabel(r.action),time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
+  const p=c.progress||{},a=attention(c),f=c.first_form_data||{};
+  const next=p.next_action||p.next_action_memo||c.next_action||'次の対応は未登録';
+  const step=Number(p.current_step),original=inquiryFields(c);
+  return `<section class="group event-information"><h2 class="sectiontitle">イベント基本情報</h2><div class="facts">${fact('イベント名',c.event_name)}${fact('開催日',eventDate(c))}${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('会場',c.venue)}${fact('主催者',f.organizer_name||c.organization_name)}${fact('顧客',c.customer_name)}${fact('連絡担当者',c.contact_name||f.contact_name)}${fact('社内担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('電話番号',c.phone||f.contact_phone)}${fact('メール',c.email||f.contact_email)}</div></section>
+  <section class="group inquiry-original"><h2 class="sectiontitle">お客様からの依頼内容</h2><p class="hint">問い合わせ受付の保存値を全文表示します。後日の変更は下の回答記録・やり取りで確認してください。</p>${original.length?original.map(o=>`<article class="request-field"><h3>${escape(o.label)}</h3><div class="request-original">${tx(o.value)}</div></article>`).join(''):'<div class="empty-state">問い合わせ原文は未提供</div>'}<details class="subsequent-requests"><summary>受付後の回答・追加依頼・変更記録</summary>${readBlock('responses','受付後の回答',rows=>rows.map(row=>`<article class="request-field"><time>${escape(date(row.submitted_at||row.responded_at||row.created_at))}</time>${['request_summary','additional_notes','notes','question_details'].filter(key=>row[key]).map(key=>`<h3>${escape(({request_summary:'依頼内容',additional_notes:'追加備考',notes:'備考',question_details:'確認事項'})[key])}</h3><div class="request-original">${tx(row[key])}</div>`).join('')||'<p class="hint">この回答に依頼本文の提供はありません。日程調整画面で回答を確認できます。</p>'}</article>`).join('')||'<div class="empty-state">取得した回答記録に保存値なし。追加メールはやり取りで確認してください。</div>')}</details></section>
+  <section class="group"><h2 class="sectiontitle">問い合わせ添付資料 ${button('資料倉庫を開く','documents','quiet')}</h2>${detail.materials?.state==='error'?errorBlock(detail.materials.error,'問い合わせ添付のポータル索引'):detail.materials?.state!=='ready'?'<div class="load-state">添付索引を取得中…</div>':''}<div id="inquiry-attachment-grid" class="material-grid"></div><p class="hint">問い合わせ由来を保存記録から確認できる資料のみ表示。対応不明の資料は資料倉庫で確認できます。</p></section>
+  <section class="group case-current"><h2 class="sectiontitle">現在の案件状態</h2><div class="stage-info"><strong>現在の案件状態：${escape(statusText(c))}</strong><p>${escape(statusBasis(c))}</p></div><div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>メール返信確認：${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><p class="hint">${c.attention?.attention_state==='waiting_customer'?'顧客回答待ちは保存済みメール確認状態です。何への回答かはこの索引では未提供。契約の同意・成立状態とは別に確認します。':'案件・契約の状態とメール返信の確認状態は別の記録です。'}</p>${attentionError?errorBlock(attentionError,'新着状態'):''}</section>
+  <details class="group internal-history"><summary>内部履歴・Gmail同期・旧14工程・監査</summary><details class="legacy-workflow"><summary>旧14工程の保存値：${Number.isInteger(step)&&step>0&&step<=14?step+' / 14（'+escape(STEPS[step-1])+'）':'未取得'}${p.is_on_hold?' / 保留':''}</summary><p class="hint">旧工程の位置は契約成立・入金・案件完了の証明ではありません。前の工程を完了と推定しません。</p><div class="workflow">${STEPS.map((name,i)=>`<span class="${step===i+1?'current':''}">${i+1} ${escape(name)}</span>`).join('')}</div></details><div class="case-delivery">${deliveryNotice()}</div><h2 class="sectiontitle">最近の動き ${button('履歴を表示 ›','history','quiet')}</h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>eventLabel(r.action),time:r=>r.occurred_at}))}</details>`;
 }
+
 function conversation(c){
   return `<div class="toolbar">${flag('purple','メール・やり取り')}${flag(attention(c).needsReview===true?'red':'blue',attention(c).label)}${button('確認済みにする','mark-read','quiet',true)}</div><h2 class="sectiontitle">メール <small>保存済み情報 / 閲覧で既読にしません</small></h2>${readBlock('messages','メール索引',rows=>rows.length?'<div class="mail-list">'+rows.map(r=>{
     const body=savedExcerpt(r),atts=mailAttachments(r),dir=r.direction==='inbound'?'received':r.direction==='outbound'?'sent':'unknown',isNew=messageAttention(r,c.attention,rows);
@@ -129,11 +135,13 @@ function conversation(c){
   }).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済みメールなし</div>')}<details class="group"><summary>案内・配送記録</summary>${readBlock('deliveries','配送記録',rows=>rowsHtml(rows,{title:r=>r.subject||r.message_type,body:r=>deliveryUnknown(r)?'UNKNOWN / 再送停止':r.status||'状態未取得',time:r=>r.sent_at||r.failed_at||r.requested_at}))}</details><div class="inlinebtns" style="margin-top:10px">${button('返信作成','reply','quiet',true)}${button('Gmail同期','sync','quiet',true)}${button('未紐付けメール','unlinked','quiet',true)}</div><p class="hint">NEWは保存済みのメール別根拠がある場合のみ表示。添付を資料ポータルへ登録・公開しません。</p>`;
 }
 function estimate(c){
-  return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2><p class="hint">${escape(statusBasis(c))}</p>`+readBlock('commercial','商務・原本',s=>{
-    const estimates=s.estimates||[],offers=Array.isArray(s.offers)?s.offers:null;
-    return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">取得した正式登録見積は0件（Gmail送信履歴は下部）</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${offers===null?'<div class="read-error">正式確認の発行記録は未取得</div>':offers.length?rowsHtml(offers,{title:o=>'版 '+o.version+' / 発行記録',body:o=>'有効期限（保存値） '+date(o.expires_at),time:o=>o.issued_at}):'<div class="empty-state">取得できた正式確認の発行記録は0件</div>'}<p class="hint">ここは正式確認の発行日時・期限の索引です。同意・契約成立記録の不存在を意味しません。同意状態・失効・配送結果はこの取得範囲では未確認です。</p></div>`;
-  })+`<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div>`+`<div class="inlinebtns" style="margin-top:12px">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  return moneyBar()+`<p class="hint">${escape(statusBasis(c))}</p><section class="group"><h2 class="sectiontitle">正式受注確認書PDF</h2><p class="hint">取得できたPDFを表示。送信済み資料は履歴です。既存の契約・版・同意証跡との対応がこの参照索引では未提供のため、現在正本とは判定しません。</p><div id="formal-document-grid" class="material-grid"></div>${detail.messages?.state==='error'?errorBlock(detail.messages.error,'正式確認PDFのメール索引'):''}</section>
+  <section class="group"><h2 class="sectiontitle">現行見積書・正本</h2><p class="hint">現行有効版・契約上の正本は未確認。以下の最新発行版は版番号の記録による表示で、有効版を意味しません。</p>${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務・原本'):detail.commercial?.state!=='ready'?'<div class="load-state">商務原本を取得中…</div>':''}<div id="current-estimate-grid" class="material-grid"></div></section>
+  <section class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','送信済み見積索引',value=>`<div id="sent-estimate-grid" class="material-grid"></div>${rowsHtml(value.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})}${value.unknown?.length?'<div class="read-error">一部メールの対応不明 / '+value.unknown.length+'件</div>':''}`)}</section>
+  <details class="group estimate-history"><summary>見積書の発行履歴・全版</summary>${readBlock('commercial','見積発行履歴',state=>{const estimates=state.estimates||[];return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>原本</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${e.document_id?'原本参照あり':'原本参照未提供'}</td></tr>`).join('')||'<tr><td colspan="3">取得した正式登録見積は0件（Gmail送信履歴は上部）</td></tr>'}</tbody></table></div>`;})}<div id="estimate-history-grid" class="material-grid"></div></details>
+  <details class="group formal-history"><summary>正式受注確認の発行・同意等の履歴</summary>${readBlock('commercial','正式確認履歴',state=>{const offers=Array.isArray(state.offers)?state.offers:null;return `${offers===null?'<div class="read-error">正式確認の発行記録は未取得</div>':offers.length?rowsHtml(offers,{title:o=>'版 '+o.version+' / 発行記録',body:o=>'有効期限（保存値） '+date(o.expires_at),time:o=>o.issued_at}):'<div class="empty-state">取得できた正式確認の発行記録は0件</div>'}<p class="hint">ここは正式確認の発行日時・期限の索引です。同意・契約成立記録の不存在を意味しません。同意状態・失効・配送結果はこの取得範囲では未確認です。</p>`;})}</details><div class="inlinebtns">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
+
 function invoice(){
   return moneyBar()+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div><div class="inlinebtns" style="margin-top:12px">${button('請求発行・入金更新','billing-write','quiet',true)}${button('案件完了','close-case','quiet',true)}</div>`;
 }
@@ -150,13 +158,12 @@ function protectAudit(value,key=''){
 }
 function history(){return moneyBar()+`<h2 class="sectiontitle">案件・工程・メール監査</h2>`+readBlock('audit','監査履歴',rows=>rowsHtml(rows,{title:r=>eventLabel(r.action),kind:r=>'監査識別子: '+r.action,body:r=>typeof r.details==='string'?r.details:JSON.stringify(protectAudit(r.details||{})),time:r=>r.occurred_at}));}
 function materialItems(){
-  const portal=detail.materials?.state==='ready'?flattenMaterials(detail.materials.value):[];
-  const commercial=detail.commercial?.state==='ready'?commercialMaterials(detail.commercial.value):[];
-  const unique=new Map([...portal,...commercial].map(d=>[d.key,d]));return [...unique.values()];
+  return warehouseItems({materials:getRows('materials')||{},commercial:getRows('commercial')||{},messages:getRows('messages')||[],sentEstimates:getRows('sentEstimates')||{},inquiry:current()||{}});
 }
 function documents(){
-  return `<div class="files-controls"><input id="material-search" class="search" type="search" placeholder="資料名で検索" aria-label="資料名で検索"><span class="file-count" id="file-count"></span></div><p class="hint" style="margin:0 0 10px">PDF・画像は通常表示。原本の閲覧権限は取得時に検証します。</p>${detail.materials?.state==='error'?errorBlock(detail.materials.error,'資料ポータルの索引'):detail.materials?.state!=='ready'?'<div class="load-state">資料索引を取得中…</div>':''}${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務原本の索引'):detail.commercial?.state!=='ready'?'<div class="load-state">商務原本の索引を取得中…</div>':''}<div id="material-grid" class="material-grid"></div><p class="hint">未取得・権限拒否・原本未登録を区別。公開区分が未提供の場合は所有者から推定しません。</p>`;
+  return `<h2 class="sectiontitle">全資料倉庫</h2><div class="files-controls"><input id="material-search" class="search" type="search" placeholder="ファイル名・登録元で検索" aria-label="資料名で検索"><select id="material-kind" aria-label="資料種別"><option value="">すべての種類</option></select><select id="material-source" aria-label="登録元"><option value="">すべての登録元</option></select><label>日時から <input type="date" id="material-from"></label><label>日時まで <input type="date" id="material-to"></label><span class="file-count" id="file-count"></span></div><p class="hint">全種類・全取得版を表示。最新登録版・ポータル現在版・契約上の有効版を区別します。原本を保存し直しません。</p>${['materials','commercial','messages','sentEstimates'].map(name=>detail[name]?.state==='error'?errorBlock(detail[name].error,({materials:'資料ポータル',commercial:'商務原本',messages:'Gmail添付',sentEstimates:'送信済み見積'})[name]):detail[name]?.state!=='ready'?'<div class="load-state">'+escape(name)+'索引を取得中…</div>':'').join('')}<div id="material-grid" class="material-grid"></div><p class="hint">資料種別はファイル名等による検索補助です。名称だけで同一原本・契約正本と判定しません。取得元の索引に含まれない資料は未収容です。</p>`;
 }
+
 function renderMailPreviews(){
   const id=selected,epoch=selectionEpoch,rows=getRows('messages')||[];
   for(const row of rows){
@@ -170,15 +177,23 @@ function renderMailPreviews(){
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
   }
 }
-function renderGallery(){
-  const id=selected,epoch=selectionEpoch;
-  gallery?.dispose();gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='documents',requestBlob:item=>api(item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
-  const items=materialItems(),q=($('material-search')?.value||'').toLocaleLowerCase('ja');
-  const filtered=items.filter(d=>(d.title+' '+d.filename).toLocaleLowerCase('ja').includes(q));
-  $('file-count').textContent='取得済み '+filtered.length+'資料'+(detail.materials?.state==='error'||detail.commercial?.state==='error'?' / 一部未取得':'');
-  gallery.mount($('material-grid'),filtered);
-  $('material-search').oninput=()=>{resetPrivacy();renderGallery();};
+function mountGallery(target,items){
+  const id=selected,epoch=selectionEpoch,viewTab=tab;
+  const g=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
 }
+function renderGallery(){
+  gallery?.dispose();
+  const items=materialItems();
+  for(const [id,values]of [['material-kind',items.map(d=>d.kind)],['material-source',items.map(d=>d.source)]]){
+    const el=$(id);if(el.options.length===1)for(const value of [...new Set(values)])el.append(new Option(id==='material-source'?({portal:'資料ポータル',gmail:'Gmail添付',commercial:'商務原本',intake:'問い合わせ添付'})[value]||value:value,value));
+  }
+  const filtered=filterWarehouse(items,{term:$('material-search').value,kind:$('material-kind').value,source:$('material-source').value,from:$('material-from').value,to:$('material-to').value});
+  $('file-count').textContent='表示 '+filtered.length+' / 取得索引 '+items.length+'資料'+(['materials','commercial','messages','sentEstimates'].some(n=>detail[n]?.state==='error')?' / 一部未取得':'');
+  gallery=mountGallery($('material-grid'),filtered);
+  for(const id of ['material-search','material-kind','material-source','material-from','material-to'])$(id)[id==='material-search'?'oninput':'onchange']=()=>{resetPrivacy();renderGallery();};
+}
+
 function openLegacy(){if(current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
 function render(){
   resetPrivacy();disposePreviews();renderHeader();renderInspector();
@@ -187,12 +202,18 @@ function render(){
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
   central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
   if(tab==='documents')renderGallery();
-  if(tab==='estimate'&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
+  if(['estimate','documents'].includes(tab)&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
   if(tab==='conversation')renderMailPreviews();
-  if(tab==='estimate'&&detail.sentEstimates?.state==='ready'){
-    const id=selected,epoch=selectionEpoch,items=detail.sentEstimates.value.messages.flatMap(mailAttachments);
-    gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api('/data/sent-estimate-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
-    gallery.mount($('sent-estimate-grid'),items,{compact:true,showSource:true});
+  const items=materialItems();
+  if(tab==='overview')mountGallery($('inquiry-attachment-grid'),inquiryAttachmentItems(items));
+  if(tab==='estimate'){
+    mountGallery($('formal-document-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
+    mountGallery($('current-estimate-grid'),items.filter(d=>d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'));
+    mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
+    if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
+      const g=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
+    }
   }
 }
 async function loadSurface(name,url,epoch){
