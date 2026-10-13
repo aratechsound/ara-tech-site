@@ -9,7 +9,7 @@ const config = JSON.parse(read('vercel.json'));
 
 // Both surfaces retain browser protections; legacy business assertions stay in
 // their original validators and now read the preserved legacy document.
-for (const file of ['pa-admin.html', 'pa-admin-legacy.html']) {
+for (const file of ['pa-admin.html', 'pa-admin-legacy.html', 'pa-release-check.html']) {
   const html = read(file);
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive">/);
   assert.match(html, /<meta name="referrer" content="no-referrer">/);
@@ -34,6 +34,26 @@ assert.match(desk, /fetch\(readUrl\(url\),\{method:'GET',cache:'no-store',header
 assert.match(read('pa-ui/js/integration.mjs'), /return '\/pa-admin-legacy\.html\?case='/);
 
 async function main() {
+  const {diagnosticGet} = await import(pathToFileURL(path.join(root, 'pa-ui/js/release-check-request.mjs')));
+  const receipt = {ok: true, read_only: true, diagnostic_version: 'PAUI017-1', observed_at: '2026-10-13T01:00:00.000Z',
+    deployment: {id: 'dpl_Synthetic', environment: 'preview', git_commit_sha: 'a'.repeat(40)},
+    backend: {project_ref: 'kogbnremsouajxxsgxro', auth_get: 'PASS', admin_membership_get: 'PASS'}, diagnostic_sha256: 'b'.repeat(64)};
+  let calls = 0;
+  const auth = {restore: async () => ({access_token: 'synthetic_private_session'})};
+  const fetchImpl = async (url, options) => {
+    calls++; assert.equal(url, '/api/pa-workspace-read?path=/diagnostic/backend'); assert.equal(options.method, 'GET');
+    assert.equal(options.redirect, 'error'); assert.equal(options.cache, 'no-store');
+    assert.equal(options.headers.authorization, 'Bearer synthetic_private_session');
+    return {ok: true, json: async () => ({...receipt, secret: 'never_render_this'})};
+  };
+  const output = JSON.stringify(await diagnosticGet(auth, fetchImpl));
+  assert.doesNotMatch(output, /synthetic_private_session|never_render_this/);
+  assert.equal(calls, 1);
+  await assert.rejects(diagnosticGet({restore: async () => null}, fetchImpl), /login_required/);
+  await assert.rejects(diagnosticGet({restore: async () => {throw Error('admin_required');}}, fetchImpl), /admin_required/);
+  assert.equal(calls, 1);
+  await assert.rejects(diagnosticGet(auth, async () => ({ok: false, status: 403})), /diagnostic_denied_403/);
+  await assert.rejects(diagnosticGet(auth, async () => ({ok: true, json: async () => ({...receipt, backend: {project_ref: 'another'}})})), /receipt_identity_refused/);
   const {createWorkspaceAuth} = await import(pathToFileURL(path.join(root, 'pa-ui/js/auth-session.mjs')));
   const uid = 'synthetic-owner';
   const session = {access_token: 'synthetic-session', user: {id: uid}, expires_at: 100};
