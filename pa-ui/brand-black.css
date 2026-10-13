@@ -1,0 +1,29 @@
+/* PAUI-024: apply the approved brand palette to the existing CASE DESK. */
+:root{--bg:#000000;--top:#007BFF;--side:#090909;--pane:#111111;--pane2:#161616;--pane3:#1c1c1c;--border:#303030;--thin:#262626;--fg:#eeeeee;--text:#eeeeee;--muted:#999999;--blue:#dddddd}
+.top{background:#007BFF;border-bottom-color:#007BFF;color:#fff}
+.brand .line{background:#ffffff80}.brand .minititle,.globalnav button,.globalnav button.active,.top .subtle,.top .lightbtn{color:#fff}
+.globalnav button.active{border-bottom-color:#fff}.topcmd,.topinfo{background:transparent;color:#fff;border-color:#ffffff90}
+.top button:focus-visible{outline-color:#fff}
+.main,.central,.casehead,.tabs{background:#000}
+.inspector{background:#111}.aside{background:#090909}
+.outlinebtn,.search,.filters select,.search-extra select,.record,.material-card,.mail-row,.quickcard,.stat,.info-blurb,.modal,.drawer,.login-card,.pa-material-preview-dialog{background:#111;border-color:#303030}
+.month,.case:hover,.case.selected,.quickcard.clickable:hover,.table th,.flag,.feature:hover,.workflow span.current,.feedrow.unread{background:#161616}
+.case.selected{border-left-color:#eee}
+.material-thumb,.preview-content,.mail-attachments,.action,.pa-material-preview-dialog button,.carousel-arrow{background:#161616;border-color:#303030}
+.action.quiet,.lightbtn{border-color:#404040}.action.blue{background:#303030;border-color:#666}
+.action.schedule,.action.portal{background:#161616}
+.brief,.brief.warn,.brief.red{background:#161616}
+.tiny.neutral,.pill.blue{background:#161616;border-color:#444;color:#ddd}
+.brand .minititle,.globalnav button.active{color:#fff}
+.subtle,.month,.caldate small,.caseline,.casefoot,.asidebottom,.headref,.headmeta,.sectiontitle small,.brief small,.qbody,.feedrow time,.feedrow .kind,.sidehead,.stat label,.stat small,.hint,.ghost,.infosmall,.record-body,.record-date,.material-info,.material-thumb,.private-money,.feature .feature-detail,.mail-address,.mail-attachments-title,.file-icon,.table th,.login-card p,.login-card label,.central>.hint:last-child{color:#aaa}
+.caldate,.fact b,.feedrow,.sectiontitle,.filters select,.flag,.info-blurb,.lightbtn,.carousel-arrow{color:#eee}
+.mail-excerpt{color:#eee;font-size:13px;line-height:1.6}.mail-subject{font-size:13px}.mail-heading,.mail-address,.body-read,[data-quoted-body]{font-size:12px}
+.casename{font-size:12px}.case-status,.case-note,.caseline,.casefoot,.countline,.asidebottom,.headmeta,.fact,.siderow,.siderow strong,.record-body,.feature .feature-detail{font-size:11px}
+#advanced-filters label,#filter-summary,.search-extra select{font-size:11px}
+.login-card input{background:#090909;color:#eee;border-color:#404040}#login-screen{background:#000}
+.case-list,.central{scrollbar-color:#555 transparent}.attachment-strip{scrollbar-color:#555 #161616}.attachment-strip::-webkit-scrollbar-thumb{background:#555}
+.modal-wrap,.pa-material-preview-dialog::backdrop{background:#000d}
+.drawer-wrap{background:#000a}.drawer-filters select,.feature button{background:#161616;border-color:#303030}.newdot.read{background:#777}
+.pa-material-preview-dialog{border-color:#404040}.material-card:hover{border-color:#666}
+/* Keep semantic success, warning, failure and direction colors from the existing theme. */
+@media(max-width:760px){.topright .subtle{display:none}.brand img{width:104px}.globalnav button{padding:0 5px}.topcmd{font-size:10px;padding:5px}.mail-layout{grid-template-columns:minmax(0,1fr)}.mail-attachments{border-left:0;border-top:1px solid var(--border)}.attachment-strip{max-width:100%}}

@@ -1,3 +1,4 @@
+import {purposeExcerpt} from './mail-purpose.mjs';
 // Template contents are inert, including remote media. Never attach email HTML.
 export function htmlText(html, doc=globalThis.document, preserveQuotes=false) {
   if(!doc)return '';
@@ -24,7 +25,7 @@ export function excerpt(text) {
 }
 export function savedExcerpt(row){
   const text=row.body_text||row.snippet||htmlText(row.body_html||'');
-  return excerpt(text);
+  return purposeExcerpt(text);
 }
 export function mailAttachments(row){
   if(!Array.isArray(row.attachment_metadata))return [];

@@ -49,7 +49,7 @@ const root=path.resolve(__dirname,'..');
  console.log('PASS names: accurate overflow, short static, seamless cycle, 24px/s, hover, keyboard, reduced-motion, badge and resize');
  await caseC.click();await page.getByRole('button',{name:'やり取り',exact:true}).click();
  const card=i=>page.locator('[data-message="m'+i+'"]');
- await page.getByText('保存済み抜粋',{exact:true}).waitFor();assert.equal(counts.m0,undefined);
+ await page.waitForFunction(()=>document.querySelector('[data-message="m0"] .mail-excerpt').textContent.includes('本文 m0'));assert.equal(counts.m0,1);
  await card(1).getByRole('button',{name:'全文を表示',exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-message="m1"] .mail-excerpt').textContent.includes('本文 m1'));
  assert(maxActive<=2);assert.equal(counts.m17,undefined);
  await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).waitFor();

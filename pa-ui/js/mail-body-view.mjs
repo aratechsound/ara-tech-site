@@ -1,4 +1,5 @@
-import {fullBody,excerpt,savedExcerpt} from './mail-model.mjs';
+import {fullBody,savedExcerpt} from './mail-model.mjs';
+import {purposeExcerpt} from './mail-purpose.mjs';
 
 // Private session memory only. Keys bind case and message; no storage or HTML mount.
 export function createMailBodyView({request,isAuthenticated,limit=2}) {
@@ -34,7 +35,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       const failed=entry.state==='error',parts=entry.parts,busy=['loading','queued'].includes(entry.state);
       body.classList.toggle('expanded',entry.expanded&&!!parts);body.classList.toggle('unavailable',failed);
       body.textContent=failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
-        parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':excerpt(parts.text)||'新規本文なし（引用のみ）'):
+        parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':purposeExcerpt(parts.text)||'新規本文なし（引用のみ）'):
         savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
       button.textContent=failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
       button.setAttribute('aria-expanded',String(entry.expanded));
@@ -48,7 +49,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       if(!valid()||entry.state!=='ready')return;
       entry.expanded=!entry.expanded;if(!entry.expanded)entry.quoteOpen=false;draw();
     };
-    if(entry.state==='idle'&&!savedExcerpt(row)){
+    if(entry.state==='idle'){
       observer??=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){observer.unobserve(e.target);e.target._loadBody?.();}},{rootMargin:'160px'});
       container._loadBody=()=>{if(entry.state==='idle')load(id,row,entry,valid);};observer.observe(container);
     }
