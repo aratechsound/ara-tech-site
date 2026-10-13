@@ -77,7 +77,7 @@ async function main() {
   await check('Privileged public-key substitute refused', async () => {const r = await call({keyProvider: () => 'synthetic_privileged_key'}); assert.equal(r.response.statusCode, 503); assert.equal(r.requests.length, 0);});
   await check('Malformed source identity refuses successful receipt', async () => {const r = await call({env: {...environment, VERCEL_GIT_COMMIT_SHA: 'unverified'}}); assert.equal(r.response.statusCode, 503);});
   await check('Existing HTTP adapter dispatches diagnostic and preserves anonymous read denial', async () => {
-    const adapter = require('../api/pa-workspace-read.js');
+    const adapter = require('../api/_pa-workspace-handler.cjs').createWorkspaceHandler();
     const previous = process.env.PA_RELEASE_DIAGNOSTIC_ENABLED;
     delete process.env.PA_RELEASE_DIAGNOSTIC_ENABLED;
     try {

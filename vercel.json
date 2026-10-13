@@ -10,12 +10,16 @@
       "includeFiles": "{api/contract-fonts/**,api/contract-assets/pa-receipt-v4-1-template.pdf,img/ara-tech-logo-horizontal-white.png}",
       "maxDuration": 60
     },
-    "api/pa-workspace-read.js": {
+    "api/pa-gmail.js": {
       "includeFiles": "js/supabase-config.js",
       "maxDuration": 60
     }
   },
   "rewrites": [
+    {
+      "source": "/api/pa-workspace-read",
+      "destination": "/api/pa-gmail?workspace_read=1"
+    },
     {
       "source": "/pdfjs/pdf.min.mjs",
       "destination": "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/legacy/build/pdf.min.mjs"
