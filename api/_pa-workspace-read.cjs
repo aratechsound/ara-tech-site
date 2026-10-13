@@ -2,6 +2,8 @@
 // PAUI-015: same-origin Owner JWT read adapter, derived from accepted R2 binding guards.
 // All upstream requests are GET. No privileged credential, rate bucket, sync or business RPC.
 const crypto = require('node:crypto');
+const {AsyncLocalStorage}=require('node:async_hooks');
+const {performance}=require('node:perf_hooks');
 const fs = require('node:fs');
 const path = require('node:path');
 const {resolveRegistered} = require('./_pa-attachment-identity.cjs');
@@ -52,10 +54,13 @@ function publicKey(){
 }
 function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,provider=require("./_pa-workspace-gmail.cjs")}={}){
   if(!key.startsWith('sb_publishable_'))throw Error('public_key_required');
+  const timings=new AsyncLocalStorage();
+  function addTime(name,ms){const values=timings.getStore();if(values)values[name]=(values[name]||0)+ms;}
+  async function timed(name,fn){const start=performance.now();try{return await fn();}finally{addTime(name,performance.now()-start);}}
   async function request(url,{token}={}){
     const q=new URL(url);
     if(q.origin!==SUPABASE || !['/auth/v1/user','/rest/v1/','/storage/v1/object/'].some(p=>q.pathname.startsWith(p)) || q.pathname.includes('/rpc/'))throw new ReadError('destination_refused',403);
-    const response=await fetchImpl(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{apikey:key,authorization:token,accept:'application/json'}});
+    const response=await timed('supabase',()=>fetchImpl(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{apikey:key,authorization:token,accept:'application/json'}}));
     if(!response.ok)throw new ReadError(response.status===403?'acl_denied':response.status===401?'login_required':response.status===404?'not_found':'read_unavailable',[401,403,404].includes(response.status)?response.status:503);
     return response;
   }
@@ -101,10 +106,26 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     for(let offset=0;offset<10000;offset+=500){const batch=await rows(table,{...params,limit:500,offset},token,true);result.push(...batch);if(batch.length<500)return result;}
     throw new ReadError('incomplete_result',503);
   }
+  async function registeredAsset(id,kind,assetId,token){
+    assertId(assetId);
+    const [,portal]=await Promise.all([readableCase(id,token),rows('pa_portals',{case_id:'eq.'+id,select:'id,case_id',limit:2},token)]);
+    if(portal.length!==1||portal[0].case_id!==id)throw new ReadError('asset_case_mismatch',403);
+    const portalId=assertId(portal[0].id);
+    const fields='id,source_type,source_ref,mime_type,gmail_part_id,canonical_attachment_key,source_content_sha256,source_byte_size';
+    let found;
+    if(kind==='version'){
+      found=await rows('pa_portal_document_versions',{id:'eq.'+assetId,archived_at:'is.null',select:fields+',card_id',limit:2},token);
+      if(found.length!==1||found[0].id!==assetId)throw new ReadError('asset_case_mismatch',403);
+      const parent=await rows('pa_portal_document_cards',{id:'eq.'+assertId(found[0].card_id),portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id',limit:2},token);
+      if(parent.length!==1||parent[0].id!==found[0].card_id||parent[0].portal_id!==portalId)throw new ReadError('case_binding_mismatch',403);
+    }else if(kind==='photo'){
+      found=await rows('pa_portal_photo_items',{id:'eq.'+assetId,portal_id:'eq.'+portalId,archived_at:'is.null',select:fields+',portal_id',limit:2},token);
+      if(found.length!==1||found[0].id!==assetId||found[0].portal_id!==portalId)throw new ReadError('asset_case_mismatch',403);
+    }else throw new ReadError('asset_case_mismatch',403);
+    return found[0];
+  }
   async function asset(id,kind,assetId,token){
-    const model=await materials(id,token);assertId(assetId);
-    const item=kind==='version'?model.cards.flatMap(c=>c.versions).find(v=>v.id===assetId):kind==='photo'?model.photos.find(v=>v.id===assetId):null;
-    if(!item)throw new ReadError('asset_case_mismatch',403);
+    const item=await timed('material_index',()=>registeredAsset(id,kind,assetId,token));
     // Gmail attachment retrieval requires the existing canonical Provider module and
     // credential/session path; never get a refresh token or use an alternate path here.
     if(['gmail_attachment','pa_attachment'].includes(item.source_type)){
@@ -114,12 +135,12 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       const loadCurrent=metadata=>{
         if(!cache.has(metadata))cache.set(metadata,readMailAttachment
           ? readMailAttachment({caseId:id,messageId:ref.gmail_message_id,attachmentId:metadata.id,metadata,token})
-          : providerRead(()=>provider.attachment({messageId:ref.gmail_message_id,metadata,raw})));
+          : timed('provider_original',()=>providerRead(()=>provider.attachment({messageId:ref.gmail_message_id,metadata,raw}))));
         return cache.get(metadata).then(file=>validateMailFile(metadata,file));
       };
-      const original=await providerRead(()=>resolveRegistered({asset:item,messageId:ref.gmail_message_id,
+      const original=await timed('identity_total',()=>providerRead(()=>resolveRegistered({asset:item,messageId:ref.gmail_message_id,measure:addTime,
         attachments:Array.isArray(message.attachment_metadata)?message.attachment_metadata:[],loadCurrent,
-        loadHistorical:attachmentId=>providerRead(()=>provider.registeredVariant({messageId:ref.gmail_message_id,attachmentId,raw}))}));
+        loadHistorical:attachmentId=>timed('provider_original',()=>providerRead(()=>provider.registeredVariant({messageId:ref.gmail_message_id,attachmentId,raw})))})));
       if(original.mime!==contentType(item.mime_type))throw new ReadError('asset_identity_mismatch',409);
       return original;
     }
@@ -147,12 +168,16 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
   }
   async function mailMessage(id,messageId,token){
     if(!MAIL_ID.test(messageId||''))throw new ReadError('invalid_mail_identity',400);
-    const messages=await mail(id,token),message=messages.find(m=>m.gmail_message_id===messageId);
-    if(!message)throw new ReadError('mail_binding_mismatch',403);
+    return timed('mail_index',async()=>{
+    // Query the exact message, retaining uniqueness across all Owner-visible
+    // index rows. No cross-request metadata or authorization cache.
+    const [,indexes]=await Promise.all([readableCase(id,token),rows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'*',limit:2},token)]);
+    if(indexes.length!==1||indexes[0].gmail_message_id!==messageId||indexes[0].inquiry_id!==id||!MAIL_ID.test(indexes[0].gmail_thread_id||''))throw new ReadError('mail_binding_mismatch',403);
+    const message=indexes[0];
     const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+message.gmail_thread_id,select:'inquiry_id,gmail_thread_id'},token);
-    const indexes=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'inquiry_id,gmail_thread_id'},token);
-    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id)||indexes.length!==1||indexes[0].inquiry_id!==id||indexes[0].gmail_thread_id!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
+    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id))throw new ReadError('mail_binding_mismatch',403);
     return message;
+    });
   }
   async function providerRead(fn){
     try{return await fn();}catch(e){
@@ -168,7 +193,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     }
   }
   async function boundProviderMessage(message){
-    const raw=await providerRead(()=>provider.message(message.gmail_message_id));
+    const raw=await timed('provider_message',()=>providerRead(()=>provider.message(message.gmail_message_id)));
     if(raw.id!==message.gmail_message_id||raw.threadId!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
     return raw;
   }
@@ -182,7 +207,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       // Check all ownership rows with the same Owner JWT, before Provider reads.
       const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+threadId,select:'inquiry_id,gmail_thread_id'},token);
       if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==threadId)){unknown.push({gmail_thread_id:threadId,code:'ambiguous_thread_binding'});continue;}
-      const thread=await providerRead(()=>provider.thread(threadId));
+      const thread=await timed('provider_thread',()=>providerRead(()=>provider.thread(threadId)));
       if(thread.id!==threadId||!Array.isArray(thread.messages)||thread.messages.length>500)throw new ReadError('mail_binding_mismatch',403);
       for(const raw of thread.messages){
         if(raw.threadId!==threadId||!MAIL_ID.test(raw.id||''))throw new ReadError('mail_binding_mismatch',403);
@@ -207,9 +232,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const message=await mailMessage(id,messageId,token);
     const matches=(Array.isArray(message.attachment_metadata)?message.attachment_metadata:[]).filter(a=>String(a.id||a.gmail_attachment_id||a.part_id||'')===attachmentId);
     if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
-    const item=readMailAttachment
-      ? await readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token})
-      : await providerRead(async()=>provider.attachment({messageId,metadata:matches[0],raw:await boundProviderMessage(message)}));
+    let item;
+    if(readMailAttachment)item=await timed('provider_original',()=>readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token}));
+    else {const raw=await boundProviderMessage(message);item=await timed('provider_original',()=>providerRead(()=>provider.attachment({messageId,metadata:matches[0],raw})));}
     return validateMailFile(matches[0],item);
   }
   function validateMailFile(metadata,item){
@@ -243,7 +268,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     if(!validMagic(bytes,mime)||crypto.createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime};
   }
-  return async(req,res)=>{
+  return async(req,res)=>timings.run(Object.create(null),async()=>{
+    const start=performance.now(),end=res.end.bind(res);
+    res.end=body=>{addTime('api_total',performance.now()-start);const values=timings.getStore();res.setHeader('Server-Timing',Object.entries(values).map(([name,ms])=>name+';dur='+ms.toFixed(2)).join(', '));return end(body);};
     res.setHeader('Cache-Control','private, no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
     const send=(value,status=200)=>{res.statusCode=status;res.setHeader('Content-Type','application/json; charset=utf-8');return res.end(JSON.stringify(value));};
     try{
@@ -255,7 +282,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       const u={pathname:route},segments=route.split('/').filter(Boolean).map(decodeURIComponent);
       if(req.headers['sec-fetch-site']==='cross-site')throw new ReadError('origin_refused',403);
       if(req.headers.origin&&req.headers.origin!=='https://'+req.headers.host)throw new ReadError('origin_refused',403);
-      const token=req.headers.authorization;await admin(token);let result;
+      const token=req.headers.authorization;await timed('auth',()=>admin(token));let result;
         if(u.pathname==='/data/cases'){
           const [cases,progress]=await Promise.all([allRows('pa_inquiries',{select:'*',deleted_at:'is.null',order:'id.asc'},token),allRows('pa_case_progress',{select:'*',order:'inquiry_id.asc'},token)]);
           result={cases,progress};
@@ -279,7 +306,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
           const raw=await boundProviderMessage(message);
           if(!raw.labelIds?.includes('SENT'))throw new ReadError('mail_binding_mismatch',403);
-          const item=await providerRead(()=>provider.attachment({messageId:message.gmail_message_id,metadata:matches[0],raw}));
+          const item=await timed('provider_original',()=>providerRead(()=>provider.attachment({messageId:message.gmail_message_id,metadata:matches[0],raw})));
           if(!Buffer.isBuffer(item.bytes)||item.bytes.length>MAX_BYTES||item.mime!=='application/pdf'||!validMagic(item.bytes,item.mime)||item.bytes.length!==Number(matches[0].size))throw new ReadError('asset_identity_mismatch',409);
           res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
         }
@@ -302,6 +329,6 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         }else throw new ReadError('route_refused',403);
       return send({ok:true,result});
     }catch(e){const error=e instanceof ReadError?e:new ReadError('read_unavailable',503);return send({ok:false,code:error.code},error.status);}
-  };
+  });
 }
 module.exports={createReadHandler,ReadError,publicKey,parsePublicConfig};

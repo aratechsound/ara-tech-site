@@ -40,7 +40,7 @@ async function fetchImpl(url,options){
   else if(table==='pa_portal_document_versions'||table==='pa_portal_photo_items'){
     const selected=q.searchParams.get('select').split(',');
     // Model SELECT accurately: omitted identity fields must not reach resolver.
-    data=assets.slice(table.endsWith('versions')?0:2,table.endsWith('versions')?2:4).map(a=>Object.fromEntries(Object.entries(a).filter(([k])=>selected.includes(k))));
+    data=assets.slice(table.endsWith('versions')?0:2,table.endsWith('versions')?2:4).filter(a=>!q.searchParams.has('id')||'eq.'+a.id===q.searchParams.get('id')).map(a=>Object.fromEntries(Object.entries(a).filter(([k])=>selected.includes(k))));
   }else if(table==='pa_gmail_thread_links')data=[{inquiry_id:mode==='foreign-owner'&&q.searchParams.has('gmail_thread_id')?OTHER:C,gmail_thread_id:'thread1'}];
   else if(table==='pa_gmail_message_index')data=[{inquiry_id:C,gmail_message_id:'mail1',gmail_thread_id:'thread1',attachment_metadata:attachments}];
   return new Response(JSON.stringify(data));
