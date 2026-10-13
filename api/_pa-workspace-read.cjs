@@ -37,10 +37,17 @@ async function boundedBytes(response){
   finally{await reader.cancel().catch(()=>{});}
   return Buffer.concat(parts);
 }
+function parsePublicConfig(config){
+  // Vercel compiles the included ESM asset to CommonJS and may normalize quote
+  // style. The pinned target and public-key requirement remain identical.
+  const literal=name=>config.match(new RegExp('\\b'+name+'\\s*=\\s*(["\\\'])([^"\\\']+)\\1'))?.[2];
+  if(literal('SUPABASE_URL')!==SUPABASE)throw Error('target_identity_refused');
+  const key=literal('SUPABASE_ANON_KEY');
+  if(!key?.startsWith('sb_publishable_'))throw Error('public_key_required');
+  return key;
+}
 function publicKey(){
-  const config=fs.readFileSync(path.join(__dirname,'../js/supabase-config.js'),'utf8');
-  if(config.match(/SUPABASE_URL\s*=\s*'([^']+)'/)?.[1]!==SUPABASE)throw Error('target_identity_refused');
-  return config.match(/SUPABASE_ANON_KEY\s*=\s*'([^']+)'/)?.[1];
+  return parsePublicConfig(fs.readFileSync(path.join(__dirname,'../js/supabase-config.js'),'utf8'));
 }
 function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}={}){
   if(!key.startsWith('sb_publishable_'))throw Error('public_key_required');
@@ -215,4 +222,4 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}=
     }catch(e){const error=e instanceof ReadError?e:new ReadError('read_unavailable',503);return send({ok:false,code:error.code},error.status);}
   };
 }
-module.exports={createReadHandler,ReadError,publicKey};
+module.exports={createReadHandler,ReadError,publicKey,parsePublicConfig};

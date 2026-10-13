@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {workspaceRequest, createWorkspaceHandler} = require('../api/_pa-workspace-handler.cjs');
 const gmail = require('../api/pa-gmail.js');
+const {parsePublicConfig} = require('../api/_pa-workspace-read.cjs');
 const root = path.resolve(__dirname, '..');
 const config = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
 assert.equal(fs.readdirSync(path.join(root, 'api')).filter(n => n.endsWith('.js')).length, 12);
@@ -16,6 +17,12 @@ const req = (url, method = 'GET') => ({url, method, headers});
 const response = () => ({headers: {}, setHeader(k, v) {this.headers[k.toLowerCase()] = v;}, end(b) {this.payload = JSON.parse(b);},
   status(n) {this.statusCode = n; return this;}, json(p) {this.payload = p; return this;}});
 async function main() {
+  for (const quote of ["'", '"']) {
+    const source = `const SUPABASE_URL = ${quote}https://kogbnremsouajxxsgxro.supabase.co${quote}; const SUPABASE_ANON_KEY = ${quote}sb_publishable_synthetic${quote};`;
+    assert.equal(parsePublicConfig(source), 'sb_publishable_synthetic');
+    assert.throws(() => parsePublicConfig(source.replace('kogbnremsouajxxsgxro', 'foreign')), /target_identity_refused/);
+    assert.throws(() => parsePublicConfig(source.replace('sb_publishable_synthetic', 'privileged_synthetic')), /public_key_required/);
+  }
   let calls = 0;
   const handler = createWorkspaceHandler({key: 'sb_publishable_synthetic', keyProvider: () => 'sb_publishable_synthetic',
     env: {PA_RELEASE_DIAGNOSTIC_ENABLED: 'true'}, fetchImpl: async () => {calls++; throw Error('unexpected_upstream');}});
