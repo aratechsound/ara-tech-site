@@ -16,7 +16,7 @@ const {canonicalAssetKey}=require('../api/_pa-portal-candidates.cjs');
   upstream.push({url,options});const q=new URL(url),table=q.pathname.split('/').at(-1);let data=[];
   if(q.pathname==='/auth/v1/user')data={id:A};else if(table==='work_admins')data=[{user_id:A}];else if(table==='pa_inquiries')data=[{id:A}];
   else if(table==='pa_portals')data=[{id:P,case_id:A}];else if(table==='pa_portal_document_cards')data=[{id:P,portal_id:P,title:'原本照合_fixture',current_version_id:ids[0]}];
-  else if(table==='pa_portal_document_versions')data=assets.slice(0,2);else if(table==='pa_portal_photo_items')data=assets.slice(2);
+  else if(table==='pa_portal_document_versions')data=assets.slice(0,2).filter(a=>!q.searchParams.has('id')||'eq.'+a.id===q.searchParams.get('id'));else if(table==='pa_portal_photo_items')data=assets.slice(2).filter(a=>!q.searchParams.has('id')||'eq.'+a.id===q.searchParams.get('id'));
   else if(table==='pa_gmail_thread_links')data=[{inquiry_id:A,gmail_thread_id:'thread1'}];else if(table==='pa_gmail_message_index')data=[{inquiry_id:A,gmail_message_id:'mail1',gmail_thread_id:'thread1',attachment_metadata:attachments}];
   return new Response(JSON.stringify(data));
  }});

@@ -33,6 +33,7 @@ export function mailAttachments(row){
     const ref=String(a.id||a.gmail_attachment_id||a.part_id||'');
     const filename=String(a.original_filename||a.filename||'名称未取得');
     return {key:'mail:'+row.gmail_message_id+':'+ref+':'+index,asset_kind:'mail',asset_id:ref||null,message_id:row.gmail_message_id,filename,title:filename,mime_type:String(a.mime_type||''),size:a.size,versions:[],change:'確認状態未取得',index,
+      part_id:a.part_id||a.gmail_part_id||null,canonical_attachment_key:a.canonical_attachment_key||null,sha256:a.sha256||a.source_content_sha256||null,
       source_subject:row.subject||'件名未提供',source_at:row.received_at||row.sent_at||row.indexed_at||null,source_direction:row.direction,case_id:row.inquiry_id,gmail_thread_id:row.gmail_thread_id};
   });
 }

@@ -2,6 +2,7 @@ import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} fro
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
+import {createPrivateAssets} from './private-assets.mjs';
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
@@ -34,7 +35,7 @@ async function api(url,{blob=false}={}){
   let timer=setTimeout(()=>controller.abort(),25000);
   try{
     const response=await fetch(readUrl(url),{method:'GET',cache:'no-store',headers:{authorization:'Bearer '+session.access_token},signal:controller.signal});
-    if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
+    if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(response.status===401)clearAssets();if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
     if(blob){
       const value=await response.blob(),proof=response.headers.get('X-PA-Attachment-Identity');
       // Sanitized proof flags only, retained with the existing session Blob.
@@ -44,6 +45,17 @@ async function api(url,{blob=false}={}){
     const data=await response.json();if(data.ok!==true)throw new ReadFailure('invalid_read_response',503);return data.result;
   }catch(error){if(error.name==='AbortError')throw new ReadFailure('read_timeout_or_cancelled',503);throw error;}
   finally{clearTimeout(timer);requests.delete(controller);}
+}
+let privateAssets=null;
+function clearAssets(){privateAssets?.clear();privateAssets=null;}
+function assetRoute(id,item){return item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id;}
+function caseAssets(){
+  if(!privateAssets){const id=selected,epoch=selectionEpoch,token=session?.access_token;
+    privateAssets=createPrivateAssets({isCurrent:()=>selected===id&&selectionEpoch===epoch&&!!session,
+      authorize:async()=>{let value;try{value=await workspaceAuth.current();}catch{signOut(false);throw new ReadFailure('login_required',401);}if(value?.access_token!==token){clearAssets();throw new ReadFailure('login_required',401);}},
+      requestBlob:item=>api(assetRoute(id,item),{blob:true})});
+  }
+  return privateAssets;
 }
 function current(){return cases.find(c=>c.id===selected)||null;}
 function getRows(surface){const state=detail[surface];return state?.state==='ready'?state.value:null;}
@@ -63,7 +75,7 @@ const bodyView=createMailBodyView({request:(id,row)=>api('/data/mail-body/'+id+'
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -176,7 +188,7 @@ function renderMailPreviews(){
     if(!container)continue;
     const items=mailAttachments(row),strip=container.querySelector('[data-attachments]');
     if(strip){
-      const g=createMailAttachmentCarousel({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createMailAttachmentCarousel({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount(strip,items);
     }
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
@@ -184,7 +196,7 @@ function renderMailPreviews(){
 }
 function mountGallery(target,items){
   const id=selected,epoch=selectionEpoch,viewTab=tab;
-  const g=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  const g=createGallery({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
   mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
 }
 function renderGallery(){
@@ -216,7 +228,7 @@ function render(){
     mountGallery($('current-estimate-grid'),items.filter(d=>d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'));
     mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
     if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
-      const g=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createGallery({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
     }
   }
@@ -308,6 +320,6 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').cl
 window.addEventListener('pagehide',()=>{bodyView.clear();session=null;abortRequests();clearDetail();});
 render();
 
-workspaceAuth.subscribe?.((event,value)=>{if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
+workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token)clearAssets();if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
 window.addEventListener('focus',async()=>{if(!session)return;const epoch=listEpoch;try{const restored=await workspaceAuth.restore();if(epoch!==listEpoch||!session)return;if(!restored)signOut(false);else session=restored;}catch{if(epoch===listEpoch&&session)signOut(false);}});
 workspaceAuth.restore().then(async restored=>{if(!restored)return;session=restored;$('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;await refresh();}).catch(()=>{$('login-status').textContent='既存セッションを確認できません。管理者でログインしてください。';});

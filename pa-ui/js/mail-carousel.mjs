@@ -3,8 +3,8 @@ import {carouselPosition,carouselMove,visibleAttachments} from './carousel-model
 
 // One gallery receives the original mail attachment array directly. No category
 // lookup, sorting, deduplication, grouping or alternate original retrieval occurs.
-export function createMailAttachmentCarousel({isCurrent,requestBlob}){
-  const gallery=createGallery({isCurrent,requestBlob});let cleanup=()=>{};
+export function createMailAttachmentCarousel({isCurrent,requestBlob,assets}){
+  const gallery=createGallery({isCurrent,requestBlob,assets});let cleanup=()=>{};
   function mount(track,items){
     cleanup();gallery.mount(track,items,{compact:true});
     const host=track.closest('.mail-attachments'),left=host.querySelector('[data-carousel-left]'),right=host.querySelector('[data-carousel-right]');
