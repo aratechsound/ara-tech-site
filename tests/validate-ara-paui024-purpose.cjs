@@ -24,7 +24,8 @@ const assert=require('node:assert/strict');
   ['Uncertain organization preserved','テスト実行委員会\n田中です。\n11万円です。','テスト実行委員会\n田中です。\n11万円です。'],
   ['Greeting with valuable content stays','Hello, please cancel November 1.','Hello, please cancel November 1.'],
   ['Purpose must not look like self introduction','音響のみの構成です。\n自動取得した架空の本文です。','音響のみの構成です。\n自動取得した架空の本文です。'],
-  ['English purpose is not a name','This is a cancellation.','This is a cancellation.']
+  ['English purpose is not a name','This is a cancellation.','This is a cancellation.'],
+  ['Ambiguous divider does not erase conditions','用件です。\n----\n予算は11万円までです。','用件です。\n----\n予算は11万円までです。']
  ];
  for(const [label,source,expected] of cases){assert.equal(purposeExcerpt(source),expected,label);for(const line of expected.split('\n'))assert(source.includes(line),label+' verbatim');}
  console.log('PASS purpose excerpts: '+cases.length+' cases, verbatim amounts/dates/conditions, uncertainty fallback, no AI');

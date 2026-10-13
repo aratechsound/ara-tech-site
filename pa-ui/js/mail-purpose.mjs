@@ -5,7 +5,7 @@ const introduction=/^(?:(?:ARA-TECH|株式会社[\p{L}・ー＆& .-]{1,35}|[\p{L
 const organization=/^(?:株式会社[\p{L}・ー＆& .-]{1,35}|[\p{L}・ー＆& .-]{1,35}株式会社)$/u;
 const name=/^[\p{L}・ー .]{1,20}(?:です|と申します)[。\s]*$/u;
 const salutation=/^(?:Dear [\p{L} .'-]{1,45}[,:]|[\p{L}・ー .]{1,30}(?:様|御中))$/iu;
-const signature=/^(?:--|[-_=＊*]{4,}|Sent from my (?:iPhone|iPad|Android)|iPhoneから送信|Androidから送信|Best regards,?|Kind regards,?|Sincerely,?)\s*$/iu;
+const signature=/^(?:--|Sent from my (?:iPhone|iPad|Android)|iPhoneから送信|Androidから送信|Best regards,?|Kind regards,?|Sincerely,?)\s*$/iu;
 const quote=/^(?:>|On .{0,250}wrote:|[-_]{3,}\s*(?:Original Message|Forwarded|元のメッセージ)|Begin forwarded message:|転送されたメッセージ|\d{4}[年/.-].{0,160}(?:書きました|wrote):?\s*$|(?:差出人|From):\s*.+)/iu;
 
 export function purposeExcerpt(text) {
