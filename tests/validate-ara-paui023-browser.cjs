@@ -92,5 +92,15 @@ const root=path.resolve(__dirname,'..');
  await page.locator('#sign-out').click();await page.getByText('ログアウトしました。',{exact:true}).waitFor();assert.equal(await page.locator('[data-message]').count(),0);
  await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');await page.locator('#login-form input[name="password"]').fill('fixture-only');await page.locator('#login-form button').click();await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).waitFor();assert.equal(counts.m0,before+1);
  console.log('PASS logout clears private cache; reauthentication fetches fresh body; GET only; no browser errors');
+ const fixture=await browser.newPage({viewport:{width:1440,height:900}});const fixtureErrors=[],apiCalls=[];
+ fixture.on('pageerror',e=>fixtureErrors.push(e.message));await fixture.route('**/api/**',r=>{apiCalls.push(r.request().url());return r.abort();});
+ await fixture.goto(origin+'/tests/paui023-preview.html');await fixture.locator('[data-case="'+C+'"]').click();await fixture.getByRole('button',{name:'やり取り',exact:true}).click();
+ await fixture.getByText('自動取得した架空の本文です。',{exact:false}).waitFor();
+ const saved=fixture.locator('[data-message="fixture-saved"]');await saved.getByRole('button',{name:'全文を表示',exact:true}).click();await saved.getByRole('button',{name:'閉じる',exact:true}).waitFor();
+ await saved.locator('[data-quoted-body] summary').click();await saved.getByRole('button',{name:'閉じる',exact:true}).click();assert.equal(await saved.locator('[data-quoted-body]').evaluate(n=>n.open),false);
+ await saved.locator('.material-thumb').click();await fixture.locator('dialog canvas').waitFor();await fixture.locator('dialog').getByRole('button',{name:'閉じる',exact:true}).click();
+ await fixture.locator('#toggle-filters').click();await fixture.locator('#type-filter').selectOption('PA_EVENT');assert.equal(await fixture.locator('.case').count(),1);await fixture.getByRole('button',{name:'詳細条件を閉じる ▲',exact:true}).click();
+ assert.deepEqual(apiCalls,[]);assert.deepEqual(fixtureErrors,[]);console.log('PASS deployable Preview fixture uses real UI, lazy bodies, toggles, PDF coexistence and filters without any authenticated API');
+ if(process.env.PAUI023_SCREENSHOT)await fixture.screenshot({path:process.env.PAUI023_SCREENSHOT,fullPage:true});await fixture.close();
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
