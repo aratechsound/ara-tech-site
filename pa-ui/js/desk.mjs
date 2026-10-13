@@ -222,7 +222,7 @@ function render(){
   const items=materialItems();
   if(tab==='overview')mountGallery($('inquiry-attachment-grid'),inquiryAttachmentItems(items));
   if(tab==='estimate'){
-    mountGallery($('formal-document-grid'),items.filter(d=>d.kind==='正式受注確認書'));
+    mountGallery($('formal-document-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
     mountGallery($('current-estimate-grid'),items.filter(d=>d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'));
     mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
     if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
