@@ -4,6 +4,14 @@
 const {gmailJson, gmailMessage, normalizeMessage} = require('./_pa-gmail.cjs');
 const MAX = 20 * 1024 * 1024;
 function createProvider(fetchImpl=fetch){
+  function normalize(raw){
+    const value=normalizeMessage(raw);let plain=false;
+    function walk(p){if(!p)return;if(!p.filename&&p.mimeType==='text/plain'&&p.body?.data)plain=true;for(const child of p.parts||[])walk(child);}
+    walk(raw.payload);
+    // Keep HTML-only quote markers for the inert text renderer in the browser.
+    if(value.body_html&&!plain)value.body_text='';
+    return value;
+  }
   const boundedFetch=(url,options={})=>fetchImpl(url,{...options,redirect:'error',signal:AbortSignal.timeout(15000)});
   async function hydrate(raw){
     async function walk(p){
@@ -36,6 +44,6 @@ async function attachment({messageId,metadata,raw}) {
   if(typeof payload?.data!=='string'||payload.data.length>Math.ceil(MAX*4/3)+4||! /^[A-Za-z0-9_-]*={0,2}$/.test(payload.data))throw Error('asset_identity_mismatch');
   return {bytes:Buffer.from(payload.data,'base64url'),mime:fresh.mime_type};
 }
-return {message,thread,attachment,normalize:normalizeMessage};
+return {message,thread,attachment,normalize};
 }
 module.exports={...createProvider(),createProvider};

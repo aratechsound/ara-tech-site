@@ -30,6 +30,13 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
  await check('Fresh message/thread mismatch denied',async()=>{mode='provider-thread';assert.equal((await read('/data/mail-body/'+C+'/mail1')).statusCode,403);});
  await check('Opaque attachment ID and Japanese filename retained',async()=>{const r=await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D');assert.equal(r.statusCode,200);assert(r.body.equals(bytes));});
  await check('No attachments and wrong ID cannot access Provider',async before=>{mode='no-attachments';assert.equal((await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D')).statusCode,403);assert.equal(providerCalls,before);});
+ await check('PNG JPEG WebP originals pass exact MIME, magic and size',async()=>{
+  const saved={...attachment},loader=provider.attachment;
+  try{for(const [mime,data] of [['image/png',Buffer.from([137,80,78,71,13,10,26,10])],['image/jpeg',Buffer.from([255,216,255,217])],['image/webp',Buffer.from('RIFF0000WEBP')]]){
+   attachment.mime_type=mime;attachment.size=data.length;provider.attachment=async()=>({bytes:data,mime});
+   const r=await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D');assert.equal(r.statusCode,200);assert(r.body.equals(data));
+  }}finally{Object.assign(attachment,saved);provider.attachment=loader;}
+ });
  await check('Corrupt PDF refused',async()=>{mode='bad-file';assert.equal((await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D')).statusCode,409);});
  await check('Unindexed Gmail SENT estimates included as history only',async()=>{mode='unindexed';const r=await read('/data/sent-estimates/'+C);assert.equal(r.statusCode,200);const s=JSON.parse(r.body).result;assert.equal(s.messages.length,1);assert.equal(s.messages[0].registration,'unverified');assert.equal(s.messages[0].validity,'unknown');assert.equal(s.messages[0].attachment_metadata[0].filename,'見積書 日本語.pdf');});
  await check('Non-SENT mail excluded',async()=>{mode='not-sent';assert.equal(JSON.parse((await read('/data/sent-estimates/'+C)).body).result.messages.length,0);});
@@ -37,6 +44,26 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
  await check('Unindexed history PDF uses exact bound Provider original',async()=>{mode='unindexed';const r=await read('/data/sent-estimate-attachment/'+C+'/mail1/attachment%2B%3D');assert.equal(r.statusCode,200);assert(r.body.equals(bytes));});
  await check('Ambiguous history has zero Provider access',async before=>{mode='ambiguous';const s=JSON.parse((await read('/data/sent-estimates/'+C)).body).result;assert.equal(s.messages.length,0);assert.equal(s.unknown[0].code,'ambiguous_thread_binding');assert.equal(providerCalls,before);});
  await check('All DB requests retain Owner JWT, public key and GET; no DML/RPC',async()=>{assert(calls.every(c=>c.options.method==='GET'&&c.options.headers.authorization===token&&c.options.headers.apikey==='sb_publishable_fixture'&&!c.url.includes('/rpc/')));});
+ await check('Canonical OAuth and Gmail GET only; no service DB path',async()=>{
+  const {createProvider}=require('../api/_pa-workspace-gmail.cjs');
+  const names=['GMAIL_CLIENT_ID','GMAIL_CLIENT_SECRET','GMAIL_REFRESH_TOKEN','GMAIL_SENDER_ADDRESS','GMAIL_REPLY_TO'];
+  const saved=Object.fromEntries(names.map(k=>[k,process.env[k]]));
+  for(const k of names)process.env[k]=k.endsWith('ADDRESS')||k.endsWith('TO')?'fixture@example.invalid':'fixture-only';
+  const requests=[];
+  try{
+   const p=createProvider(async(url,options)=>{
+    requests.push({url,method:options.method||'GET'});
+    const data=url==='https://oauth2.googleapis.com/token'?{access_token:'fixture-only'}:url.endsWith('/profile')?{emailAddress:'aratechsound@gmail.com'}:url.includes('/attachments/')?{data:bytes.toString('base64url')}:raw();
+    return new Response(JSON.stringify(data));
+   });
+   const message=await p.message('mail1'),file=await p.attachment({messageId:'mail1',metadata:attachment,raw:message});assert(file.bytes.equals(bytes));
+   assert(requests.every(r=>r.url==='https://oauth2.googleapis.com/token'?r.method==='POST':r.url.startsWith('https://gmail.googleapis.com/gmail/v1/users/me/')&&r.method==='GET'));
+   assert(requests.some(r=>r.url.includes('/profile')));
+   await assert.rejects(()=>p.attachment({messageId:'mail1',metadata:{...attachment,size:999},raw:message}),/asset_identity_mismatch/);
+   const wrong=createProvider(async url=>new Response(JSON.stringify(url.includes('oauth2')?{access_token:'fixture-only'}:{emailAddress:'wrong@example.invalid'})));
+   await assert.rejects(()=>wrong.message('mail1'),/gmail_mailbox_mismatch/);
+  }finally{for(const k of names)if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}
+ });
  console.log('PASS '+passed+'/'+passed+' LOCAL_FIXTURE_ONLY');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
