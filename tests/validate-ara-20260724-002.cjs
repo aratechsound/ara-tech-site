@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
-const adminHtml = read("pa-admin.html");
+const adminHtml = read("pa-admin-legacy.html");
 const adminCss = read("pa-admin.css");
 const adminJs = read("js/pa-admin.js");
 

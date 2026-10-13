@@ -8,7 +8,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
 const inquiryHtml = read("pa-inquiry.html");
 const inquiryJs = read("js/pa-inquiry.js");
-const adminHtml = read("pa-admin.html");
+const adminHtml = read("pa-admin-legacy.html");
 const adminJs = read("js/pa-admin.js");
 const privacyHtml = read("privacy.html");
 const migration = read("supabase/migrations/2026-07-23-pa-public-inquiry-registration.sql");

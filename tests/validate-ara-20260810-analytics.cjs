@@ -31,7 +31,7 @@ for (const file of publicHtmlFiles) {
     assert.doesNotMatch(html, /gtag\(['"]config['"]/);
 }
 
-for (const file of ['admin.html', 'pa-admin.html', 'pa-schedule-confirm.html']) {
+for (const file of ['admin.html', 'pa-admin.html', 'pa-admin-legacy.html', 'pa-schedule-confirm.html']) {
     const html = read(file);
     assert.doesNotMatch(html, /analytics\.js|googletagmanager|_vercel\/insights/);
 }

@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
 const worksAdmin = read("admin.html");
-const paAdmin = read("pa-admin.html");
+const paAdmin = read("pa-admin-legacy.html");
 const navigationCss = read("admin-navigation.css");
 
 assert.match(worksAdmin, /admin-navigation\.css\?v=ara-20260724-007/);
