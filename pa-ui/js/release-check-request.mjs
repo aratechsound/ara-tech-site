@@ -22,3 +22,11 @@ export async function diagnosticGet(auth, fetchImpl = fetch) {
       auth_get: 'PASS', admin_membership_get: 'PASS', database_name: null, branch: null, db4_hashes: 'NOT_QUERIED'},
     diagnostic_sha256: data.diagnostic_sha256, read_only: true};
 }
+export async function diagnosticAnonymousGet(fetchImpl = fetch) {
+  const response = await fetchImpl('/api/pa-workspace-read?path=/diagnostic/backend', {
+    method: 'GET', cache: 'no-store', redirect: 'error', headers: {accept: 'application/json'}
+  });
+  const data = await response.json();
+  if (!['not_found', 'login_required', 'query_refused', 'origin_refused', 'read_only', 'read_unavailable', 'backend_identity_refused'].includes(data?.code)) throw Error('receipt_identity_refused');
+  return {anonymous: true, http_status: response.status, code: data.code};
+}

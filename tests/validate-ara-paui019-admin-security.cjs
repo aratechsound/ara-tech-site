@@ -34,7 +34,15 @@ assert.match(desk, /fetch\(readUrl\(url\),\{method:'GET',cache:'no-store',header
 assert.match(read('pa-ui/js/integration.mjs'), /return '\/pa-admin-legacy\.html\?case='/);
 
 async function main() {
-  const {diagnosticGet} = await import(pathToFileURL(path.join(root, 'pa-ui/js/release-check-request.mjs')));
+  const {diagnosticGet, diagnosticAnonymousGet} = await import(pathToFileURL(path.join(root, 'pa-ui/js/release-check-request.mjs')));
+  for (const [status, code] of [[401, 'login_required'], [404, 'not_found']]) {
+    const result = await diagnosticAnonymousGet(async (url, options) => {
+      assert.equal(url, '/api/pa-workspace-read?path=/diagnostic/backend'); assert.equal(options.method, 'GET');
+      assert.equal(options.headers.authorization, undefined); assert.equal(options.redirect, 'error');
+      return {status, json: async () => ({code})};
+    });
+    assert.deepEqual(result, {anonymous: true, http_status: status, code});
+  }
   const receipt = {ok: true, read_only: true, diagnostic_version: 'PAUI017-1', observed_at: '2026-10-13T01:00:00.000Z',
     deployment: {id: 'dpl_Synthetic', environment: 'preview', git_commit_sha: 'a'.repeat(40)},
     backend: {project_ref: 'kogbnremsouajxxsgxro', auth_get: 'PASS', admin_membership_get: 'PASS'}, diagnostic_sha256: 'b'.repeat(64)};
