@@ -1,7 +1,8 @@
+import {purposeExcerpt} from './mail-purpose.mjs';
 // Template contents are inert, including remote media. Never attach email HTML.
 export function htmlText(html, doc=globalThis.document, preserveQuotes=false) {
   if(!doc)return '';
-  const template=doc.createElement('template');template.innerHTML=String(html||'').slice(0,50000);
+  const template=doc.createElement('template');template.innerHTML=preserveQuotes?String(html||''):String(html||'').slice(0,50000);
   const fragment=template.content;
   fragment.querySelectorAll('script,style,iframe,object,embed,svg,math,template,form,input,button,img,video,audio,link,meta,[hidden],[aria-hidden="true"]').forEach(n=>n.remove());
   if(preserveQuotes)fragment.querySelectorAll('blockquote,.gmail_quote').forEach(n=>n.prepend('\n> 引用\n'));
@@ -24,7 +25,7 @@ export function excerpt(text) {
 }
 export function savedExcerpt(row){
   const text=row.body_text||row.snippet||htmlText(row.body_html||'');
-  return excerpt(text);
+  return purposeExcerpt(text);
 }
 export function mailAttachments(row){
   if(!Array.isArray(row.attachment_metadata))return [];
@@ -48,7 +49,7 @@ export function fileType(item){
 }
 
 export function fullBody(row){
-  const text=String(row.body_text||htmlText(row.body_html||'',globalThis.document,true)||'').replace(/\r\n?/g,'\n').slice(0,50000);
+  const text=String(row.body_text||htmlText(row.body_html||'',globalThis.document,true)||'').replace(/\r\n?/g,'\n');
   const lines=text.split('\n');
   const at=lines.findIndex(line=>/^\s*>|^On .{0,250}wrote:|^[-_]{3,}\s*(Original Message|Forwarded|元のメッセージ)|^Begin forwarded message:|^転送されたメッセージ|^\d{4}[年/.-].{0,160}(書きました|wrote):?\s*$|^(差出人|From):\s*.+/iu.test(line.trim()));
   return {text:at<0?text:lines.slice(0,at).join('\n'),quoted:at<0?'':lines.slice(at).join('\n'),empty:!text.trim()};
