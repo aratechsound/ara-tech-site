@@ -12,7 +12,7 @@ const portalApi = read("api/pa-portal.js");
 const portalService = read("api/_pa-portal.cjs");
 const portalMigration = read("supabase/migrations/20260908143000_pa_portal_document_management.sql");
 const admin = read("js/pa-admin.js");
-const adminPage = read("pa-admin.html");
+const adminPage = read("pa-admin-legacy.html");
 const config = JSON.parse(read("vercel.json"));
 
 assert.match(admin, /open-case-portal/u, "case detail exposes a portal action");

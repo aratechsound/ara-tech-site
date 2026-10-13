@@ -5,7 +5,7 @@ const root = path.join(__dirname, '..');
 const commercial = fs.readFileSync(path.join(root, 'js', 'pa-commercial-admin.js'), 'utf8');
 const contract = fs.readFileSync(path.join(root, 'js', 'pa-contract-admin.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'pa-commercial.css'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'pa-admin-legacy.html'), 'utf8');
 
 assert.match(commercial, /実施確認前/u);
 assert.match(commercial, /精算確認前/u);

@@ -6,7 +6,7 @@ const sql = read('supabase/migrations/20260913110000_pa_case_management_v5.sql')
   + read('supabase/migrations/20260913170000_pa_case_management_v5_payment_race.sql')
   + read('supabase/migrations/20260913190000_pa_estimate_recovery_ux.sql');
 const api = read('api/_pa-commercial.cjs');
-const page = read('pa-admin.html');
+const page = read('pa-admin-legacy.html');
 const admin = read('js/pa-commercial-admin.js');
 const security = read('api/_request-security.cjs');
 const preview = read('pa-est-004-preview.html') + read('js/pa-est-004-preview.js');

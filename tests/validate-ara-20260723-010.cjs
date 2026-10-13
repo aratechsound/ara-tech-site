@@ -118,7 +118,7 @@ assert.match(thanksHtml, /これは予約確定通知ではありません/);
 assert.match(inquiryJs, /customer_receipt_status === "sent"/);
 assert.match(inquiryJs, /mail=\$\{mailState\}/);
 
-const adminHeaders = vercel.headers.find((entry) => entry.source === "/pa-admin.html");
+const adminHeaders = vercel.headers.find((entry) => entry.source === "/pa-admin-legacy.html");
 assert.ok(adminHeaders);
 const adminHeaderMap = Object.fromEntries(adminHeaders.headers.map((entry) => [entry.key.toLowerCase(), entry.value]));
 assert.match(adminHeaderMap["content-security-policy"], /connect-src 'self' https:\/\/kogbnremsouajxxsgxro\.supabase\.co/);

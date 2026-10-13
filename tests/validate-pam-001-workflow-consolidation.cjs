@@ -4,7 +4,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
-const html = read("pa-admin.html");
+const html = read("pa-admin-legacy.html");
 const js = read("js/pa-admin.js");
 const migration = read("supabase/migrations/20260902103000_pam001_workflow_projection.sql");
 

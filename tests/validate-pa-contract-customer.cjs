@@ -67,8 +67,8 @@ async function main() {
     const unsafe = mail.buildCustomerHtml('<script>alert(1)</script>');
     assert(!unsafe.includes('<script>'));
     assert.equal(f.state.sendCount, 0);
-    assert(read('pa-admin.html').includes('title="送信前のARA-TECHメール" sandbox="allow-same-origin" referrerpolicy="no-referrer"'));
-    const csp = JSON.parse(read('vercel.json')).headers.find(h => h.source === '/pa-admin.html').headers.find(h => h.key === 'Content-Security-Policy').value;
+    assert(read('pa-admin-legacy.html').includes('title="送信前のARA-TECHメール" sandbox="allow-same-origin" referrerpolicy="no-referrer"'));
+    const csp = JSON.parse(read('vercel.json')).headers.find(h => h.source === '/pa-admin-legacy.html').headers.find(h => h.key === 'Content-Security-Policy').value;
     assert(csp.includes("style-src-attr 'unsafe-inline'"));
     assert(!/script-src[^;]*unsafe-inline/.test(csp));
     console.log('PASS Gmail canonical branded HTML and body, sandboxed preview, no transport');

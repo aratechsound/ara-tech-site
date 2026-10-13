@@ -29,7 +29,7 @@ const read = name => fs.readFileSync(path.join(root, name), "utf8");
     });
     await vm.runInContext(saveSource + "\nsaveCase();", context);
     assert.equal(paidSaves, 1); // Ordinary inquiry PATCH/payload validation is not entered.
-    const html = read("pa-admin.html");
+    const html = read("pa-admin-legacy.html");
     assert.match(html.match(/<select id="case-status"[\s\S]*?<\/select>/)[0], /value="owner_payment_completed"[^>]*>入金確認済みで完了/);
     assert.equal((html.match(/id="owner-paid-completion-option"/g) || []).length, 1);
     assert.doesNotMatch(html.match(/<select id="case-status-filter"[\s\S]*?<\/select>/)[0], /owner_payment_completed/);

@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const gmail = require(path.join(root, "api", "_pa-gmail.cjs"));
 const mail = require(path.join(root, "api", "_pa-mail.cjs"));
 const client = fs.readFileSync(path.join(root, "js", "pa-admin.js"), "utf8");
-const page = fs.readFileSync(path.join(root, "pa-admin.html"), "utf8");
+const page = fs.readFileSync(path.join(root, "pa-admin-legacy.html"), "utf8");
 const projection = fs.readFileSync(path.join(root, "supabase", "migrations", "20260902170000_pam003_estimate_submission_projection.sql"), "utf8");
 
 Object.assign(process.env, {

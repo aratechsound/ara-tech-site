@@ -28,7 +28,7 @@ const root=path.resolve(__dirname,'..');
     await assert.rejects(m.verifyExistingFormalOrder(client(true),'existing'));
     await assert.rejects(m.verifyExistingFormalOrder(client(false,true),'existing'));
     const js=fs.readFileSync(path.join(root,'js/pa-admin.js'),'utf8');
-    const html=fs.readFileSync(path.join(root,'pa-admin.html'),'utf8');
+    const html=fs.readFileSync(path.join(root,'pa-admin-legacy.html'),'utf8');
     assert.match(html.match(/<select id="case-status"[\s\S]*?<\/select>/)[0],/formal_order_confirmed/);
     assert.match(html.match(/<select id="case-status-filter"[\s\S]*?<\/select>/)[0],/formal_order_confirmed/);
     assert.match(js,/stateCell.append\(statusBadge\(formalOrderDisplayStatus\(item, progress\)\)\)/);

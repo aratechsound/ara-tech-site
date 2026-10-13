@@ -5,7 +5,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const commercial = fs.readFileSync(path.join(root, 'js', 'pa-commercial-admin.js'), 'utf8');
 const admin = fs.readFileSync(path.join(root, 'js', 'pa-admin.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'pa-admin-legacy.html'), 'utf8');
 
 assert.match(commercial, /estimate\.source_sent_at\s*\|\|\s*\(delivery\?\.state === "sent" \? delivery\.finished_at : null\)/u);
 assert.match(commercial, /appendLine\(root, "送信", dateTime\(sentAt\)\)/u);
