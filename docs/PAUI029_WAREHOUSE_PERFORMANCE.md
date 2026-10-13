@@ -47,4 +47,4 @@ Initial list <2s and first visible thumbnail <5s meet fixture targets. All29 is 
 
 ## Checks
 
-PAUI-028 identity 32, Owner read 17, Gmail read 18; new cache/dedupe 14, exact-row attribution 9, two-screen browser fixture, and 29-file benchmark. Existing UI and portal/Gmail regression suites retained. Fixtures were updated only to honor exact PostgREST IDs and supply the thread attribution required by real projections; legacy expected values were not weakened. GitHub CI and Vercel exact-source evidence are recorded in the delivered task report.
+PAUI-028 identity 32, Owner read 17, Gmail read 18; new cache/dedupe 15, exact-row attribution 9, two-screen browser fixture, and 29-file benchmark. Existing UI and portal/Gmail regression suites retained. Fixtures were updated only to honor exact PostgREST IDs and supply the thread attribution required by real projections; legacy expected values were not weakened. GitHub CI and Vercel exact-source evidence are recorded in the delivered task report.
