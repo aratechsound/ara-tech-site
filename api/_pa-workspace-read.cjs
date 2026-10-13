@@ -175,7 +175,10 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         if(!raw.labelIds?.includes('SENT'))continue;
         const m=provider.normalize(raw);
         if(m.direction!=='outbound')continue;
-        const pdfs=m.attachments.filter(a=>a.mime_type==='application/pdf'&&/\u898b\u7a4d|estimate|quotation|quote/iu.test(a.original_filename||a.filename||''));
+        // Gmail attachment resource tokens can change between threads.get and
+        // messages.get. A MIME part ID is stable inside the exact bound message.
+        const pdfs=m.attachments.filter(a=>a.mime_type==='application/pdf'&&/\u898b\u7a4d|estimate|quotation|quote/iu.test(a.original_filename||a.filename||''))
+          .map(a=>({...a,id:a.part_id||a.id}));
         if(!pdfs.length)continue;
         const indexed=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+raw.id,select:'inquiry_id,gmail_thread_id,gmail_message_id'},token);
         if(indexed.length>1||indexed.some(r=>r.inquiry_id!==id||r.gmail_thread_id!==threadId)){unknown.push({gmail_thread_id:threadId,code:'mail_index_conflict'});continue;}
