@@ -164,7 +164,53 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       allRows('pa_gmail_thread_links',{inquiry_id:'eq.'+id,select:'*'},token)
     ]);
     if(links.some(l=>l.inquiry_id!==id)||messages.some(m=>m.inquiry_id!==id||!MAIL_ID.test(m.gmail_message_id||'')||!links.some(l=>l.gmail_thread_id===m.gmail_thread_id))||new Set(messages.map(m=>m.gmail_message_id)).size!==messages.length)throw new ReadError('mail_binding_mismatch',403);
+    messages.sort((a,b)=>mailTime(b)-mailTime(a)||a.gmail_message_id.localeCompare(b.gmail_message_id));
     return messages.map(m=>Object.fromEntries(['gmail_message_id','gmail_thread_id','inquiry_id','direction','from_address','to_addresses','cc_addresses','subject','sent_at','received_at','indexed_at','message_source','attachment_metadata','body_text','body_html','snippet'].filter(k=>m[k]!==undefined).map(k=>[k,m[k]])));
+  }
+  // PAUI-030: explicit read-through of approved links, never discovery or indexing.
+  const mailTime=m=>{const value=Date.parse(m.received_at||m.sent_at||'');return Number.isFinite(value)?value:0;};
+  async function approvedThread(id,threadId,token){
+    if(!MAIL_ID.test(threadId||''))throw new ReadError('invalid_mail_identity',400);
+    await readableCase(id,token);
+    const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+threadId,select:'inquiry_id,gmail_thread_id'},token);
+    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==threadId))throw new ReadError('mail_binding_mismatch',403);
+  }
+  async function liveMessage(id,threadId,messageId,token){
+    if(!MAIL_ID.test(messageId||''))throw new ReadError('invalid_mail_identity',400);
+    await approvedThread(id,threadId,token);
+    const indexes=await rows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'inquiry_id,gmail_thread_id,gmail_message_id',limit:2},token);
+    if(indexes.length>1||indexes.some(m=>m.inquiry_id!==id||m.gmail_thread_id!==threadId||m.gmail_message_id!==messageId))throw new ReadError('mail_binding_mismatch',403);
+    const raw=await boundProviderMessage({gmail_message_id:messageId,gmail_thread_id:threadId});
+    return {raw,fresh:provider.normalize(raw)};
+  }
+  async function liveMail(id,token){
+    const saved=await mail(id,token);
+    const links=await allRows('pa_gmail_thread_links',{inquiry_id:'eq.'+id,select:'inquiry_id,gmail_thread_id'},token);
+    if(links.some(l=>l.inquiry_id!==id||!MAIL_ID.test(l.gmail_thread_id||'')))throw new ReadError('mail_binding_mismatch',403);
+    const threads=[...new Set(links.map(l=>l.gmail_thread_id))],messages=[],checks=[];
+    if(threads.length>30)throw new ReadError('incomplete_result',503);
+    let total=0;
+    for(const threadId of threads){
+      try{
+        await approvedThread(id,threadId,token);
+        const thread=await timed('provider_thread',()=>providerRead(()=>provider.thread(threadId)));
+        if(thread.id!==threadId||!Array.isArray(thread.messages)||thread.messages.some(m=>m.threadId!==threadId||!MAIL_ID.test(m.id||''))||new Set(thread.messages.map(m=>m.id)).size!==thread.messages.length)throw new ReadError('mail_binding_mismatch',403);
+        total+=thread.messages.length;if(total>500)throw new ReadError('incomplete_result',503);
+        const indexes=thread.messages.length?await allRows('pa_gmail_message_index',{gmail_message_id:'in.('+thread.messages.map(m=>m.id).join(',')+')',select:'inquiry_id,gmail_thread_id,gmail_message_id'},token):[];
+        if(indexes.some(m=>m.inquiry_id!==id||m.gmail_thread_id!==threadId||!thread.messages.some(r=>r.id===m.gmail_message_id))||new Set(indexes.map(m=>m.gmail_message_id)).size!==indexes.length)throw new ReadError('mail_binding_mismatch',403);
+        const fresh=thread.messages.map(raw=>{
+          const m=provider.normalize(raw),old=saved.find(r=>r.gmail_message_id===raw.id),indexed=indexes.some(r=>r.gmail_message_id===raw.id);
+          return {gmail_message_id:raw.id,gmail_thread_id:threadId,inquiry_id:id,direction:m.direction,from_address:m.from_address,to_addresses:m.to_addresses,cc_addresses:m.cc_addresses,subject:m.subject,
+            received_at:m.direction==='inbound'?m.occurred_at:null,sent_at:m.direction==='outbound'?m.occurred_at:null,indexed_at:old?.indexed_at||null,
+            attachment_metadata:m.attachments.map(a=>({...a,id:a.part_id||a.id})),snippet:raw.snippet||'',read_route:'live',index_state:indexed?'indexed':'not_indexed',provider_checked:true};
+        });
+        messages.push(...fresh);checks.push({gmail_thread_id:threadId,status:fresh.some(m=>m.index_state==='not_indexed')?'index_gap':'current',provider_count:fresh.length,indexed_count:indexes.length});
+      }catch(e){if(!(e instanceof ReadError))throw e;checks.push({gmail_thread_id:threadId,status:'unknown',code:e.code});}
+    }
+    // Retain saved rows from failed threads; never present partial reads as empty/latest.
+    const ids=new Set(messages.map(m=>m.gmail_message_id));messages.push(...saved.filter(m=>!ids.has(m.gmail_message_id)));
+    messages.sort((a,b)=>mailTime(b)-mailTime(a)||a.gmail_message_id.localeCompare(b.gmail_message_id));
+    return {messages,checks,checked_at:new Date().toISOString(),status:!threads.length?'no_thread_links':checks.some(c=>c.status==='unknown')?'partial_unknown':checks.some(c=>c.status==='index_gap')?'index_gap':'linked_threads_current',unlinked_status:'not_checked',writes:false};
   }
   async function mailMessage(id,messageId,token){
     if(!MAIL_ID.test(messageId||''))throw new ReadError('invalid_mail_identity',400);
@@ -288,6 +334,19 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           result={cases,progress};
         }else if(u.pathname==='/data/attention')result=await allRows('pa_case_mail_attention',{select:'*',order:'inquiry_id.asc'},token);
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
+        else if(segments.length===3&&segments[1]==='mail-live')result=await liveMail(assertId(segments[2]),token);
+        else if(segments.length===5&&segments[1]==='mail-live-body'){
+          const {fresh}=await liveMessage(assertId(segments[2]),segments[3],segments[4],token);
+          result={gmail_message_id:segments[4],inquiry_id:segments[2],body_text:fresh.body_text,body_html:fresh.body_html,body_state:fresh.body_text||fresh.body_html?'ready':'empty',source:'gmail'};
+        }
+        else if(segments.length===6&&segments[1]==='mail-live-attachment'){
+          if(!ATTACH_ID.test(segments[5]||''))throw new ReadError('invalid_attachment_identity',400);
+          const {raw,fresh}=await liveMessage(assertId(segments[2]),segments[3],segments[4],token);
+          const matches=fresh.attachments.filter(a=>(a.part_id||a.id)===segments[5]);
+          if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
+          const item=validateMailFile(matches[0],await providerRead(()=>provider.attachment({messageId:segments[4],metadata:matches[0],raw})));
+          res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
+        }
         else if(segments.length===4&&segments[1]==='mail-body'){
           const message=await mailMessage(assertId(segments[2]),segments[3],token);
           if(message.body_text||message.body_html){
