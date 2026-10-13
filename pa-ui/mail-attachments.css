@@ -1,0 +1,20 @@
+/* PAUI-014-R2: right-edge carousel; card count determines the rail width. */
+.mail-row{padding:0;overflow:hidden}
+.mail-layout{display:grid;grid-template-columns:minmax(0,1fr) min(calc(var(--attachment-slots)*92px + (var(--attachment-slots) - 1)*7px + 17px),56%);min-width:0}
+.mail-row.no-attachments .mail-layout{grid-template-columns:minmax(0,1fr)}
+.mail-text{padding:9px 10px;min-width:0}
+.mail-text .mail-address{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mail-text .mail-subject{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mail-heading{gap:6px}.mail-heading time{font-size:9px}
+.mail-attachments{padding:8px;min-width:0;border-left:1px solid var(--border);background:#0e1b28;display:flex;flex-direction:column;gap:6px}
+.mail-attachments-title{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#9bb6cb;font-size:10px;min-height:20px}
+.carousel-arrows{display:flex;gap:3px}.carousel-arrow{border:1px solid #39536d;background:#142638;color:#bddbf2;border-radius:3px;width:21px;height:20px;padding:0;font-size:18px;line-height:16px}.carousel-arrow:disabled{opacity:.3}
+.attachment-strip{--carousel-card-width:calc((100% - (var(--attachment-slots) - 1)*7px)/var(--attachment-slots));direction:rtl;display:flex;flex-wrap:nowrap;gap:7px;margin:0;padding-bottom:5px;width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#496d87 #0e1b28}
+.attachment-strip[data-overflow="false"]{overflow-x:hidden}
+.attachment-strip::-webkit-scrollbar{height:6px}.attachment-strip::-webkit-scrollbar-thumb{background:#496d87;border-radius:5px}
+.attachment-strip:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.attachment-strip>.attachment-card{direction:ltr;text-align:left;flex:0 0 var(--carousel-card-width);width:auto;min-width:0;max-width:none;height:128px}
+.attachment-card .material-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:28px;font-size:9px}
+.attachment-card .material-thumb{height:72px;flex-shrink:0}
+.attachment-card .material-badges{flex-wrap:nowrap;white-space:nowrap;font-size:9px;overflow:hidden}
+@media(max-width:760px){.mail-layout{grid-template-columns:minmax(0,1fr) min(calc(var(--attachment-slots)*92px + (var(--attachment-slots) - 1)*7px + 17px),56%)}.mail-text{padding:8px}.mail-heading time{margin-left:0}.mail-attachments-title{font-size:9px}.carousel-arrow{width:18px}.material-meta{min-width:0}}

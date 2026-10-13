@@ -5,7 +5,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
-const adminHtml = read("pa-admin.html");
+const adminHtml = read("pa-admin-legacy.html");
 const adminJs = read("js/pa-admin.js");
 const scheduleHtml = read("pa-schedule-confirm.html");
 const scheduleJs = read("js/pa-schedule-confirm.js");

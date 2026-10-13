@@ -142,7 +142,7 @@ mail.sendContentHearingAndFinalize({
     assert.match(mailApi, /sendContentHearingAndFinalize/u);
     assert.match(mailApi, /finalizeContentHearingDelivery/u);
 
-    const adminHtml = read("pa-admin.html");
+    const adminHtml = read("pa-admin-legacy.html");
     const adminJs = read("js/pa-admin.js");
     assert.match(adminHtml, /id="content-hearing-section"/u);
     assert.match(adminHtml, /id="preview-content-hearing"/u);

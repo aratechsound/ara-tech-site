@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const mail = require(path.join(root, "api", "_pa-mail.cjs"));
 const brandTestApi = require(path.join(root, "api", "pa-mail-brand-test.js"));
 const endpointSource = fs.readFileSync(path.join(root, "api", "pa-mail-brand-test.js"), "utf8");
-const adminHtml = fs.readFileSync(path.join(root, "pa-admin.html"), "utf8");
+const adminHtml = fs.readFileSync(path.join(root, "pa-admin-legacy.html"), "utf8");
 const adminJs = fs.readFileSync(path.join(root, "js", "pa-admin.js"), "utf8");
 
 const testRecipient = ["tonokun", "gmail.com"].join("@");

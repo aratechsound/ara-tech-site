@@ -4,7 +4,7 @@ const {
     safeOriginalFilename
 } = require("./_pa-filename.cjs");
 
-const DEFAULT_SUPABASE_URL = "https://kogbnremsouajxxsgxro.supabase.co";
+const { resolveSupabaseUrl } = require("./_pa-backend-target.cjs");
 const ADMIN_URL = "https://ara-tech.cc/pa-admin.html";
 const SITE_URL = "https://ara-tech.cc";
 const OFFICIAL_EMAIL = "aratechsound@gmail.com";
@@ -357,7 +357,7 @@ const supabaseConfig = () => {
     const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
     if (!serviceRoleKey) throw new Error("supabase_not_configured");
     return {
-        url: String(process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL).replace(/\/+$/u, ""),
+        url: resolveSupabaseUrl(),
         serviceRoleKey
     };
 };

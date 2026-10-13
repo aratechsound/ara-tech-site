@@ -1,7 +1,7 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'..'),audit=path.resolve(root,'../../outputs/ARA-CASE-001R3-audit');
-const {fixture}=require(path.resolve(root,'../r3-regression/tests/helpers/ara-case-real-fixture.cjs'));
-const f=fixture();process.env.ALLOWED_ORIGINS='http://127.0.0.1:8875';
+const {fixture}=require('./helpers/ara-case-real-fixture.cjs');
+const f=fixture({database:'ara_case_r3_verify',restPort:55444});process.env.ALLOWED_ORIGINS='http://127.0.0.1:8875';
 process.env.ARA_TURNSTILE_SECRET='fixture-only-no-real-secret';
 const policy={verified:true,notification_recipient:'aratechsound@gmail.com',receipt_enabled:false,spam_adapter:'turnstile',captcha_site_key:'fixture-public-key',captcha_hostname:'fixture.example.invalid'};
 const tokens=new Set();let scenario='ok',failDb=false,failConfig=false;const trace=[];

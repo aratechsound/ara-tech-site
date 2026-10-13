@@ -35,18 +35,20 @@ const message = ({ id, from, to = "aratechsound@gmail.com", replyTo, subject, me
 });
 
 const selected = message({
-    id: "selected_message", from: "Sender <from@example.invalid>", replyTo: "Reply Desk <reply@example.invalid>", subject: "ABC",
+    id: "selected_message", from: "Reply Desk <reply@example.invalid>", replyTo: "Reply Desk <reply@example.invalid>", subject: "ABC",
     messageId: "<selected@example.invalid>", references: "<root@example.invalid> <selected@example.invalid>", timestamp: 1000
 });
 const newest = message({
-    id: "newest_message", from: "latest@example.invalid", subject: "Re: Latest", messageId: "<latest@example.invalid>", timestamp: 2000
+    id: "newest_message", from: "latest@example.invalid", to: "aratechsound@gmail.com, reply@example.invalid", subject: "Re: Latest", messageId: "<latest@example.invalid>", timestamp: 2000
 });
 const outbound = message({
-    id: "outbound_message", from: "aratechsound@gmail.com", to: "customer@example.invalid", subject: "Sent", messageId: "<sent@example.invalid>", timestamp: 500
+    id: "outbound_message", from: "aratechsound@gmail.com", to: "reply@example.invalid", subject: "Sent", messageId: "<sent@example.invalid>", timestamp: 500
 });
 const thread = { messages: [outbound, selected, newest] };
 
 const events = { sends: [], providerCalls: 0 };
+const inquiry = { id: inquiryId, inquiry_number: "PA-20260908-00001", case_type: "PA_EVENT", email: "reply@example.invalid" };
+let indexMode = "known";
 const fetchFixture = async (url, options = {}) => {
     const target = new URL(url);
     if (target.hostname === "oauth2.googleapis.com") return json({ access_token: "fixture-token" });
@@ -64,7 +66,12 @@ const fetchFixture = async (url, options = {}) => {
     if (target.pathname.endsWith("/pa_gmail_thread_links")) {
         return json([{ inquiry_id: inquiryId, gmail_thread_id: threadId, conversation_role: "primary_conversation" }]);
     }
-    if (target.pathname.endsWith("/pa_inquiries")) return json([{ id: inquiryId, inquiry_number: "PA-20260908-00001" }]);
+    if (target.pathname.endsWith("/pa_inquiries")) return json([inquiry]);
+    if (target.pathname.endsWith("/pa_gmail_message_index") && (options.method || "GET") === "GET") {
+        const ids = (target.searchParams.get("gmail_message_id") || "").slice(4, -1).split(",");
+        return json(indexMode === "unknown" ? [] : ids.map(id => ({ gmail_message_id: id, gmail_thread_id: threadId,
+            inquiry_id: indexMode === "conflict" ? actorId : inquiryId })));
+    }
     return json([]);
 };
 
@@ -210,6 +217,27 @@ async function test(name, run) {
             inquiryId, actorId, body: "本文", replySourceMessageId: "outbound_message", replySourceThreadId: threadId
         }, fetchFixture), /invalid_reply_source/u);
         assert.equal(events.sends.length, sendsBefore);
+        const explicitSource = { inquiryId, actorId, body: "guard fixture", replySourceMessageId: "selected_message", replySourceThreadId: threadId };
+        indexMode = "unknown";
+        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_attribution_unknown/);
+        indexMode = "conflict";
+        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_attribution_conflict/);
+        indexMode = "known";
+        delete inquiry.email;
+        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_target_unavailable/);
+        inquiry.email = "reply@example.invalid";
+        const fromHeader = selected.payload.headers.find(header => header.name === "From");
+        const originalFrom = fromHeader.value;
+        fromHeader.value = "foreign@example.invalid";
+        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_target_unavailable/);
+        fromHeader.value = originalFrom;
+        inquiry.case_type = "OTHER";
+        await assert.rejects(() => gmail.replyPreview({ inquiryId, actorId, body: "implicit" }, fetchFixture), /invalid_reply_source/);
+        const commonPreview = await gmail.replyPreview(explicitSource, fetchFixture);
+        assert.equal(commonPreview.reply_source_explicit, true);
+        await assert.rejects(() => gmail.sendReply({ inquiryId, actorId, body: explicitSource.body, confirmationToken: commonPreview.confirmation_token }, fetchFixture), /invalid_reply_source/);
+        inquiry.case_type = "PA_EVENT";
+        assert.equal(events.sends.length, sendsBefore, "all rejected customer/index/source evidence has zero sends");
     });
 
     await test("TEST-11/17 ordinary composer preview adds no explicit reply-source request", async () => {

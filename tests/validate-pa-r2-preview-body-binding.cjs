@@ -35,7 +35,7 @@ const makeThread = (subject = "Re: R2 binding") => ({ messages: [{
     ], mimeType: "text/plain", body: { data: Buffer.from("customer message").toString("base64url") } }
 }] });
 
-function createUi({ mode = "estimate_submission", body = "見積書をお送りします。", attachmentCount = 0, subjectRef } = {}) {
+function createUi({ mode = "estimate_submission", body = "見積書をお送りします。", attachmentCount = 0, subjectRef, unknownCustomer = false, indexMissing = false, indexCaseId = inquiryId, caseType = "PA_EVENT", explicit = false } = {}) {
     const elements = new Map();
     const $ = (key) => {
         if (!elements.has(key)) elements.set(key, {
@@ -57,7 +57,11 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
         if (target.hostname === "gmail.googleapis.com" && target.pathname.includes("/threads/")) return json(makeThread(subjectRef?.value));
         assert(target.pathname.startsWith("/rest/v1/"), `unexpected endpoint ${url}`);
         if (target.pathname.endsWith("/pa_gmail_thread_links")) return json([{ inquiry_id: inquiryId, gmail_thread_id: "thread_123", conversation_role: "primary_conversation" }]);
-        if (target.pathname.endsWith("/pa_inquiries")) return json([{ id: inquiryId, inquiry_number: "PA-R2-001" }]);
+        if (target.pathname.endsWith("/pa_inquiries")) return json([{ id: inquiryId, inquiry_number: "PA-R2-001", case_type: caseType, ...(unknownCustomer ? {} : { email: "customer@example.invalid" }) }]);
+        if (target.pathname.endsWith("/pa_gmail_message_index") && (options.method || "GET") === "GET") {
+            const ids = (target.searchParams.get("gmail_message_id") || "").slice(4, -1).split(",");
+            return json(indexMissing ? [] : ids.map(id => ({ inquiry_id: indexCaseId, gmail_message_id: id, gmail_thread_id: "thread_123" })));
+        }
         return json([]);
     };
     const attachments = Array.from({ length: attachmentCount }, (_, index) => ({
@@ -72,11 +76,12 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
         callGmailApi: async (args) => {
             events.requests.push(structuredClone(args));
             if (args.action === "reply_preview") return { preview: await gmail.replyPreview({
-                inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments, mode: args.mode, ccAddresses: args.cc_addresses
+                inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments,  mode: args.mode, ccAddresses: args.cc_addresses, replySourceMessageId: args.reply_source_message_id, replySourceThreadId: args.reply_source_thread_id
             }, fetchFixture) };
             return { result: await gmail.sendReply({
                 inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments,
-                mode: args.mode, confirmationToken: args.confirmation_token, ccAddresses: args.cc_addresses
+                mode: args.mode, confirmationToken: args.confirmation_token, ccAddresses: args.cc_addresses,
+                replySourceMessageId: args.reply_source_message_id, replySourceThreadId: args.reply_source_thread_id
             }, fetchFixture) };
         },
         supabase: { rpc: async (_name, args) => {
@@ -95,6 +100,7 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
     box.currentGmailLink = { inquiry_id: inquiryId, gmail_thread_id: message.thread_id };
     box.gmailReplyContext = Object.freeze({ selectedCase: box.currentCase, inquiryId, messageId: message.id, threadId: message.thread_id,
         messageKey: JSON.stringify([message.id, message.thread_id, message.direction, message.from_address, message.reply_to, message.to_addresses, message.cc_addresses, message.subject]) });
+    if (explicit) box.gmailReplySource = Object.freeze({ inquiryId, messageId: message.id, threadId: message.thread_id });
     $("#gmail-reply-recipient").value = "customer@example.invalid";
     $("#gmail-reply-subject").value = message.subject;
     vm.createContext(box);
@@ -171,6 +177,29 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
         assert.match(events.sent[0].raw, /attachment-0\.pdf/u);
         assert.match(events.sent[0].raw, /attachment-2\.pdf/u);
     });
-    assert.equal(count, 7);
-    console.log("PA R2 preview raw/normalized body-binding integration: 7/7 PASS; real UI functions + replyPreview/sendReply/token/MIME; transport synthetic; no email sent");
+    await test("R2-8 unknown/conflicting attribution and COMMON implicit selection fail before send; explicit COMMON remains valid", async () => {
+        for (const options of [
+            { unknownCustomer: true }, { indexMissing: true }, { indexCaseId: otherId }, { caseType: "OTHER" }
+        ]) {
+            const { box, events } = createUi({ mode: "normal", ...options });
+            await box.preview();
+            assert.equal(box.gmailReplyPreview, null, JSON.stringify(events.messages));
+            assert(events.messages.some(entry => /reply_target_unavailable|reply_attribution_unknown|reply_attribution_conflict|invalid_reply_source/.test(entry.message)));
+            await box.send();
+            assert.equal(events.sent.length, 0);
+            assert.equal(events.commercial, 0);
+            assert.equal(events.progressWrites, 0);
+        }
+        const { box, events } = createUi({ mode: "normal", caseType: "OTHER", explicit: true });
+        await box.preview();
+        assert(box.gmailReplyPreview, JSON.stringify(events.messages));
+        assert.equal(box.gmailReplyPreview.reply_source_explicit, true);
+        assert.equal(events.requests[0].reply_source_message_id, "message_123");
+        assert.equal(events.requests[0].reply_source_thread_id, "thread_123");
+        await box.send();
+        assert.equal(events.sent.length, 1);
+        assert.equal(events.progressWrites, 0);
+    });
+    assert.equal(count, 8);
+    console.log("PA R2 preview raw/normalized body-binding integration: 8/8 PASS; real UI functions + replyPreview/sendReply/token/MIME; transport synthetic; no email sent");
 })().catch((error) => { console.error(error.stack); process.exitCode = 1; });

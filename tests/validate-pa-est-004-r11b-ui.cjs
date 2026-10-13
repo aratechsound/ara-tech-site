@@ -7,7 +7,7 @@ const client = fs.readFileSync(path.join(root, 'js', 'pa-material-preview.js'), 
 const commercial = fs.readFileSync(path.join(root, 'js', 'pa-commercial-admin.js'), 'utf8');
 const thumbnailSource = client.slice(client.indexOf('const renderThumbnail'), client.indexOf('if ("IntersectionObserver"'));
 const css = fs.readFileSync(path.join(root, 'pa-commercial.css'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'pa-admin.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'pa-admin-legacy.html'), 'utf8');
 const vercel = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
 
 assert.match(client, /IntersectionObserver/u, 'thumbnail binaries are lazy-loaded');

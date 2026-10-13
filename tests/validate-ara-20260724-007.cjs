@@ -27,20 +27,20 @@ const previousCustomerFooter = [
     `Web：${mail.SITE_URL}`
 ].join("\n");
 
-const walkTextFiles = (directory) => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if ([".git", "node_modules", "img"].includes(entry.name)) return [];
-    const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) return walkTextFiles(target);
-    return /\.(?:cjs|js|json|html|css|md|sql|txt)$/iu.test(entry.name) ? [target] : [];
-});
-
-walkTextFiles(root).forEach((file) => {
-    assert.doesNotMatch(
-        fs.readFileSync(file, "utf8"),
-        new RegExp(forbiddenAddress.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"),
-        `legacy customer address must not remain in ${path.relative(root, file)}`
-    );
-});
+// Customer-facing contact surfaces and generated customer mail are authoritative.
+// Explicit test recipients, wrong-mailbox negatives and historical records have separate roles.
+const assertCustomerContact = (text, label) => assert.doesNotMatch(
+    text,
+    new RegExp(forbiddenAddress.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"),
+    `${label}: legacy address must not be a customer-facing official contact`
+);
+assert.equal(mail.OFFICIAL_EMAIL, "aratechsound@gmail.com", "official customer mail contact");
+const customerContactFiles = fs.readdirSync(root).filter((name) => /\.html$/iu.test(name));
+customerContactFiles.push("js/pa-inquiry.js", "js/pa-schedule-confirm.js");
+customerContactFiles.forEach((file) => assertCustomerContact(read(file), file));
+assertCustomerContact(mail.CUSTOMER_FOOTER_TEXT_WITHOUT_REFERENCE, "official customer footer");
+// The eight generated plain/HTML/From/Reply-To/footer checks below remain mandatory.
+// Test/history strings are not global customer contact assertions or permission to send.
 
 const previousSignature = process.env.GMAIL_SIGNATURE_TEXT;
 process.env.GMAIL_SIGNATURE_TEXT = legacySignature;

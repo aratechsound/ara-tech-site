@@ -4,7 +4,7 @@ const { PGlite } = require(process.env.PA_PGLITE_MODULE || '@electric-sql/pglite
 const { pgcrypto } = require(process.env.PA_PGLITE_MODULE ? path.join(process.env.PA_PGLITE_MODULE,'dist/contrib/pgcrypto.cjs') : '@electric-sql/pglite/contrib/pgcrypto');
 const root = path.resolve(__dirname,'../..');
 const actor = '123e4567-e89b-42d3-a456-426614174001';
-const migrations = ['2026-07-23-pa-inquiry-management.sql','2026-07-23-pa-public-inquiry-registration.sql','2026-07-23-pa-gmail-delivery.sql','2026-07-24-pa-schedule-response-workflow.sql','2026-07-24-pa-case-progress.sql','2026-07-26-pa-case-trash.sql','2026-07-24-pa-api-security-hardening.sql','20260901153000_pa_content_hearing_follow_up.sql','20260902103000_pam001_workflow_projection.sql','20260902130000_pam002_gmail_case_communication.sql','20260902143000_pam002_gmail_conversation_authority.sql','20260902170000_pam003_estimate_submission_projection.sql','20260903010000_pam004_gmail_direct_sent_reconciliation.sql','20260903020000_pam005_atomic_estimate_reconciliation.sql','20260907130000_pa_formal_contract.sql','20260908143000_pa_portal_document_management.sql','20260908213000_pa_portal_organizer_access.sql','20260909060000_pa_portal_document_candidates.sql','20260909093000_pa_portal_candidate_canonical_identity.sql','20260909110000_pa_portal_candidate_variant_reconcile.sql','20260909123000_pa_stage_plot_persistence.sql','20260913110000_pa_case_management_v5.sql','20260913130000_pa_case_management_v5_r1.sql','20260913170000_pa_case_management_v5_payment_race.sql','20260913190000_pa_estimate_recovery_ux.sql','20260914100000_pa_est_005a_confirmation_snapshot_compat.sql','20261005150000_ara_case_common_mail.sql'];
+const migrations = ['2026-07-23-pa-inquiry-management.sql','2026-07-23-pa-public-inquiry-registration.sql','2026-07-23-pa-gmail-delivery.sql','2026-07-24-pa-schedule-response-workflow.sql','2026-07-24-pa-case-progress.sql','2026-07-26-pa-case-trash.sql','2026-07-24-pa-api-security-hardening.sql','20260901153000_pa_content_hearing_follow_up.sql','20260902103000_pam001_workflow_projection.sql','20260902130000_pam002_gmail_case_communication.sql','20260902143000_pam002_gmail_conversation_authority.sql','20260902170000_pam003_estimate_submission_projection.sql','20260903010000_pam004_gmail_direct_sent_reconciliation.sql','20260903020000_pam005_atomic_estimate_reconciliation.sql','20260907130000_pa_formal_contract.sql','20260908143000_pa_portal_document_management.sql','20260908213000_pa_portal_organizer_access.sql','20260909060000_pa_portal_document_candidates.sql','20260909093000_pa_portal_candidate_canonical_identity.sql','20260909110000_pa_portal_candidate_variant_reconcile.sql','20260909123000_pa_stage_plot_persistence.sql','20260913110000_pa_case_management_v5.sql','20260913130000_pa_case_management_v5_r1.sql','20260913170000_pa_case_management_v5_payment_race.sql','20260913190000_pa_estimate_recovery_ux.sql','20260914100000_pa_est_005a_confirmation_snapshot_compat.sql','20261005145900_ara_classification_archive_guard.sql','20261005150000_ara_case_common_mail.sql','20261005160000_ara_case_r2_intake_coverage.sql'];
 const json = (data,status=200) => ({ok:status>=200&&status<300,status,json:async()=>data});
 const ident = s => { if(!/^[a-z_][a-z0-9_]*$/.test(s)) throw Error('invalid fixture identifier'); return s; };
 async function createFixture() {
@@ -32,7 +32,20 @@ async function createFixture() {
   const input=options.body?JSON.parse(options.body):null;
   if(u.pathname.includes('/rpc/')) {const name=ident(u.pathname.split('/').at(-1));const keys=Object.keys(input).map(ident);try {if(name==='consume_rate_limit')return json((await db.query(`select * from public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')})`,Object.values(input))).rows);const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')}) result`,Object.values(input));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}}
   const table=ident(u.pathname.split('/').at(-1)), values=[],where=[];
-  for(const [key,value] of u.searchParams){if(['select','limit','order','on_conflict'].includes(key))continue;ident(key);if(value==='is.null')where.push(`${key} is null`);else if(value==='not.is.null')where.push(`${key} is not null`);else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}else throw Error('Unexpected fixture filter '+key);}
+  for(const [key,value] of u.searchParams){
+   if(['select','limit','order','on_conflict'].includes(key))continue;
+   ident(key);
+   if(value==='is.null')where.push(`${key} is null`);
+   else if(value==='not.is.null')where.push(`${key} is not null`);
+   else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}
+   else if(value.startsWith('in.')){
+    const match=/^in\.\(([A-Za-z0-9_-]{1,200}(?:,[A-Za-z0-9_-]{1,200}){0,99})\)$/.exec(value);
+    if(table!=='pa_gmail_message_index'||key!=='gmail_message_id'||(options.method||'GET')!=='GET'||!match)throw Error('Invalid fixture message ID filter');
+    const ids=match[1].split(',');
+    if(new Set(ids).size!==ids.length)throw Error('Invalid fixture message ID filter');
+    values.push(ids);where.push(`${key}=ANY($${values.length}::text[])`);
+   }else throw Error('Unexpected fixture filter '+key);
+  }
   const suffix=where.length?' where '+where.join(' and '):'';
   try {
    if((options.method||'GET')==='GET') {const selected=u.searchParams.get('select')||'*';if(!/^[a-z0-9_*,]+$/.test(selected))throw Error('Invalid select');const order=u.searchParams.get('order')?.split(',').map(s=>{const [k,d]=s.split('.');ident(k);if(!['asc','desc'].includes(d))throw Error('order');return `${k} ${d}`;}).join(',');return json((await db.query(`select ${selected} from public.${table}${suffix}${order?' order by '+order:''} limit ${Number(u.searchParams.get('limit')||1000)}`,values)).rows.map(row=>Object.fromEntries(Object.entries(row).map(([k,v])=>[k,v instanceof Date ? (/(_date|_on)$/.test(k)?v.toISOString().slice(0,10):v.toISOString()):v]))));}

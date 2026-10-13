@@ -43,15 +43,27 @@ for (const requiredField of [
 ]) {
     assert.match(general, requiredField);
 }
-assert.match(general, /formId: 'mojqjwnr'/);
-assert.match(general, /window\.location\.assign\('thanks\.html\?sent=1'\)/);
-assert.match(general, /https:\/\/unpkg\.com\/@formspree\/ajax@1/);
+const generalModule = read('js/ara-general-inquiry.js');
+assert.match(general, /<script\b[^>]*type="module"[^>]*src="js\/ara-general-inquiry\.js"[^>]*><\/script>/);
+assert.match(generalModule, /document\.getElementById\('contact-form'\)/);
+assert.match(generalModule, /window\.formspree\('initForm', \{formElement: '#contact-form', formId: 'mojqjwnr', onSuccess: \(\) => location\.assign\('thanks\.html\?sent=1'\)\}\)/);
+assert.match(generalModule, /await loadScript\('https:\/\/unpkg\.com\/@formspree\/ajax@1'\)/);
 const messagePlaceholder = general.match(/<textarea id="message"[^>]*placeholder="([^"]+)"/)?.[1] || '';
 assert.ok(messagePlaceholder);
 assert.doesNotMatch(messagePlaceholder, /開催日時|開催日|予定人数/);
 
 assert.match(read('tour-pa.html'), /href="general-inquiry\.html"[^>]*>一般お問い合わせフォームへ<\/a>/);
-assert.match(read('installation.html'), /href="general-inquiry\.html"[^>]*>一般お問い合わせフォームへ<\/a>/);
+const installationCtas = [...read('installation.html').matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
+    .filter(([, , label]) => visibleText(label).includes('一般お問い合わせ'));
+assert.equal(installationCtas.length, 1, 'one meaningful installation general-inquiry CTA required');
+const installationHref = installationCtas[0][1].match(/\bhref="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&');
+assert.ok(installationHref, 'installation CTA must have an href');
+assert.doesNotMatch(installationHref, /%(?![\da-f]{2})/i, 'CTA href must not contain malformed percent escapes');
+let installationUrl;
+assert.doesNotThrow(() => { installationUrl = new URL(installationHref, 'http://local.test/'); }, 'CTA href must be a valid URL');
+assert.equal(installationUrl.origin, 'http://local.test');
+assert.equal(installationUrl.pathname, '/general-inquiry.html');
+assert.deepEqual(installationUrl.searchParams.getAll('case_type'), ['AUDIO_INSTALL']);
 assert.match(read('privacy.html'), /href="general-inquiry\.html">一般お問い合わせフォーム<\/a>/);
 assert.match(sitemap, /\['\/general-inquiry\.html', '0\.6'\]/);
 
@@ -94,11 +106,18 @@ for (const file of publicHtmlFiles) {
     }
 }
 
-const generalInlineScripts = [...general.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
-assert.ok(generalInlineScripts.length >= 1);
+assert.match(generalModule, /if \(value\.mode === 'LEGACY'\) return value\.enabled === false/);
+assert.match(generalModule, /return value\.mode === 'COMMON' && value\.enabled === true/);
+assert.match(generalModule, /if \(!validConfig\(next\)\) throw Error\('config_unavailable'\)/);
+assert.match(generalModule, /if \(next\.mode === 'LEGACY'\) \{[\s\S]*?await loadScript[\s\S]*?mode = 'LEGACY';[\s\S]*?\} else \{\s*mode = 'COMMON'; form\.action = '\/api\/pa-inquiry'/);
+assert.match(generalModule, /catch \{ unavailable\(\); \}/);
+assert.match(generalModule, /function unavailable\(\) \{\s*mode = 'UNAVAILABLE'; token = ''/);
+assert.match(generalModule, /button\.disabled = initializing \|\| sending \|\| \(mode !== 'LEGACY' && mode !== 'COMMON'\)/);
+assert.match(generalModule, /if \(mode === 'LEGACY' && !button\.disabled\) return;\s*event\.preventDefault\(\); event\.stopImmediatePropagation\(\);\s*if \(button\.disabled \|\| mode !== 'COMMON'\) return/);
+assert.match(generalModule, /form_kind: 'general'/);
+assert.match(generalModule, /fetch\('\/api\/pa-inquiry', \{method: 'POST'/);
 assert.match(general, /<script src="\/js\/analytics\.js" defer><\/script>/);
-for (const [index, script] of generalInlineScripts.entries()) {
-    new vm.Script(script, { filename: `general-inquiry-inline-${index}.js` });
-}
+assert.ok(fs.statSync(path.join(root, 'js/ara-general-inquiry.js')).isFile());
+new vm.Script(generalModule, { filename: 'js/ara-general-inquiry.js' });
 
 console.log('ARA-20260724-004 general inquiry split validation passed');

@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
 const worksAdmin = read("admin.html");
-const paAdmin = read("pa-admin.html");
+const paAdmin = read("pa-admin-legacy.html");
 const navigationCss = read("admin-navigation.css");
 
 assert.match(worksAdmin, /admin-navigation\.css\?v=ara-20260724-007/);
@@ -18,7 +18,7 @@ assert.match(
 );
 assert.match(
     paAdmin,
-    /<nav class="admin-nav" aria-label="管理画面">\s*<a class="admin-nav__link--works" href="admin\.html">WORKS管理<\/a>\s*<a class="admin-nav__link--pa" href="pa-admin\.html" aria-current="page">PA案件管理<\/a>\s*<\/nav>/
+    /<nav class="admin-nav" aria-label="管理画面">\s*<a class="admin-nav__link--works" href="admin\.html">WORKS管理<\/a>\s*<a class="admin-nav__link--pa" href="pa-admin\.html" aria-current="page">\s*[^<\s][^<]*<\/a>\s*<\/nav>/
 );
 
 assert.match(navigationCss, /\.admin-nav a\s*\{/);

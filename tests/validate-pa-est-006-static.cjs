@@ -7,7 +7,7 @@ const service = read('api/_pa-commercial.cjs');
 const handler = read('api/_pa-commercial-handler.cjs');
 const admin = read('js/pa-commercial-admin.js');
 const adminShell = read('js/pa-admin.js');
-const adminHtml = read('pa-admin.html');
+const adminHtml = read('pa-admin-legacy.html');
 const customer = read('js/pa-contract.js');
 const renderer = read('js/pa-contract-renderer.js');
 const html = read('pa-contract.html');
@@ -22,7 +22,7 @@ assert.match(admin, /confirmation_receipt_preview/); assert.match(admin, /pa-con
 assert.match(customer, /PAContractRenderer/); assert.match(customer, /admin-pre-issue/); assert.match(renderer, /const fill/); assert.match(html, /pa-contract-renderer\.js/);
 assert(!customer.includes('fetch("/api/pa-contract"') || customer.indexOf('if (previewMode)') < customer.indexOf('fetch("/api/pa-contract"'));
 for (const width of ['1240px', '940px', '520px']) assert(css.includes(width));
-const adminHeaders = vercel.headers.find((rule) => rule.source === '/pa-admin.html').headers;
+const adminHeaders = vercel.headers.find((rule) => rule.source === '/pa-admin-legacy.html').headers;
 const adminCsp = adminHeaders.find((header) => header.key === 'Content-Security-Policy').value;
 assert.match(adminCsp, /frame-src 'self' blob:/, 'Production admin must allow blob PDF previews in the final preview gate');
 assert.equal(fs.readdirSync(path.join(root, 'api')).filter((name) => name.endsWith('.js')).length, 12);

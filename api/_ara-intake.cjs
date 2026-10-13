@@ -1,6 +1,6 @@
 const {createHash}=require('node:crypto');
 const {CASE_TYPES}=require('./_ara-case.cjs');
-const {supabaseRequest,sendGmail,OFFICIAL_EMAIL}=require('./_pa-mail.cjs');
+const {supabaseRequest,sendGmail,OFFICIAL_EMAIL,isUuid}=require('./_pa-mail.cjs');
 const clean=(v,max,required=false)=>{if(typeof v!=='string' || v.length>max || /\u0000/.test(v))throw Error('invalid_input');const s=v.trim().replace(/\r\n?/g,'\n');if(required&&!s)throw Error('invalid_input');return s;};
 function policy(){
  if(process.env.ARA_GENERAL_INQUIRY_ENABLED!=='true')throw Error('general_intake_disabled');
@@ -28,6 +28,8 @@ async function accept(input,fetchImpl=fetch){
  const notifications=[{message_type:'internal_new_inquiry',recipient:p.notification_recipient,subject:'【ARA-TECH】一般お問い合わせ／{number}',body:`一般フォーム受付番号：{number}\n種別：${r.fields.case_type}\n顧客：${r.fields.customer_name}\n顧客email：${r.fields.email}\n件名：${r.fields.subject}\n\n${r.fields.body}`}];
  if(p.receipt_enabled)notifications.push({message_type:'customer_receipt',recipient:r.fields.email,subject:p.receipt_subject,body:p.receipt_body});
  const result=await supabaseRequest('/rest/v1/rpc/ara_register_general',{method:'POST',body:JSON.stringify({p_key:r.key,p_hash:r.hash,p_input:r.fields,p_notifications:notifications})},fetchImpl);
+ // A missing durable receipt is UNKNOWN, never authority to send or create a new key.
+ if(!isUuid(result?.id)||!/^PA-\d{8}-\d{5}$/.test(result?.inquiry_number||''))throw Error('intake_result_unknown');
  // Intake is committed already. Queue/provider failures never negate acceptance.
  let notification_status='queued';
  try{
