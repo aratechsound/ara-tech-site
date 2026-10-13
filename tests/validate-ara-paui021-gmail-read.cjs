@@ -66,5 +66,3 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
  });
  console.log('PASS '+passed+'/'+passed+' LOCAL_FIXTURE_ONLY');
 })().catch(e=>{console.error(e);process.exitCode=1;});
-
-
