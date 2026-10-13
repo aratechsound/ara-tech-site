@@ -8,7 +8,7 @@ async function getPdfjs(){
   return pdfjsPromise;
 }
 export function previewError(e){
-  const codes={canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本なし / 404（削除・期限切れの可能性）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
+  const codes={gmail_not_configured:'Gmail読取設定が未接続',provider_read_failed:'Gmail原本の読取に失敗しました',provider_read_denied:'Gmail原本の閲覧が拒否されました',canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本なし / 404（削除・期限切れの可能性）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
   const bindings={attachment_mail_mismatch:'原本未取得 / メールの添付索引との紐付けを検証できません',mail_binding_mismatch:'原本未取得 / 案件・メールの紐付けを検証できません',case_binding_mismatch:'原本未取得 / 案件・資料の紐付けを検証できません'};
   return codes[e.code]||bindings[e.code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
 }

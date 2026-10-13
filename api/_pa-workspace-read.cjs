@@ -49,7 +49,7 @@ function parsePublicConfig(config){
 function publicKey(){
   return parsePublicConfig(fs.readFileSync(path.join(__dirname,'../js/supabase-config.js'),'utf8'));
 }
-function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}={}){
+function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,provider=require("./_pa-workspace-gmail.cjs")}={}){
   if(!key.startsWith('sb_publishable_'))throw Error('public_key_required');
   async function request(url,{token}={}){
     const q=new URL(url);
@@ -123,7 +123,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}=
     return {bytes,mime};
   }
   const MAIL_ID=/^[A-Za-z0-9_-]{1,256}$/;
-  const ATTACH_ID=/^[A-Za-z0-9_.-]{1,2048}$/;
+  const ATTACH_ID=/^[^\s\u0000-\u001f\\/]{1,1000}$/;
   async function mail(id,token){
     await readableCase(id,token);
     const [messages,links]=await Promise.all([
@@ -137,18 +137,65 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}=
     if(!MAIL_ID.test(messageId||''))throw new ReadError('invalid_mail_identity',400);
     const messages=await mail(id,token),message=messages.find(m=>m.gmail_message_id===messageId);
     if(!message)throw new ReadError('mail_binding_mismatch',403);
+    const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+message.gmail_thread_id,select:'inquiry_id,gmail_thread_id'},token);
+    const indexes=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'inquiry_id,gmail_thread_id'},token);
+    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id)||indexes.length!==1||indexes[0].inquiry_id!==id||indexes[0].gmail_thread_id!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
     return message;
+  }
+  async function providerRead(fn){
+    try{return await fn();}catch(e){
+      if(e instanceof ReadError)throw e;
+      const code=String(e.message||'');
+      if(['mail_binding_mismatch','attachment_mail_mismatch'].includes(code))throw new ReadError(code,403);
+      if(code==='asset_identity_mismatch')throw new ReadError(code,409);
+      if(code==='gmail_read_404')throw new ReadError('not_found',404);
+      if(code==='gmail_read_403')throw new ReadError('provider_read_denied',403);
+      throw new ReadError(code==='gmail_not_configured'?'gmail_not_configured':'provider_read_failed',503);
+    }
+  }
+  async function boundProviderMessage(message){
+    const raw=await providerRead(()=>provider.message(message.gmail_message_id));
+    if(raw.id!==message.gmail_message_id||raw.threadId!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
+    return raw;
+  }
+  async function sentEstimates(id,token){
+    await readableCase(id,token);
+    const links=await allRows('pa_gmail_thread_links',{inquiry_id:'eq.'+id,select:'*'},token);
+    if(links.some(l=>l.inquiry_id!==id||!MAIL_ID.test(l.gmail_thread_id||'')))throw new ReadError('mail_binding_mismatch',403);
+    const threads=[...new Set(links.map(l=>l.gmail_thread_id))],messages=[],unknown=[];
+    if(threads.length>30)throw new ReadError('incomplete_result',503);
+    for(const threadId of threads){
+      // Check all ownership rows with the same Owner JWT, before Provider reads.
+      const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+threadId,select:'inquiry_id,gmail_thread_id'},token);
+      if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==threadId)){unknown.push({gmail_thread_id:threadId,code:'ambiguous_thread_binding'});continue;}
+      const thread=await providerRead(()=>provider.thread(threadId));
+      if(thread.id!==threadId||!Array.isArray(thread.messages)||thread.messages.length>500)throw new ReadError('mail_binding_mismatch',403);
+      for(const raw of thread.messages){
+        if(raw.threadId!==threadId||!MAIL_ID.test(raw.id||''))throw new ReadError('mail_binding_mismatch',403);
+        if(!raw.labelIds?.includes('SENT'))continue;
+        const m=provider.normalize(raw);
+        if(m.direction!=='outbound')continue;
+        // Gmail attachment resource tokens can change between threads.get and
+        // messages.get. A MIME part ID is stable inside the exact bound message.
+        const pdfs=m.attachments.filter(a=>a.mime_type==='application/pdf'&&/\u898b\u7a4d|estimate|quotation|quote/iu.test(a.original_filename||a.filename||''))
+          .map(a=>({...a,id:a.part_id||a.id}));
+        if(!pdfs.length)continue;
+        const indexed=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+raw.id,select:'inquiry_id,gmail_thread_id,gmail_message_id'},token);
+        if(indexed.length>1||indexed.some(r=>r.inquiry_id!==id||r.gmail_thread_id!==threadId)){unknown.push({gmail_thread_id:threadId,code:'mail_index_conflict'});continue;}
+        messages.push({gmail_message_id:raw.id,gmail_thread_id:threadId,inquiry_id:id,direction:'outbound',subject:m.subject,sent_at:m.occurred_at,to_addresses:m.to_addresses,attachment_metadata:pdfs,history_only:true,validity:'unknown',registration:'unverified'});
+      }
+    }
+    if(new Set(messages.map(m=>m.gmail_message_id)).size!==messages.length)throw new ReadError('mail_binding_mismatch',403);
+    return {messages,unknown,history_only:true};
   }
   async function mailAttachment(id,messageId,attachmentId,token){
     if(!ATTACH_ID.test(attachmentId||''))throw new ReadError('invalid_attachment_identity',400);
     const message=await mailMessage(id,messageId,token);
     const matches=(Array.isArray(message.attachment_metadata)?message.attachment_metadata:[]).filter(a=>String(a.id||a.gmail_attachment_id||a.part_id||'')===attachmentId);
     if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
-    // The canonical module requires a privileged server credential and OAuth POST;
-    // the deployed handler also updates a DB rate bucket. None are allowed here.
-    if(!readMailAttachment)throw new ReadError('canonical_attachment_path_unavailable',503);
-    // Test/dependency adapter is never configured by the live process or HTTP input.
-    const item=await readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token});
+    const item=readMailAttachment
+      ? await readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token})
+      : await providerRead(async()=>provider.attachment({messageId,metadata:matches[0],raw:await boundProviderMessage(message)}));
     const mime=contentType(matches[0].mime_type),bytes=item.bytes;
     if(!MIME.has(mime))throw new ReadError('preview_type_refused',415);
     if(!Buffer.isBuffer(bytes)||bytes.length>MAX_BYTES)throw new ReadError('file_too_large',413);
@@ -199,8 +246,25 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment}=
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
         else if(segments.length===4&&segments[1]==='mail-body'){
           const message=await mailMessage(assertId(segments[2]),segments[3],token);
-          if(!message.body_text&&!message.body_html&&!message.snippet)throw new ReadError('body_read_path_unavailable',503);
-          result={gmail_message_id:message.gmail_message_id,body_text:message.body_text||'',body_html:message.body_html||'',snippet:message.snippet||''};
+          if(message.body_text||message.body_html){
+            result={gmail_message_id:message.gmail_message_id,body_text:message.body_text||'',body_html:message.body_html||'',body_state:message.body_text||message.body_html?'ready':'empty',source:'saved'};
+          }else{
+            const fresh=provider.normalize(await boundProviderMessage(message));
+            result={gmail_message_id:message.gmail_message_id,body_text:fresh.body_text,body_html:fresh.body_html,body_state:fresh.body_text||fresh.body_html?'ready':'empty',source:'gmail'};
+          }
+        }
+        else if(segments.length===3&&segments[1]==='sent-estimates')result=await sentEstimates(assertId(segments[2]),token);
+        else if(segments.length===5&&segments[1]==='sent-estimate-attachment'){
+          const id=assertId(segments[2]);
+          if(!MAIL_ID.test(segments[3])||!ATTACH_ID.test(segments[4]))throw new ReadError('invalid_attachment_identity',400);
+          const history=await sentEstimates(id,token),message=history.messages.find(m=>m.gmail_message_id===segments[3]);
+          const matches=message?.attachment_metadata.filter(a=>a.id===segments[4])||[];
+          if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
+          const raw=await boundProviderMessage(message);
+          if(!raw.labelIds?.includes('SENT'))throw new ReadError('mail_binding_mismatch',403);
+          const item=await providerRead(()=>provider.attachment({messageId:message.gmail_message_id,metadata:matches[0],raw}));
+          if(!Buffer.isBuffer(item.bytes)||item.bytes.length>MAX_BYTES||item.mime!=='application/pdf'||!validMagic(item.bytes,item.mime)||item.bytes.length!==Number(matches[0].size))throw new ReadError('asset_identity_mismatch',409);
+          res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
         }
         else if(segments.length===5&&segments[1]==='mail-attachment'){
           const item=await mailAttachment(assertId(segments[2]),segments[3],segments[4],token);
