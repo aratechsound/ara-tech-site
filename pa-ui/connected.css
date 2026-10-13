@@ -11,3 +11,15 @@
 @media(prefers-reduced-motion:reduce){.casename.scrolling .case-name-track{animation:none}.case .casename{white-space:normal}.case-name-track{width:auto}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 @media(hover:none){.case .casename{white-space:normal}.case-name-track{width:auto;animation:none!important}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 .mail-excerpt.expanded{display:block;overflow:visible;white-space:pre-wrap;-webkit-line-clamp:unset}[data-quoted-body] pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;color:var(--muted)}[data-quoted-body]{border-left:2px solid var(--border);padding-left:9px;font-size:11px}
+
+/* PAUI-026: standalone gallery cards fill grid tracks, independent of mail rails. */
+#sent-estimate-grid{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
+#sent-estimate-grid>.attachment-card{width:auto;max-width:none;min-width:0}
+#sent-estimate-grid .material-thumb{height:130px}
+#sent-estimate-grid .material-name{font-size:11px;-webkit-line-clamp:3;min-height:0}
+#sent-estimate-grid .material-meta{padding:8px}
+#sent-estimate-grid .attachment-source{font-size:10px;overflow-wrap:anywhere;margin-top:7px}
+.record-head{flex-wrap:wrap;align-items:flex-start}.record-head strong{flex:1 1 180px}.record-date{flex:0 0 auto}
+.material-name{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:0}
+.legacy-workflow{margin-top:10px}.legacy-workflow summary{font-size:11px;color:var(--muted);cursor:pointer}
+.material-info details,.material-info div{overflow-wrap:anywhere}.case-delivery{margin-top:10px}

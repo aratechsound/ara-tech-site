@@ -8,8 +8,8 @@ async function getPdfjs(){
   return pdfjsPromise;
 }
 export function previewError(e){
-  const codes={gmail_not_configured:'Gmail読取設定が未接続',provider_read_failed:'Gmail原本の読取に失敗しました',provider_read_denied:'Gmail原本の閲覧が拒否されました',canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本なし / 404（削除・期限切れの可能性）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
-  const bindings={attachment_mail_mismatch:'原本未取得 / メールの添付索引との紐付けを検証できません',mail_binding_mismatch:'原本未取得 / 案件・メールの紐付けを検証できません',case_binding_mismatch:'原本未取得 / 案件・資料の紐付けを検証できません'};
+  const codes={gmail_not_configured:'Gmail読取設定が未接続',provider_read_failed:'Gmail原本の読取に失敗しました',provider_read_denied:'権限拒否 / Gmail原本の閲覧が拒否されました',canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本未取得 / 404（削除・期限切れ・対応不明）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
+  const bindings={attachment_mail_mismatch:'対応不明 / メールの添付索引との紐付けを検証できません',mail_binding_mismatch:'対応不明 / 案件・メールの紐付けを検証できません',case_binding_mismatch:'対応不明 / 案件・資料の紐付けを検証できません'};
   return codes[e.code]||bindings[e.code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
 }
 // Shared by portal documents and mail attachments. Only separate money fields expire.
@@ -36,7 +36,7 @@ export function createGallery({requestBlob,isCurrent}){
     return view;
   }
   async function thumb(item,button,slot,generation){
-    if(!item.asset_id){slot.textContent='原本未登録';return;}
+    if(!item.asset_id){slot.textContent=item.original_state||'原本識別子未登録';return;}
     if(!supported(item)){slot.textContent=fileType(item);slot.className='file-icon';return;}
     try{
       if(item.mime_type==='application/pdf'){
@@ -94,14 +94,14 @@ export function createGallery({requestBlob,isCurrent}){
   }
   function mount(target,items,{compact=false,showSource=false}={}){
     root=target;entries=items;
-    root.innerHTML=items.map(d=>`<article class="material-card ${compact?'attachment-card':''}"><button class="material-thumb" data-material-key="${escape(d.key)}" aria-label="${escape(d.filename)} の拡大プレビュー" ${d.asset_id?'':'disabled'}><span class="thumb-lock">${d.asset_id?'必要時に原本を取得':'原本未登録'}</span></button><div class="material-meta"><div class="material-name">${escape(d.title||d.filename)}</div>${compact?'':`<div class="material-info">${d.filename!==d.title?escape(d.filename)+'<br>':''}更新 ${escape(d.updated_at?new Date(d.updated_at).toLocaleString('ja-JP'):'未提供')}<br>版 ${escape(d.version_label)}<br>公開区分 ${escape(d.access_scope||'未取得（既存ACLで制御）')}<br>所有者 ${escape(publicScope(d.owner_kind))}</div>`}<div class="material-badges"><span class="tiny neutral">${escape(fileType(d))}</span>${Number.isFinite(Number(d.size))&&d.size!=null?'<span class="tiny neutral">'+Math.ceil(Number(d.size)/1024)+' KB</span>':''}${compact?'':'<span class="tiny neutral">'+escape(d.change)+'</span>'}</div>${(d.versions||[]).length>1?'<details class="material-info"><summary>版履歴 '+d.versions.length+'件</summary>'+d.versions.map(v=>`<div>版 ${escape(v.version_label||'未提供')} / ${escape(v.created_at||'日付未提供')}</div>`).join('')+'</details>':''}</div></article>`).join('')||'<div class="empty-state">取得済み資料はありません</div>';
+    root.innerHTML=items.map(d=>`<article class="material-card ${compact?'attachment-card':''}"><button class="material-thumb" data-material-key="${escape(d.key)}" aria-label="${escape(d.filename)} の拡大プレビュー" ${d.asset_id?'':'disabled'}><span class="thumb-lock">${d.asset_id?'必要時に原本を取得':escape(d.original_state||'原本識別子未登録')}</span></button><div class="material-meta"><div class="material-name">${escape(d.title||d.filename)}</div>${compact?'':`<div class="material-info">${d.filename!==d.title?escape(d.filename)+'<br>':''}更新 ${escape(d.updated_at?new Date(d.updated_at).toLocaleString('ja-JP'):'未提供')}<br>版 ${escape(d.version_label)}<br>公開区分 ${escape(d.access_scope||'未取得（既存ACLで制御）')}<br>所有者 ${escape(publicScope(d.owner_kind))}</div>`}${d.original_state?'<div class="material-info">'+escape(d.original_state)+'</div>':''}<div class="material-badges"><span class="tiny neutral">${escape(fileType(d))}</span>${Number.isFinite(Number(d.size))&&d.size!=null?'<span class="tiny neutral">'+Math.ceil(Number(d.size)/1024)+' KB</span>':''}${compact?'':'<span class="tiny neutral">'+escape(d.change)+'</span>'}</div>${(d.versions||[]).length>1?'<details class="material-info"><summary>版履歴 '+d.versions.length+'件</summary>'+d.versions.map(v=>`<div>版 ${escape(v.version_label||'未提供')} / ${escape(v.created_at||'日付未提供')}</div>`).join('')+'</details>':''}</div></article>`).join('')||'<div class="empty-state">取得済み資料はありません</div>';
     root.querySelectorAll('.material-card').forEach((card,index)=>{
-      const item=items[index];card.querySelector('.material-name').title=item.filename;
+      const item=items[index];const name=card.querySelector('.material-name');name.title=item.filename;if(!showSource){const full=document.createElement('details');full.className='material-info';const label=document.createElement('summary');label.textContent='ファイル名全文';const text=document.createElement('div');text.textContent=item.filename;full.append(label,text);card.querySelector('.material-meta').append(full);}
       if(showSource){
-        const source=document.createElement('div');source.className='attachment-source';
+        const source=document.createElement('details');source.className='attachment-source';
         const at=item.source_at&&Number.isFinite(Date.parse(item.source_at))?new Date(item.source_at).toLocaleString('ja-JP'):'日時未提供';
-        source.textContent=(item.source_direction==='outbound'?'送信':item.source_direction==='inbound'?'受信':'方向未取得')+' '+at+' / '+(item.source_subject||'件名未提供');
-        source.title=source.textContent+' / メールID '+item.message_id;source.dataset.sourceMessage=item.message_id;
+        const summary=document.createElement('summary');summary.textContent='送信元の記録・ファイル名';source.append(summary);const description=document.createElement('div');description.textContent=(item.source_direction==='outbound'?'送信':item.source_direction==='inbound'?'受信':'方向未取得')+' '+at+' / '+(item.source_subject||'件名未提供');
+        source.append(description);const fullName=document.createElement('div');fullName.textContent=item.filename;source.append(fullName);source.dataset.sourceMessage=item.message_id;
         const ref=document.createElement('span');ref.className='attachment-source-ref';ref.textContent='メールID '+item.message_id;source.append(ref);card.querySelector('.material-meta').append(source);
       }
     });
