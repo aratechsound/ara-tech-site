@@ -16,8 +16,9 @@ function createWorkspaceHandler(options) {
 function workspaceRequest(req) {
   let url;
   try { url = new URL(req.url, 'https://ara-tech.cc'); } catch { return null; }
-  if (url.pathname === '/api/pa-workspace-read') return req;
-  if (url.pathname !== '/api/pa-gmail' || !url.searchParams.has('workspace_read')) return null;
+  const original = url.pathname === '/api/pa-workspace-read';
+  if (!original && (url.pathname !== '/api/pa-gmail' || !url.searchParams.has('workspace_read'))) return null;
+  if (original && !url.searchParams.has('workspace_read')) return req;
   // Strip only the exact provider routing selector. Invalid/duplicate selectors
   // remain and are rejected by the unchanged workspace query allowlist.
   if (url.searchParams.getAll('workspace_read').length === 1 && url.searchParams.get('workspace_read') === '1')
