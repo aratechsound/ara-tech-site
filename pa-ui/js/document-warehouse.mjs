@@ -46,18 +46,42 @@ export function warehouseItems({materials={},commercial={},messages=[],sentEstim
   for(const row of messages)for(const a of mailAttachments(row))items.push({...a,key:'indexed:'+a.key,source:'gmail',source_label:row.direction==='outbound'?'Gmail送信添付':row.direction==='inbound'?'Gmail受信添付':'Gmail添付（方向未取得）',source_address:row.direction==='outbound'?text(row.to_addresses):row.from_address,read_route:'mail',original_state:a.asset_id?'メール添付索引あり / 閲覧時に検証':'添付識別子未提供',version_label:'未提供',latest_state:unknown,valid_state:unknown});
   for(const row of sentEstimates.messages||[])for(const a of mailAttachments(row))items.push({...a,source:'gmail',source_label:'Gmail送信済み見積',source_address:text(row.to_addresses),read_route:'sent-estimate',original_state:'送信済み履歴 / 正式登録未照合',version_label:'未提供',latest_state:unknown,valid_state:unknown});
   for(const [source,attachments]of [['問い合わせ添付',inquiry.attachments],['問い合わせフォーム添付',inquiry.first_form_data?.attachments]])for(const [index,a]of (Array.isArray(attachments)?attachments:[]).entries())items.push({key:'intake:'+source+':'+index,asset_id:null,filename:a.original_filename||a.filename||a.name||'問い合わせ資料',title:a.original_filename||a.filename||a.name||'問い合わせ資料',mime_type:a.mime_type,source:'intake',source_label:source,original_state:'メタデータのみ / 正規原本参照が未提供',version_label:'未提供',latest_state:unknown,valid_state:unknown});
-  // Merge only identical authenticated resource identities. Names and SHA alone
-  // cannot establish revision/contract equivalence across independent records.
-  const unique=new Map();
-  for(const item of items){
-    const identity=item.asset_kind==='mail'&&item.asset_id?'mail:'+item.message_id+':'+item.asset_id:item.key;
-    if(unique.has(identity)){const prior=unique.get(identity);prior.sources=[...(prior.sources||[prior.source_label]),item.source_label];if(prior.read_route==='mail'&&item.read_route==='sent-estimate')prior.read_route='sent-estimate';continue;}
-    unique.set(identity,{...item,kind:documentKind(item),change:item.latest_state||unknown});
+  return mergeMailSources(items).map(item=>({...item,kind:documentKind(item),change:item.latest_state||unknown}));
+}
+// Reconcile the two read projections of a mail attachment, never independent
+// portal versions, commercial revisions, contract evidence, or another message.
+export function mergeMailSources(items){
+  const result=[],mail=items.filter(i=>i.asset_kind==='mail'&&i.asset_id);
+  const sameMessage=(a,b)=>!!a.case_id&&a.case_id===b.case_id&&!!a.message_id&&a.message_id===b.message_id&&!!a.gmail_thread_id&&a.gmail_thread_id===b.gmail_thread_id;
+  function evidence(a,b){
+    if(!sameMessage(a,b)||a.mime_type!==b.mime_type)return '';
+    if(a.part_id&&b.part_id&&a.part_id!==b.part_id)return '';
+    if(a.canonical_attachment_key&&b.canonical_attachment_key&&a.canonical_attachment_key!==b.canonical_attachment_key)return '';
+    if(a.sha256&&b.sha256&&a.sha256!==b.sha256)return '';
+    if(a.asset_id===b.asset_id)return '同一メール・添付ID';
+    if(a.part_id&&a.part_id===b.part_id)return '同一メール・MIME part';
+    if(/^gmail:message-part:v1:[a-f0-9]{64}$/.test(a.canonical_attachment_key||'')&&a.canonical_attachment_key===b.canonical_attachment_key)return '同一メール・canonical identity';
+    return '';
   }
-  return [...unique.values()];
+  const consumed=new Set();
+  for(const item of items){
+    if(consumed.has(item))continue;
+    // A one-to-one match across projections is required. Ambiguous candidates
+    // are all retained, including duplicate parts within either projection.
+    const candidates=mail.filter(other=>other!==item&&other.read_route!==item.read_route&&evidence(item,other));
+    const match=candidates.length===1?candidates[0]:null;
+    const reverse=match?mail.filter(other=>other!==match&&other.read_route!==match.read_route&&evidence(match,other)):[];
+    if(match&&reverse.length===1&&!consumed.has(match)){
+      consumed.add(match);
+      const primary=item.read_route==='mail'?item:match;
+      const history=value=>({source_label:value.source_label,read_route:value.read_route,asset_id:value.asset_id,part_id:value.part_id,source_at:value.source_at,source_subject:value.source_subject,source_direction:value.source_direction,source_address:value.source_address,original_state:value.original_state});
+      result.push({...primary,sources:[...new Set([item.source_label,match.source_label])],source_records:[history(item),history(match)],display_identity:evidence(item,match)});
+    }else result.push(item);
+  }
+  return result;
 }
 export function filterWarehouse(items,{term='',kind='',source='',from='',to=''}={}){
   const q=term.toLocaleLowerCase('ja');
-  return items.filter(d=>(!q||[d.filename,d.source_label,d.source_address,d.version_label].join(' ').toLocaleLowerCase('ja').includes(q))&&(!kind||d.kind===kind)&&(!source||d.source===source)&&(!from||String(d.issued_at||d.source_at||d.updated_at||'').slice(0,10)>=from)&&(!to||String(d.issued_at||d.source_at||d.updated_at||'').slice(0,10)<=to&&!!(d.issued_at||d.source_at||d.updated_at)));
+  return items.filter(d=>(!q||[d.filename,d.source_label,...(d.sources||[]),d.source_address,d.version_label].join(' ').toLocaleLowerCase('ja').includes(q))&&(!kind||d.kind===kind)&&(!source||d.source===source)&&(!from||String(d.issued_at||d.source_at||d.updated_at||'').slice(0,10)>=from)&&(!to||String(d.issued_at||d.source_at||d.updated_at||'').slice(0,10)<=to&&!!(d.issued_at||d.source_at||d.updated_at)));
 }
 export function inquiryAttachmentItems(items){return items.filter(d=>d.source==='intake'||d.source_type==='pa_attachment');}
