@@ -616,6 +616,11 @@ const reconcileEstimateSubmission = async ({ inquiryId, gmailMessageId, gmailThr
 
 const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "secondary_conversation", actorId }, fetchImpl = fetch) => {
     if (!validGmailId(gmailThreadId)) throw new Error("invalid_gmail_thread");
+    // An existing Owner link must retain its role, provenance and linked_by.
+    // Read-through is a separate operation; duplicate linking never runs sync.
+    const existing = await getGlobalThreadLink(gmailThreadId, fetchImpl);
+    if (existing && existing.inquiry_id !== inquiryId) throw new Error("ambiguous_thread_link");
+    if (existing) return { already_linked: true, links: [existing] };
     await gmailThread(gmailThreadId, fetchImpl);
     const link = await linkThread({ inquiryId, threadId: gmailThreadId, source: "manual", role: conversationRole, actorId }, fetchImpl);
     await audit(inquiryId, actorId, "gmail_thread_linked_manual", { gmail_thread_id: gmailThreadId, link_source: "manual", conversation_role: conversationRole }, fetchImpl);

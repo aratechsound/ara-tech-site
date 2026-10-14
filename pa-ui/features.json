@@ -264,7 +264,7 @@
     "name": "案件Gmail同期・受信送信履歴索引",
     "place": "メール・やり取り",
     "status": "新UIから利用可能",
-    "scope": "保存済みGmail索引を参照。同期は無効。",
+    "scope": "保存済み索引を参照。「最新メールを取得」で関連付け済みスレッドをGmailから読取更新。DBへの同期保存は行わない。",
     "target": "conversation",
     "source": "api/_pa-gmail.cjs:424",
     "api": "/api/pa-gmail sync / pa_gmail_thread_links; pa_gmail_message_index; pa_inquiry_audit",
@@ -289,14 +289,14 @@
     "id": "PAUI-C-003",
     "name": "会話thread手動紐付け",
     "place": "メール・やり取り",
-    "status": "現時点で無効",
-    "scope": "読取専用のため更新・送信・発行・共有・削除等は無効。元機能sourceを保持。",
+    "status": "新UIから利用可能",
+    "scope": "顧客アドレスの送受信を検索し、案件情報も照合して候補表示。Ownerの案件帰属・副作用承認後に既存manual_linkで関連付け。既存リンクは重複登録しない。",
     "target": "conversation",
     "source": "api/_pa-gmail.cjs:570",
     "api": "/api/pa-gmail manual_link / pa_gmail_thread_links; pa_inquiry_audit",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-031 local fixture PASS; Production business E2E pending"
   },
   {
     "id": "PAUI-C-004",

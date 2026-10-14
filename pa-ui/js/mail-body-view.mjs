@@ -37,7 +37,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       body.textContent=failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
         parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':purposeExcerpt(parts.text)||'新規本文なし（引用のみ）'):
         savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
-      button.textContent=failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
+      button.textContent=busy?'本文を取得中…':failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
       button.setAttribute('aria-expanded',String(entry.expanded));
       text.textContent=parts?.quoted||'';quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
     }

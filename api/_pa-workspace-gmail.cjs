@@ -44,6 +44,12 @@ async function attachment({messageId,metadata,raw}) {
   if(typeof payload?.data!=='string'||payload.data.length>Math.ceil(MAX*4/3)+4||! /^[A-Za-z0-9_-]*={0,2}$/.test(payload.data))throw Error('asset_identity_mismatch');
   return {bytes:Buffer.from(payload.data,'base64url'),mime:fresh.mime_type};
 }
-return {message,thread,attachment,normalize};
+async function searchThreads(query){
+  if(typeof query!=='string'||!query.trim()||query.length>600||/[\r\n\x00-\x1f]/.test(query))throw Error('invalid_mail_search');
+  const result=await gmailJson('/threads?'+new URLSearchParams({q:'('+query+') -in:spam -in:trash -in:drafts',maxResults:'10'}),{method:'GET'},boundedFetch);
+  if(!Array.isArray(result.threads||[])||(result.threads||[]).some(t=>! /^[A-Za-z0-9_-]{1,200}$/.test(t.id||'')))throw Error('mail_binding_mismatch');
+  return {threads:(result.threads||[]).map(t=>({gmail_thread_id:t.id,snippet:String(t.snippet||'').slice(0,500)})),truncated:!!result.nextPageToken};
+}
+return {message,thread,attachment,normalize,searchThreads};
 }
 module.exports={...createProvider(),createProvider};

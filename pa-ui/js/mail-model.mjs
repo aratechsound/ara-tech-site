@@ -33,10 +33,11 @@ export function mailAttachments(row){
     const ref=String(a.id||a.gmail_attachment_id||a.part_id||'');
     const filename=String(a.original_filename||a.filename||'名称未取得');
     return {key:'mail:'+row.gmail_message_id+':'+ref+':'+index,asset_kind:'mail',asset_id:ref||null,message_id:row.gmail_message_id,filename,title:filename,mime_type:String(a.mime_type||''),size:a.size,versions:[],change:'確認状態未取得',index,
-      source_subject:row.subject||'件名未提供',source_at:row.received_at||row.sent_at||row.indexed_at||null,source_direction:row.direction,case_id:row.inquiry_id,gmail_thread_id:row.gmail_thread_id};
+      read_route:row.read_route==='live'?'live':undefined,source_subject:row.subject||'件名未提供',source_at:row.received_at||row.sent_at||row.indexed_at||null,source_direction:row.direction,case_id:row.inquiry_id,gmail_thread_id:row.gmail_thread_id};
   });
 }
 export function messageAttention(row,caseAttention,rows=[]){
+  if(row.index_state==='not_indexed')return false;
   // A case-level attention flag alone is not evidence that every mail is NEW.
   const at=Date.parse(caseAttention?.last_seen_inbound_at||'');
   return Boolean(Number.isFinite(at)&&row.direction==='inbound'&&Date.parse(row.received_at||'')===at&&caseAttention?.attention_state==='new_customer_reply'
