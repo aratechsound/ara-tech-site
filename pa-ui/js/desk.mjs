@@ -7,7 +7,7 @@ import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
-import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
+import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,deliveryUnknown,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
 
 const $=id=>document.getElementById(id),central=$('detail-card');
 const tx=value=>escape(privateText(String(value??'未提供')));

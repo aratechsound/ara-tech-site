@@ -24,7 +24,7 @@ export function excerpt(text) {
   return out.join('\n').slice(0,650);
 }
 export function savedExcerpt(row){
-  const text=row.body_text||row.snippet||htmlText(row.body_html||'');
+  const text=row.body_text||htmlText(row.body_html||'')||row.snippet||'';
   return purposeExcerpt(text);
 }
 export function mailAttachments(row){
