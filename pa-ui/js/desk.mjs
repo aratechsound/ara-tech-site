@@ -57,6 +57,7 @@ function fact(label,value){return `<div class="fact"><span>${escape(label)}</spa
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 const bodyView=createMailBodyView({request:(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id)),isAuthenticated:()=>!!session});
 async function summaryRequest(id,row,{generate=false}={}){
+  if(!generate)return api('/data/mail-summary/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id));
   if(!session)throw new ReadFailure('login_required',401);
   if(session.expires_at&&session.expires_at*1000<=Date.now())session=await workspaceAuth.current();
   if(!session)throw new ReadFailure('login_required',401);

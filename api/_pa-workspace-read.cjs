@@ -49,7 +49,7 @@ function parsePublicConfig(config){
 function publicKey(){
   return parsePublicConfig(fs.readFileSync(path.join(__dirname,'../js/supabase-config.js'),'utf8'));
 }
-function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,provider=require("./_pa-workspace-gmail.cjs")}={}){
+function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,provider=require("./_pa-workspace-gmail.cjs"),summaryService=require('./_pa-mail-summary.cjs').createSummaryService()}={}){
   if(!key.startsWith('sb_publishable_'))throw Error('public_key_required');
   async function request(url,{token}={}){
     const q=new URL(url);
@@ -357,10 +357,11 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         else if(segments.length===3&&segments[1]==='mail-live')result=await liveMail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-candidates')result=await customerCandidates(assertId(segments[2]),token);
         else if(segments.length===4&&segments[1]==='mail-thread-preview')result=await threadPreview(assertId(segments[2]),segments[3],token);
-        else if(segments.length===5&&segments[1]==='mail-summary-source'){
+        else if(segments.length===5&&['mail-summary-source','mail-summary'].includes(segments[1])){
           const id=assertId(segments[2]),{raw,fresh}=await liveMessage(id,segments[3],segments[4],token);
           result={owner_id:ownerId,inquiry_id:id,gmail_thread_id:segments[3],gmail_message_id:segments[4],
             ...require('./_pa-mail-summary.cjs').completeSource(raw,fresh)};
+          if(segments[1]==='mail-summary')result=await summaryService.run({owner:ownerId,source:result,generate:false});
         }
         else if(segments.length===5&&segments[1]==='mail-live-body'){
           const {fresh}=await liveMessage(assertId(segments[2]),segments[3],segments[4],token);

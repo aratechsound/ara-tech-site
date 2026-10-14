@@ -13,8 +13,8 @@ const {chromium}=require('playwright'),fixtures=require('./paui037-fixture.cjs')
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only',expires_at:9999999999}),current:async()=>({access_token:'fixture-only',expires_at:9999999999}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('forbidden_legacy')};"}));
   await page.route('**/api/**',async r=>{
    const url=new URL(r.request().url());
-   if(url.searchParams.get('mail_summary')==='1'){
-    const id=url.searchParams.get('message'),f=fixtures.find(f=>f.id===id),generate=r.request().method()==='POST';
+   if(url.searchParams.get('mail_summary')==='1'||url.searchParams.get('path')?.startsWith('/data/mail-summary/')){
+    const id=url.searchParams.get('message')||url.searchParams.get('path').split('/').at(-1),f=fixtures.find(f=>f.id===id),generate=r.request().method()==='POST';
     if(generate)posts.push(id);else assert.equal(r.request().method(),'GET');
     if(hold)await new Promise(resolve=>pending.push(resolve));
     return r.fulfill({json:{ok:true,result:{inquiry_id:A,gmail_thread_id:'fixture-thread',gmail_message_id:id,

@@ -31,7 +31,8 @@ export function createMailSummaryView({request,isAuthenticated,limit=2,maxEntrie
     const k=key(id,row);let entry=cache.get(k);
     if(!entry){
       if(cache.size>=maxEntries){const old=[...cache].find(([,e])=>!e.pending);if(old)cache.delete(old[0]);else return;}
-      entry={state:'idle',result:null,notify:()=>{}};cache.set(k,entry);
+      const bound=/^[A-Za-z0-9_-]{1,256}$/u.test(row.gmail_thread_id||'')&&/^[A-Za-z0-9_-]{1,256}$/u.test(row.gmail_message_id||'');
+      entry={state:bound?'idle':'not_generated',result:bound?null:{reason:'binding_unavailable'},notify:()=>{}};cache.set(k,entry);
     }
     const panel=document.createElement('section'),label=document.createElement('strong'),lines=document.createElement('p'),notice=document.createElement('small'),action=document.createElement('button');
     panel.className='mail-summary';panel.setAttribute('aria-label','AI要約');label.textContent='AI要約';lines.className='mail-summary-lines';
