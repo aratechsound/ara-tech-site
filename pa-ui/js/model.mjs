@@ -50,6 +50,7 @@ export function scheduleState(token,now=Date.now()){
   return '有効（保存済み状態）';
 }
 export function scheduleResponseLabel(row){return ({agree:'条件に同意し、日程調整を依頼',decline:'条件に同意せず、日程調整を依頼しない',question:'ARA-TECHへ確認したい'})[row.decision]||row.schedule_availability||row.availability||row.decision||row.status||'保存済み回答';}
+export function deliveryUnknown(row){return /unknown|mail_outcome_unknown/i.test(String(row.status||'')+' '+String(row.error_summary||''));}
 export function documentChange(item,versions=[]){
   // Missing review evidence is never projected as unread NEW.
   // Updates use recorded revision facts, independent of selection/seen state.
