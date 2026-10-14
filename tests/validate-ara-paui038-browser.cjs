@@ -19,7 +19,7 @@ const {chromium}=require('playwright'),fixtures=require('./paui038-fixture.cjs')
    return r.fulfill({json:{ok:true,result:value}}).catch(()=>{});
   });
   await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();
-  await page.locator('[data-message=N] [data-excerpt-source]').waitFor();assert.equal(await page.locator('.mail-row').count(),14);
+  await page.locator('[data-message=N] [data-excerpt-source]').waitFor();await page.waitForLoadState('networkidle');assert.equal(await page.locator('.mail-row').count(),14);
   for(const f of fixtures){
    const c=page.locator('[data-message='+f.id+']'),text=await c.locator('.mail-excerpt').textContent();
    if(f.exact!==undefined)assert.equal(text,f.exact,f.id);
@@ -37,7 +37,7 @@ const {chromium}=require('playwright'),fixtures=require('./paui038-fixture.cjs')
   await snippet.scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('[data-message=L] [data-body-read]').disabled);
   assert((await snippet.locator('[data-excerpt-source]').textContent()).includes('本文未取得'));assert.equal(calls.filter(p=>p?.startsWith('/data/mail-body/')).length,1);
   await page.locator('[data-case="'+B+'"]').click();await page.locator('[data-tab=conversation]').click();release();delay=false;await page.getByText('メール索引を取得中…',{exact:true}).waitFor({state:'detached'});assert.equal(await page.locator('.mail-row').count(),0);
-  await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();await page.locator('[data-message=L]').scrollIntoViewIfNeeded();
+  await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();await page.waitForLoadState('networkidle');await page.locator('[data-message=L]').scrollIntoViewIfNeeded();
   // selectCase aborts the old GET by design. Recovery stays an explicit action.
   await page.locator('[data-message=L]').getByRole('button',{name:'本文を再取得',exact:true}).click();
   await page.getByText('用件抜粋（保存済みsnippetのみ・本文未取得）',{exact:true}).waitFor({state:'detached'});
