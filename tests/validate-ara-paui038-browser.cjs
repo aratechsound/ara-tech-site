@@ -37,7 +37,12 @@ const {chromium}=require('playwright'),fixtures=require('./paui038-fixture.cjs')
   await snippet.scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('[data-message=L] [data-body-read]').disabled);
   assert((await snippet.locator('[data-excerpt-source]').textContent()).includes('本文未取得'));assert.equal(calls.filter(p=>p?.startsWith('/data/mail-body/')).length,1);
   await page.locator('[data-case="'+B+'"]').click();await page.locator('[data-tab=conversation]').click();release();delay=false;await page.getByText('メール索引を取得中…',{exact:true}).waitFor({state:'detached'});assert.equal(await page.locator('.mail-row').count(),0);
-  await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();await page.waitForLoadState('networkidle');await page.locator('[data-message=L]').scrollIntoViewIfNeeded();
+  // Wait for this specific selection's responses (not the previous document's
+  // networkidle state) before acting on rows recreated by surface renders.
+  const expectedReads=['tokens','responses','audit','deliveries','payments','links'].map(name=>'/data/case/'+A+'/'+name)
+    .concat(['/data/mail/'+A,'/data/commercial/'+A,'/data/materials/'+A,'/data/mail-candidates/'+A]);
+  const settled=Promise.all(expectedReads.map(path=>page.waitForResponse(response=>new URL(response.url()).searchParams.get('path')===path).then(response=>response.finished())));
+  await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();await settled;
   // selectCase aborts the old GET by design. Recovery stays an explicit action.
   await page.locator('[data-message=L]').getByRole('button',{name:'本文を再取得',exact:true}).click();
   await page.getByText('用件抜粋（保存済みsnippetのみ・本文未取得）',{exact:true}).waitFor({state:'detached'});
