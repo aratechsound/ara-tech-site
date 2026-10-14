@@ -4,6 +4,7 @@ const { verifyAdmin } = require("./_pa-mail.cjs");
 const { mailboxProfile } = require("./_pa-gmail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 const { workspaceRequest, dispatchWorkspaceRead } = require("./_pa-workspace-handler.cjs");
+const { summaryRequest, dispatchSummary } = require("./_pa-mail-summary-handler.cjs");
 
 // Reply attachments are transferred only through this authenticated JSON route.
 // Keep the decoded attachment allowance lower than the function request ceiling
@@ -44,6 +45,8 @@ const sendJson = (response, status, payload) => {
 };
 
 module.exports = async (request, response) => {
+    const summary = summaryRequest(request);
+    if (summary) return dispatchSummary(summary, response);
     const workspace = workspaceRequest(request);
     if (workspace) return dispatchWorkspaceRead(workspace, response);
     if (request.method !== "POST") {
