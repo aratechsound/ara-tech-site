@@ -14,7 +14,35 @@ linesの各要素にtextとevidence（本文または件名からの連続した
 要約は原文の代替証拠ではない。重要事項が多ければ各行を長くしても省略しない。`;
 const SCHEMA = {type:'object',additionalProperties:false,required:['lines'],properties:{lines:{type:'array',minItems:1,maxItems:3,items:{type:'object',additionalProperties:false,required:['text','evidence'],properties:{text:{type:'string'},evidence:{type:'string'}}}}}};
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function completeSource(raw,fresh){
+  // The legacy normalizer caps body_text at 50,000 characters. It is suitable
+  // for the existing UI, but must never become the semantic model's source.
+  const plain=[],html=[],attachments=[];let size=0;
+  try{
+    function walk(part){
+      if(!part)return;
+      if(part.filename){attachments.push({filename:String(part.filename)});return;}
+      if(part.mimeType==='message/rfc822')return;
+      if(['text/plain','text/html'].includes(part.mimeType)){
+        if(part.body?.attachmentId&&!part.body.data)throw Error('source_incomplete');
+        const encoded=part.body?.data||'';if(!/^[A-Za-z0-9_-]*={0,2}$/u.test(encoded))throw Error('source_incomplete');
+        const bytes=Buffer.from(encoded,'base64url');size+=bytes.length;if(size>120000)throw Error('source_too_large');
+        const headers=part.headers||[],ct=headers.find(h=>String(h.name).toLowerCase()==='content-type')?.value||'';
+        const charset=/charset\s*=\s*["']?([^\s;"']+)/iu.exec(ct)?.[1]||'utf-8';
+        let text;try{text=new TextDecoder(charset,{fatal:true}).decode(bytes);}catch{throw Error('unsupported_encoding');}
+        (part.mimeType==='text/plain'?plain:html).push(text);
+      }
+      for(const child of part.parts||[])walk(child);
+    }
+    walk(raw.payload);
+    const subjects=(raw.payload?.headers||[]).filter(h=>String(h.name).toLowerCase()==='subject');
+    if(subjects.length>1)throw Error('source_incomplete');
+    return {subject:String(subjects[0]?.value||''),direction:fresh.reply_identity_invalid?'unknown':fresh.direction,
+      body_text:plain.join('\n'),body_html:html.join('\n'),attachment_metadata:attachments};
+  }catch(e){return {subject:'',direction:fresh.direction,body_text:'',source_reason:['source_too_large','unsupported_encoding'].includes(e.message)?e.message:'source_incomplete'};}
+}
 function sourceDocument(source) {
+  if(source.source_reason)throw Error(source.source_reason);
   if(!['inbound','outbound'].includes(source.direction))throw Error('direction_unknown');
   // Never substitute a snippet, strip quotes, or truncate the late requests.
   if(typeof source.body_text!=='string'||!source.body_text.trim())throw Error(source.body_html?'html_only':'empty_body');
@@ -81,4 +109,4 @@ function createOpenAIProvider({apiKey,model,fetchImpl=fetch}) {
     return JSON.parse(content.filter(x=>x.type==='output_text').map(x=>x.text).join(''));
   }};
 }
-module.exports={POLICY,VERSION,INSTRUCTIONS,SCHEMA,sourceDocument,validateOutput,createSummaryService,createOpenAIProvider};
+module.exports={POLICY,VERSION,INSTRUCTIONS,SCHEMA,completeSource,sourceDocument,validateOutput,createSummaryService,createOpenAIProvider};

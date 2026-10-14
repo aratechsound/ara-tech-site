@@ -4,7 +4,7 @@ const {createReadHandler}=require('../api/_pa-workspace-read.cjs');
 const {createHandler,summaryRequest}=require('../api/_pa-mail-summary-handler.cjs');
 const C='11111111-1111-4111-8111-111111111111',O='22222222-2222-4222-8222-222222222222';
 let mode='',calls=[],gmail=0,summary=0;
-const read=createReadHandler({key:'sb_publishable_fixture',provider:{message:async id=>{gmail++;return {id,threadId:mode==='message-mismatch'?'foreign':'thread'};},normalize:()=>({subject:'fixture',direction:'inbound',body_text:'架空メール全体',attachments:[]})},fetchImpl:async(url,options)=>{
+const read=createReadHandler({key:'sb_publishable_fixture',provider:{message:async id=>{gmail++;return {id,threadId:mode==='message-mismatch'?'foreign':'thread',payload:{mimeType:'text/plain',body:{data:Buffer.from('架空メール全体').toString('base64url')}}};},normalize:()=>({subject:'fixture',direction:'inbound',body_text:'架空メール全体',attachments:[]})},fetchImpl:async(url,options)=>{
  calls.push({url,options});assert.equal(options.method,'GET');const q=new URL(url),table=q.pathname.split('/').at(-1);
  let rows=table==='user'?{id:O}:table==='work_admins'?mode==='no-admin'?[]:[{user_id:O}]:table==='pa_inquiries'?mode==='foreign-case'?[]:[{id:C}]:table==='pa_gmail_thread_links'?[{inquiry_id:mode==='foreign-thread'?O:C,gmail_thread_id:'thread'}]:[];
  return {ok:true,json:async()=>rows};

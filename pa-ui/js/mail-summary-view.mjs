@@ -4,7 +4,7 @@ export function createMailSummaryView({request,isAuthenticated,limit=2,maxEntrie
   const cache=new Map();let queue=[],active=0,observer=null,generation=0;
   const key=(id,row)=>JSON.stringify([id,row.gmail_thread_id,row.gmail_message_id,row.direction,row.subject,row.body_text,row.body_html]);
   const labels={approval_required:'AI要約：未生成 / 承認済みAI基盤・費用・送信条件の確認待ち',not_requested:'AI要約：未生成',
-    html_only:'AI要約：未生成 / HTML原文の意味抽出は未対応',empty_body:'AI要約：未生成 / 本文なし',source_too_large:'AI要約：未生成 / 本文が処理上限を超えています',direction_unknown:'AI要約：未生成 / 送受信未確認'};
+    html_only:'AI要約：未生成 / HTML原文の意味抽出は未対応',empty_body:'AI要約：未生成 / 本文なし',source_too_large:'AI要約：未生成 / 本文が処理上限を超えています',direction_unknown:'AI要約：未生成 / 送受信未確認',unsupported_encoding:'AI要約：未生成 / 文字コードを確認できません',source_incomplete:'AI要約：未生成 / 原文全体を確認できません'};
   function pump(){
     while(active<limit&&queue.length){
       const job=queue.shift();

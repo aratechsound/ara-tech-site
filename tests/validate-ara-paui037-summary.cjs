@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {createSummaryService,createOpenAIProvider,sourceDocument,validateOutput,POLICY}=require('../api/_pa-mail-summary.cjs');
+const {createSummaryService,createOpenAIProvider,completeSource,sourceDocument,validateOutput,POLICY}=require('../api/_pa-mail-summary.cjs');
 const fixtures=require('./paui037-fixture.cjs');
 const approval={enabled:true,ownerApproved:true,budgetApproved:true,externalTransferApproved:true,provider:'fixture',model:'fixture-only'};
 function fixtureCache(){const map=new Map();return {durable:true,map,async get(k){return map.get(k);},async claim(k){if(map.has(k))return false;map.set(k,{state:'loading'});return true;},async complete(k,v){map.set(k,v);}};}
@@ -33,6 +33,11 @@ const source=f=>({inquiry_id:'case-fixture',gmail_message_id:f.id,gmail_thread_i
  assert.equal((await createSummaryService({approval,provider:slow,cache:concurrentCache}).run(input)).state,'loading');
  release({lines:[{text:'搬入は11月8日9時。',evidence:'搬入は11月8日9時です。'}]});assert.equal((await pending).state,'ready');
  const doc=sourceDocument(source(fixtures[0]));
+ const tail='末尾の依頼も全文処理すること。',long='x'.repeat(55000)+tail,raw={payload:{mimeType:'text/plain',headers:[{name:'Subject',value:'全文'}],body:{data:Buffer.from(long).toString('base64url')}}};
+ const full=completeSource(raw,{direction:'inbound',body_text:long.slice(0,50000)});assert.equal(full.body_text,long);assert(full.body_text.endsWith(tail));
+ assert.equal(completeSource({payload:{...raw.payload,body:{data:Buffer.from('x'.repeat(120001)).toString('base64url')}}},{direction:'inbound'}).source_reason,'source_too_large');
+ assert.equal(completeSource({payload:{mimeType:'text/plain',body:{attachmentId:'missing'}}},{direction:'inbound'}).source_reason,'source_incomplete');
+ assert.equal(completeSource(raw,{direction:'inbound',reply_identity_invalid:true}).direction,'unknown');
  for(const output of [{lines:[]},{lines:Array(4).fill({text:'x',evidence:doc.body})},{lines:[{text:'1\n2',evidence:doc.body}]},{lines:[{text:'車両99台を確定。',evidence:doc.body}]},{lines:[{text:'創作',evidence:'原文にない根拠'}]}])assert.throws(()=>validateOutput(output,doc));
  for(const body of [{body_text:'',body_html:'<p>HTML</p>'},{body_text:'',snippet:'先頭抜粋'},{body_text:'あ'.repeat(120001)}])assert.throws(()=>sourceDocument({...source(fixtures[0]),...body}));
  // Test transport without network, paid model or customer data.

@@ -358,9 +358,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         else if(segments.length===3&&segments[1]==='mail-candidates')result=await customerCandidates(assertId(segments[2]),token);
         else if(segments.length===4&&segments[1]==='mail-thread-preview')result=await threadPreview(assertId(segments[2]),segments[3],token);
         else if(segments.length===5&&segments[1]==='mail-summary-source'){
-          const id=assertId(segments[2]),{fresh}=await liveMessage(id,segments[3],segments[4],token);
-          result={owner_id:ownerId,inquiry_id:id,gmail_thread_id:segments[3],gmail_message_id:segments[4],subject:fresh.subject,direction:fresh.direction,
-            body_text:fresh.body_text,body_html:fresh.body_html,attachment_metadata:fresh.attachments};
+          const id=assertId(segments[2]),{raw,fresh}=await liveMessage(id,segments[3],segments[4],token);
+          result={owner_id:ownerId,inquiry_id:id,gmail_thread_id:segments[3],gmail_message_id:segments[4],
+            ...require('./_pa-mail-summary.cjs').completeSource(raw,fresh)};
         }
         else if(segments.length===5&&segments[1]==='mail-live-body'){
           const {fresh}=await liveMessage(assertId(segments[2]),segments[3],segments[4],token);
