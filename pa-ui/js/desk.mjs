@@ -3,6 +3,7 @@ import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
+import {createMailSummaryView} from './mail-summary-view.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -55,9 +56,21 @@ function rowsHtml(rows,{title,body,time,kind}={}){
 function fact(label,value){return `<div class="fact"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 const bodyView=createMailBodyView({request:(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id)),isAuthenticated:()=>!!session});
+async function summaryRequest(id,row,{generate=false}={}){
+  if(!session)throw new ReadFailure('login_required',401);
+  if(session.expires_at&&session.expires_at*1000<=Date.now())session=await workspaceAuth.current();
+  if(!session)throw new ReadFailure('login_required',401);
+  const controller=new AbortController();requests.add(controller);const timer=setTimeout(()=>controller.abort(),25000);
+  try{
+    const url='/api/pa-gmail?mail_summary=1&case='+encodeURIComponent(id)+'&thread='+encodeURIComponent(row.gmail_thread_id)+'&message='+encodeURIComponent(row.gmail_message_id);
+    const response=await fetch(url,{method:generate?'POST':'GET',cache:'no-store',headers:{authorization:'Bearer '+session.access_token},signal:controller.signal});
+    const data=await response.json();if(!response.ok||data.ok!==true){if(requiresReauthentication(data.code,response.status))signOut(false);throw new ReadFailure(data.code||'summary_unavailable',response.status);}return data.result;
+  }finally{clearTimeout(timer);requests.delete(controller);}
+}
+const summaryView=createMailSummaryView({request:summaryRequest,isAuthenticated:()=>!!session});
 const caseNames=createCaseNameView();
 let mailGalleries=[];
-function disposePreviews(){bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
+function disposePreviews(){bodyView.detach();summaryView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
 function clearDetail(){threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
@@ -164,6 +177,7 @@ function renderMailPreviews(){
       mailGalleries.push(g);g.mount(strip,items);
     }
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
+    summaryView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
   }
 }
 function renderGallery(){
@@ -204,7 +218,7 @@ async function checkLiveMail(){
   const id=selected,epoch=selectionEpoch;detail.liveMail={state:'loading'};render();
   try{const value=await api('/data/mail-live/'+id);if(epoch!==selectionEpoch||id!==selected)return;
     if(!value||!Array.isArray(value.messages)||value.messages.some(m=>m.inquiry_id!==id))throw new ReadFailure('mail_binding_mismatch',403);
-    disposePreviews();bodyView.clear();detail.liveMail={state:'ready',value};detail.messages={state:'ready',value:value.messages};
+    disposePreviews();bodyView.clear();summaryView.clear();detail.liveMail={state:'ready',value};detail.messages={state:'ready',value:value.messages};
   }catch(error){if(epoch!==selectionEpoch||id!==selected)return;detail.liveMail={state:'error',error};}
   render();
 }
@@ -245,7 +259,7 @@ function renderFeatures(){
 }
 function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(current())setTab(f.target||'overview');openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){bodyView.clear();summaryView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -287,7 +301,7 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{bodyView.clear();summaryView.clear();session=null;abortRequests();clearDetail();});
 threadLink=createThreadLink({read:api,open:openInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async input=>{

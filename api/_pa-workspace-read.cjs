@@ -64,6 +64,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     let admins;
     try{admins=await rows('work_admins',{user_id:'eq.'+user.id,select:'user_id',limit:2},token);}catch(error){if(error.status===403)throw new ReadError('admin_required',403);throw error;}
     if(admins.length!==1||admins[0].user_id!==user.id)throw new ReadError('admin_required',403);
+    return user.id;
   }
   async function rows(table,params,token,direct=false){
     const url=new URL(SUPABASE+'/rest/v1/'+table);
@@ -347,7 +348,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       const u={pathname:route},segments=route.split('/').filter(Boolean).map(decodeURIComponent);
       if(req.headers['sec-fetch-site']==='cross-site')throw new ReadError('origin_refused',403);
       if(req.headers.origin&&req.headers.origin!=='https://'+req.headers.host)throw new ReadError('origin_refused',403);
-      const token=req.headers.authorization;await admin(token);let result;
+      const token=req.headers.authorization,ownerId=await admin(token);let result;
         if(u.pathname==='/data/cases'){
           const [cases,progress]=await Promise.all([allRows('pa_inquiries',{select:'*',deleted_at:'is.null',order:'id.asc'},token),allRows('pa_case_progress',{select:'*',order:'inquiry_id.asc'},token)]);
           result={cases,progress};
@@ -356,6 +357,11 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         else if(segments.length===3&&segments[1]==='mail-live')result=await liveMail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-candidates')result=await customerCandidates(assertId(segments[2]),token);
         else if(segments.length===4&&segments[1]==='mail-thread-preview')result=await threadPreview(assertId(segments[2]),segments[3],token);
+        else if(segments.length===5&&segments[1]==='mail-summary-source'){
+          const id=assertId(segments[2]),{fresh}=await liveMessage(id,segments[3],segments[4],token);
+          result={owner_id:ownerId,inquiry_id:id,gmail_thread_id:segments[3],gmail_message_id:segments[4],subject:fresh.subject,direction:fresh.direction,
+            body_text:fresh.body_text,body_html:fresh.body_html,attachment_metadata:fresh.attachments};
+        }
         else if(segments.length===5&&segments[1]==='mail-live-body'){
           const {fresh}=await liveMessage(assertId(segments[2]),segments[3],segments[4],token);
           result={gmail_message_id:segments[4],inquiry_id:segments[2],body_text:fresh.body_text,body_html:fresh.body_html,body_state:fresh.body_text||fresh.body_html?'ready':'empty',source:'gmail'};
