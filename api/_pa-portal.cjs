@@ -115,7 +115,7 @@ const download = async ({ caseId, accessToken, assetId, kind }, fetchImpl = fetc
 };
 
 const candidateList = ({ caseId, accessToken }, fetchImpl = fetch) => candidateService.listCandidates({ caseId, accessToken }, fetchImpl);
-const candidateBackfill = ({ caseId, actorId, messageId }, fetchImpl = fetch) => candidateService.backfillCandidates({ caseId, actorId, messageId }, fetchImpl, getBoundAttachmentVariantBinary);
+const candidateBackfill = ({ caseId, actorId, messageId, preserveExisting, threadId }, fetchImpl = fetch) => candidateService.backfillCandidates({ caseId, actorId, messageId, preserveExisting, threadId }, fetchImpl, getBoundAttachmentVariantBinary);
 const candidateReview = ({ caseId, candidateId, accessToken, decision, target, idempotencyKey }, fetchImpl = fetch) => candidateService.reviewCandidate({ caseId, candidateId, accessToken, decision, target, idempotencyKey }, fetchImpl);
 const candidateDownload = async ({ caseId, candidateId, accessToken }, fetchImpl = fetch) => {
     const asset = await candidateService.candidateAsset({ caseId, candidateId, accessToken }, fetchImpl);
