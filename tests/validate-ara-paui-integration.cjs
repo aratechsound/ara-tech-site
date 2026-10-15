@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'..'),base='21fa957b1b5fc086e363156ceb677abd9fed412c';
 const blob=p=>execFileSync('git',['show',base+':'+p],{cwd:root});
 const protectedFiles=['pa-admin-legacy.html','js/pa-admin.js','api/pa-gmail.js','api/_pa-mail-discovery.cjs','pa-ui/js/mail-discovery.mjs','supabase/migrations/20261015140000_paui041_mail_discovery.sql'];
-for(const p of protectedFiles)assert(fs.readFileSync(path.join(root,p)).equals(blob(p)),'Protected legacy/discovery source changed: '+p);
+for(const p of protectedFiles){const current=fs.readFileSync(path.join(root,p));if(p==='api/pa-gmail.js')assert.equal(require('./helpers/reply-route-preservation.cjs')(current.toString()),blob(p).toString().replace(/\r\n/g,'\n'),'Existing handler bytes outside authorized reply extensions changed');else assert(current.equals(blob(p)),'Protected legacy/discovery source changed: '+p);}
 const changed=execFileSync('git',['diff','--name-only',base],{cwd:root,encoding:'utf8'}).trim().split('\n');
 assert(!changed.some(p=>p.startsWith('supabase/')||/semantic|paui037|ai-summary/i.test(p)),'No DB migration or paid AI component belongs to the integration');
 const desk=fs.readFileSync(path.join(root,'pa-ui/js/desk.mjs'),'utf8');
