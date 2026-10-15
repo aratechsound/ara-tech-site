@@ -1,0 +1,54 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+const {chromium}=require('playwright');
+const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
+(async()=>{
+ const server=http.createServer((req,res)=>{const f=path.join(root,new URL(req.url,'http://localhost').pathname);if(!f.startsWith(root+path.sep))return res.writeHead(403).end();try{res.setHeader('content-type',f.endsWith('.mjs')?'text/javascript':f.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(f));}catch{res.writeHead(404).end();}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],writes=[];let wrong=false,sendFailure=false,delay=false,release,delayedReady,enableDiscovery=false,discovered=false;
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
+  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const s={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>s,current:async()=>s,logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('forbidden legacy');};"}));
+  const row={inquiry_id:A,gmail_message_id:'incoming',gmail_thread_id:'thread',direction:'inbound',from_address:'customer@example.test',to_addresses:['aratechsound@gmail.com'],cc_addresses:['cc@example.test'],subject:'fixture request',received_at:'2026-10-14T11:57:08Z',body_text:'シナリオ等の資料をお送りします。',attachment_metadata:[{id:'att',part_id:'1',filename:'シナリオ.pdf',mime_type:'application/pdf',size:20}]};
+  await page.route('**/api/pa-workspace-read?**',async r=>{
+   const p=new URL(r.request().url()).searchParams.get('path');let result=[];
+   if(p==='/data/cases')result={cases:[{id:A,event_name:'架空案件A',inquiry_number:'FIXTURE-A',status:'new',case_type:'PA_EVENT'},{id:B,event_name:'架空案件B',status:'new',case_type:'PA_EVENT'}],progress:[]};
+   else if(p.startsWith('/data/mail-discovery/'))result={enabled:enableDiscovery,complete:discovered,last_completed_at:'2026-10-15T00:00:00Z'};
+   else if(p==='/data/mail/'+A)result=[row,{...row,gmail_message_id:'outgoing',direction:'outbound',attachment_metadata:[]},...(discovered?[{...row,gmail_message_id:'newincoming',received_at:'2026-10-15T00:00:00Z'}]:[])];
+   else if(p.startsWith('/data/commercial/'))result={estimates:[],offers:[],documents:[],billings:[]};
+   else if(p.startsWith('/data/materials/'))result={cards:[],photos:[]};
+   else if(p.startsWith('/data/mail-attachment/'))return r.fulfill({status:403,json:{ok:false,code:'fixture_no_original'}});
+   return r.fulfill({json:{ok:true,result}});
+  });
+  await page.route('**/api/pa-portal',async r=>{const b=r.request().postDataJSON();assert.equal(b.action,'candidate_backfill');assert.equal(b.inquiry_id,A);assert(['incoming','newincoming'].includes(b.gmail_message_id));writes.push(b);return r.fulfill({json:{ok:true,result:{detected:0,pending:3}}});});
+  await page.route('**/api/pa-gmail',async r=>{
+   const b=r.request().postDataJSON();writes.push(b);assert.equal(r.request().headers().authorization,'Bearer fixture-only');if(b.action==='case_discovery_sync'){discovered=true;return r.fulfill({json:{ok:true,result:{complete:true,has_more:false,last_completed_at:'2026-10-15T00:00:00Z'}}});}assert.equal(b.mode,'normal');assert.equal(b.inquiry_id,A);assert.equal(b.reply_source_message_id,'incoming');assert.equal(b.reply_source_thread_id,'thread');
+   if(b.action==='send_reply'){assert.equal(b.confirmation_token,'fixture-confirmation');return r.fulfill(sendFailure?{status:503,json:{ok:false}}:{json:{ok:true,result:{gmail_message_id:'sent-fixture',gmail_thread_id:'thread'}}});}
+   assert.equal(b.action,'reply_preview');if(delay)await new Promise(resolve=>{release=resolve;delayedReady?.();});
+   const attachments=b.attachments.map(a=>({filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length}));
+   return r.fulfill({json:{ok:true,preview:{inquiry_id:A,gmail_thread_id:'thread',reply_source_message_id:wrong?'other':'incoming',reply_source_explicit:true,mode:'normal',recipient:'customer@example.test',cc_addresses:b.cc_addresses,subject:'Re: fixture request',body:'既存書式\n'+b.body,html:'<h1>ARA-TECH</h1><p>'+b.body+'</p>',attachments,confirmation_token:'fixture-confirmation',expires_at:new Date(Date.now()+300000).toISOString()}}});
+  });
+  await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+A+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#mail-discovery').getByText(/未有効/).waitFor();
+  assert.equal(writes.length,0);assert.equal(await page.locator('[data-message=outgoing] [data-reply-message]').count(),0);
+  await page.locator('[data-portal-message=incoming]').click();await page.locator('#portal-candidate-status').getByText(/連携済み/).waitFor();await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/pa-portal')),page.locator('[data-portal-message=incoming]').click()]);assert.equal(writes.filter(x=>x.action==='candidate_backfill').length,2);
+  await page.locator('[data-reply-message=incoming]').click();let dialog=page.getByRole('dialog',{name:'Gmail返信作成'});await dialog.getByLabel('本文',{exact:true}).fill('架空の返信本文');
+  assert.equal(await dialog.getByLabel('To',{exact:true}).inputValue(),'customer@example.test');assert.equal(await dialog.getByLabel('件名',{exact:true}).inputValue(),'Re: fixture request');assert.equal(await dialog.getByLabel('To',{exact:true}).getAttribute('readonly'),'');
+  await dialog.getByLabel('添付',{exact:true}).setInputFiles({name:'oversize.txt',mimeType:'text/plain',buffer:Buffer.alloc(3*1024*1024+1)});await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await dialog.getByRole('status').getByText(/合計3MiB/).waitFor();assert.equal(writes.filter(x=>x.action==='reply_preview').length,0);
+  await dialog.getByLabel('添付',{exact:true}).setInputFiles({name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('fixture attachment')});
+  await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).waitFor();assert.equal(await dialog.locator('iframe').getAttribute('sandbox'),'');await page.setViewportSize({width:390,height:844});const bounds=await dialog.boundingBox();assert(bounds.x>=0&&bounds.x+bounds.width<=390,'mobile composer must fit viewport');await page.setViewportSize({width:1440,height:1000});
+  assert.equal(writes.filter(x=>x.action==='send_reply').length,0);assert.equal(writes.at(-1).attachments.length,1);
+  await page.locator('[data-case="'+B+'"]').dispatchEvent('click');await dialog.getByRole('button',{name:'編集へ戻る',exact:true}).click();assert.equal(await dialog.getByLabel('本文',{exact:true}).inputValue(),'架空の返信本文');assert.equal(await page.locator('#title').textContent(),'架空案件A');
+  await dialog.getByLabel('本文',{exact:true}).fill('編集した本文');assert.equal(await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).count(),0);
+  wrong=true;await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await dialog.getByRole('status').getByText(/確認できません/).waitFor();assert.equal(await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).count(),0);
+  wrong=false;await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).click();const send=dialog.getByRole('button',{name:'最終確認して送信',exact:true});assert.equal(await send.isDisabled(),true);
+  await dialog.getByRole('checkbox').check();await send.click();await dialog.getByRole('status').getByText('送信済み。履歴を更新しました。',{exact:true}).waitFor();assert.equal(writes.filter(x=>x.action==='send_reply').length,1);assert.equal(await send.isDisabled(),true);
+  await dialog.getByRole('button',{name:'返信を閉じる',exact:true}).click();await page.locator('[data-reply-message=incoming]').click();dialog=page.getByRole('dialog',{name:'Gmail返信作成'});await dialog.getByLabel('本文',{exact:true}).fill('未確認送信の模擬試験');sendFailure=true;
+  await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).click();await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'最終確認して送信',exact:true}).click();await dialog.getByRole('status').getByText(/送信結果は未確認/).waitFor();assert.equal(writes.filter(x=>x.action==='send_reply').length,2);assert.equal(await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).isDisabled(),true);
+  await dialog.getByRole('button',{name:'返信を閉じる',exact:true}).click();await dialog.getByRole('button',{name:'下書きを破棄',exact:true}).click();
+  await page.locator('[data-reply-message=incoming]').click();dialog=page.getByRole('dialog',{name:'Gmail返信作成'});await dialog.getByLabel('本文',{exact:true}).fill('遅延プレビュー');delay=true;const delayed=new Promise(resolve=>{delayedReady=resolve;});await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).click();await delayed;await dialog.getByLabel('本文',{exact:true}).fill('遅延中の編集');release();delay=false;await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).waitFor({state:'visible'});await page.waitForFunction(()=>![...document.querySelectorAll('.case-reply-dialog button')].find(b=>b.textContent==='返信プレビュー').disabled);assert.equal(await dialog.getByRole('button',{name:'送信内容を最終確認',exact:true}).count(),0);
+  await page.locator('[data-case="'+B+'"]').dispatchEvent('click');await dialog.getByRole('button',{name:'下書きを破棄',exact:true}).click();await page.getByRole('heading',{name:'架空案件B',exact:true}).waitFor();assert.equal(await page.locator('.case-reply-dialog').count(),0);
+  enableDiscovery=true;await page.reload();await page.locator('[data-case="'+A+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#portal-candidate-status').getByText(/連携済み/).waitFor();await page.locator('#mail-discovery').getByText(/最新確認済み/).waitFor();assert.equal(writes.filter(x=>x.action==='candidate_backfill'&&x.gmail_message_id==='newincoming').length,1,'new committed mail integrates candidates once');
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'PASS',mock_send_only:true,preview_bound:true,wrong_message_refused:true,draft_warning_and_cancel:true,edit_invalidates_preview:true,unknown_no_retry:true,late_preview_ignored:true,selected_message_candidate_link:true,real_provider_sends:0}));
+ }finally{await browser.close();await new Promise(r=>server.close(r));}
+})().catch(e=>{console.error(e);process.exitCode=1;});
