@@ -1,0 +1,63 @@
+{
+  "task_id": "PAUI-046",
+  "baseline": "21fa957b1b5fc086e363156ceb677abd9fed412c",
+  "scope": "Explicit reviewed fixture transitions for the Owner-authorized durable-reply behavior. Other historical fixtures remain byte-frozen. No validator/check removed.",
+  "entries": [
+    {
+      "file": "tests/helpers/pa-contract-fixture.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "208e9d5522649d5cc063ea94d1a612504b311a6507eebf82b03aba66bc4823a1",
+      "candidate_sha256": "ce27e12a2247375fd7b072028ae6c40b745e8ee9ef858f071ffb4d3b0088d9db",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    },
+    {
+      "file": "tests/start-ara-case-postgres.py",
+      "task_id": "PAUI-046",
+      "previous_sha256": "c9a8dc20b0df7267bb94eebe005c8f80c2f574768afab4fce5cafa125bb85041",
+      "candidate_sha256": "cbe43882bc36d936256575eab8edc1ec90a3163a610e0ed5bc5b4f862460b0df",
+      "reason": "Apply the additive ordinary-reply fixture SQL after legacy fixture grants; existing migration plan and assertions unchanged."
+    },
+    {
+      "file": "tests/validate-ara-case-001r1.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "a14d8af91bfd65fd3293894674724f535a2a0862ca555f8762b2fa895feef462",
+      "candidate_sha256": "dfeee353483a2dd62f304991e84062a98e01f20ba01e6ecd8acab9d878a66b27",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    },
+    {
+      "file": "tests/validate-ara-case-api-auth.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "0689fe35b5d2336f40905d59223ccbf894480b8ee4dcd6ee2a953fd68e6597b0",
+      "candidate_sha256": "f765e4f90e6257eb1160c57c2860b628ebd004ed266555c4808f47b2a8a76286",
+      "reason": "Retain original authentication assertions and add the two new read/reconciliation actions."
+    },
+    {
+      "file": "tests/validate-pa-r2-preview-body-binding.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "6bf9c7493500e48c7381c4d92ad356efbd4efa9194492b55c3372eef9dc042ec",
+      "candidate_sha256": "5c5835172f83c9fc67d0f2c269ddf57d044ef59cc3985b01d1c1f910258c4627",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    },
+    {
+      "file": "tests/validate-pam-005-gmail-reply-attachments.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "224b90827d3eca44939d7864a38c95a281435c6a2b966bce355d8654ec76e18a",
+      "candidate_sha256": "46b7fa8001f9a4260cd80942def0415fc53566751138b0822d7cb22f1887c2c8",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    },
+    {
+      "file": "tests/validate-pam-008-inbound-direct-reply.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "a8a452b083c6d12a1405647cb067dd04b86b68fd732af6e5d0a57257d7364ae8",
+      "candidate_sha256": "d2ea9831c4ed4173300810c77ddc7395688524001fc5b987ceb48f9c81c74a76",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    },
+    {
+      "file": "tests/validate-pam-024-minimal.cjs",
+      "task_id": "PAUI-046",
+      "previous_sha256": "57d6ddb20f0d3aeedb709970eba06ef6cd6438cb2653736a957fb4ffb177059a",
+      "candidate_sha256": "ac4fc4f20dab50dbfdbd242b8311726545aa2f2d3381c173f5338d062e55d2d2",
+      "reason": "Adapt fixture transport to the additive durable reply RPC; original business assertions retained."
+    }
+  ]
+}

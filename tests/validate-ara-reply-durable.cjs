@@ -5,7 +5,7 @@ const gmail=require('../api/_pa-gmail.cjs'),ops=require('../api/_pa-reply-operat
 const inquiryId='11111111-1111-4111-8111-111111111111',actorId='22222222-2222-4222-8222-222222222222',otherOwner='33333333-3333-4333-8333-333333333333';
 const sourceId='source_fixture',threadId='thread_fixture',input={inquiryId,actorId,body:'Durable synthetic reply',replySourceMessageId:sourceId,replySourceThreadId:threadId};
 Object.assign(process.env,{GMAIL_CLIENT_ID:'fixture-client',GMAIL_CLIENT_SECRET:'fixture-secret',GMAIL_REFRESH_TOKEN:'fixture-refresh',GMAIL_SENDER_ADDRESS:'aratechsound@gmail.com',GMAIL_REPLY_TO:'aratechsound@gmail.com',SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-only'});
-let db,sendCount=0,mode='success',boundLoaded=false,auditFailure=false,indexFailure=false,mailbox='aratechsound@gmail.com',searchMessages=[],proofMessage=null;
+let db,sendCount=0,mode='success',boundLoaded=false,auditFailure=false,indexFailure=false,mailbox='aratechsound@gmail.com',searchMessages=[],proofMessage=null;const accepted=[];
 const json=(body,status=200)=>({ok:status<300,status,json:async()=>body});
 const source={id:sourceId,threadId,internalDate:'1000',payload:{mimeType:'text/plain',headers:[{name:'From',value:'fixture@example.test'},{name:'To',value:'aratechsound@gmail.com'},{name:'Subject',value:'Fixture'},{name:'Message-ID',value:'<source@example.test>'}],body:{data:Buffer.from('Fixture').toString('base64url')}}};
 const provider=async(url,options={})=>{const u=new URL(url);
@@ -14,7 +14,7 @@ const provider=async(url,options={})=>{const u=new URL(url);
   assert(['GET','POST',undefined].includes(options.method));
   if(u.pathname.endsWith('/profile'))return json({emailAddress:mailbox});
   if(u.pathname.includes('/threads/'))return json({messages:[source]});
-  if(u.pathname.endsWith('/messages/send')){sendCount++;const payload=JSON.parse(options.body);const raw=Buffer.from(payload.raw,'base64url').toString();assert.match(raw,/<pa-reply-[a-f0-9-]{36}@ara-tech\.cc>/);assert.equal(payload.threadId,threadId);if(mode==='unknown')throw Error('fixture_response_lost_after_send');return json({id:'sent_'+sendCount,threadId});}
+  if(u.pathname.endsWith('/messages/send')){sendCount++;const payload=JSON.parse(options.body);const raw=Buffer.from(payload.raw,'base64url').toString();assert.match(raw,/<pa-reply-[a-f0-9-]{36}@ara-tech\.cc>/);assert.equal(payload.threadId,threadId);accepted.push({id:'sent_'+sendCount,threadId,raw});if(mode==='unknown')throw Error('fixture_response_lost_after_send');return json({id:'sent_'+sendCount,threadId});}
   if(u.pathname.endsWith('/messages')){assert.equal(options.method,'GET');assert(u.searchParams.get('q').includes('rfc822msgid:<pa-reply-'));return json({messages:searchMessages});}
   if(u.pathname.includes('/messages/'))return json(proofMessage);
   throw Error('unexpected mock Gmail route');
@@ -46,6 +46,7 @@ async function expectState(id,s){assert.equal((await state(id)).operation.state,
  // A pre-provider failure is terminal for that operation; no provider call.
  const before=await pre('D before provider');mode='before';await assert.rejects(send('D before provider',before),/fixture_oauth/);mode='success';await expectState(before.operation_id,'FAILED_BEFORE_SEND');assert.equal(sendCount,2);
  const unknown=await pre('E response lost');mode='unknown';await assert.rejects(send('E response lost',unknown),/reply_operation_unknown/);mode='success';await expectState(unknown.operation_id,'UNKNOWN');assert.equal(sendCount,3);
+ assert.equal(accepted.length,3);assert(accepted[2].raw.includes('Message-ID: '+ops.rfcId(unknown.operation_id)),'Provider accepted the uniquely bound MIME before losing its response');
  await assert.rejects(send('E response lost',unknown),/reply_operation_blocked/);assert.equal(sendCount,3);
  const blockedNew=await gmail.replyPreview({...input,body:'E response lost',newOperation:true,previousOperationId:unknown.operation_id},provider);assert.equal(blockedNew.operation_id,unknown.operation_id);assert.equal(blockedNew.operation.state,'UNKNOWN');
  const reconcile=()=>gmail.reconcileReplyOperation({actorId,inquiryId,operationId:unknown.operation_id},provider);
