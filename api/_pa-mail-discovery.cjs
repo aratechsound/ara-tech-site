@@ -86,7 +86,7 @@ async function syncDiscovery({inquiryId,actorId,now=new Date()},fetchImpl=fetch,
   const basis=hash(signals(context.authority).map(c=>({...c,addresses:[...c.addresses].sort()}))),full=!old.last_completed_at||!old.last_full_at||now-Date.parse(old.last_full_at)>7*86400000||old.basis!==basis;
   const continuing=!!old.window_end&&!old.complete&&old.basis===basis;
   const state={window_start:continuing?old.window_start:full?null:new Date(Date.parse(old.last_completed_at)-7*86400000).toISOString(),window_end:continuing?old.window_end:cutoff,page_token:continuing?old.page_token||'':'',basis,full:continuing?old.full:full,complete:false,attempted_at:now.toISOString(),last_error:null,recovered_cursor:false};
-  state.linked_threads=continuing?old.linked_threads||[]:context.authority.links.filter(l=>l.inquiry_id===inquiryId&&l.conversation_role!=='system_acknowledgement').map(l=>l.gmail_thread_id);
+  state.linked_threads=continuing?old.linked_threads||[]:context.authority.links.filter(l=>l.inquiry_id===inquiryId).map(l=>l.gmail_thread_id);
   state.link_offset=continuing?old.link_offset||0:0;
   const q=buildQuery(context.authority,inquiryId,state.window_start,state.window_end);let rows=[],page;
   state.search_scope='all_regular_received_sent_archived; registered_participants_or_case_identity';
