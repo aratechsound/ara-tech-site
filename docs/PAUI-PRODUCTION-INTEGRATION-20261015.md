@@ -14,6 +14,8 @@ The fixed Production baseline is PAUI-041 `21fa957b1b5fc086e363156ceb677abd9fed4
 
 The original PRs are dependencies/references, not a batch merge. Resolve only overlapping excerpts and gallery render hooks; keep PAUI-040 mail dates and PAUI-041 discovery mount/check/cancel. The 038 browser's exact response wait follows the selected 041 discovery endpoint rather than an unadopted mail-candidate endpoint. Existing expectations and security tests remain.
 
+The 038 isolation guard now compares all fixed Production test blobs, using the exact approved 026 superset for its added excerpt cases. It preserves old UI/write/discovery blobs and the exact 036 UNKNOWN predicate; the read adapter/model are intentional 026–029 integration targets and remain covered by their unchanged behavioral/ACL suites. No assertion values, cases or security expectations are relaxed. Ambiguous leading purpose lines before an addressee remain verbatim, while recognized organization/department headers may be removed.
+
 No migration or commercial/customer-state change belongs to this integration. Runtime acceptance must use normal Owner authentication and GET-only original paths. Fixture/CI, Preview, published Source/tree/assets, real Owner display and final Production acceptance are separate evidence. Features lacking actual Owner evidence remain unverified. Automatic discovery must not create index/link data during this task's read-only acceptance.
 
 Rollback uses the preserved PAUI-041 deployment through the official Vercel route; retain all baseline evidence and never rewrite customer records. Report adopted capabilities separately from uncertain source documents, missing originals, denied ACL and unmatched candidates.

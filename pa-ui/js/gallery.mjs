@@ -37,7 +37,7 @@ export function createGallery({requestBlob,isCurrent,assets}){
     if(!supported(item)){slot.textContent=fileType(item);slot.className='file-icon';return;}
     try{
       const width=Math.max(button.clientWidth-12,90),height=button.clientHeight-10;
-      const needed=()=>current()&&epoch===generation&&button.isConnected&&button.getBoundingClientRect().bottom>0&&button.getBoundingClientRect().top<innerHeight;
+      const needed=()=>current()&&epoch===generation&&button.isConnected&&button.getBoundingClientRect().bottom>0&&button.getBoundingClientRect().top<window.innerHeight;
       const visual=await assets.thumbnail(item,width+':'+height+':'+devicePixelRatio,async()=>{
         if(item.mime_type==='application/pdf'){
           const canvas=document.createElement('canvas');canvas.setAttribute('aria-hidden','true');
