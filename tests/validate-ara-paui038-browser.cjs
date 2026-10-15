@@ -40,7 +40,7 @@ const {chromium}=require('playwright'),fixtures=require('./paui038-fixture.cjs')
   // Wait for this specific selection's responses (not the previous document's
   // networkidle state) before acting on rows recreated by surface renders.
   const expectedReads=['tokens','responses','audit','deliveries','payments','links'].map(name=>'/data/case/'+A+'/'+name)
-    .concat(['/data/mail/'+A,'/data/commercial/'+A,'/data/materials/'+A,'/data/mail-candidates/'+A]);
+    .concat(['/data/mail/'+A,'/data/commercial/'+A,'/data/materials/'+A,'/data/mail-discovery/'+A]);
   const settled=Promise.all(expectedReads.map(path=>page.waitForResponse(response=>new URL(response.url()).searchParams.get('path')===path).then(response=>response.finished())));
   await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab=conversation]').click();await settled;
   // selectCase aborts the old GET by design. Recovery stays an explicit action.
