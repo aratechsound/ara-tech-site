@@ -16,6 +16,8 @@ The original PRs are dependencies/references, not a batch merge. Resolve only ov
 
 The 038 isolation guard now compares all fixed Production test blobs, using the exact approved 026 superset for its added excerpt cases. It preserves old UI/write/discovery blobs and the exact 036 UNKNOWN predicate; the read adapter/model are intentional 026–029 integration targets and remain covered by their unchanged behavioral/ACL suites. No assertion values, cases or security expectations are relaxed. Ambiguous leading purpose lines before an addressee remain verbatim, while recognized organization/department headers may be removed.
 
+The 040 fixture's authentication mock supplies the existing `current()` method required for 029 thumbnail-session revalidation. Its assertions remain byte-identical; the 038 preservation guard permits only that exact mock-interface addition. The real authentication/session checks have no fallback or bypass.
+
 No migration or commercial/customer-state change belongs to this integration. Runtime acceptance must use normal Owner authentication and GET-only original paths. Fixture/CI, Preview, published Source/tree/assets, real Owner display and final Production acceptance are separate evidence. Features lacking actual Owner evidence remain unverified. Automatic discovery must not create index/link data during this task's read-only acceptance.
 
 Rollback uses the preserved PAUI-041 deployment through the official Vercel route; retain all baseline evidence and never rewrite customer records. Report adopted capabilities separately from uncertain source documents, missing originals, denied ACL and unmatched candidates.
