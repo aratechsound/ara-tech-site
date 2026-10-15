@@ -131,7 +131,7 @@ export function createReplyComposer({request,getCase,onSent}){
       try{
         const attachments=await attachmentsPayload(s.files);if(!current(s)||revision!==s.revision)return;
         const payload={inquiry_id:s.caseId,reply_source_message_id:s.messageId,reply_source_thread_id:s.threadId,body:body.value.trim(),cc_addresses:ccValues(cc.value),attachments,mode:'normal'};
-        const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({...payload,recipient:s.recipient,subject:s.subject})))),x=>x.toString(16).padStart(2,'0')).join('');
+        const fingerprint=Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256',new window.TextEncoder().encode(JSON.stringify({...payload,recipient:s.recipient,subject:s.subject})))),x=>x.toString(16).padStart(2,'0')).join('');
         if(!current(s)||revision!==s.revision)return;
         if(attemptedReplies.has(fingerprint)||attemptedReplies.size>=100)throw Error('reply_already_attempted');
         const result=await request('reply_preview',payload);if(!current(s)||revision!==s.revision)return;
