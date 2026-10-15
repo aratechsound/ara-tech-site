@@ -67,7 +67,7 @@ function threadRows(raw,threadId,context,inquiryId,ownerConfirmed=false){
   const linked=context.authority.links.find(l=>l.gmail_thread_id===threadId);
   const match=matchThread(regular,context.authority);
   const belongs=linked?linked.inquiry_id===inquiryId:ownerConfirmed||match.caseId===inquiryId;
-  const fingerprint=hash(messages.map(m=>[m.id,m.thread_id,m.direction,m.from_address,m.to_addresses,m.cc_addresses,m.subject,m.occurred_at,m.attachments]));
+  const fingerprint=hash(messages.map(m=>[m.id,m.thread_id,m.direction,m.from_address,m.to_addresses,m.cc_addresses,m.subject,m.occurred_at,m.attachments.map(a=>[a.part_id,a.original_filename,a.mime_type,a.size])]));
   return messages.map(m=>{
     const excluded=m.labels.some(l=>['SPAM','TRASH','DRAFT'].includes(l));
     const conflict=context.authority.messages.find(i=>i.gmail_message_id===m.id&&(i.inquiry_id!==inquiryId||i.gmail_thread_id!==threadId));
