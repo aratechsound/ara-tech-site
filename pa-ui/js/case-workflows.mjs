@@ -129,7 +129,7 @@ export function createReplyComposer({request,getCase,onSent}){
     const reconcile=button('Gmailの送信結果を照合（読取専用）',async()=>{
       if(s.busy||!current(s)||!s.operation)return;s.busy=true;reconcile.disabled=true;
       try{const r=await request('reply_reconcile',{inquiry_id:s.caseId,operation_id:s.operation.operation_id});if(current(s)){showOperation(r.result?.operation);showProof(r.result);}}
-      catch{if(current(s))operationText.textContent='結果照合は未確認です。UNKNOWNを解除せず、自動再送しません。';}
+      catch{if(current(s))operationText.textContent='結果照合は未確認です。保存済み状態を変更せず、自動再送しません。';}
       finally{if(current(s)){s.busy=false;reconcile.disabled=!s.operation?.can_reconcile;}}
     });reconcile.disabled=true;
     function showOperation(op){

@@ -26,7 +26,7 @@ document.querySelector('#open').onclick=()=>c.open({inquiry_id:id,gmail_message_
    const proof=dialog.getByLabel('送信結果の照合根拠',{exact:true});
    if(mode==='sent'){await proof.getByText('保存済みProvider ACKのGmail IDと原本を照合しました。',{exact:true}).waitFor();assert((await proof.innerText()).includes('原本RFC IDは事前生成値と異なります'));}
    if(mode==='unknown'){await proof.getByText(/UNKNOWNを維持/).waitFor();assert((await proof.innerText()).includes('candidate_<script>'));assert.equal(await proof.locator('script').count(),0);assert.equal(await dialog.getByRole('button',{name:'返信プレビュー',exact:true}).isDisabled(),true);}
-   if(mode==='expired')await dialog.getByText('結果照合は未確認です。UNKNOWNを解除せず、自動再送しません。',{exact:true}).waitFor();
+   if(mode==='expired')await dialog.getByText('結果照合は未確認です。保存済み状態を変更せず、自動再送しません。',{exact:true}).waitFor();
    if(mode==='pending'){await page.waitForFunction(()=>typeof window.release==='function');await page.evaluate(()=>{window.active=false;window.release();});await page.waitForFunction(()=>window.calls.length===2);assert.equal(await proof.innerText(),'');}
    const calls=await page.evaluate(()=>window.calls);assert.deepEqual(calls,['reply_operation_status','reply_reconcile']);assert.equal(await dialog.getByRole('button',{name:'最終確認して送信',exact:true}).count(),0);await context.close();
   }
