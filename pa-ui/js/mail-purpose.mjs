@@ -15,6 +15,7 @@ const quote=/^(?:>|On .{0,250}wrote:|[-_]{3,}\s*(?:Original Message|Forwarded|�
 const extraGreeting=/^(?:(?:いつも|平素より|平素は|日頃より|日ごろより|毎度|大変|誠に)\s*)*(?:お世話になっております|お世話になります|お世話になってます|お世話になっておりまして|ありがとうございます|先日はありがとうございました|お忙しいところ失礼いたします|よろしくお願いいたします|よろしくお願い致します)[。.!！、,\s]*$/u;
 const extraIntroduction=/^(?:ARA[-‐‑–—ー\s]?TECH(?:の|\s)+[\p{L}・ー\s]{1,35}(?:です|でございます|と申します)|(?:株式会社|有限会社)[\p{L}・ー＆& .-]{1,65}の(?:[\p{L}・ー\s]{1,30})(?:です|でございます|と申します))[。.!！\s]*$/iu;
 const extraSalutation=/^[\p{L}・ー＆& .()（）-]{1,150}(?:様|御中|各位)[。\s]*$/u;
+const addressOrganization=/^(?:ARA[-‐‑–—ー\s]?TECH|(?:株式会社|有限会社)[\p{L}・ー＆& .()（）-]+|[\p{L}・ー＆& .()（）-]+(?:株式会社|有限会社|市役所|町役場|村役場|課|部|係|実行委員会))$/u;
 const bullet=/^\s*(?:[・●○▪■□*-]|\d+[.)）]|[①-⑳])\s*/u;
 const dependent=/^\s*(?:ただし|但し|ただ、|しかし|なお[、,]|そのため|その場合|この場合|上記|いずれも|まだ|未確定|確定では|取消では|変更では|希望であり|あくまで)/u;
 function boilerplate(line){const s=line.trim().normalize('NFKC');return s.length<=180&&(greeting.test(s)||thanks.test(s)||introduction.test(s)||salutation.test(s)||extraGreeting.test(s)||extraIntroduction.test(s)||extraSalutation.test(s));}
@@ -69,7 +70,7 @@ export function purposeExcerpt(text) {
     // A folded salutation must end in an explicit addressee marker. Do not
     // infer that an arbitrary committee/name pair is an introduction.
     const addressEnd=body.slice(start,start+4).findIndex(line=>extraSalutation.test(line.trim()));
-    if(addressEnd>0&&body.slice(start,start+addressEnd).every(line=>line.trim().length<=100&&/^[\p{L}・ー＆& .()（）-]+$/u.test(line.trim()))){start+=addressEnd+1;continue;}
+    if(addressEnd>0&&body.slice(start,start+addressEnd).every(line=>line.trim().length<=100&&addressOrganization.test(line.trim())&&score(line)===0)){start+=addressEnd+1;continue;}
     // Only recognize a two-line introduction when both lines are unambiguous.
     if(organization.test(s)&&name.test(body[start+1]?.trim()||'')){start+=2;continue;}
     break;
