@@ -1,3 +1,4 @@
+const {withOperations}=require('./helpers/reply-operation-mock.cjs');
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -151,7 +152,7 @@ async function test(name, run) {
         assert.equal(gmail.normalizeMessage(newest).reply_to, "");
         const fallback = await gmail.replyPreview({
             inquiryId, actorId, body: "本文", replySourceMessageId: "newest_message", replySourceThreadId: threadId
-        }, fetchFixture);
+        }, withOperations(fetchFixture));
         assert.equal(fallback.recipient, "latest@example.invalid");
         const selfReply = message({
             id: "self_reply", from: "external@example.invalid", replyTo: "aratechsound@gmail.com", subject: "ABC",
@@ -160,7 +161,7 @@ async function test(name, run) {
         thread.messages.push(selfReply);
         await assert.rejects(() => gmail.replyPreview({
             inquiryId, actorId, body: "本文", replySourceMessageId: "self_reply", replySourceThreadId: threadId
-        }, fetchFixture), /reply_target_unavailable/u);
+        }, withOperations(fetchFixture)), /reply_target_unavailable/u);
         thread.messages.pop();
     });
 
@@ -188,7 +189,7 @@ async function test(name, run) {
     await test("TEST-07/16 selected message metadata reaches Gmail MIME without duplicates", async () => {
         const preview = await gmail.replyPreview({
             inquiryId, actorId, body: "本文", replySourceMessageId: "selected_message", replySourceThreadId: threadId
-        }, fetchFixture);
+        }, withOperations(fetchFixture));
         assert.equal(preview.recipient, "reply@example.invalid");
         assert.equal(preview.subject, "Re: ABC");
         assert.equal(preview.reply_source_message_id, "selected_message");
@@ -196,7 +197,7 @@ async function test(name, run) {
         await gmail.sendReply({
             inquiryId, actorId, body: "本文", confirmationToken: preview.confirmation_token,
             replySourceMessageId: "selected_message", replySourceThreadId: threadId
-        }, fetchFixture);
+        }, withOperations(fetchFixture));
         assert.equal(events.sends.length, 1);
         assert.equal(events.sends[0].threadId, threadId);
         assert.match(events.sends[0].raw, /In-Reply-To: <selected@example\.invalid>/u);
@@ -207,35 +208,35 @@ async function test(name, run) {
     await test("TEST-16 source identity is token-bound and invalid sources fail before send", async () => {
         const preview = await gmail.replyPreview({
             inquiryId, actorId, body: "本文", replySourceMessageId: "selected_message", replySourceThreadId: threadId
-        }, fetchFixture);
+        }, withOperations(fetchFixture));
         const sendsBefore = events.sends.length;
         await assert.rejects(() => gmail.sendReply({
             inquiryId, actorId, body: "本文", confirmationToken: preview.confirmation_token,
             replySourceMessageId: "newest_message", replySourceThreadId: threadId
-        }, fetchFixture), /invalid_confirmation/u);
+        }, withOperations(fetchFixture)), /invalid_confirmation/u);
         await assert.rejects(() => gmail.replyPreview({
             inquiryId, actorId, body: "本文", replySourceMessageId: "outbound_message", replySourceThreadId: threadId
-        }, fetchFixture), /invalid_reply_source/u);
+        }, withOperations(fetchFixture)), /invalid_reply_source/u);
         assert.equal(events.sends.length, sendsBefore);
         const explicitSource = { inquiryId, actorId, body: "guard fixture", replySourceMessageId: "selected_message", replySourceThreadId: threadId };
         indexMode = "unknown";
-        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_attribution_unknown/);
+        await assert.rejects(() => gmail.replyPreview(explicitSource, withOperations(fetchFixture)), /reply_attribution_unknown/);
         indexMode = "conflict";
-        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_attribution_conflict/);
+        await assert.rejects(() => gmail.replyPreview(explicitSource, withOperations(fetchFixture)), /reply_attribution_conflict/);
         indexMode = "known";
         delete inquiry.email;
-        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_target_unavailable/);
+        await assert.rejects(() => gmail.replyPreview(explicitSource, withOperations(fetchFixture)), /reply_target_unavailable/);
         inquiry.email = "reply@example.invalid";
         const fromHeader = selected.payload.headers.find(header => header.name === "From");
         const originalFrom = fromHeader.value;
         fromHeader.value = "foreign@example.invalid";
-        await assert.rejects(() => gmail.replyPreview(explicitSource, fetchFixture), /reply_target_unavailable/);
+        await assert.rejects(() => gmail.replyPreview(explicitSource, withOperations(fetchFixture)), /reply_target_unavailable/);
         fromHeader.value = originalFrom;
         inquiry.case_type = "OTHER";
-        await assert.rejects(() => gmail.replyPreview({ inquiryId, actorId, body: "implicit" }, fetchFixture), /invalid_reply_source/);
-        const commonPreview = await gmail.replyPreview(explicitSource, fetchFixture);
+        await assert.rejects(() => gmail.replyPreview({ inquiryId, actorId, body: "implicit" }, withOperations(fetchFixture)), /invalid_reply_source/);
+        const commonPreview = await gmail.replyPreview(explicitSource, withOperations(fetchFixture));
         assert.equal(commonPreview.reply_source_explicit, true);
-        await assert.rejects(() => gmail.sendReply({ inquiryId, actorId, body: explicitSource.body, confirmationToken: commonPreview.confirmation_token }, fetchFixture), /invalid_reply_source/);
+        await assert.rejects(() => gmail.sendReply({ inquiryId, actorId, body: explicitSource.body, confirmationToken: commonPreview.confirmation_token }, withOperations(fetchFixture)), /invalid_reply_source/);
         inquiry.case_type = "PA_EVENT";
         assert.equal(events.sends.length, sendsBefore, "all rejected customer/index/source evidence has zero sends");
     });

@@ -1,3 +1,4 @@
+const {withOperations}=require('./helpers/reply-operation-mock.cjs');
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -77,12 +78,12 @@ function createUi({ mode = "estimate_submission", body = "見積書をお送り�
             events.requests.push(structuredClone(args));
             if (args.action === "reply_preview") return { preview: await gmail.replyPreview({
                 inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments,  mode: args.mode, ccAddresses: args.cc_addresses, replySourceMessageId: args.reply_source_message_id, replySourceThreadId: args.reply_source_thread_id
-            }, fetchFixture) };
+            }, withOperations(fetchFixture)) };
             return { result: await gmail.sendReply({
                 inquiryId: args.inquiry_id, actorId, body: args.body, attachments: args.attachments,
                 mode: args.mode, confirmationToken: args.confirmation_token, ccAddresses: args.cc_addresses,
                 replySourceMessageId: args.reply_source_message_id, replySourceThreadId: args.reply_source_thread_id
-            }, fetchFixture) };
+            }, withOperations(fetchFixture)) };
         },
         supabase: { rpc: async (_name, args) => {
             events.progressWrites++;

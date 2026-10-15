@@ -1,4 +1,4 @@
-const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, replyOperationStatus, reconcileReplyOperation, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail, reviewUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { mailboxProfile } = require("./_pa-gmail.cjs");
@@ -24,6 +24,8 @@ const ACTION_POLICY = Object.freeze({
     portal_documents: "PA_GMAIL_ATTACHMENT_GET",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
     send_reply: "PA_GMAIL_SEND_REPLY",
+    reply_operation_status: "PA_GMAIL_REPLY_PREVIEW",
+    reply_reconcile: "PA_GMAIL_REPLY_PREVIEW",
     reconcile_estimate_submission: "PA_GMAIL_RECONCILE_ESTIMATE"
 });
 
@@ -101,10 +103,15 @@ module.exports = async (request, response) => {
         if (input.action === "portal_documents") {
             return sendJson(response, 200, { ok: true, result: await portalDocuments({ inquiryId: input.inquiry_id }) });
         }
+        if(input.action==='reply_operation_status')return sendJson(response,200,{ok:true,result:await replyOperationStatus({
+            actorId:user.id,inquiryId:input.inquiry_id,operationId:input.operation_id,sourceMessageId:input.reply_source_message_id,sourceThreadId:input.reply_source_thread_id})});
+        if(input.action==='reply_reconcile')return sendJson(response,200,{ok:true,result:await reconcileReplyOperation({
+            actorId:user.id,inquiryId:input.inquiry_id,operationId:input.operation_id})});
         if (input.action === "reply_preview") {
             const preview = await replyPreview({
                 inquiryId: input.inquiry_id, actorId: user.id, body: input.body, attachments: input.attachments, mode: input.mode,
                 ccAddresses: input.cc_addresses,
+                newOperation:input.new_operation,previousOperationId:input.previous_operation_id,
                 replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id
             });
             return sendJson(response, 200, { ok: true, preview });
@@ -124,6 +131,7 @@ module.exports = async (request, response) => {
             mode: input.mode,
             ccAddresses: input.cc_addresses,
             confirmationToken: input.confirmation_token,
+            operationId: input.operation_id,
             replySourceMessageId: input.reply_source_message_id,
             replySourceThreadId: input.reply_source_thread_id
         });
@@ -131,6 +139,7 @@ module.exports = async (request, response) => {
     } catch (error) {
         const code = String(error?.message || "");
         if (["mail_operation_conflict","mail_page_conflict","mail_link_conflict","inquiry_archived"].includes(code)) return sendJson(response, 409, { ok: false, code, phase:error.phase||'candidate_review', database_code:error.databaseCode||null });
+        if (/^reply_operation_(?:unknown|blocked|mismatch|conflict)$/.test(code)) return sendJson(response,409,{ok:false,code});
         if (code === "gmail_mailbox_mismatch") return sendJson(response, 503, { ok: false, code });
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
         if (["invalid_mail_decision", "pa_only_operation", "invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "invalid_reply_source", "reply_target_unavailable", "invalid_reply_cc", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
