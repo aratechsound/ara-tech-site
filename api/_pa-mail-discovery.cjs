@@ -33,7 +33,7 @@ function matchThread(messages,authority){
     const t=Date.parse(m.occurred_at),start=Date.parse(selected?.start),end=Date.parse(selected?.date);
     const timeSafe=selected&&Number.isFinite(t)&&Number.isFinite(start)&&Number.isFinite(end)&&t>=start-30*86400000&&t<=end+91*86400000;
     const mailboxParty=m.direction==='outbound'?address(m.from_address)===official:[...m.to_addresses,...m.cc_addresses].some(a=>address(a)===official);
-    choices.push({selected:timeSafe&&mailboxParty&&!selected.deleted&&!m.reply_identity_invalid&&!/^\s*(?:fw|fwd|転送)\s*[:：]/iu.test(m.subject)?selected.id:null,possible:[...new Set([...named,...possible].map(c=>c.id))]});
+    choices.push({selected:timeSafe&&mailboxParty&&!selected.deleted&&!m.reply_identity_invalid&&!/^\s*(?:(?:re|返信)\s*[:：]\s*)*(?:fw|fwd|転送)\s*[:：]/iu.test(m.subject)?selected.id:null,possible:[...new Set([...named,...possible].map(c=>c.id))]});
   }
   const ids=[...new Set(choices.map(c=>c.selected))];
   return {caseId:ids.length===1&&ids[0]?ids[0]:null,candidates:[...new Set(choices.flatMap(c=>c.possible))],reason:ids.length===1&&ids[0]?'participant_and_unique_case_identity':'owner_review_required'};
@@ -53,14 +53,20 @@ async function createProvider(fetchImpl=fetch){
   async function get(path){
     if(!/^\/(?:profile$|messages\?|threads\/[A-Za-z0-9_-]+\?format=full$)/u.test(path))throw Error('discovery_provider_path_refused');
     const response=await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me'+path,{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000),headers:{authorization:'Bearer '+token,accept:'application/json'}});
-    if(!response.ok)throw Error('gmail_read_'+response.status);return response.json();
+    if(!response.ok)throw Error('gmail_read_'+response.status);
+    const max=20*1024*1024;
+    if(Number(response.headers.get('content-length'))>max)throw Error('discovery_response_too_large');
+    const reader=response.body.getReader(),parts=[];let size=0;
+    try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max)throw Error('discovery_response_too_large');parts.push(Buffer.from(value));}}
+    finally{await reader.cancel().catch(()=>{});}
+    return JSON.parse(Buffer.concat(parts).toString('utf8'));
   }
   if(address((await get('/profile')).emailAddress)!==official)throw Error('gmail_mailbox_mismatch');
   return {list:(q,page)=>get('/messages?'+new URLSearchParams({q,maxResults:'20',includeSpamTrash:'false',...(page?{pageToken:page}:{})})),thread:id=>get('/threads/'+encodeURIComponent(id)+'?format=full')};
 }
 function threadRows(raw,threadId,context,inquiryId,ownerConfirmed=false){
   if(raw.id!==threadId||!Array.isArray(raw.messages)||!raw.messages.length||raw.messages.length>2000)throw Error('discovery_thread_invalid');
-  const messages=raw.messages.map(m=>{if(!validGmailId(m.id)||m.threadId!==threadId)throw Error('discovery_message_identity');return {...normalizeMessage(m),labels:m.labelIds||[]};});
+  const messages=raw.messages.map(m=>{if(!validGmailId(m.id)||m.threadId!==threadId)throw Error('discovery_message_identity');const labels=m.labelIds||[];return {...normalizeMessage(m),direction:labels.includes('SENT')?'outbound':'inbound',labels};});
   if(new Set(messages.map(m=>m.id)).size!==messages.length)throw Error('discovery_duplicate_message');
   const regular=messages.filter(m=>!m.labels.some(l=>['SPAM','TRASH','DRAFT'].includes(l)));
   if(regular.some(m=>!Number.isFinite(Date.parse(m.occurred_at))))throw Error('discovery_timestamp_invalid');
@@ -88,7 +94,7 @@ async function syncDiscovery({inquiryId,actorId,now=new Date()},fetchImpl=fetch,
   const state={window_start:continuing?old.window_start:full?null:new Date(Date.parse(old.last_completed_at)-7*86400000).toISOString(),window_end:continuing?old.window_end:cutoff,page_token:continuing?old.page_token||'':'',basis,full:continuing?old.full:full,complete:false,attempted_at:now.toISOString(),last_error:null,recovered_cursor:false};
   state.linked_threads=continuing?old.linked_threads||[]:context.authority.links.filter(l=>l.inquiry_id===inquiryId).map(l=>l.gmail_thread_id);
   state.link_offset=continuing?old.link_offset||0:0;
-  const q=buildQuery(context.authority,inquiryId,state.window_start,state.window_end);let rows=[],page;
+  const q=buildQuery(context.authority,inquiryId,state.window_start,state.window_end);let rows=[],page,entries=[];
   state.search_scope='all_regular_received_sent_archived; registered_participants_or_case_identity';
   try{
     const provider=await providerFactory(fetchImpl);
@@ -100,7 +106,7 @@ async function syncDiscovery({inquiryId,actorId,now=new Date()},fetchImpl=fetch,
       if(state.page_token&&['gmail_read_400','gmail_read_404'].includes(error.message)){state.page_token='';state.recovered_cursor=true;page=await provider.list(q,'');}else throw error;
     }
     if(!Array.isArray(page.messages||[])||page.nextPageToken&&typeof page.nextPageToken!=='string')throw Error('discovery_page_invalid');
-    const entries=page.messages||[];
+    entries=page.messages||[];
     state.listed_this_page=entries.length;state.result_size_estimate=Number.isSafeInteger(page.resultSizeEstimate)?page.resultSizeEstimate:null;
     if(entries.some(e=>!validGmailId(e.id)||!validGmailId(e.threadId)))throw Error('discovery_page_invalid');
     const threads=[...new Set(entries.map(e=>e.threadId))];
@@ -112,7 +118,10 @@ async function syncDiscovery({inquiryId,actorId,now=new Date()},fetchImpl=fetch,
     if(page.nextPageToken&&page.nextPageToken===state.page_token)throw Error('discovery_repeated_cursor');
     state.page_token=page.nextPageToken||'';state.complete=!state.page_token;state.last_error=null;
     }
-  }catch(error){state.last_error=/^(gmail_read_\d{3}|discovery_[a-z_]+)$/.test(error.message)?error.message:'retrieval_unavailable';state.complete=false;state.page_token=continuing?old.page_token||'':'';state.link_offset=continuing?old.link_offset||0:0;}
+  }catch(error){
+    state.last_error=/^(gmail_read_\d{3}|discovery_[a-z_]+)$/.test(error.message)?error.message:'retrieval_unavailable';state.complete=false;state.page_token=continuing?old.page_token||'':'';state.link_offset=continuing?old.link_offset||0:0;
+    for(const e of entries)if(validGmailId(e.id)&&validGmailId(e.threadId)&&!rows.some(r=>r.gmail_message_id===e.id))rows.push({gmail_message_id:e.id,gmail_thread_id:e.threadId,status:'RETRIEVAL_ERROR',reason:'page_incomplete_unretrieved'});
+  }
   // Successful rows may be retained after a partial error; the page cursor is
   // never advanced until every listed item has a durable classification.
   const commitFetch=(url,options={})=>originalFetch(url,{...options,redirect:'error',signal:AbortSignal.timeout(10000)});
