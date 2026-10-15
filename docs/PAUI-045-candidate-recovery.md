@@ -12,4 +12,6 @@ Reply preview/send APIs remain unchanged. CASE DESK distinguishes successful sen
 
 Added fixtures cover independent failures, explicit recovery, already-indexed attachments, duplicate sync, bounded queue, authentication loss, stale case responses, immutable existing candidates/current versions/photos, canonical variants, ambiguous legacy identity, mocked Provider outcomes, history failure and recipient/thread/attachment tampering. Existing validators are preserved unchanged.
 
+The unchanged preview-lifetime validator also exposed a rendering race: page/zoom labels advanced before the corresponding canvas finished rendering. Labels now commit with the newest completed canvas. A forced delayed-render fixture reproduces the original failure and verifies the fix. Preview scope, identity checks, resource disposal and authentication boundaries remain unchanged.
+
 Task identity: Owner assigned `PAUI-045`. No collision was found in the repository and connected Drive searches performed for this task. The formal PAUI task ledger is unidentified; a global collision check is therefore not proven. The Owner confirmed that this must not block repair/testing/publication and prohibited creating a replacement authoritative ledger.

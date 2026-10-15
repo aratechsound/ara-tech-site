@@ -35,7 +35,15 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
   sendMode='historyFailure';d=await open('History failure fixture');await send(d);await d.getByRole('status').getByText(/送信済み。履歴更新は未確認/).waitFor();assert.equal(sends,2);assert.equal(await d.getByRole('button',{name:'最終確認して送信',exact:true}).isDisabled(),true);await close(d);
   historyFailure=false;await page.reload();await page.locator('[data-case="'+A+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();sendMode='unknown';d=await open('Unknown provider fixture');await send(d);await d.getByRole('status').getByText(/送信結果は未確認/).waitFor();assert.equal(sends,3);await close(d);
   d=await open('Unknown provider fixture');await d.getByRole('status').getByText(/同じ返信の送信操作を実行済み/).waitFor();assert.equal(sends,3);await close(d);
-  await page.locator('[data-case="'+B+'"]').click();await page.getByRole('heading',{name:'Fixture B',exact:true}).waitFor();assert.equal(await page.locator('[data-portal-message]').count(),0);assert.deepEqual(errors,[]);
+  await page.locator('[data-case="'+B+'"]').click();await page.getByRole('heading',{name:'Fixture B',exact:true}).waitFor();assert.equal(await page.locator('[data-portal-message]').count(),0);
+  await page.evaluate(async()=>{
+   const {createGallery,createPreviewScope}=await import('/pa-ui/js/gallery.mjs');let drawing=0;
+   window.fixtureZoom={};const pdf={numPages:2,getPage:async()=>({getViewport:({scale})=>({width:100*scale,height:100*scale}),render:()=>({promise:++drawing===2?new Promise(resolve=>{fixtureZoom.release=resolve;}):Promise.resolve()})})};
+   const assets={record:async()=>({blob:new Blob(['fixture'])}),openPdf:async()=>pdf,release:()=>{},destroyPdf:async()=>{},thumbnail:async()=>{throw Error('fixture thumbnail omitted');}};
+   const host=document.createElement('div');document.body.append(host);fixtureZoom.scope=createPreviewScope({isCurrent:()=>true});fixtureZoom.gallery=createGallery({isCurrent:()=>true,assets,previewScope:fixtureZoom.scope});fixtureZoom.gallery.mount(host,[{key:'zoom-fixture',asset_id:'fixture',filename:'zoom-fixture.pdf',mime_type:'application/pdf'}]);
+  });
+  await page.getByRole('button',{name:'zoom-fixture.pdf の拡大プレビュー',exact:true}).click();await page.getByText('1 / 2ページ · 100%',{exact:true}).waitFor();await page.getByRole('button',{name:'拡大',exact:true}).click();await page.waitForFunction(()=>!!fixtureZoom.release);assert.equal(await page.getByText('1 / 2ページ · 125%',{exact:true}).count(),0,'zoom label must not commit before its rendered canvas');
+  await page.evaluate(()=>fixtureZoom.release());await page.getByText('1 / 2ページ · 125%',{exact:true}).waitFor();await page.evaluate(()=>{fixtureZoom.scope.dispose();fixtureZoom.gallery.dispose();});assert.equal(await page.locator('dialog').count(),0);assert.deepEqual(errors,[]);
   console.log(JSON.stringify({status:'PASS',existing_index_recheck:true,individual_failure_visible:true,later_message_continues:true,explicit_retry_recovers:true,reply_success_history:true,known_sent_history_unknown:true,provider_unknown_no_retry:true,reopen_duplicate_blocked:true,case_switch_no_stale_data:true,mocked_send_count:sends,real_provider_sends:0}));
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

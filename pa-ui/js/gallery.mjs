@@ -106,9 +106,9 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope}){
       prev.textContent='前のページ';next.textContent='次のページ';minus.textContent='縮小';plus.textContent='拡大';label.setAttribute('aria-live','polite');controls.append(prev,label,next,minus,plus);
       async function draw(){
         if(!alive())return;
-        const ticket=++renderId,canvas=document.createElement('canvas');canvas.setAttribute('aria-label','PDF '+page+'ページ');
-        label.textContent=page+' / '+pages+'ページ · '+Math.round(zoom*100)+'%';prev.disabled=page===1;next.disabled=page===pages;minus.disabled=zoom<=.5;plus.disabled=zoom>=2;
-        try{await renderPdfPage(item,page,canvas,Math.max(280,body.clientWidth-28)*zoom,Infinity,Infinity,fullPdf);if(alive()&&ticket===renderId)body.replaceChildren(canvas);}
+        const ticket=++renderId,drawPage=page,drawZoom=zoom,canvas=document.createElement('canvas');canvas.setAttribute('aria-label','PDF '+drawPage+'ページ');
+        prev.disabled=page===1;next.disabled=page===pages;minus.disabled=zoom<=.5;plus.disabled=zoom>=2;
+        try{await renderPdfPage(item,drawPage,canvas,Math.max(280,body.clientWidth-28)*drawZoom,Infinity,Infinity,fullPdf);if(alive()&&ticket===renderId){body.replaceChildren(canvas);label.textContent=drawPage+' / '+pages+'ページ · '+Math.round(drawZoom*100)+'%';}}
         catch(e){if(alive()&&ticket===renderId)body.textContent=previewError(e);}
       }
       prev.onclick=()=>{page=Math.max(1,page-1);draw();};next.onclick=()=>{page=Math.min(pages,page+1);draw();};minus.onclick=()=>{zoom=Math.max(.5,zoom-.25);draw();};plus.onclick=()=>{zoom=Math.min(2,zoom+.25);draw();};await draw();
