@@ -98,7 +98,7 @@ const workflowRequest=createWorkflowRequest(async()=>{const value=await workspac
 const portalStatuses=new Map();
 function portalStatus(id,text){portalStatuses.set(id,text);if(selected===id){const host=$('portal-candidate-status');if(host)host.textContent=text;}}
 const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurrent:id=>!!session&&selected===id,onStatus:portalStatus});
-const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);}});
+const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
 const discovery=createMailDiscovery({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
 let mailGalleries=[];
@@ -248,7 +248,7 @@ function render(){
   central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
   if(tab==='documents')renderGallery();
   if(['estimate','documents'].includes(tab)&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
-  if(tab==='conversation'){renderMailPreviews();discovery.mount(selected);const host=document.createElement('p');host.id='portal-candidate-status';host.setAttribute('role','status');host.textContent=portalStatuses.get(selected)||'';central.prepend(host);}
+  if(tab==='conversation'){renderMailPreviews();discovery.mount(selected);const host=document.createElement('p');host.id='portal-candidate-status';host.setAttribute('role','status');host.textContent=portalStatuses.get(selected)||'';const recheck=document.createElement('button');recheck.type='button';recheck.className='lightbtn';recheck.textContent='索引済み添付を再照合（最大20通）';recheck.dataset.portalRecheck='';central.prepend(host,recheck);}
   const items=materialItems();
   if(tab==='overview')mountGallery($('inquiry-attachment-grid'),inquiryAttachmentItems(items));
   if(tab==='estimate'){
@@ -270,14 +270,14 @@ async function loadSurface(name,url,epoch){
 async function selectCase(id){
   if(!cases.some(c=>c.id===id))return;
   if(id!==selected&&!await reply.beforeLeave())return;
-  ++selectionEpoch;abortRequests();clearDetail();selected=id;tab='overview';const epoch=selectionEpoch;
+  portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab='overview';const epoch=selectionEpoch;
   renderList();render();
   // No mark-read, Gmail sync, lazy contract PDF generation or token issuance here.
   await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
   if(!await reply.beforeLeave())return;
-  ++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
+  portalBridge.cancel();++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
   renderList();render();$('case-list').innerHTML='<div class="load-state">案件一覧を取得中…</div>';$('refresh-cases').disabled=true;
   try{
     const [list,att]=await Promise.allSettled([api('/data/cases'),api('/data/attention')]);
@@ -306,7 +306,7 @@ function renderFeatures(){
 }
 function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(current())setTab(f.target||'overview');openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){reply.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){reply.clear();portalBridge.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -332,7 +332,8 @@ $('login-form').addEventListener('submit',async e=>{
 });
 document.addEventListener('click',e=>{
   const replying=e.target.closest('[data-reply-message]');if(replying){const row=(getRows('messages')||[]).find(m=>m.gmail_message_id===replying.dataset.replyMessage);if(row)reply.open(row);return;}
-  const linking=e.target.closest('[data-portal-message]');if(linking){const id=selected,messageId=linking.dataset.portalMessage;if(!(getRows('messages')||[]).some(m=>m.gmail_message_id===messageId))return;linking.disabled=true;portalBridge.link(id,messageId).catch(()=>{}).finally(()=>{if(linking.isConnected)linking.disabled=false;});return;}
+  const recheck=e.target.closest('[data-portal-recheck]');if(recheck){const id=selected;recheck.disabled=true;portalBridge.recheck(id,getRows('messages')).catch(()=>{}).finally(()=>{if(recheck.isConnected)recheck.disabled=false;});return;}
+  const linking=e.target.closest('[data-portal-message]');if(linking){const id=selected,messageId=linking.dataset.portalMessage;if(!(getRows('messages')||[]).some(m=>m.gmail_message_id===messageId))return;linking.disabled=true;portalBridge.link(id,messageId,{threadId:getRows('messages').find(m=>m.gmail_message_id===messageId)?.gmail_thread_id}).catch(()=>{}).finally(()=>{if(linking.isConnected)linking.disabled=false;});return;}
   if(e.target.closest('[data-legacy]')){openLegacy();return;}
   const c=e.target.closest('[data-case]');if(c){selectCase(c.dataset.case);return;}
   const t=e.target.closest('[data-tab]');if(t){setTab(t.dataset.tab);return;}
@@ -350,7 +351,7 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{reply.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{reply.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 render();
 
 workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token)clearAssets();if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});

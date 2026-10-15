@@ -283,13 +283,32 @@ const detectCandidates = async ({ caseId, actorId, messages, attachmentVariantLo
     const result = await serviceRpc("pa_portal_candidate_detect", { p_case_id: caseId, p_actor_id: actorId, p_items: built.proposals }, fetchImpl);
     return { ...result, reconciliation, unresolved_identity_count: prepared.unresolved.length, business_excluded: built.businessExcluded, signature_excluded: built.signatureExcluded };
 };
-const backfillCandidates = async ({ caseId, actorId, messageId }, fetchImpl = fetch, attachmentVariantLoader) => {
+const backfillCandidates = async ({ caseId, actorId, messageId, preserveExisting = false, threadId }, fetchImpl = fetch, attachmentVariantLoader) => {
     if (!isUuid(caseId) || !isUuid(actorId)) throw new Error("invalid_candidate_detection");
     if (messageId !== undefined && !GMAIL_ID.test(String(messageId || ""))) throw new Error("invalid_candidate_message");
+    if (preserveExisting && (!messageId || (threadId !== undefined && !GMAIL_ID.test(String(threadId || ''))))) throw new Error('invalid_candidate_binding');
     const links = await supabaseRequest(`/rest/v1/pa_gmail_thread_links?${new URLSearchParams({ inquiry_id: `eq.${caseId}`, select: "gmail_thread_id", limit: "500" })}`, {}, fetchImpl);
     const linked = new Set((Array.isArray(links) ? links : []).map((item) => item.gmail_thread_id));
     const rows = await supabaseRequest(`/rest/v1/pa_gmail_message_index?${new URLSearchParams({ inquiry_id: `eq.${caseId}`, ...(messageId ? { gmail_message_id: `eq.${messageId}` } : {}), select: "gmail_message_id,gmail_thread_id,direction,subject,attachment_metadata", order: "indexed_at.desc", limit: "500" })}`, {}, fetchImpl);
     if (messageId && (!Array.isArray(rows) || rows.length !== 1 || rows[0].gmail_message_id !== messageId || !linked.has(rows[0].gmail_thread_id))) throw new Error("candidate_message_binding_mismatch");
+    if (preserveExisting) {
+        if (threadId !== undefined && rows[0].gmail_thread_id !== threadId) throw new Error("candidate_message_binding_mismatch");
+        const built = buildProposals(rows, await contextCards(caseId, fetchImpl));
+        if (built.proposals.some(item => !item.gmail_part_id || !CANONICAL_KEY.test(item.canonical_attachment_key))) throw new Error("candidate_identity_unavailable");
+        let safeReason = null;
+        const guardedFetch = async (url, options) => {
+            const response = await fetchImpl(url, options);
+            if (response.ok) return response;
+            let detail = null;
+            try { detail = await response.json(); } catch { /* Only allowlisted database reasons leave this boundary. */ }
+            if (detail?.code === "P0001" && ["candidate_message_binding_mismatch", "candidate_attachment_binding_mismatch", "candidate_identity_unavailable", "candidate_legacy_identity_unresolved", "candidate_identity_mismatch", "invalid_canonical_identity"].includes(detail.message)) safeReason = detail.message;
+            return { ok: false, status: response.status, json: async () => detail };
+        };
+        let result;
+        try { result = await serviceRpc("pa_portal_candidate_ensure", { p_case_id: caseId, p_actor_id: actorId, p_message_id: messageId, p_thread_id: rows[0].gmail_thread_id, p_items: built.proposals }, guardedFetch); }
+        catch (error) { if (safeReason) throw new Error(safeReason); throw error; }
+        return { ...result, unresolved_identity_count: 0, business_excluded: built.businessExcluded, signature_excluded: built.signatureExcluded };
+    }
     return detectCandidates({ caseId, actorId, messages: (Array.isArray(rows) ? rows : []).filter((message) => linked.has(message.gmail_thread_id)), attachmentVariantLoader }, fetchImpl);
 };
 const listCandidates = async ({ caseId, accessToken }, fetchImpl = fetch) => {

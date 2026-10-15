@@ -1,0 +1,15 @@
+# PAUI-045: indexed attachment candidate recovery
+
+Base production: `0a1c4bffd4ef6f6888965176f2fcfc9bd9c164a0`.
+
+One failed message no longer stops independent messages. CASE DESK keeps per-message results in memory, permits one later automatic recovery (two automatic attempts total per message per page session), and limits each batch to 20 messages. Remaining new messages stay queued. Existing indexed attachments can be rechecked explicitly; unknown attribution, identity or authentication never displays success. Authentication failure stops the batch; selection changes invalidate late completions. No timers, background retry loop, adoption, current-version switch or publication is introduced.
+
+The new CASE DESK path uses `candidate_backfill` with `preserve_existing: true` and an exact message/thread binding. Its additive, service-role-only `pa_portal_candidate_ensure` RPC validates the authoritative case/thread/message/MIME-part identity, inserts absent candidates with conflict protection and preserves every existing candidate status, suggestion and timestamp. Unknown legacy opaque variants fail closed. It does not run candidate reconciliation or update registered assets. Legacy portal detection/reconciliation remains unchanged.
+
+`ops/PAUI-045-candidate-ensure.sql` is a separate database review artifact. It is **not applied by deployment**. Production release requires separate Owner approval, a fresh check that this function signature is absent, execution through the existing authorized database administration path, and verification of definition/privileges. If the signature already exists, stop and inspect; do not replace it blindly. Existing tables and migration files are unchanged. An application rollback does not require deleting this unused additive function.
+
+Reply preview/send APIs remain unchanged. CASE DESK distinguishes successful send with failed history refresh. A memory-only SHA-256 fingerprint prevents the identical payload from being resent after closing/reopening the composer in the same page session; it includes case, thread, message, recipient, subject, CC, body and attachment bytes. At 100 attempts it fails closed. This is not durable Provider idempotency: page reloads, other browser sessions and real Provider sending remain outside this proof. No customer mail is sent for acceptance.
+
+Added fixtures cover independent failures, explicit recovery, already-indexed attachments, duplicate sync, bounded queue, authentication loss, stale case responses, immutable existing candidates/current versions/photos, canonical variants, ambiguous legacy identity, mocked Provider outcomes, history failure and recipient/thread/attachment tampering. Existing validators are preserved unchanged.
+
+Task identity: Owner assigned `PAUI-045`. No collision was found in the repository and connected Drive searches performed for this task. The formal PAUI task ledger is unidentified; a global collision check is therefore not proven. The Owner confirmed that this must not block repair/testing/publication and prohibited creating a replacement authoritative ledger.
