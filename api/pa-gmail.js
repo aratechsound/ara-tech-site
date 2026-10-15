@@ -17,6 +17,8 @@ const ACTION_POLICY = Object.freeze({
     inbox_sync: "PA_GMAIL_SYNC",
     inbox_decide: "PA_GMAIL_MANUAL_LINK",
     sync: "PA_GMAIL_SYNC",
+    case_discovery_sync: "PA_GMAIL_SYNC",
+    case_discovery_decide: "PA_GMAIL_MANUAL_LINK",
     manual_link: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
     portal_documents: "PA_GMAIL_ATTACHMENT_GET",
@@ -66,6 +68,8 @@ module.exports = async (request, response) => {
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
         if (input.action === "inbox_list") return sendJson(response, 200, { ok: true, result: await listUnlinkedMail({actorId:user.id,cursor:input.cursor}) });
+        if (input.action === "case_discovery_sync") return sendJson(response,200,{ok:true,result:await require('./_pa-mail-discovery.cjs').syncDiscovery({inquiryId:input.inquiry_id,actorId:user.id})});
+        if (input.action === "case_discovery_decide") return sendJson(response,200,{ok:true,result:await require('./_pa-mail-discovery.cjs').decideDiscovery({inquiryId:input.inquiry_id,actorId:user.id,threadId:input.gmail_thread_id,fingerprint:input.fingerprint,decision:input.decision})});
         if (input.action === "inbox_review") return sendJson(response, 200, {ok:true,result:await reviewUnlinkedMail({messageId:input.gmail_message_id})});
         if (input.action === "inbox_attachment") return streamAttachmentResponse(response,await reviewUnlinkedMail({messageId:input.gmail_message_id,attachmentId:input.gmail_attachment_id}));
         if (input.action === "inbox_sync") return sendJson(response, 200, { ok: true, result: await syncUnlinkedMail({ actorId: user.id }) });
