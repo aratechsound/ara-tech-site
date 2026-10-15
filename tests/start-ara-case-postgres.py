@@ -79,6 +79,8 @@ else:
  raise RuntimeError('HOLD: existing or incomplete fixture requires independently verified source/plan/state identity; automatic legacy tail resume is forbidden')
 run(psql,'grant usage on schema public to anon,authenticated,service_role;grant all on all tables in schema public to service_role;grant all on all sequences in schema public to service_role;')
 run(psql,"alter table public.work_admins enable row level security;drop policy if exists fixture_admin_self_read on public.work_admins;create policy fixture_admin_self_read on public.work_admins for select to authenticated using(user_id=auth.uid());grant select on public.work_admins to authenticated;")
+# Additive ordinary-reply ledger after existing grants; preserves old migration plan.
+run(psql,(root/'ops/PAUI-046-reply-operations.sql').read_text(encoding='utf8'))
 config=rt/('postgrest-r3.conf' if r3 else 'postgrest-guards.conf' if guards else 'postgrest-final.conf' if final else 'postgrest-legacy.conf' if legacy else 'postgrest.conf')
 config.write_text(f'db-uri = "postgresql://authenticator@127.0.0.1:55437/{database}"\ndb-schemas = "public"\ndb-anon-role = "anon"\nserver-host = "127.0.0.1"\nserver-port = {rest_port}\njwt-secret = "ara-case-r2-fixture-secret-at-least-32-characters"\n',encoding='utf8')
 with socket.socket() as s:rest=s.connect_ex(('127.0.0.1',rest_port))==0

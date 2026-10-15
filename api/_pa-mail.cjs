@@ -523,7 +523,7 @@ const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders
         ...(carbonCopy.length ? [`Cc: ${carbonCopy.join(", ")}`] : []),
         `Reply-To: ${replyTo}`,
         `Subject: ${encodeWord(safeSubject)}`,
-        ...(messageId && /^<pa-e2e-[0-9a-f-]{36}@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
+        ...(messageId && /^<pa-(?:e2e|reply)-[0-9a-f-]{36}@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
         "MIME-Version: 1.0"
     ];
     const inReplyTo = String(replyHeaders.inReplyTo || "").trim();

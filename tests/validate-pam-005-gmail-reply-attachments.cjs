@@ -1,3 +1,4 @@
+const {withOperations}=require('./helpers/reply-operation-mock.cjs');
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -101,7 +102,7 @@ const previewFetch = async (url) => {
         actorId: "123e4567-e89b-42d3-a456-426614174001",
         body: "Thank you.",
         attachments: selected
-    }, previewFetch);
+    }, withOperations(previewFetch));
     assert.deepEqual(preview.attachments, [{ filename: "reply.pdf", mime_type: "application/pdf", size: 13 }], "preview returns only safe attachment metadata, never file data");
 
     await assert.rejects(
@@ -111,7 +112,7 @@ const previewFetch = async (url) => {
             body: "Thank you.",
             attachments: [attachment("changed.pdf", "application/pdf", "reply fixture")],
             confirmationToken: preview.confirmation_token
-        }, previewFetch),
+        }, withOperations(previewFetch)),
         /invalid_confirmation/u,
         "changing a selected attachment after preview must invalidate the confirmation token before any send"
     );

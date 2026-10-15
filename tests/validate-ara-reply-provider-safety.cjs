@@ -1,3 +1,4 @@
+const {withOperations}=require('./helpers/reply-operation-mock.cjs');
 'use strict';
 const assert=require('node:assert/strict'),gmail=require('../api/_pa-gmail.cjs');
 Object.assign(process.env,{GMAIL_CLIENT_ID:'fixture-client',GMAIL_CLIENT_SECRET:'fixture-secret',GMAIL_REFRESH_TOKEN:'fixture-refresh',GMAIL_SENDER_ADDRESS:'aratechsound@gmail.com',GMAIL_REPLY_TO:'aratechsound@gmail.com',SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-only'});
@@ -25,12 +26,13 @@ const mock=async(url,options={})=>{const u=new URL(url);
  return json([]);
 };
 (async()=>{
- const p=await gmail.replyPreview(input,mock);const approved={...input,confirmationToken:p.confirmation_token};
- const trace={};const sent=await gmail.sendReply({...approved,deliveryTrace:trace},mock);assert.equal(sent.gmail_message_id,'sent_fixture');assert.equal(sendCount,1);assert.equal(indexWrites,1);assert(audit.includes('gmail_case_reply_sent'));assert(audit.includes('gmail_threads_synced'));assert.equal(trace.provider_response_received,true);
- mode='unknown';const unknownTrace={};await assert.rejects(gmail.sendReply({...approved,deliveryTrace:unknownTrace},mock),/fixture_provider_response_unknown/);assert.equal(sendCount,2);assert.equal(unknownTrace.provider_request_started,true);assert.notEqual(unknownTrace.provider_response_received,true);
- mode='indexFailure';const failureTrace={};await assert.rejects(gmail.sendReply({...approved,deliveryTrace:failureTrace},mock),/supabase_503/);assert.equal(sendCount,3);assert.equal(failureTrace.provider_response_received,true);assert.equal(failureTrace.provider_http_status,200);
- const before=sendCount;mode='success';await assert.rejects(gmail.sendReply({...approved,attachments:[{...input.attachments[0],data:Buffer.from('tampered same length!!!!').toString('base64url')}]},mock),/preview|confirmation/u);assert.equal(sendCount,before);
- await assert.rejects(gmail.sendReply({...approved,replySourceThreadId:'wrong_thread'},mock));assert.equal(sendCount,before);
- recipient='changed@example.test';await assert.rejects(gmail.sendReply(approved,mock));assert.equal(sendCount,before);
- console.log(JSON.stringify({status:'PASS',provider_mock_only:true,success_sync_and_history:true,unknown_provider_trace:true,success_then_index_failure_trace:true,attachment_content_binding:true,thread_and_recipient_protected:true,mocked_provider_sends:sendCount,real_provider_sends:0,durable_idempotency_not_added:true}));
+ const p=await gmail.replyPreview(input, withOperations(mock));let approved={...input,confirmationToken:p.confirmation_token};
+ const trace={};const sent=await gmail.sendReply({...approved,deliveryTrace:trace}, withOperations(mock));assert.equal(sent.gmail_message_id,'sent_fixture');assert.equal(sendCount,1);assert.equal(indexWrites,1);assert(audit.includes('gmail_case_reply_sent'));assert(audit.includes('gmail_threads_synced'));assert.equal(trace.provider_response_received,true);
+ const repeated=await gmail.sendReply(approved,withOperations(mock));assert.equal(repeated.already_sent,true);assert.equal(sendCount,1);
+ const unknownBody='Separate unknown-result fixture',p2=await gmail.replyPreview({...input,body:unknownBody},withOperations(mock));approved={...input,body:unknownBody,confirmationToken:p2.confirmation_token};mode='unknown';const unknownTrace={};await assert.rejects(gmail.sendReply({...approved,deliveryTrace:unknownTrace}, withOperations(mock)),/reply_operation_unknown/);assert.equal(sendCount,2);assert.equal(unknownTrace.provider_request_started,true);assert.notEqual(unknownTrace.provider_response_received,true);
+ mode='success';const indexBody='Separate index-failure fixture',p3=await gmail.replyPreview({...input,body:indexBody},withOperations(mock));approved={...input,body:indexBody,confirmationToken:p3.confirmation_token};mode='indexFailure';const failureTrace={};const pending=await gmail.sendReply({...approved,deliveryTrace:failureTrace},withOperations(mock));assert.equal(pending.history_sync,'INCOMPLETE');assert.equal(pending.operation.state,'SENT');assert.equal(sendCount,3);assert.equal(failureTrace.provider_response_received,true);assert.equal(failureTrace.provider_http_status,200);
+ const before=sendCount;mode='success';await assert.rejects(gmail.sendReply({...approved,attachments:[{...input.attachments[0],data:Buffer.from('tampered same length!!!!').toString('base64url')}]}, withOperations(mock)),/preview|confirmation/u);assert.equal(sendCount,before);
+ await assert.rejects(gmail.sendReply({...approved,replySourceThreadId:'wrong_thread'}, withOperations(mock)));assert.equal(sendCount,before);
+ recipient='changed@example.test';await assert.rejects(gmail.sendReply(approved, withOperations(mock)));assert.equal(sendCount,before);
+ console.log(JSON.stringify({status:'PASS',provider_mock_only:true,success_sync_and_history:true,unknown_provider_trace:true,success_then_index_failure_trace:true,attachment_content_binding:true,thread_and_recipient_protected:true,mocked_provider_sends:sendCount,real_provider_sends:0,durable_idempotency_added:true}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

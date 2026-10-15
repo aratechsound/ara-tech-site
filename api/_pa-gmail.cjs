@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const replyOps = require("./_pa-reply-operations.cjs");
 const { isPaCase, requirePaCase } = require("./_ara-case.cjs");
 const {
     OFFICIAL_EMAIL,
@@ -624,8 +625,8 @@ const manualLink = async ({ inquiryId, gmailThreadId, conversationRole = "second
 
 const previewSecret = () => String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const EMPTY_REPLY_ATTACHMENTS_HASH = replyAttachmentsHash([]);
-const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, replySourceExplicit, replySourceAuthorityHash, recipient, ccAddresses, subject, body, mode, attachmentsHash, attachmentAuthorityHash, expiresAt }) => {
-    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, replySourceExplicit, replySourceAuthorityHash, recipient, ccAddresses, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, attachmentAuthorityHash, expiresAt });
+const replyPreviewToken = ({ inquiryId, actorId, threadId, replySourceMessageId, replySourceExplicit, replySourceAuthorityHash, recipient, ccAddresses, subject, body, mode, attachmentsHash, attachmentAuthorityHash, expiresAt, operationId }) => {
+    const payload = JSON.stringify({ inquiryId, actorId, threadId, replySourceMessageId, replySourceExplicit, replySourceAuthorityHash, recipient, ccAddresses, subject, bodyHash: crypto.createHash("sha256").update(body).digest("hex"), mode, attachmentsHash, attachmentAuthorityHash, expiresAt, operationId });
     const signature = crypto.createHmac("sha256", previewSecret()).update(payload).digest("base64url");
     return Buffer.from(payload).toString("base64url") + "." + signature;
 };
@@ -806,7 +807,22 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     }
     return preview;
 };
-const replyPreview = (input, fetchImpl = fetch) => buildReplyPreview(input, fetchImpl);
+const replyPreview = async (input, fetchImpl = fetch) => {
+    const preview = await buildReplyPreview(input, fetchImpl);
+    if (preview.mode !== 'normal') return preview; // commercial workflows unchanged
+    const profile = await mailboxProfile(fetchImpl);
+    if (!profile.matchesOfficialMailbox) throw Error('gmail_mailbox_mismatch');
+    const normalized = normalizeReplyAttachments(input.attachments || []);
+    const row = await replyOps.prepare({actorId:input.actorId, preview, attachments:normalized,
+        newOperation:input.newOperation, previousOperationId:input.previousOperationId},fetchImpl);
+    const signed = signedPreviewPayload(preview.confirmation_token);
+    preview.operation = replyOps.safe(row.operation);
+    preview.operation_id = row.operation.operation_id;
+    preview.expires_at = new Date(Math.min(signed.expiresAt,Date.parse(row.operation.expires_at))).toISOString();
+    preview.confirmation_token = replyPreviewToken({...signed, body:preview.body,
+        expiresAt:Date.parse(preview.expires_at), operationId:row.operation.operation_id});
+    return preview;
+};
 // Read-only rendering path for the formal pre-issue gate. It resolves the same
 // Gmail thread, recipient, CC, subject, normalized text and HTML as sendReply,
 // but deliberately creates no send confirmation token.
@@ -910,11 +926,11 @@ const findStandaloneDelivery = async (input, fetchImpl = fetch) => {
     return evidence;
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace, operationId }, fetchImpl = fetch) => {
     updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
+    const preview = await buildReplyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
     verifyPreviewToken(confirmationToken, {
         inquiryId,
         actorId,
@@ -928,6 +944,20 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         mode: normalizedMode,
         attachmentsHash: replyAttachmentsHash(normalizedAttachments)
     });
+    let operation=null, providerStarted=false, providerSent=null;
+    if (normalizedMode==='normal') {
+        const signed=signedPreviewPayload(confirmationToken);
+        if (operationId && operationId!==signed.operationId) throw Error('reply_operation_mismatch');
+        const profile=await mailboxProfile(fetchImpl);
+        if (!profile.matchesOfficialMailbox) throw Error('gmail_mailbox_mismatch');
+        // Signed pre-deployment tokens from the unchanged legacy UI are mapped
+        // into the same durable content fence; they never bypass the ledger.
+        const row=signed.operationId
+          ? await replyOps.bound({actorId,preview,attachments:normalizedAttachments,operationId:signed.operationId},fetchImpl)
+          : await replyOps.prepare({actorId,preview,attachments:normalizedAttachments},fetchImpl);
+        operation=row.operation;
+    }
+    try {
     updateDeliveryTrace(deliveryTrace, { phase: "reply_source_validation" });
     const implicitApproval = signedPreviewPayload(confirmationToken).replySourceExplicit === false;
     const thread = await gmailThread(preview.gmail_thread_id, fetchImpl);
@@ -955,29 +985,37 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     await guardMessageAttributions({ inquiryId,
         messages: !preview.reply_source_explicit || implicitApproval ? currentMessages : [source]
     }, fetchImpl);
+    const raw = buildRawMessage({to:preview.recipient,cc:preview.cc_addresses,subject:preview.subject,
+        body:preview.body,messageType:'customer_receipt',
+        replyHeaders:{inReplyTo:source.rfc_message_id,references:replyReferences(source.references,source.rfc_message_id)},
+        attachments:normalizedAttachments,config,messageId:operation?replyOps.rfcId(operation.operation_id):null});
+    if(operation){
+        const claim=await replyOps.act(actorId,'claim',operation,{},fetchImpl);
+        if(!claim.claimed){
+            if(claim.operation.state==='SENT')return {...replyOps.safe(claim.operation),operation:replyOps.safe(claim.operation),already_sent:true};
+            throw Error('reply_operation_blocked');
+        }
+    }
+    providerStarted=true;
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-            threadId: preview.gmail_thread_id,
-            raw: buildRawMessage({
-                to: preview.recipient,
-                cc: preview.cc_addresses,
-                subject: preview.subject,
-                body: preview.body,
-                messageType: "customer_receipt",
-                replyHeaders: { inReplyTo: source.rfc_message_id, references: replyReferences(source.references, source.rfc_message_id) },
-                attachments: normalizedAttachments,
-                config
-            })
-        })
+        method: "POST", headers:{authorization:`Bearer ${token}`,"content-type":"application/json",accept:"application/json"},
+        body:JSON.stringify({threadId:preview.gmail_thread_id,raw})
     });
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_response", provider_response_received: true, provider_http_status: response.status });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
     if (!validGmailId(sent?.id)) throw new Error("gmail_send_invalid");
+    if(operation){
+        if(sent.threadId!==preview.gmail_thread_id)throw Error('gmail_send_invalid');
+        providerSent={gmail_message_id:sent.id,gmail_thread_id:sent.threadId};
+        const completed=await replyOps.act(actorId,'sent',operation,providerSent,fetchImpl);
+        operation=completed.operation;
+    }
+    let historyComplete=true, synced={};
+    try {
+
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",
@@ -988,9 +1026,30 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         cc_count: preview.cc_addresses.length,
         attachment_filenames: normalizedAttachments.map((attachment) => attachment.filename)
     }, fetchImpl);
-    const synced = await syncCase({ inquiryId, actorId }, fetchImpl);
-    return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
+    synced = await syncCase({ inquiryId, actorId }, fetchImpl);
+    } catch(error) { if(!operation)throw error;historyComplete=false; }
+    if(operation){
+        try {const row=await replyOps.act(actorId,'history',operation,{complete:historyComplete},fetchImpl);operation=row.operation;}
+        catch {historyComplete=false;}
+    }
+    return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced,
+        ...(operation?{operation:replyOps.safe(operation),history_sync:historyComplete?'COMPLETE':'INCOMPLETE'}:{}) };
+    } catch(error) {
+        if(operation){
+            if(!providerSent)try {await replyOps.act(actorId,providerStarted?'unknown':'failed',operation,{},fetchImpl);}catch{}
+            // If recording SENT failed after a valid provider ACK, preserve the
+            // durable SENDING fence and report UNKNOWN. Never call Gmail again.
+            if(providerStarted)throw Error('reply_operation_unknown');
+        }
+        throw error;
+    }
 };
 
 module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
+
+module.exports.replyOperationStatus=async({actorId,inquiryId,operationId,sourceMessageId,sourceThreadId},fetchImpl=fetch)=>{
+    const row=await replyOps.status({actorId,inquiryId,operationId,sourceMessageId,sourceThreadId},fetchImpl);
+    return {operation:row.operation?replyOps.safe(row.operation):null};
+};
+module.exports.reconcileReplyOperation=(input,fetchImpl=fetch)=>replyOps.reconcile(input,gmailJson,normalizeMessage,fetchImpl);

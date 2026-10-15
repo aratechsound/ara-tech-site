@@ -1,7 +1,7 @@
 // Existing authenticated routes only. No implicit send or candidate adoption.
 export function createWorkflowRequest(getSession){
   return async function request(action,input){
-    const endpoint=action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply'].includes(action)?'/api/pa-gmail':null;
+    const endpoint=action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply','reply_operation_status','reply_reconcile'].includes(action)?'/api/pa-gmail':null;
     if(!endpoint)throw Error('workflow_action_refused');
     const session=await getSession();if(!session?.access_token)throw Error('login_required');
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
@@ -123,6 +123,20 @@ export function createReplyComposer({request,getCase,onSent}){
     cc.oninput=body.oninput=invalidate;
     files.onchange=()=>{s.files=[...files.files];fileList.textContent=s.files.map(f=>f.name+' ('+f.size+' bytes)').join(' / ');invalidate();};
     const removeFiles=button('添付を外す',()=>{s.files=[];files.value='';fileList.textContent='';invalidate();});
+    const operationHost=node('section');operationHost.setAttribute('aria-label','永続送信操作');
+    const operationText=node('p','送信操作の状態を確認中…');operationText.setAttribute('role','status');
+    const reconcile=button('Gmailの送信結果を照合（読取専用）',async()=>{
+      if(s.busy||!current(s)||!s.operation)return;s.busy=true;reconcile.disabled=true;
+      try{const r=await request('reply_reconcile',{inquiry_id:s.caseId,operation_id:s.operation.operation_id});if(current(s))showOperation(r.result?.operation);}
+      catch{if(current(s))operationText.textContent='結果照合は未確認です。UNKNOWNを解除せず、自動再送しません。';}
+      finally{if(current(s)){s.busy=false;reconcile.disabled=!s.operation?.can_reconcile;}}
+    });reconcile.disabled=true;
+    function showOperation(op){
+      s.operation=op||null;reconcile.disabled=!op?.can_reconcile;
+      operationText.textContent=op?'操作 '+op.operation_id+' / '+op.state+(op.state==='SENT'&&op.history_sync!=='COMPLETE'?' / 送信済み・履歴同期未完了':''):'この返信元の保存済み送信操作はありません。';
+      if(op&&['SENDING','UNKNOWN'].includes(op.state)){s.attempted=true;preview.disabled=true;s.status.textContent='送信結果を確定できるまで再送できません。読取専用照合を実行してください。';}
+    }
+    operationHost.append(operationText,reconcile);
     const preview=button('返信プレビュー',async()=>{
       if(s.busy||s.attempted||!current(s))return;
       if(!body.value.trim()){s.status.textContent='本文を入力してください。';return;}
@@ -133,10 +147,20 @@ export function createReplyComposer({request,getCase,onSent}){
         const payload={inquiry_id:s.caseId,reply_source_message_id:s.messageId,reply_source_thread_id:s.threadId,body:body.value.trim(),cc_addresses:ccValues(cc.value),attachments,mode:'normal'};
         const fingerprint=Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256',new window.TextEncoder().encode(JSON.stringify({...payload,recipient:s.recipient,subject:s.subject})))),x=>x.toString(16).padStart(2,'0')).join('');
         if(!current(s)||revision!==s.revision)return;
-        if(attemptedReplies.has(fingerprint)||attemptedReplies.size>=100)throw Error('reply_already_attempted');
-        const result=await request('reply_preview',payload);if(!current(s)||revision!==s.revision)return;
+        if(!s.newOperation&&(attemptedReplies.has(fingerprint)||attemptedReplies.size>=100))throw Error('reply_already_attempted');
+        const result=await request('reply_preview',{...payload,...(s.newOperation?{new_operation:true,previous_operation_id:s.newOperation}:{})});if(!current(s)||revision!==s.revision)return;
         const p=result.preview;
         if(!p||p.inquiry_id!==s.caseId||p.gmail_thread_id!==s.threadId||p.reply_source_message_id!==s.messageId||p.reply_source_explicit!==true||p.mode!=='normal'||p.recipient.toLowerCase()!==s.recipient.toLowerCase()||p.subject!==s.subject||JSON.stringify(p.cc_addresses)!==JSON.stringify(payload.cc_addresses)||typeof p.body!=='string'||typeof p.html!=='string'||!p.confirmation_token||!Number.isFinite(Date.parse(p.expires_at))||Date.parse(p.expires_at)<=Date.now()||!Array.isArray(p.attachments)||JSON.stringify(p.attachments.map(a=>[a.filename,a.size]))!==JSON.stringify(s.files.map(f=>[f.name,f.size])))throw Error('invalid_reply_binding');
+        if(!p.operation_id||p.operation?.operation_id!==p.operation_id||p.operation.inquiry_id!==s.caseId)throw Error('invalid_reply_binding');
+        showOperation(p.operation);
+        if(p.operation.state!=='PREPARED'){
+          if(p.operation.state==='SENT'){
+            s.status.textContent='この送信操作は送信済みです。同じ操作は再実行しません。';
+            s.previewHost.append(button('別の返信操作として新規プレビュー',()=>{if(!current(s)||s.busy)return;s.newOperation=p.operation_id;s.attempted=false;attemptedReplies.delete(fingerprint);preview.disabled=false;preview.click();}));
+          }
+          return;
+        }
+        s.newOperation=null;
         s.preview=p;s.payload=payload;s.status.textContent='プレビュー確認済み。まだ送信していません。';
         const summary=node('p','To: '+p.recipient+' / CC: '+p.cc_addresses.join(', ')+' / 件名: '+p.subject+' / 添付: '+p.attachments.map(a=>a.filename).join(', '));
         const text=node('pre',p.body);const frame=node('iframe');frame.title='ARA-TECH返信プレビュー';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.srcdoc=p.html;
@@ -150,13 +174,13 @@ export function createReplyComposer({request,getCase,onSent}){
             attemptedReplies.add(fingerprint);s.attempted=true;s.busy=true;send.disabled=true;preview.disabled=true;for(const el of [cc,body,files,removeFiles])el.disabled=true;
             s.status.textContent='送信結果を確認中…';
             try{
-              const result=await request('send_reply',{...s.payload,confirmation_token:p.confirmation_token});
+              const result=await request('send_reply',{...s.payload,confirmation_token:p.confirmation_token,operation_id:p.operation_id});
               if(!current(s))return;
               if(result.result?.gmail_thread_id!==s.threadId||!result.result?.gmail_message_id)throw Error('invalid_reply_result');
-              s.status.textContent='送信済み。履歴を更新しています。';s.dirty=false;
-              try{await onSent(s.caseId,result.result);if(current(s))s.status.textContent='送信済み。履歴を更新しました。';}
+              if(result.result.operation)showOperation(result.result.operation);s.status.textContent='送信済み。履歴を更新しています。';s.dirty=false;
+              try{await onSent(s.caseId,result.result);if(current(s))s.status.textContent=result.result.history_sync==='INCOMPLETE'?'送信済み。履歴同期未完了です。再送しないでください。':'送信済み。履歴を更新しました。';}
               catch{if(current(s))s.status.textContent='送信済み。履歴更新は未確認です。再送せず履歴を確認してください。';}
-            }catch{if(current(s))s.status.textContent='送信結果は未確認です。自動再送しません。Gmailと履歴を確認してください。';}
+            }catch{if(current(s)){s.status.textContent='送信結果は未確認です。自動再送しません。Gmailと履歴を確認してください。';try{const r=await request('reply_operation_status',{inquiry_id:s.caseId,operation_id:p.operation_id});if(current(s))showOperation(r.result?.operation);}catch{operationText.textContent='UNKNOWN / 永続状態の読取も未確認です。再送しないでください。';}}}
             finally{if(current(s))s.busy=false;}
           });send.disabled=true;check.onchange=()=>{send.disabled=!check.checked||s.attempted;};
           s.previewHost.append(node('p','この受信メールへの通常返信です。見積送信・正式受注送信とは別です。'),control('宛先・CC・件名・本文・添付と対象メールを確認しました',check),send);
@@ -164,8 +188,11 @@ export function createReplyComposer({request,getCase,onSent}){
       }catch(error){if(current(s)){s.preview=null;s.status.textContent=previewError(error);}}
       finally{if(current(s)){s.busy=false;preview.disabled=s.attempted;}}
     });
-    dialog.append(title,binding,node('p','Toと件名は選択メールから確定します。CCは元メールの参加者の範囲で指定できます。'),control('To',to),control('CC',cc),control('件名',subject),control('本文',body),control('添付',files),fileList,removeFiles,preview,s.status,s.previewHost,s.warning,button('返信を閉じる',beforeLeave));
+    dialog.append(title,binding,node('p','Toと件名は選択メールから確定します。CCは元メールの参加者の範囲で指定できます。'),control('To',to),control('CC',cc),control('件名',subject),control('本文',body),control('添付',files),fileList,removeFiles,operationHost,preview,s.status,s.previewHost,s.warning,button('返信を閉じる',beforeLeave));
     dialog.addEventListener('cancel',event=>{event.preventDefault();beforeLeave();});document.body.append(dialog);dialog.showModal();body.focus();
+    preview.disabled=true;
+    try{const r=await request('reply_operation_status',{inquiry_id:s.caseId,reply_source_message_id:s.messageId,reply_source_thread_id:s.threadId});if(current(s)){showOperation(r.result?.operation);preview.disabled=s.attempted;}}
+    catch{if(current(s)){operationText.textContent='永続状態を確認できません。送信操作は停止しています。';preview.disabled=true;}}
   }
   return {open,beforeLeave,clear};
 }
