@@ -3,7 +3,7 @@ import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
-import {createGallery,previewError} from './gallery.mjs';
+import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createMailDiscovery} from './mail-discovery.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} from './case-workflows.mjs';
@@ -61,8 +61,15 @@ async function api(url,{blob=false}={}){
   }catch(error){if(error.name==='AbortError')throw new ReadFailure('read_timeout_or_cancelled',503);throw error;}
   finally{clearTimeout(timer);requests.delete(controller);}
 }
-let privateAssets=null;
-function clearAssets(){privateAssets?.clear();privateAssets=null;}
+let privateAssets=null,previewScope=null;
+function clearAssets(){previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
+function viewPreviewScope(){
+  if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}
+  if(!previewScope){const id=selected,epoch=selectionEpoch,viewTab=tab;
+    previewScope=createPreviewScope({expiresAt:session?.expires_at?session.expires_at*1000:Infinity,isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab===viewTab});
+  }
+  return previewScope;
+}
 function assetRoute(id,item){return item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id;}
 function caseAssets(){
   if(!privateAssets){const id=selected,epoch=selectionEpoch,token=session?.access_token;
@@ -209,16 +216,16 @@ function renderMailPreviews(){
     if(!container)continue;
     const items=mailAttachments(row),strip=container.querySelector('[data-attachments]');
     if(strip){
-      const g=createMailAttachmentCarousel({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createMailAttachmentCarousel({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount(strip,items);
     }
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
   }
 }
-function mountGallery(target,items){
+function mountGallery(target,items,track=true){
   const id=selected,epoch=selectionEpoch,viewTab=tab;
-  const g=createGallery({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
-  mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
+  const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  if(track)mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
 }
 function renderGallery(){
   gallery?.dispose();
@@ -228,13 +235,13 @@ function renderGallery(){
   }
   const filtered=filterWarehouse(items,{term:$('material-search').value,kind:$('material-kind').value,source:$('material-source').value,from:$('material-from').value,to:$('material-to').value});
   $('file-count').textContent='表示 '+filtered.length+' / 取得索引 '+items.length+'資料'+(['materials','commercial','messages','sentEstimates'].some(n=>detail[n]?.state==='error')?' / 一部未取得':'');
-  gallery=mountGallery($('material-grid'),filtered);
+  gallery=mountGallery($('material-grid'),filtered,false);
   for(const id of ['material-search','material-kind','material-source','material-from','material-to'])$(id)[id==='material-search'?'oninput':'onchange']=()=>{resetPrivacy();renderGallery();};
 }
 
 function openLegacy(){if(current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
 function render(){
-  resetPrivacy();disposePreviews();renderHeader();renderInspector();
+  resetPrivacy();if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}disposePreviews();renderHeader();renderInspector();
   const c=current();if(!c){central.innerHTML='<div class="empty-state">案件を選択すると、保存済みの実案件情報を表示します。</div>';return;}
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
@@ -249,7 +256,7 @@ function render(){
     mountGallery($('current-estimate-grid'),items.filter(d=>d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'));
     mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
     if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
-      const g=createGallery({assets:caseAssets(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
     }
   }

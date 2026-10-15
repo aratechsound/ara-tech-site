@@ -28,7 +28,7 @@ export function createPrivateAssets({requestBlob,authorize,isCurrent=()=>true,on
     const doc=await lib.getDocument({data,worker,cMapUrl:'/pa-ui/vendor/cmaps/',cMapPacked:true,standardFontDataUrl:'/pa-ui/vendor/standard_fonts/',wasmUrl:'/pa-ui/vendor/wasm/'}).promise;
     if(closed||generation!==g){await doc.destroy();throw stale();}documents.add(doc);return doc;
   }
-  function destroyPdf(doc){documents.delete(doc);return doc.destroy();}
+  function destroyPdf(doc){if(!documents.delete(doc))return Promise.resolve();return doc.destroy();}
   async function pdf(item,getPdfjs){
     const g=generation,k=key(item);await valid(g);if(pdfs.has(k))return pdfs.get(k);
     const pending=record(item).then(({blob})=>openPdf(blob,getPdfjs));
@@ -45,7 +45,7 @@ export function createPrivateAssets({requestBlob,authorize,isCurrent=()=>true,on
   function release(record){if(record&&urls.delete(record.url))URL.revokeObjectURL(record.url);}
   function clear(){
     closed=true;++generation;for(const job of queue.splice(0))job.reject(stale());
-    for(const doc of documents)doc.destroy().catch(()=>{});documents.clear();worker?.destroy();worker=null;
+    for(const doc of documents)destroyPdf(doc).catch(()=>{});documents.clear();worker?.destroy();worker=null;
     for(const url of urls)URL.revokeObjectURL(url);urls.clear();records.clear();sizes.clear();pdfs.clear();thumbs.clear();bytes=0;
   }
   return {record,pdf,openPdf,destroyPdf,thumbnail,release,clear};
