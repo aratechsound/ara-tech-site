@@ -125,18 +125,36 @@ export function createReplyComposer({request,getCase,onSent}){
     const removeFiles=button('添付を外す',()=>{s.files=[];files.value='';fileList.textContent='';invalidate();});
     const operationHost=node('section');operationHost.setAttribute('aria-label','永続送信操作');
     const operationText=node('p','送信操作の状態を確認中…');operationText.setAttribute('role','status');
+    const proofText=node('div');proofText.setAttribute('aria-label','送信結果の照合根拠');proofText.setAttribute('role','status');
     const reconcile=button('Gmailの送信結果を照合（読取専用）',async()=>{
       if(s.busy||!current(s)||!s.operation)return;s.busy=true;reconcile.disabled=true;
-      try{const r=await request('reply_reconcile',{inquiry_id:s.caseId,operation_id:s.operation.operation_id});if(current(s))showOperation(r.result?.operation);}
-      catch{if(current(s))operationText.textContent='結果照合は未確認です。UNKNOWNを解除せず、自動再送しません。';}
+      try{const r=await request('reply_reconcile',{inquiry_id:s.caseId,operation_id:s.operation.operation_id});if(current(s)){showOperation(r.result?.operation);showProof(r.result);}}
+      catch{if(current(s))operationText.textContent='結果照合は未確認です。保存済み状態を変更せず、自動再送しません。';}
       finally{if(current(s)){s.busy=false;reconcile.disabled=!s.operation?.can_reconcile;}}
     });reconcile.disabled=true;
     function showOperation(op){
+      if(s.operation?.operation_id!==op?.operation_id)proofText.replaceChildren();
       s.operation=op||null;reconcile.disabled=!op?.can_reconcile;
       operationText.textContent=op?'操作 '+op.operation_id+' / '+op.state+(op.state==='SENT'&&op.history_sync!=='COMPLETE'?' / 送信済み・履歴同期未完了':''):'この返信元の保存済み送信操作はありません。';
       if(op&&['SENDING','UNKNOWN'].includes(op.state)){s.attempted=true;preview.disabled=true;s.status.textContent='送信結果を確定できるまで再送できません。読取専用照合を実行してください。';}
     }
-    operationHost.append(operationText,reconcile);
+    function showProof(result){
+      proofText.replaceChildren();const v=result?.verification;
+      if(v){
+        const text=v.status==='VERIFIED'?(v.basis==='PERSISTED_PROVIDER_ACK_GMAIL_ID'?'保存済みProvider ACKのGmail IDと原本を照合しました。':'生成RFC IDと原本の全照合項目が一致しました。'):'Gmail原本の照合は未確定です。保存済み状態を変更せず、再送しません。';
+        proofText.append(node('p',text));
+        if(v.gmail_message_id)proofText.append(node('p','Gmail message ID: '+v.gmail_message_id));
+        if(v.rfc_message_id)proofText.append(node('p','Gmail原本のRFC Message-ID: '+v.rfc_message_id));
+        if(v.generated_rfc_preserved===false)proofText.append(node('p','原本RFC IDは事前生成値と異なります。保存済みACKのGmail IDを根拠に確認しています。'));
+      }
+      if(result?.review){
+        proofText.append(node('p','UNKNOWNを維持しています。候補は送信成功の証拠ではありません。自動再送・自動確定はしません。'));
+        for(const candidate of result.review.candidates||[])proofText.append(node('p','手動確認候補 Gmail ID: '+candidate.gmail_message_id+' / '+(candidate.binding_matches?'内容項目は一致・一意な操作証拠は未確認':'不一致: '+candidate.mismatches.join(', '))));
+        if(result.review.truncated)proofText.append(node('p','候補表示は最大10通です。残りは未検証です。'));
+        if(result.review.reason==='GMAIL_READ_UNAVAILABLE')proofText.append(node('p','Gmail原本を取得できませんでした。'));
+      }
+    }
+    operationHost.append(operationText,reconcile,proofText);
     const preview=button('返信プレビュー',async()=>{
       if(s.busy||s.attempted||!current(s))return;
       if(!body.value.trim()){s.status.textContent='本文を入力してください。';return;}
