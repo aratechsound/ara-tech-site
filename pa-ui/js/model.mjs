@@ -13,6 +13,13 @@ export function displayStatus(c){
   return c.status;
 }
 export function statusText(c){return STATUS[displayStatus(c)]||'状態未定義';}
+export function statusBasis(c){
+  const p=c.progress||{};
+  if(displayStatus(c)==='formal_order_confirmed')return p.formal_contract_id?'案件進捗の契約参照に基づく表示。正式確認の発行・同意履歴とは別の記録です。':'案件進捗の見積承認日・予約確定日に基づく表示。正式確認の発行・同意履歴とは別の記録です。';
+  return '保存済み案件状態に基づく表示。正式確認・配送・入金の記録とは別に確認します。';
+}
+export function eventLabel(action){return ({gmail_threads_synced:'Gmailのやり取りを同期',gmail_case_reply_sent:'案件メールを送信'})[action]||'業務履歴（種別未定義）';}
+export function deliveryUnknown(row){return /unknown|mail_outcome_unknown/i.test(String(row.status||'')+' '+String(row.error_summary||''));}
 export function statusColor(c){const s=displayStatus(c);return /cancelled|declined|unavailable/.test(s)?'red':/confirmed|completed/.test(s)?'green':/hold|confirmation/.test(s)?'amber':'blue';}
 export function eventDate(c){return c.progress?.confirmed_event_date||c.event_date||null;}
 export function sortCases(items,order='event'){
@@ -61,7 +68,8 @@ export function documentChange(item,versions=[]){
 export function flattenMaterials(model){
   return (model.cards||[]).map(card=>{
     const current=(card.versions||[]).find(v=>v.id===card.current_version_id);
-    return {key:'version:'+String(current?.id||card.id),asset_kind:'version',asset_id:current?.id||null,title:card.title||current?.display_filename||'名称未設定',filename:current?.display_filename||card.title||'資料',mime_type:current?.mime_type||'',owner_kind:card.owner_kind,category:card.category,version_label:current?.version_label||'版数未提供',updated_at:current?.source_created_at||current?.created_at||null,versions:card.versions||[],current,change:current?documentChange(current,card.versions):'原本未登録',source:'portal'};
+    const original_state=current?'原本の索引あり / 閲覧時に検証':card.current_version_id?'現在版の索引未取得':'現在版未指定';
+    return {key:'version:'+String(current?.id||card.id),asset_kind:'version',asset_id:current?.id||null,title:card.title||current?.display_filename||'名称未設定',filename:current?.display_filename||card.title||'資料',mime_type:current?.mime_type||'',owner_kind:card.owner_kind,category:card.category,version_label:current?.version_label||'版数未提供',updated_at:current?.source_created_at||current?.created_at||null,versions:card.versions||[],current,original_state,change:current?documentChange(current,card.versions):original_state,source:'portal'};
   }).concat((model.photos||[]).map(p=>({key:'photo:'+p.id,asset_kind:'photo',asset_id:p.id,title:p.caption||p.display_filename,filename:p.display_filename,mime_type:p.mime_type,owner_kind:p.owner_kind,version_label:'版数未提供',updated_at:p.source_created_at||p.created_at,versions:[],current:p,change:'確認状態未取得',source:'portal'})));
 }
 export function commercialMaterials(snapshot){

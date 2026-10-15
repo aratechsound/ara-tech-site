@@ -3,6 +3,12 @@ const assert=require('node:assert/strict');
 (async()=>{
  const {purposeExcerpt}=await import('../pa-ui/js/mail-purpose.mjs');
  const cases=[
+  ['Full width salutation and phonetic introduction','架空　担当 様\nお世話になっております。\nARA-TECHの架空（カクウ）です。\n数量を3本へ変更します。','数量を3本へ変更します。'],
+  ['Two line ARA salutation','ARA-TECH\n架空　様\nお世話になっております。\n用件は添付の通りです。','用件は添付の通りです。'],
+  ['Combined greeting and introduction','お世話になります。ARA-TECHの架空です。\nご確認いただきありがとうございます。\n台数は2台です。','台数は2台です。'],
+  ['Combined with original purpose retained','お世話になります。ARA-TECHの架空です。台数は2台です。','台数は2台です。'],
+  ['Uncertain recipient line retained','会場の配置を変更\n架空 様\n2台です。','会場の配置を変更\n架空 様\n2台です。'],
+  ['Uncertain phonetic introduction contains condition','ARA-TECHの架空（カクウ）です。中止です。','ARA-TECHの架空（カクウ）です。中止です。'],
   ['Japanese greeting, self introduction, thanks','お世話になっております。\nARA-TECHの荒殿です。\nご連絡ありがとうございます。\n今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。','今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。'],
   ['No greeting and exact conditions','11万円、11月1日、2台でお願いします。\n雨天の場合は中止です。','11万円、11月1日、2台でお願いします。\n雨天の場合は中止です。'],
   ['Two-line introduction','いつもお世話になっております。\n株式会社テスト\n田中です。\n会場を変更してください。','会場を変更してください。'],

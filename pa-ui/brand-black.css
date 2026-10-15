@@ -27,3 +27,18 @@
 .pa-material-preview-dialog{border-color:#404040}.material-card:hover{border-color:#666}
 /* Keep semantic success, warning, failure and direction colors from the existing theme. */
 @media(max-width:760px){.topright .subtle{display:none}.brand img{width:104px}.globalnav button{padding:0 5px}.topcmd{font-size:10px;padding:5px}.mail-layout{grid-template-columns:minmax(0,1fr)}.mail-attachments{border-left:0;border-top:1px solid var(--border)}.attachment-strip{max-width:100%}}
+
+/* PAUI-027: business information first, restrained Japanese text weight. */
+body{font-weight:400}button,.action,.tab,.globalnav button,.lightbtn,.topcmd,.outlinebtn,.feature button{font-weight:500}
+b,strong,.fact b,.headmeta b,.caldate,.label-pair b,.record-head strong,.mail-subject,.material-name,.mail-direction{font-weight:400}
+.sectiontitle,.sidehead,.asideheading strong,.headtitle,.casename,.drawer-header strong,.request-field h3{font-weight:600}
+.tiny,.pill,.countdot,.kicker,.topinfo,.headref,.brand .minititle,.table th{font-weight:500}
+.fact b{white-space:normal;overflow:visible;overflow-wrap:anywhere}.facts{align-items:start}
+.request-field{margin:10px 0}.request-field h3{font-size:11px;margin:0 0 4px;color:#aaa}
+.request-original{font-size:13px;font-weight:400;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;color:#eee}
+.internal-history>summary,.estimate-history>summary,.formal-history>summary{font-weight:500;font-size:12px;cursor:pointer;padding:8px 0;border-top:1px solid var(--border)}
+.files-controls select,.files-controls input[type=date]{font:inherit;color:#eee;background:#111;border:1px solid var(--border);padding:5px;border-radius:4px;max-width:100%}
+.files-controls label{font-size:10px;display:flex;gap:5px;align-items:center}.material-info{font-size:10px;overflow-wrap:anywhere}
+#formal-document-grid,#current-estimate-grid,#estimate-history-grid{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
+.warehouse-meta{line-height:1.6}.brief{margin:8px 0}.brief strong{font-weight:400}
+@media(max-width:760px){.event-information .facts{grid-template-columns:1fr}.files-controls{align-items:stretch}.files-controls .search{max-width:none}}

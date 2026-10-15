@@ -35,7 +35,7 @@ assert.match(source,/date\(mailDateValue\(r\)\)/);
   for(const timezoneId of ['UTC','Asia/Tokyo','America/Los_Angeles']){
    const page=await browser.newPage({timezoneId,viewport:{width:1440,height:900}}),errors=[],requests=[];
    page.on('pageerror',e=>errors.push(e.message));
-   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only',expires_at:9999999999}),subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('NO_BUSINESS_ACTION');};"}));
+   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only',expires_at:9999999999}),current:async()=>({access_token:'fixture-only',expires_at:9999999999}),subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('NO_BUSINESS_ACTION');};"}));
    await page.route('**/api/pa-workspace-read?**',async r=>{
     const p=new URL(r.request().url()).searchParams.get('path');requests.push({path:p,method:r.request().method()});let result=[];
     if(p==='/data/cases')result={cases:[{id:C,event_name:'Synthetic festival',status:'new',case_type:'PA_EVENT'},{id:D,event_name:'Common mail case',status:'new',case_type:'OTHER'}],progress:[]};
