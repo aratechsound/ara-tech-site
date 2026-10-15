@@ -22,6 +22,7 @@ create table public.pa_reply_operation_events_v1 (
  created_at timestamptz not null default now()
 );
 create unique index pa_reply_operation_once_v1 on public.pa_reply_operation_events_v1(operation_id) where state='SENDING';
+create index pa_reply_operation_event_lookup_v1 on public.pa_reply_operation_events_v1(operation_id,seq desc);
 alter table public.pa_reply_operations_v1 enable row level security;
 alter table public.pa_reply_operation_events_v1 enable row level security;
 revoke all on public.pa_reply_operations_v1,public.pa_reply_operation_events_v1 from public,anon,authenticated,service_role;
@@ -54,7 +55,7 @@ begin
    -- UNKNOWN/SENDING never become retryable, including across days and restarts.
    if e.state in ('SENDING','UNKNOWN') or (e.state='PREPARED' and o.expires_at>now())
     or (e.state='SENT' and not ((p_payload->>'new_operation')::boolean is true and p_payload->>'previous_operation_id'=o.operation_id::text)
-       and (o.created_at at time zone 'UTC')::date=(now() at time zone 'UTC')::date) then
+       and (o.created_at at time zone 'Asia/Tokyo')::date=(now() at time zone 'Asia/Tokyo')::date) then
     null;
    else o.operation_id:=null;end if;
   end if;
@@ -65,15 +66,23 @@ begin
   end if;
  else
   if v_id is null and p_action='get' then
-   select * into o from public.pa_reply_operations_v1 where actor_id=p_actor and inquiry_id=v_case
-    and binding->>'source_id'=p_payload->>'source_id' and binding->>'thread_id'=p_payload->>'thread_id'
-    order by created_at desc,operation_id desc limit 1;
+   -- An unresolved older operation must not disappear behind a later reply.
+   select ro.* into o from public.pa_reply_operations_v1 ro
+    left join lateral (select ev.state from public.pa_reply_operation_events_v1 ev where ev.operation_id=ro.operation_id order by ev.seq desc limit 1) last_event on true
+    where ro.actor_id=p_actor and ro.inquiry_id=v_case
+    and ro.binding->>'source_id'=p_payload->>'source_id' and ro.binding->>'thread_id'=p_payload->>'thread_id'
+    order by (last_event.state in ('UNKNOWN','SENDING')) desc,ro.created_at desc,ro.operation_id desc limit 1;
    if not found then return jsonb_build_object('ok',true,'operation',null);end if;
   else
    select * into o from public.pa_reply_operations_v1 where operation_id=v_id and actor_id=p_actor and inquiry_id=v_case and account='aratechsound@gmail.com' for update;
    if not found then raise exception 'reply_operation_mismatch';end if;
   end if;
   select * into e from public.pa_reply_operation_events_v1 where operation_id=o.operation_id order by seq desc limit 1;
+  -- Revalidate attribution in the same transaction as claim/evidence commit;
+  -- a prepared token cannot authorize a source that was subsequently moved.
+  if ((p_action='claim' and e.state='PREPARED') or (p_action='sent' and e.state in ('SENDING','UNKNOWN')))
+   and (not exists(select 1 from public.pa_gmail_thread_links where inquiry_id=v_case and gmail_thread_id=o.binding->>'thread_id')
+     or not exists(select 1 from public.pa_gmail_message_index where inquiry_id=v_case and gmail_thread_id=o.binding->>'thread_id' and gmail_message_id=o.binding->>'source_id')) then raise exception 'reply_operation_mismatch';end if;
   if p_action='claim' and e.state='PREPARED' and o.expires_at>now() then
    insert into public.pa_reply_operation_events_v1(operation_id,state) values(o.operation_id,'SENDING') returning * into e;v_claimed:=true;
   elsif p_action='failed' and e.state='PREPARED' then

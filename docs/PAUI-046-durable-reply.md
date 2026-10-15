@@ -46,7 +46,7 @@ the API reports uncertainty; best-effort UNKNOWN cannot downgrade a stored SENT.
 The same draft/content reuses its persisted operation. To deliberately send the
 same content again after SENT, the new UI offers an explicit separate-operation
 preview tied to the previous operation ID. A fresh confirmation on a later
-calendar day also allows a separate operation for old clients. Existing operation
+Japan calendar day also allows a separate operation for old clients. Existing operation
 IDs always remain single-use. UNKNOWN/SENDING are never reset or bypassed by this
 option, expiry, a new day, browser closure, logout or login.
 
