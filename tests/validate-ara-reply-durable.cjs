@@ -47,6 +47,7 @@ async function expectState(id,s){assert.equal((await state(id)).operation.state,
  const before=await pre('D before provider');mode='before';await assert.rejects(send('D before provider',before),/fixture_oauth/);mode='success';await expectState(before.operation_id,'FAILED_BEFORE_SEND');assert.equal(sendCount,2);
  const unknown=await pre('E response lost');mode='unknown';await assert.rejects(send('E response lost',unknown),/reply_operation_unknown/);mode='success';await expectState(unknown.operation_id,'UNKNOWN');assert.equal(sendCount,3);
  await assert.rejects(send('E response lost',unknown),/reply_operation_blocked/);assert.equal(sendCount,3);
+ const blockedNew=await gmail.replyPreview({...input,body:'E response lost',newOperation:true,previousOperationId:unknown.operation_id},provider);assert.equal(blockedNew.operation_id,unknown.operation_id);assert.equal(blockedNew.operation.state,'UNKNOWN');
  const reconcile=()=>gmail.reconcileReplyOperation({actorId,inquiryId,operationId:unknown.operation_id},provider);
  assert.equal((await reconcile()).operation.state,'UNKNOWN');
  searchMessages=[{id:'similar_one'},{id:'similar_two'}];assert.equal((await reconcile()).operation.state,'UNKNOWN');
@@ -59,6 +60,12 @@ async function expectState(id,s){assert.equal((await state(id)).operation.state,
  await assert.rejects(gmail.sendReply({...input,actorId:otherOwner,body:'L bound content',operationId:bound.operation_id,confirmationToken:bound.confirmation_token},provider),/invalid_confirmation/);
  await assert.rejects(gmail.replyOperationStatus({actorId:otherOwner,inquiryId,operationId:bound.operation_id},provider),/reply_operation_mismatch/);
  mailbox='foreign@example.test';await assert.rejects(pre('foreign account'),/gmail_mailbox_mismatch/);mailbox='aratechsound@gmail.com';
+ const expired=await pre('Expired claim fixture');const countBeforeExpiry=sendCount;
+ // Fixture-admin clock setup on this test's new technical row only.
+ await db.query("update pa_reply_operations_v1 set expires_at=now()-interval '1 second' where operation_id=$1",[expired.operation_id]);
+ await assert.rejects(send('Expired claim fixture',expired),/reply_operation_blocked/);assert.equal(sendCount,countBeforeExpiry);await expectState(expired.operation_id,'FAILED_BEFORE_SEND');
+ await assert.rejects(gmail.replyOperationStatus({actorId,inquiryId:'44444444-4444-4444-8444-444444444444',operationId:bound.operation_id},provider),/inquiry_not_found/);
+ await assert.rejects(gmail.sendReply({...input,body:'L bound content',operationId:expired.operation_id,confirmationToken:bound.confirmation_token},provider),/reply_operation_mismatch/);
  const permissions=(await db.query("select has_function_privilege('service_role','public.pa_reply_operation_v1(uuid,text,jsonb)','EXECUTE') service, has_function_privilege('anon','public.pa_reply_operation_v1(uuid,text,jsonb)','EXECUTE') anon,has_function_privilege('authenticated','public.pa_reply_operation_v1(uuid,text,jsonb)','EXECUTE') authenticated,has_table_privilege('service_role','public.pa_reply_operations_v1','UPDATE') direct_update")).rows[0];assert.deepEqual(permissions,{service:true,anon:false,authenticated:false,direct_update:false});
  console.log(JSON.stringify({status:'PASS',same_operation_twice:true,two_server_callers:true,server_reload_retry:true,prepared_reuse:true,explicit_distinct_operation:true,before_send_failure:true,provider_response_unknown:true,unknown_never_retried:true,search_empty_unknown:true,multiple_similar_unknown:true,strict_rfc_identity_reconciliation:true,audit_failure_sent_sync_pending:true,index_failure_sent_sync_pending:true,owner_content_account_protection:true,service_only_rpc:true,append_only:true,mocked_provider_sends:sendCount,real_provider_sends:0}));
  await db.close();

@@ -19,8 +19,8 @@ const gmail=require('../api/_pa-gmail.cjs');
  }catch(e){res.statusCode=500;res.end(JSON.stringify({code:'fixture_error',name:e.name}));}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port;process.env.ALLOWED_ORIGINS=url;
  const browser=await chromium.launch({headless:true});const contexts=[];
- const page=async()=>{const c=await browser.newContext();contexts.push(c);const p=await c.newPage();await p.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());await p.goto(url);await p.locator('#open').click();return p;};
- const preview=async(p,body)=>{const d=p.getByRole('dialog',{name:'Gmail返信作成'});await d.getByLabel('本文',{exact:true}).fill(body);await d.getByRole('button',{name:'返信プレビュー',exact:true}).click();await d.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();return d;};
+ const page=async()=>{const c=await browser.newContext();contexts.push(c);const p=await c.newPage();p.on('pageerror',e=>console.error('fixture page error',e.message));p.on('response',async r=>{if(r.url().endsWith('/api/pa-gmail')&&r.status()>=400)console.error('fixture API rejection',r.status(),await r.text());});await p.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());await p.goto(url);await p.locator('#open').click();return p;};
+ const preview=async(p,body)=>{const d=p.getByRole('dialog',{name:'Gmail返信作成'});await d.getByLabel('本文',{exact:true}).fill(body);await d.getByRole('button',{name:'返信プレビュー',exact:true}).click();try{await d.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();}catch(e){console.error('isolated fixture composer',await d.innerText());throw e;}return d;};
  const arm=async d=>{await d.getByRole('button',{name:'送信内容を最終確認',exact:true}).click();await d.getByRole('checkbox').check();};
  try{
   const [p1,p2]=await Promise.all([page(),page()]);const [d1,d2]=await Promise.all([preview(p1,'Concurrent same operation'),preview(p2,'Concurrent same operation')]);

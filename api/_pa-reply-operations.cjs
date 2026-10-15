@@ -39,12 +39,13 @@ const status=({actorId,inquiryId,operationId,sourceMessageId,sourceThreadId},fet
 const safe=op=>({operation_id:op.operation_id,inquiry_id:op.inquiry_id,state:op.state,
  gmail_message_id:op.gmail_message_id||null,gmail_thread_id:op.binding?.thread_id||null,
  history_sync:op.history_sync||'NOT_COMPLETED',created_at:op.created_at,expires_at:op.expires_at,
- can_send:op.state==='PREPARED',can_reconcile:['UNKNOWN','SENDING'].includes(op.state)});
+ can_send:op.state==='PREPARED'&&Date.parse(op.expires_at)>Date.now(),can_reconcile:['UNKNOWN','SENDING'].includes(op.state)});
 // Every lookup uses the normal verified Gmail reader. Search is discovery only;
 // SENT requires exactly one full message with all bound identities. Absence,
 // truncation, duplicate headers, similar messages and disagreement remain UNKNOWN.
 async function reconcile({actorId,inquiryId,operationId},read,normalize,fetchImpl){
  const row=await status({actorId,inquiryId,operationId},fetchImpl),op=row.operation;
+ if(!op)throw Error('invalid_reply_operation');
  if(op.state==='SENT'||!['UNKNOWN','SENDING'].includes(op.state))return {operation:safe(op),matched:op.state==='SENT'};
  const expected=op.binding;let proof=null;
  try{

@@ -120,7 +120,7 @@ const decode=b=>Buffer.from(b,'base64url').toString('utf8');
     const messages=[raw(M,OWNER.email,{headers:{Cc:'peer@example.invalid'}}),raw(K,'aratechsound@gmail.com',{to:OWNER.email,headers:{Cc:'peer@example.invalid','Reply-To':'aratechsound@gmail.com'}})];
     const f=replyFixture({inquiry:pa,messages}),p=await gmail.replyPreview(request, withOperations(f.fetchImpl));assert.deepEqual(p.cc_addresses,['peer@example.invalid']);await gmail.sendReply({...request,confirmationToken:p.confirmation_token}, withOperations(f.fetchImpl));assert.match(decode(f.state.sends[0].raw),/^Cc: peer@example\.invalid$/m);
     const implicit=await gmail.replyPreview({...request,replySourceMessageId:undefined,replySourceThreadId:undefined}, withOperations(f.fetchImpl));assert.equal(implicit.recipient,OWNER.email);
-    const peer=replyFixture({inquiry:pa,messages:[raw(M,'peer@example.invalid',{to:'aratechsound@gmail.com, '+OWNER.email})]});assert.equal((await gmail.replyPreview(request,peer.fetchImpl)).recipient,'peer@example.invalid');
+    const peer=replyFixture({inquiry:pa,messages:[raw(M,'peer@example.invalid',{to:'aratechsound@gmail.com, '+OWNER.email})]});assert.equal((await gmail.replyPreview(request, withOperations(peer.fetchImpl))).recipient,'peer@example.invalid');
   });
   await check('foreign CC addition refused',()=>blocked(replyFixture({inquiry:pa,messages:[raw(M)]}),{...request,ccAddresses:['foreign@example.invalid']},/invalid_reply_cc/));
   await check('normal PA estimate/invoice/confirmation modes preserve explicit source and CC',async()=>{
