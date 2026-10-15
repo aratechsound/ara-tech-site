@@ -17,7 +17,7 @@ export function documentKind(d){
   if(/領収|receipt/iu.test(s))return '領収書';
   if(/stage.?plot/iu.test(s))return 'Stage Plot';
   if(/タイム|timetable/iu.test(s))return 'タイムテーブル';
-  if(/台本|script/iu.test(s))return '台本';
+  if(/台本|シナリオ|scenario|script/iu.test(s))return '台本';
   if(/図|layout|plan/iu.test(s))return '図面・配置図';
   if(/^image\//.test(d.mime_type))return '写真・画像';
   return d.category||'その他';

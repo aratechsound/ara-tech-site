@@ -13,8 +13,21 @@ export function previewError(e){
   const identity={attachment_identity_ambiguous:'対応不明 / 原本候補が複数あり一意に検証できません',attachment_identity_unavailable:'原本未取得 / 安全な照合の取得上限を超えました'};
   return codes[e.code]||bindings[e.code]||identity[e.code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
 }
+// The view owns the open preview; disposable thumbnail galleries do not.
+// This scope is memory-only and never authorizes or fetches an original.
+export function createPreviewScope({isCurrent,expiresAt=Infinity}){
+  let active=true,close,timer;
+  const current=()=>active&&Date.now()<expiresAt&&isCurrent();
+  function dispose(){if(!active)return;active=false;clearTimeout(timer);const end=close;close=null;end?.();}
+  function expire(){const remaining=expiresAt-Date.now();if(remaining<=0)dispose();else if(Number.isFinite(remaining))timer=setTimeout(expire,Math.min(remaining,2147483647));}
+  expire();
+  return {current,attach(next){
+    if(!current()){next();return ()=>{};}
+    close?.();close=next;return ()=>{if(close===next)close=null;};
+  },dispose};
+}
 // Shared by portal documents and mail attachments. Only separate money fields expire.
-export function createGallery({requestBlob,isCurrent,assets}){
+export function createGallery({requestBlob,isCurrent,assets,previewScope}){
   const id='asset-preview-'+(++serial),owned=!assets;
   let epoch=0,active=true,entries=[],root,dialog,observer;
   const current=()=>active&&isCurrent();
@@ -70,11 +83,17 @@ export function createGallery({requestBlob,isCurrent,assets}){
     const title=document.createElement('h3');title.id=id+'-title';title.textContent=item.filename;
     const body=document.createElement('div');body.id=id+'-body';body.className='preview-content';body.textContent='原本を取得中…';
     const controls=document.createElement('div');controls.className='preview-controls';
-    const close=document.createElement('button');close.textContent='閉じる';const opened=dialog;close.onclick=()=>opened.close();
+    const close=document.createElement('button');close.textContent='閉じる';const opened=dialog;
     opened.append(title,controls,body,close);document.body.append(opened);opened.showModal();
-    let renderId=0,page=1,zoom=1,pages=1,original,fullPdf;
-    const alive=()=>current()&&epoch===generation&&opened.isConnected&&opened.open;
-    opened.addEventListener('close',()=>{++renderId;opened.remove();assets.release(original);if(fullPdf)assets.destroyPdf(fullPdf).catch(()=>{});if(dialog===opened)dialog=null;},{once:true});
+    let renderId=0,page=1,zoom=1,pages=1,original,fullPdf,finished=false,detach=()=>{};
+    const alive=()=>!finished&&(previewScope?previewScope.current():current()&&epoch===generation)&&opened.isConnected&&opened.open;
+    function finish(){
+      if(finished)return;finished=true;++renderId;detach();opened.remove();
+      assets.release(original);if(fullPdf)assets.destroyPdf(fullPdf).catch(()=>{});if(dialog===opened)dialog=null;
+    }
+    function closePreview(){if(opened.open)opened.close();finish();}
+    close.onclick=closePreview;opened.addEventListener('close',finish,{once:true});
+    if(previewScope)detach=previewScope.attach(closePreview);
     if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。原本の取得・ダウンロードは行いません。';return;}
     try{
       original=await attachmentRecord(item,{fresh:true,priority:100});if(!alive()){assets.release(original);return;}
@@ -124,7 +143,7 @@ export function createGallery({requestBlob,isCurrent,assets}){
     root.querySelectorAll('[data-material-key]').forEach(b=>b.onclick=()=>{const item=entries.find(d=>d.key===b.dataset.materialKey);if(item)openPreview(item);});scheduleThumbs();
   }
   function dispose(){
-    active=false;++epoch;observer?.disconnect();if(dialog?.open)dialog.close();if(owned)assets.clear();root=null;entries=[];
+    if(!active)return;active=false;++epoch;observer?.disconnect();if(!previewScope&&dialog?.open)dialog.close();if(owned)assets.clear();root=null;entries=[];
   }
   return {mount,dispose,openPreview};
 }

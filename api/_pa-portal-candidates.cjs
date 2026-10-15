@@ -11,9 +11,9 @@ const ATTACHMENT_ID = /^[^\s\u0000-\u001f\\/]{1,1000}$/u;
 const CANONICAL_KEY = /^gmail:message-part:v1:[a-f0-9]{64}$/u;
 const CATEGORY_RULES = Object.freeze({
     timetable: /(タイムテーブル|time\s*table|timetable|進行表|香盤)/iu,
-    script: /(台本|script|進行台本)/iu,
+    script: /(台本|シナリオ|scenario|script|進行台本)/iu,
     performer: /(出演者|出演順|performer|artist|アーティスト)/iu,
-    layout: /(会場図|配置図|平面図|電源|搬入|導線|layout|stage\s*plot|ステージ図|音響|diagram|map)/iu,
+    layout: /(会場図|配置図|位置図|平面図|電源|搬入|導線|layout|stage\s*plot|ステージ図|音響|diagram|map)/iu,
     photo: /(写真|photo|stage[\s_-]*photo|venue[\s_-]*photo|現調)/iu
 });
 const CATEGORY_ORDER = ["timetable", "script", "performer", "layout", "photo"];
@@ -65,10 +65,13 @@ const mimeSupportsCategory = (category, mime) => {
     return category === "layout" || category === "performer" ? image || mime === "application/pdf" : true;
 };
 const suggestionFor = (item, cards = []) => {
-    const filename = String(item.filename || "").normalize("NFKC").toLowerCase();
+    const filename = String(item.filename || "").normalize("NFKC").toLowerCase()
+        .replace(/^(?:【音響用】|\[音響用\]|\(音響用\)|音響用[\s_・-]+)/u, "");
     const subject = String(item.subject || "").normalize("NFKC").toLowerCase();
-    const filenameSignals = matchingCategories(filename);
-    const subjectSignals = matchingCategories(subject);
+    // Parking passes remain separate even when a subject mentions maps.
+    const parkingPass = /(駐車券|駐車許可証|parking[\s_-]*pass)/iu.test(filename);
+    const filenameSignals = parkingPass ? [] : matchingCategories(filename);
+    const subjectSignals = parkingPass ? [] : matchingCategories(subject);
     const image = /^image\//u.test(item.mime_type || "");
     let category = "other";
     let confidence = "low";
@@ -280,11 +283,13 @@ const detectCandidates = async ({ caseId, actorId, messages, attachmentVariantLo
     const result = await serviceRpc("pa_portal_candidate_detect", { p_case_id: caseId, p_actor_id: actorId, p_items: built.proposals }, fetchImpl);
     return { ...result, reconciliation, unresolved_identity_count: prepared.unresolved.length, business_excluded: built.businessExcluded, signature_excluded: built.signatureExcluded };
 };
-const backfillCandidates = async ({ caseId, actorId }, fetchImpl = fetch, attachmentVariantLoader) => {
+const backfillCandidates = async ({ caseId, actorId, messageId }, fetchImpl = fetch, attachmentVariantLoader) => {
     if (!isUuid(caseId) || !isUuid(actorId)) throw new Error("invalid_candidate_detection");
+    if (messageId !== undefined && !GMAIL_ID.test(String(messageId || ""))) throw new Error("invalid_candidate_message");
     const links = await supabaseRequest(`/rest/v1/pa_gmail_thread_links?${new URLSearchParams({ inquiry_id: `eq.${caseId}`, select: "gmail_thread_id", limit: "500" })}`, {}, fetchImpl);
     const linked = new Set((Array.isArray(links) ? links : []).map((item) => item.gmail_thread_id));
-    const rows = await supabaseRequest(`/rest/v1/pa_gmail_message_index?${new URLSearchParams({ inquiry_id: `eq.${caseId}`, select: "gmail_message_id,gmail_thread_id,direction,subject,attachment_metadata", order: "indexed_at.desc", limit: "500" })}`, {}, fetchImpl);
+    const rows = await supabaseRequest(`/rest/v1/pa_gmail_message_index?${new URLSearchParams({ inquiry_id: `eq.${caseId}`, ...(messageId ? { gmail_message_id: `eq.${messageId}` } : {}), select: "gmail_message_id,gmail_thread_id,direction,subject,attachment_metadata", order: "indexed_at.desc", limit: "500" })}`, {}, fetchImpl);
+    if (messageId && (!Array.isArray(rows) || rows.length !== 1 || rows[0].gmail_message_id !== messageId || !linked.has(rows[0].gmail_thread_id))) throw new Error("candidate_message_binding_mismatch");
     return detectCandidates({ caseId, actorId, messages: (Array.isArray(rows) ? rows : []).filter((message) => linked.has(message.gmail_thread_id)), attachmentVariantLoader }, fetchImpl);
 };
 const listCandidates = async ({ caseId, accessToken }, fetchImpl = fetch) => {

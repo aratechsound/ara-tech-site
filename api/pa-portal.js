@@ -32,7 +32,7 @@ module.exports = async (request, response) => {
         if (input.action === "download") return streamAttachmentResponse(response, await portal.download({ caseId: input.inquiry_id, accessToken: token, assetId: input.asset_id, kind: input.asset_kind }));
         if (input.action === "candidate_list") return json(response, 200, { ok: true, result: await portal.candidateList({ caseId: input.inquiry_id, accessToken: token }) });
         if (input.action === "candidate_download") return streamAttachmentResponse(response, await portal.candidateDownload({ caseId: input.inquiry_id, accessToken: token, candidateId: input.candidate_id }));
-        if (input.action === "candidate_backfill") return json(response, 200, { ok: true, result: await portal.candidateBackfill({ caseId: input.inquiry_id, actorId: user.id }) });
+        if (input.action === "candidate_backfill") return json(response, 200, { ok: true, result: await portal.candidateBackfill({ caseId: input.inquiry_id, actorId: user.id, messageId: input.gmail_message_id }) });
         if (input.action === "stage_plot_create") return json(response, 200, { ok: true, result: await stagePlots.create({ caseId: input.inquiry_id, accessToken: token, state: input.state }) });
         if (input.action === "stage_plot_get") return json(response, 200, { ok: true, result: await stagePlots.get({ caseId: input.inquiry_id, plotId: input.stage_plot_id, accessToken: token }) });
         if (input.action === "stage_plot_list") return json(response, 200, { ok: true, result: await stagePlots.list({ caseId: input.inquiry_id, accessToken: token }) });
