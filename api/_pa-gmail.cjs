@@ -1036,7 +1036,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         ...(operation?{operation:replyOps.safe(operation),history_sync:historyComplete?'COMPLETE':'INCOMPLETE'}:{}) };
     } catch(error) {
         if(operation){
-            if(!providerSent)try {await replyOps.act(actorId,providerStarted?'unknown':'failed',operation,{},fetchImpl);}catch{}
+            try {await replyOps.act(actorId,providerStarted?'unknown':'failed',operation,{},fetchImpl);}catch{}
             // If recording SENT failed after a valid provider ACK, preserve the
             // durable SENDING fence and report UNKNOWN. Never call Gmail again.
             if(providerStarted)throw Error('reply_operation_unknown');
