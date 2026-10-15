@@ -244,6 +244,15 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           result={cases,progress};
         }else if(u.pathname==='/data/attention')result=await allRows('pa_case_mail_attention',{select:'*',order:'inquiry_id.asc'},token);
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
+        else if(segments.length===3&&segments[1]==='mail-discovery'){
+          const id=assertId(segments[2]);await readableCase(id,token);
+          if(process.env.PAUI041_DISCOVERY_ENABLED!=='true')result={enabled:false};
+          else{
+            const [states,outcomes]=await Promise.all([rows('paui041_mail_sync_state',{inquiry_id:'eq.'+id,select:'version,state',limit:2},token),allRows('paui041_mail_outcomes',{inquiry_id:'eq.'+id,status:'eq.RELATED_CANDIDATE',select:'gmail_message_id,gmail_thread_id,subject,direction,occurred_at,reason,fingerprint',order:'gmail_message_id.asc'},token)]);
+            if(states.length>1)throw new ReadError('case_binding_mismatch',403);
+            result={enabled:true,...states[0]?.state,version:states[0]?.version||0,candidates:outcomes};
+          }
+        }
         else if(segments.length===4&&segments[1]==='mail-body'){
           const message=await mailMessage(assertId(segments[2]),segments[3],token);
           if(message.body_text||message.body_html){
