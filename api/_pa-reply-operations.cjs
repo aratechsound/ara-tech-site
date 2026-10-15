@@ -39,46 +39,53 @@ const status=({actorId,inquiryId,operationId,sourceMessageId,sourceThreadId},fet
 const safe=op=>({operation_id:op.operation_id,inquiry_id:op.inquiry_id,state:op.state,
  gmail_message_id:op.gmail_message_id||null,gmail_thread_id:op.binding?.thread_id||null,
  history_sync:op.history_sync||'NOT_COMPLETED',created_at:op.created_at,expires_at:op.expires_at,
- can_send:op.state==='PREPARED'&&Date.parse(op.expires_at)>Date.now(),can_reconcile:['UNKNOWN','SENDING'].includes(op.state)});
-// Every lookup uses the normal verified Gmail reader. Search is discovery only;
-// SENT requires exactly one full message with all bound identities. Absence,
-// truncation, duplicate headers, similar messages and disagreement remain UNKNOWN.
+ can_send:op.state==='PREPARED'&&Date.parse(op.expires_at)>Date.now(),can_reconcile:['UNKNOWN','SENDING','SENT'].includes(op.state)});
+// PAUI-049: a persisted Provider ACK is correlated by Gmail's immutable API
+// ID. RFC lookup is a positive-proof fallback only; absence never permits retry.
 async function reconcile({actorId,inquiryId,operationId},read,normalize,fetchImpl){
  const row=await status({actorId,inquiryId,operationId},fetchImpl),op=row.operation;
  if(!op)throw Error('invalid_reply_operation');
- if(op.state==='SENT'||!['UNKNOWN','SENDING'].includes(op.state))return {operation:safe(op),matched:op.state==='SENT'};
- const expected=op.binding;let proof=null;
+ if(!['SENT','UNKNOWN','SENDING'].includes(op.state))return {operation:safe(op),matched:false};
+ const evidence=require('./_pa-reply-proof.cjs'),expected=op.binding;
+ if(expected.account!==OFFICIAL_EMAIL||expected.inquiry_id!==inquiryId||!evidence.ids(expected.thread_id)||!evidence.ids(expected.source_id))throw Error('reply_operation_mismatch');
+ // Recheck the whole source attribution before reading Gmail, including SENT.
+ const threadQuery=new URLSearchParams({gmail_thread_id:'eq.'+expected.thread_id,select:'inquiry_id',limit:'2'});
+ const sourceQuery=new URLSearchParams({gmail_message_id:'eq.'+expected.source_id,select:'inquiry_id,gmail_thread_id',limit:'2'});
+ const [links,sources]=await Promise.all([
+  supabaseRequest('/rest/v1/pa_gmail_thread_links?'+threadQuery,{},fetchImpl),
+  supabaseRequest('/rest/v1/pa_gmail_message_index?'+sourceQuery,{},fetchImpl)
+ ]);
+ if(!Array.isArray(links)||links.length!==1||links[0].inquiry_id!==inquiryId||!Array.isArray(sources)||sources.length!==1||sources[0].inquiry_id!==inquiryId||sources[0].gmail_thread_id!==expected.thread_id)throw Error('reply_operation_mismatch');
+ const get=(path,options)=>read(path,options,fetchImpl);
+ let proof=null,verification={status:'UNVERIFIED',basis:null};
+ const acknowledged=evidence.ids(op.gmail_message_id)?op.gmail_message_id:null;
  try{
-  const list=await read('/messages?'+new URLSearchParams({q:'in:anywhere rfc822msgid:'+rfcId(op.operation_id),maxResults:'2'}),{method:'GET'},fetchImpl);
-  if(!list.nextPageToken&&Array.isArray(list.messages)&&list.messages.length===1){
-   const id=list.messages[0].id;
-   if(!/^[A-Za-z0-9_-]{1,200}$/u.test(String(id)))throw Error('invalid_message');
-   const message=await read('/messages/'+encodeURIComponent(id)+'?format=full',{method:'GET'},fetchImpl),n=normalize(message);
-   const values=name=>(message.payload?.headers||[]).filter(h=>String(h.name).toLowerCase()===name).map(h=>String(h.value));
-   const single=(name,value)=>values(name).length===1&&values(name)[0].trim()===value;
-   if(message.labelIds?.includes('SENT')&&n.id===id&&n.thread_id===expected.thread_id
-    &&single('message-id',rfcId(op.operation_id))&&single('in-reply-to',expected.source_rfc)
-    &&values('from').length===1&&values('to').length===1&&values('cc').length<=1&&values('subject').length===1
-    &&!n.reply_identity_invalid&&n.from_address.toLowerCase()===expected.account
-    &&JSON.stringify(addresses(n.to_addresses))===JSON.stringify([expected.to])
-    &&JSON.stringify(addresses(n.cc_addresses))===JSON.stringify(expected.cc)&&n.subject===expected.subject
-    &&hash(normalizeCustomerBody(n.body_text))===expected.body_sha256
-    &&n.attachments.length===expected.attachments.length
-    &&n.attachments.every((a,i)=>a.filename===expected.attachments[i].filename&&a.mime_type===expected.attachments[i].mime_type&&a.size===expected.attachments[i].size)){
-     const parts=[];const collect=p=>{if(!p)return;parts.push(p);for(const child of p.parts||[])collect(child);};collect(message.payload);
-     let originals=true;
-     for(let i=0;i<n.attachments.length;i++){
-      const a=n.attachments[i],part=parts.find(p=>String(p.partId||'')===a.part_id);
-      const data=a.gmail_attachment_id
-       ?(await read('/messages/'+encodeURIComponent(id)+'/attachments/'+encodeURIComponent(a.gmail_attachment_id),{method:'GET'},fetchImpl)).data
-       :part?.body?.data;
-      if(typeof data!=='string'||hash(Buffer.from(data,'base64url'))!==expected.attachments[i].sha256){originals=false;break;}
-     }
-     if(originals)proof={gmail_message_id:id,gmail_thread_id:n.thread_id};
-    }
+  if(acknowledged){
+   const message=await get('/messages/'+encodeURIComponent(acknowledged)+'?format=full',{method:'GET'});
+   const inspected=await evidence.inspect(message,expected,normalize,get);
+   if(message.id===acknowledged&&inspected.binding_matches)proof=inspected;
+   verification={status:proof?'VERIFIED':'MISMATCH',basis:'PERSISTED_PROVIDER_ACK_GMAIL_ID',...inspected};
+  }else if(op.state!=='SENT'){
+   const list=await get('/messages?'+new URLSearchParams({q:'in:anywhere rfc822msgid:'+rfcId(op.operation_id),maxResults:'2'}),{method:'GET'});
+   if(!list.nextPageToken&&Array.isArray(list.messages)&&list.messages.length===1&&evidence.ids(list.messages[0].id)){
+    const message=await get('/messages/'+encodeURIComponent(list.messages[0].id)+'?format=full',{method:'GET'});
+    const inspected=await evidence.inspect(message,expected,normalize,get);
+    if(message.id===list.messages[0].id&&inspected.rfc_message_id===rfcId(op.operation_id)&&inspected.binding_matches)proof=inspected;
+   }
+   verification={status:proof?'VERIFIED':'UNVERIFIED',basis:proof?'EXACT_GENERATED_RFC_AND_FULL_BINDING':null};
   }
- }catch{/* no speculative retry, no negative delivery proof */}
- const result=await act(actorId,proof?'sent':'unknown',op,proof||{},fetchImpl);
- return {operation:safe(result.operation),matched:!!proof};
+ }catch{verification={status:'UNAVAILABLE',basis:acknowledged?'PERSISTED_PROVIDER_ACK_GMAIL_ID':null};}
+ if(proof)verification={...verification,rfc_message_id:proof.rfc_message_id,generated_rfc_preserved:proof.rfc_message_id===rfcId(op.operation_id)};
+ // Historical SENT and history_sync remain byte-for-byte untouched, even if
+ // Gmail is unavailable or a subsequent read disagrees with the saved binding.
+ if(op.state==='SENT')return {operation:safe(op),matched:!!proof,verification};
+ if(proof){
+  const result=await act(actorId,'sent',op,{gmail_message_id:proof.gmail_message_id,gmail_thread_id:proof.gmail_thread_id},fetchImpl);
+  return {operation:safe(result.operation),matched:true,verification};
+ }
+ const review=await evidence.reviewThread(op,get,normalize);
+ const result=await act(actorId,'unknown',op,{},fetchImpl);
+ return {operation:safe(result.operation),matched:false,verification,review};
 }
+
 module.exports={hash,binding,digest,rfcId,rpc,prepare,bound,act,status,safe,reconcile};
