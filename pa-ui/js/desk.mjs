@@ -5,7 +5,8 @@ import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs'
 import {createPrivateAssets} from './private-assets.mjs';
 import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
-import {createMailDiscovery} from './mail-discovery.mjs';
+import {mailRow} from './mail-row.mjs';
+import {createCandidateMailView} from './mail-candidate-view.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} from './case-workflows.mjs';
 import {createOrderDocuments} from './order-documents.mjs';
 import {createCommercialWorkflows} from './commercial-workflows.mjs';
@@ -106,11 +107,11 @@ const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurren
 const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
 const quoteMonitor=createQuoteMonitor({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onUpdate:()=>{if(session&&cases.length)renderList();}});
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
-const discovery=createMailDiscovery({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
+const discovery=createCandidateMailView({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
-function disposePreviews(){quoteHistory?.unmount();orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function disposePreviews(){discovery.detach();quoteHistory?.unmount();orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
+function clearDetail(){discovery.cancel();clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -183,8 +184,7 @@ function overview(c){
 
 function conversation(c){
   return `<div class="toolbar">${flag('purple','メール・やり取り')}${flag(attention(c).needsReview===true?'red':'blue',attention(c).label)}${button('確認済みにする','mark-read','quiet',true)}</div><div id="mail-discovery"></div><h2 class="sectiontitle">メール <small>保存済み情報 / 閲覧で既読にしません</small></h2>${readBlock('messages','メール索引',rows=>rows.length?'<div class="mail-list">'+newestMessages(rows).map(r=>{
-    const body=savedExcerpt(r),atts=mailAttachments(r),dir=r.direction==='inbound'?'received':r.direction==='outbound'?'sent':'unknown',isNew=messageAttention(r,c.attention,rows);
-    return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${dir==='received'?'↓ 受信':dir==='sent'?'↑ 送信':'方向未取得'}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}<time>${escape(date(mailDateValue(r)))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="mail-excerpt ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${r.direction==='inbound'?'<button class="lightbtn" data-reply-message="'+escape(r.gmail_message_id)+'">返信</button>':''}${atts.length?'<button class="lightbtn" data-portal-message="'+escape(r.gmail_message_id)+'">添付を資料候補へ連携</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div></article>`;
+    return mailRow(r,{dateText:date(mailDateValue(r)),isNew:messageAttention(r,c.attention,rows)});
   }).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済みメールなし</div>')}<details class="group"><summary>案内・配送記録</summary>${readBlock('deliveries','配送記録',rows=>rowsHtml(rows,{title:r=>r.subject||r.message_type,body:r=>deliveryUnknown(r)?'UNKNOWN / 再送停止':r.status||'状態未取得',time:r=>r.sent_at||r.failed_at||r.requested_at}))}</details><div class="inlinebtns" style="margin-top:10px">${button('返信作成','reply','quiet',true)}${button('Gmail同期','sync','quiet',true)}${button('未紐付けメール','unlinked','quiet',true)}</div><p class="hint">NEWは保存済みのメール別根拠がある場合のみ表示。添付は資料候補へ連携できます。採用・最新版切替・公開はOwnerが資料ポータルで判断します。</p>`;
 }
 function estimate(c){
@@ -309,7 +309,7 @@ async function refresh(){
 }
 async function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
-  if(name!==tab){if(!await commercial.beforeLeave())return;commercial.clear();}
+  if(name!==tab){if(!await commercial.beforeLeave())return;commercial.clear();if(tab==='conversation')discovery.cancel();}
   resetPrivacy();tab=name;render();central.scrollTop=0;
   document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
   if(name==='conversation')discovery.check(selected);
@@ -369,9 +369,9 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{commercial.clear();reply.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{discovery.cancel();commercial.clear();reply.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 render();
 
-workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token){quoteMonitor.clear();commercial.clear();clearAssets();}if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
+workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token){discovery.cancel();quoteMonitor.clear();commercial.clear();clearAssets();}if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
 window.addEventListener('focus',async()=>{if(!session)return;const epoch=listEpoch;try{const restored=await workspaceAuth.restore();if(epoch!==listEpoch||!session)return;if(!restored)signOut(false);else session=restored;}catch{if(epoch===listEpoch&&session)signOut(false);}});
 workspaceAuth.restore().then(async restored=>{if(!restored)return;session=restored;$('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;await refresh();}).catch(()=>{$('login-status').textContent='既存セッションを確認できません。管理者でログインしてください。';});

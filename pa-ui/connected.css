@@ -23,3 +23,6 @@
 .material-name{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:0}
 .legacy-workflow{margin-top:10px}.legacy-workflow summary{font-size:11px;color:var(--muted);cursor:pointer}
 .material-info details,.material-info div{overflow-wrap:anywhere}.case-delivery{margin-top:10px}
+
+/* Shared mail heading; candidate decisions remain explicit and on the right. */
+#mail-discovery .mail-heading time{margin-left:0} .mail-review-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap} #mail-discovery .mail-list{margin-top:8px}

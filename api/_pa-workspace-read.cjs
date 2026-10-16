@@ -197,6 +197,34 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     if(raw.id!==message.gmail_message_id||raw.threadId!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
     return raw;
   }
+  async function candidateBinding(id,threadId,messageId,fingerprint,token){
+    if(!MAIL_ID.test(threadId||'')||!MAIL_ID.test(messageId||'')||!/^[a-f0-9]{64}$/u.test(fingerprint||''))throw new ReadError('invalid_mail_identity',400);
+    await readableCase(id,token);
+    const [pending,indexes,links]=await Promise.all([
+      rows('paui041_mail_outcomes',{inquiry_id:'eq.'+id,gmail_message_id:'eq.'+messageId,gmail_thread_id:'eq.'+threadId,status:'eq.RELATED_CANDIDATE',select:'inquiry_id,gmail_message_id,gmail_thread_id,status,fingerprint',limit:2},token),
+      rows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'inquiry_id,gmail_thread_id,gmail_message_id',limit:2},token),
+      allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+threadId,select:'inquiry_id,gmail_thread_id'},token)
+    ]);
+    if(pending.length!==1||pending[0].inquiry_id!==id||pending[0].gmail_message_id!==messageId||pending[0].gmail_thread_id!==threadId||pending[0].status!=='RELATED_CANDIDATE'||pending[0].fingerprint!==fingerprint||indexes.length>1||indexes.some(m=>m.inquiry_id!==id||m.gmail_thread_id!==threadId||m.gmail_message_id!==messageId)||links.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==threadId))throw new ReadError('mail_candidate_mismatch',403);
+  }
+  async function candidateBody(id,threadId,messageId,fingerprint,token){
+    await candidateBinding(id,threadId,messageId,fingerprint,token);
+    const identity=require('./_pa-mail-candidate-identity.cjs').reviewThreadIdentity;
+    const thread=await timed('provider_thread',()=>providerRead(()=>provider.thread(threadId)));
+    if(!Array.isArray(thread.messages)||thread.messages.length>200)throw new ReadError('mail_candidate_mismatch',403);
+    let proof;try{proof=identity(thread,threadId);}catch{throw new ReadError('mail_candidate_mismatch',403);}
+    if(proof.fingerprint!==fingerprint||proof.messages.filter(m=>m.id===messageId).length!==1)throw new ReadError('mail_candidate_mismatch',403);
+    const raw=await timed('provider_message',()=>providerRead(()=>provider.message(messageId)));
+    if(raw.id!==messageId||raw.threadId!==threadId||(raw.labelIds||[]).some(l=>['SPAM','TRASH','DRAFT'].includes(l)))throw new ReadError('mail_candidate_mismatch',403);
+    const replaced={...thread,messages:thread.messages.map(m=>m.id===messageId?raw:m)};
+    let freshProof;try{freshProof=identity(replaced,threadId);}catch{throw new ReadError('mail_candidate_mismatch',403);}
+    if(freshProof.fingerprint!==fingerprint)throw new ReadError('mail_candidate_mismatch',403);
+    // A decision, link, or revocation during Provider reads invalidates this read.
+    await admin(token);
+    await candidateBinding(id,threadId,messageId,fingerprint,token);
+    const m=provider.normalize(raw),direction=raw.labelIds?.includes('SENT')?'outbound':'inbound';
+    return {inquiry_id:id,gmail_message_id:messageId,gmail_thread_id:threadId,fingerprint,direction,from_address:m.from_address,to_addresses:m.to_addresses,cc_addresses:m.cc_addresses,subject:m.subject,occurred_at:m.occurred_at,received_at:direction==='inbound'?m.occurred_at:null,sent_at:direction==='outbound'?m.occurred_at:null,body_text:m.body_text||'',body_html:m.body_html||'',body_state:m.body_text||m.body_html?'ready':'empty',source:'gmail_candidate'};
+  }
   async function sentEstimates(id,token){
     await readableCase(id,token);
     const links=await allRows('pa_gmail_thread_links',{inquiry_id:'eq.'+id,select:'*'},token);
@@ -290,12 +318,15 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-discovery'){
           const id=assertId(segments[2]);await readableCase(id,token);
-          if(process.env.PAUI041_DISCOVERY_ENABLED!=='true')result={enabled:false};
-          else{
-            const [states,outcomes]=await Promise.all([rows('paui041_mail_sync_state',{inquiry_id:'eq.'+id,select:'version,state',limit:2},token),allRows('paui041_mail_outcomes',{inquiry_id:'eq.'+id,status:'eq.RELATED_CANDIDATE',select:'gmail_message_id,gmail_thread_id,subject,direction,occurred_at,reason,fingerprint',order:'gmail_message_id.asc'},token)]);
+          {
+            const [states,outcomes]=await Promise.all([rows('paui041_mail_sync_state',{inquiry_id:'eq.'+id,select:'version,state',limit:2},token),allRows('paui041_mail_outcomes',{inquiry_id:'eq.'+id,status:'eq.RELATED_CANDIDATE',select:'inquiry_id,gmail_message_id,gmail_thread_id,status,subject,direction,occurred_at,reason,fingerprint',order:'gmail_message_id.asc'},token)]);
             if(states.length>1)throw new ReadError('case_binding_mismatch',403);
-            result={enabled:true,...states[0]?.state,version:states[0]?.version||0,candidates:outcomes};
+            if(outcomes.some(c=>c.inquiry_id!==id||c.status!=='RELATED_CANDIDATE'||!MAIL_ID.test(c.gmail_message_id||'')||!MAIL_ID.test(c.gmail_thread_id||'')||!/^[a-f0-9]{64}$/u.test(c.fingerprint||'')))throw new ReadError('mail_candidate_mismatch',403);
+            result={...states[0]?.state,enabled:process.env.PAUI041_DISCOVERY_ENABLED==='true',version:states[0]?.version||0,candidates:outcomes};
           }
+        }
+        else if(segments.length===6&&segments[1]==='mail-candidate-body'){
+          result=await candidateBody(assertId(segments[2]),segments[3],segments[4],segments[5],token);
         }
         else if(segments.length===4&&segments[1]==='mail-body'){
           const message=await mailMessage(assertId(segments[2]),segments[3],token);

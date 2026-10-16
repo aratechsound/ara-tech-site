@@ -2,9 +2,9 @@ import {fullBody,savedExcerpt} from './mail-model.mjs';
 import {purposeExcerpt} from './mail-purpose.mjs';
 
 // Private session memory only. Keys bind case and message; no storage or HTML mount.
-export function createMailBodyView({request,isAuthenticated,limit=2}) {
+export function createMailBodyView({request,isAuthenticated,limit=2,keyOf=(id,row)=>JSON.stringify([id,row.gmail_message_id]),onReady=()=>{},excerptText=purposeExcerpt,errorText=null}) {
   const cache=new Map();let generation=0,active=0,queue=[],observer=null;
-  const key=(id,row)=>JSON.stringify([id,row.gmail_message_id]);
+  const key=keyOf;
   function pump(){
     while(active<limit&&queue.length){
       const job=queue.shift();
@@ -13,7 +13,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       Promise.resolve().then(()=>request(job.id,job.row)).then(result=>{
         if(job.generation!==generation||!isAuthenticated())return;
         if(result.gmail_message_id!==job.row.gmail_message_id || (result.inquiry_id&&result.inquiry_id!==job.id))throw {status:403,code:'mail_binding_mismatch'};
-        job.entry.parts=fullBody(result);job.entry.state='ready';
+        job.entry.parts=fullBody(result);job.entry.metadata=result;job.entry.state='ready';
       }).catch(error=>{if(job.generation===generation){job.entry.state='error';job.entry.error=error;}})
         .finally(()=>{active--;if(job.generation===generation)job.entry.notify();job.resolve();pump();});
     }
@@ -29,19 +29,23 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
     const body=container.querySelector('.mail-excerpt'),button=container.querySelector('[data-body-read]');
     const sourceLabel=document.createElement('small');sourceLabel.dataset.excerptSource='true';body.before(sourceLabel);
     const quoted=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');
-    quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);body.after(quoted);
+    quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);
     quoted.addEventListener('toggle',()=>{entry.quoteOpen=quoted.open;});
     function draw(){
       if(!valid()||!container.isConnected)return;
       const failed=entry.state==='error',parts=entry.parts,busy=['loading','queued'].includes(entry.state);
+      if(entry.metadata&&entry.state==='ready')onReady(container,entry.metadata,row);
       body.classList.toggle('expanded',entry.expanded&&!!parts);body.classList.toggle('unavailable',failed);
       sourceLabel.textContent=entry.expanded?'原文（引用は別表示）':parts?'用件抜粋（本文から・原文の代替証拠ではありません）':row.snippet?'用件抜粋（保存済みsnippetのみ・本文未取得）':'用件抜粋（本文未取得）';
-      body.textContent=failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
-        parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':purposeExcerpt(parts.text)||'新規本文なし（引用のみ）'):
+      body.textContent=failed?(errorText?.(entry.error)||(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます')):
+        parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':excerptText(parts.text)||'新規本文なし（引用のみ）'):
         savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
       button.textContent=busy?'本文を取得中…':failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
       button.setAttribute('aria-expanded',String(entry.expanded));
-      text.textContent=parts?.quoted||'';quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
+      text.textContent=parts?.quoted||'';
+      // Do not add a quotation control before an actual quotation is available.
+      if(parts?.quoted){if(!quoted.isConnected)body.after(quoted);}else quoted.remove();
+      quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
     }
     entry.notify=draw;draw();
     button.onclick=async()=>{
