@@ -309,7 +309,7 @@ async function refresh(){
 }
 async function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
-  if(name!==tab){if(!await commercial.beforeLeave())return;commercial.clear();}
+  if(name!==tab){if(!await commercial.beforeLeave())return;commercial.clear();if(tab==='conversation')discovery.cancel();}
   resetPrivacy();tab=name;render();central.scrollTop=0;
   document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
   if(name==='conversation')discovery.check(selected);
