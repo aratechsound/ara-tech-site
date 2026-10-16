@@ -13,7 +13,7 @@ const binding=(preview,attachments)=>({account:OFFICIAL_EMAIL,inquiry_id:preview
  to:preview.recipient.toLowerCase(),cc:addresses(preview.cc_addresses),subject:preview.subject,
  body_sha256:hash(normalizeCustomerBody(preview.body)),
  attachments:attachments.map(a=>({filename:a.filename,mime_type:a.mime_type,size:a.size,
- sha256:hash(Buffer.from(a.data,'base64url'))}))});
+ sha256:hash(Buffer.from(a.data,'base64url')),...(a.document_kind?{document_kind:a.document_kind}:{})}))});
 const digest=b=>hash(JSON.stringify(b));
 async function rpc(actorId,action,payload,fetchImpl){
  const row=await supabaseRequest('/rest/v1/rpc/pa_reply_operation_v1',{method:'POST',body:JSON.stringify({p_actor:actorId,p_action:action,p_payload:payload})},fetchImpl);

@@ -1610,6 +1610,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   const evidenceService = require('./_pa-change-evidence.cjs').createEvidenceService({ rows, one, rpc, snapshot, document, fetchImpl, postgresJsonbText });
   return {
     ...evidenceService,
+    replyDocumentList: (input, actor) => require('./_pa-reply-documents.cjs').list({actorId:actor.id,inquiryId:input.case_id},fetchImpl),
+    replyDocumentVerify: (input, actor) => require('./_pa-reply-documents.cjs').verify({actorId:actor.id,inquiryId:input.case_id,operationId:input.operation_id,messageId:input.gmail_message_id},fetchImpl),
     snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview, estimateSendPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,

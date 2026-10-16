@@ -8,6 +8,7 @@ import {createMailBodyView} from './mail-body-view.mjs';
 import {mailRow} from './mail-row.mjs';
 import {createCandidateMailView} from './mail-candidate-view.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} from './case-workflows.mjs';
+import {createReplyDocumentView} from './reply-documents.mjs';
 import {createOrderDocuments} from './order-documents.mjs';
 import {createCommercialWorkflows} from './commercial-workflows.mjs';
 import {createQuoteMonitor} from './quote-monitor.mjs';
@@ -68,7 +69,7 @@ async function api(url,{blob=false}={}){
   finally{clearTimeout(timer);requests.delete(controller);}
 }
 let privateAssets=null,previewScope=null,quoteHistory=null,simpleAdoptionEnabled=false;
-function clearAssets(){quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
+function clearAssets(){replyDocuments.clear();quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
 function viewPreviewScope(){
   if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}
   if(!previewScope){const id=selected,epoch=selectionEpoch,viewTab=tab;
@@ -104,9 +105,10 @@ const workflowRequest=createWorkflowRequest(async()=>{const value=await workspac
 const portalStatuses=new Map();
 function portalStatus(id,text){portalStatuses.set(id,text);if(selected===id){const host=$('portal-candidate-status');if(host)host.textContent=text;}}
 const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurrent:id=>!!session&&selected===id,onStatus:portalStatus});
-const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
+const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;replyDocuments.clear();const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
 const quoteMonitor=createQuoteMonitor({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onUpdate:()=>{if(session&&cases.length)renderList();}});
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
+const replyDocuments=createReplyDocumentView({getCase:()=>session?current():null,requestReply:workflowRequest,requestCommercial:(action,input)=>commercial.replyDocument(action,input),readBody:(id,row)=>api('/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id))});
 const discovery=createCandidateMailView({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
@@ -223,7 +225,7 @@ function renderMailPreviews(){
     if(!container)continue;
     const items=mailAttachments(row),strip=container.querySelector('[data-attachments]');
     if(strip){
-      const g=createMailAttachmentCarousel({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createMailAttachmentCarousel({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount(strip,items);
     }
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
@@ -231,7 +233,7 @@ function renderMailPreviews(){
 }
 function mountGallery(target,items,track=true){
   const id=selected,epoch=selectionEpoch,viewTab=tab;
-  const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  const g=createGallery({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
   if(track)mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
 }
 function renderGallery(){
@@ -266,7 +268,7 @@ function render(){
     else{quoteHistory ||= createQuoteHistory({caseId:id,assets:caseAssets(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch,previewScope:viewPreviewScope(),monitor:quoteMonitor,onAdopt:c=>commercial.adoptQuote(c)});quoteHistory.mount($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&(d.source==='commercial'||d.source_direction==='outbound')));$('sent-estimate-grid')?.closest('section').setAttribute('hidden','');}
     mountGallery($('formal-document-history-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
     if(!simpleAdoptionEnabled&&$('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
-      const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createGallery({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
     }
   }
