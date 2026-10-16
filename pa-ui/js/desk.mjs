@@ -10,6 +10,7 @@ import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} f
 import {createOrderDocuments} from './order-documents.mjs';
 import {createCommercialWorkflows} from './commercial-workflows.mjs';
 import {createQuoteMonitor} from './quote-monitor.mjs';
+import {createQuoteHistory} from './quote-history.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
@@ -65,8 +66,8 @@ async function api(url,{blob=false}={}){
   }catch(error){if(error.name==='AbortError')throw new ReadFailure('read_timeout_or_cancelled',503);throw error;}
   finally{clearTimeout(timer);requests.delete(controller);}
 }
-let privateAssets=null,previewScope=null;
-function clearAssets(){previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
+let privateAssets=null,previewScope=null,quoteHistory=null,simpleAdoptionEnabled=false;
+function clearAssets(){quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
 function viewPreviewScope(){
   if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}
   if(!previewScope){const id=selected,epoch=selectionEpoch,viewTab=tab;
@@ -108,7 +109,7 @@ const commercial=createCommercialWorkflows({getCase:()=>session?current():null,g
 const discovery=createMailDiscovery({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
-function disposePreviews(){orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
+function disposePreviews(){quoteHistory?.unmount();orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
 function clearDetail(){clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
@@ -261,9 +262,10 @@ function render(){
     const id=selected,epoch=selectionEpoch;
     orderDocuments=createOrderDocuments({host:$('order-documents'),previewScope:viewPreviewScope(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='estimate',deferQuote:quoteMonitorEnabled,mountFallback:(host,kind)=>mountGallery(host,items.filter(d=>kind==='formal'?d.kind==='正式受注確認書'&&d.mime_type==='application/pdf':d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'))});
     commercial.mount($('commercial-actions'),orderDocuments);
-    mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
+    if(!simpleAdoptionEnabled)mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
+    else{quoteHistory ||= createQuoteHistory({caseId:id,assets:caseAssets(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch,previewScope:viewPreviewScope(),monitor:quoteMonitor,onAdopt:c=>commercial.adoptQuote(c)});quoteHistory.mount($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&(d.source==='commercial'||d.source_direction==='outbound')));$('sent-estimate-grid')?.closest('section').setAttribute('hidden','');}
     mountGallery($('formal-document-history-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
-    if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
+    if(!simpleAdoptionEnabled&&$('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
       const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
     }
@@ -294,7 +296,7 @@ async function refresh(){
   try{
     const attPromise=api('/data/attention').then(value=>({value}),error=>({error}));
     const list=await api('/data/cases');if(epoch!==listEpoch)return;
-    quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
+    simpleAdoptionEnabled=list.quote_adoption_simple===true;commercial.setSimpleAdoption(simpleAdoptionEnabled);quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
     const map=new Map(list.progress.map(p=>[p.inquiry_id,p]));
     cases=list.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:null,attentionLoaded:false}));
     updateFilters();renderList();render();

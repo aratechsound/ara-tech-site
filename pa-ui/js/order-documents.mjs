@@ -22,7 +22,7 @@ export function createOrderDocuments({host,mountFallback,previewScope,isCurrent,
  tools.append(button('履歴を見る ↓',linkHistory));
  for(const c of columns)c.links.append(button('関連履歴',linkHistory));
  let wired=false,last=null;
- function connect({request,assets,resolve,openEvidence,monitor=null,caseId=null,onDecision=null}){
+ function connect({request,assets,resolve,openEvidence,adoptEvidence,monitor=null,caseId=null,onDecision=null}){
   if(!safe())return;
   if(!wired){wired=true;tools.append(button('変更見積・承認証拠を検索・確認',openEvidence));if(monitor)tools.append(button('変更見積を手動で登録・選択',()=>openEvidence()));}
   const ticket=++version;
@@ -66,7 +66,8 @@ export function createOrderDocuments({host,mountFallback,previewScope,isCurrent,
      if(!safe()||c.case_id!==caseId||c.evidence?.case_id!==caseId)return;
      selectedCandidate=c;const payload={candidate_key:c.key,quote_sha256:c.evidence.quote.sha256};
      present({evidence:c.evidence,payload,label:c.stale?'前回の照合候補・最新確認未完了':c.decision?.event_kind==='deferred'?'あとで確認・Owner未採用':c.evidence.approval?.status==='verified'?'送信済み・Owner未採用':'変更見積候補・承認待ち',monitorCandidate:true,stale:c.stale},c.key);
-     actions.replaceChildren(button('この見積を現行合意見積として採用',()=>openEvidence(c)),button('この案件の変更見積ではない',()=>onDecision?.(c,'excluded')),button('あとで確認',()=>onDecision?.(c,'deferred')));
+     for(const i of [1,2]){columns[i].badge.replaceChildren(document.createTextNode(columns[i].badge.textContent));if(adoptEvidence){const entry=button('この見積を採用',()=>adoptEvidence(c));entry.disabled=c.stale||c.evidence.approval?.status!=='verified'||!c.evidence.approval.exact_quote_reference||!c.evidence.approval.linked;columns[i].badge.append(entry);}}
+     actions.replaceChildren(button('この見積を現行合意見積として採用',()=>(adoptEvidence||openEvidence)(c)),button('この案件の変更見積ではない',()=>onDecision?.(c,'excluded')),button('あとで確認',()=>onDecision?.(c,'deferred')));
     };
     const update=value=>{
      if(!safe()||value?.case_id!==caseId)return;monitorView=value;
