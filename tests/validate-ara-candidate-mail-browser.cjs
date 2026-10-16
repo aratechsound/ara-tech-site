@@ -5,7 +5,7 @@ const root=path.resolve(__dirname,'..'),C='11111111-1111-4111-8111-111111111111'
 async function main(){
  const server=http.createServer((req,res)=>{const f=path.resolve(root,new URL(req.url,'http://fixture').pathname.slice(1));if(!f.startsWith(root+path.sep))return res.writeHead(403).end();try{res.setHeader('Content-Type',/\.(mjs|js)$/.test(f)?'text/javascript':f.endsWith('.css')?'text/css':'text/html; charset=utf-8');res.end(fs.readFileSync(f));}catch{res.writeHead(404).end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1440,height:1050}}),origin='http://127.0.0.1:'+server.address().port;
- const calls=[],writes=[],errors=[],external=[],waiters=[];let hold=false,decided=false;
+ const calls=[],writes=[],syncCalls=[],errors=[],external=[],waiters=[];let hold=false,decided=false;
  const fp='a'.repeat(64),candidates=()=>[1,2,3,4,5].map(n=>({inquiry_id:C,gmail_message_id:'candidate-'+n,gmail_thread_id:n<3?'same-thread':'thread-'+n,fingerprint:fp,direction:n===2?'outbound':'inbound',occurred_at:'2026-10-17T00:00:00Z',subject:'候補 '+n,status:'RELATED_CANDIDATE'})).filter(c=>!decided||c.gmail_thread_id!=='same-thread');
  const data=id=>({inquiry_id:C,gmail_message_id:id,gmail_thread_id:Number(id.at(-1))<3?'same-thread':'thread-'+id.at(-1),fingerprint:fp,direction:id==='candidate-2'?'outbound':'inbound',occurred_at:'2026-10-17T00:00:00Z',from_address:id==='candidate-2'?'aratechsound@gmail.com':'sender@example.invalid',to_addresses:id==='candidate-2'?['sender@example.invalid']:['aratechsound@gmail.com'],cc_addresses:id==='candidate-1'?['copy@example.invalid']:[],subject:'候補 '+id.at(-1)+' <特殊 & 文字>',body_text:id==='candidate-3'?'':'第一行 '+id+'\n第二行\n第三行\n第四行の原文\n> 引用の原文',body_html:id==='candidate-3'?'<div>HTML原文 &amp; 特殊文字</div><script>window.UNSAFE=true</script><img src="https://forbidden.invalid/pixel" onerror="window.UNSAFE=true"><blockquote>引用HTML</blockquote>':''});
  try{
@@ -25,10 +25,10 @@ async function main(){
    else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
    try{return await r.fulfill({json:{ok:true,result:value}});}catch{}
   });
-  await page.route('**/api/pa-gmail',async r=>{const b=r.request().postDataJSON();writes.push(b);assert.equal(b.action,'case_discovery_decide');assert.equal(b.inquiry_id,C);assert.equal(b.gmail_thread_id,'same-thread');assert.equal(b.fingerprint,fp);decided=true;return r.fulfill({json:{ok:true,result:{}}});});
+  await page.route('**/api/pa-gmail',async r=>{const b=r.request().postDataJSON();if(b.action==='case_discovery_sync'){syncCalls.push(b);assert.equal(b.inquiry_id,C);return r.fulfill({json:{ok:true,result:{complete:true,has_more:false,last_completed_at:'2026-10-17T00:00:00Z'}}});}writes.push(b);assert.equal(b.action,'case_discovery_decide');assert.equal(b.inquiry_id,C);assert.equal(b.gmail_thread_id,'same-thread');assert.equal(b.fingerprint,fp);decided=true;return r.fulfill({json:{ok:true,result:{}}});});
   await page.route('**/api/pa-mail?**',r=>{throw Error('UNRELATED_COMMERCIAL_WRITE');});
   await page.goto(origin+'/pa-admin.html');await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();
-  const summary=page.getByText('関連付け判断待ち 5件',{exact:true});await summary.waitFor();assert.equal(calls.filter(p=>p.startsWith('/data/mail-candidate-body/')).length,0);assert.deepEqual(writes,[]);
+  const summary=page.getByText('関連付け判断待ち 5件',{exact:true});await summary.waitFor();await page.locator('#mail-discovery [role=status]').getByText(/最新確認済み/).waitFor();assert.equal(syncCalls.length,1);assert.equal(calls.filter(p=>p.startsWith('/data/mail-candidate-body/')).length,0);assert.deepEqual(writes,[]);
   await summary.click();const card=n=>page.locator('#mail-discovery [data-candidate-message="candidate-'+n+'"]');
   await card(1).getByRole('button',{name:'全文を表示',exact:true}).waitFor();await card(1).locator('.mail-excerpt').getByText('第一行 candidate-1',{exact:false}).waitFor();
   assert.equal(await page.locator('#mail-discovery .mail-row').count(),5);assert.equal(await card(1).locator('.mail-direction').innerText(),'↓ 受信');assert.equal(await card(2).locator('.mail-direction').innerText(),'↑ 送信');assert((await card(1).locator('.mail-address').innerText()).includes('CC copy@example.invalid'));assert(!(await card(2).locator('.mail-address').innerText()).includes('CC'));
@@ -43,8 +43,9 @@ async function main(){
   await page.setViewportSize({width:390,height:844});await card(1).scrollIntoViewIfNeeded();assert(await card(1).evaluate(e=>e.scrollWidth<=e.clientWidth+2));const bounds=await card(1).evaluate(e=>{const c=e.getBoundingClientRect(),a=e.querySelector('.mail-review-actions').getBoundingClientRect();return {cardRight:c.right,actionsRight:a.right};});assert(bounds.actionsRight<=bounds.cardRight+2);
   if(process.env.PAUI055_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.PAUI055_SCREENSHOT_DIR,'ISOLATED_CANDIDATE_MOBILE.png')});
   console.log('PASS shared mail cards, two same-thread messages, directions, envelope, exact three-line prefix, full/quoted text, HTML safety, read failures, PC/mobile and normal mail');
-  await page.setViewportSize({width:1440,height:1050});await card(1).getByRole('button',{name:'この案件に関連付ける',exact:true}).click();await page.getByRole('group',{name:'関連付け判断の確認'}).waitFor();assert.deepEqual(writes,[]);await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.deepEqual(writes,[]);
-  await card(2).getByRole('button',{name:'候補から除外',exact:true}).click();await page.getByRole('group',{name:'関連付け判断の確認'}).waitFor();assert.deepEqual(writes,[]);await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.deepEqual(writes,[]);
+  await page.setViewportSize({width:1440,height:1050});await card(1).getByRole('button',{name:'この案件に関連付ける',exact:true}).click();await page.getByRole('group',{name:'関連付け判断の確認'}).waitFor();assert.deepEqual(writes,[]);await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.deepEqual(writes,[]);await summary.click();
+  await card(2).getByRole('button',{name:'候補から除外',exact:true}).click();await page.getByRole('group',{name:'関連付け判断の確認'}).waitFor();assert.deepEqual(writes,[]);await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.deepEqual(writes,[]);await summary.click();
+  assert.equal(syncCalls.length,1,'Card rendering, body/quote/full/close and cancelled decisions never initiate additional sync');
   const before=calls.filter(p=>p.includes('/mail-candidate-body/')&&p.includes('/candidate-1/')).length;await page.locator('[data-case="'+D+'"]').click();assert.equal(await page.locator('[data-candidate-message]').count(),0);await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await summary.click();await card(1).locator('.mail-excerpt').getByText('第一行 candidate-1',{exact:false}).waitFor();assert.equal(calls.filter(p=>p.includes('/mail-candidate-body/')&&p.includes('/candidate-1/')).length,before+1);
   hold=true;await page.locator('[data-case="'+D+'"]').click();await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await summary.click();
   for(let n=0;n<100&&!waiters.length;n++)await new Promise(resolve=>setTimeout(resolve,10));assert(waiters.length>0);
@@ -69,7 +70,7 @@ async function main(){
   }
   assert.equal(writes.length,2);assert.deepEqual(errors,[]);
   console.log('PASS explicit confirmation alone uses the unchanged thread/fingerprint decision API for link and exclude');
-  console.log(JSON.stringify({status:'PASS',read_only_body_phase_writes:0,auto_sync_calls:0,mocked_confirmed_decisions:2,real_sends:0,real_business_decisions:0,case_logout_cleanup:true,normal_mail_preserved:true}));
+  console.log(JSON.stringify({status:'PASS',read_only_body_phase_writes:0,entry_sync_calls:syncCalls.length,body_or_card_sync_calls:0,mocked_confirmed_decisions:2,real_sends:0,real_business_decisions:0,case_logout_cleanup:true,normal_mail_preserved:true}));
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

@@ -29,7 +29,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2,keyOf=(id,ro
     const body=container.querySelector('.mail-excerpt'),button=container.querySelector('[data-body-read]');
     const sourceLabel=document.createElement('small');sourceLabel.dataset.excerptSource='true';body.before(sourceLabel);
     const quoted=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');
-    quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);body.after(quoted);
+    quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);
     quoted.addEventListener('toggle',()=>{entry.quoteOpen=quoted.open;});
     function draw(){
       if(!valid()||!container.isConnected)return;
@@ -42,7 +42,10 @@ export function createMailBodyView({request,isAuthenticated,limit=2,keyOf=(id,ro
         savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
       button.textContent=busy?'本文を取得中…':failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
       button.setAttribute('aria-expanded',String(entry.expanded));
-      text.textContent=parts?.quoted||'';quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
+      text.textContent=parts?.quoted||'';
+      // Do not add a quotation control before an actual quotation is available.
+      if(parts?.quoted){if(!quoted.isConnected)body.after(quoted);}else quoted.remove();
+      quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
     }
     entry.notify=draw;draw();
     button.onclick=async()=>{

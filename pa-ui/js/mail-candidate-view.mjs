@@ -1,7 +1,7 @@
 import {createMailBodyView} from './mail-body-view.mjs';
 import {mailRow,updateMailEnvelope} from './mail-row.mjs';
 // Decisions remain explicit, thread/fingerprint-bound Owner operations.
-// Candidate display and body reads never start sync or a decision.
+// check() retains the existing entry sync; mount/body reads never start it.
 export function createCandidateMailView({read,getSession,isCurrent,onIndexed}){
   const states=new Map();let controller=null,epoch=0,activeCase=null;
   const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,7 +22,7 @@ export function createCandidateMailView({read,getSession,isCurrent,onIndexed}){
     const host=document.getElementById('mail-discovery');if(!host)return;
     activeCase=id;bodies.detach();const s=states.get(id);host.replaceChildren();if(!s)return;
     const node=document.createElement('div');node.className='hint';node.setAttribute('role','status');
-    node.textContent=s.busy?'関連付け候補を取得中…':s.error?'確認未完了 / '+s.error:s.enabled===false?'Gmail自動確認は未有効です。保存済み情報を表示しています。':s.complete?'保存済み確認結果 '+new Date(s.last_completed_at).toLocaleString('ja-JP'):'保存済み候補を表示しています。未取得範囲があります。';host.append(node);
+    node.textContent=s.busy?'Gmailの最新状態を確認中…':s.error?'確認未完了 / '+s.error:s.enabled===false?'Gmail自動確認は未有効です。保存済み情報を表示しています。':s.complete?'最新確認済み '+new Date(s.last_completed_at).toLocaleString('ja-JP'):'確認未完了 / 未取得範囲があります。次回表示時に再照合します。';host.append(node);
     const candidates=[...new Map((s.candidates||[]).map(c=>[identity(c),c])).values()];
     if(!candidates.length)return;
     const details=document.createElement('details');details.className='group';details.open=!!(s.expanded||s.confirmation);
@@ -46,7 +46,7 @@ export function createCandidateMailView({read,getSession,isCurrent,onIndexed}){
     }
     details.onclick=async event=>{
       const b=event.target.closest('[data-discovery-link],[data-discovery-exclude],[data-discovery-confirm],[data-discovery-cancel]');if(!b||s.busy||!isCurrent(id))return;
-      if(b.dataset.discoveryCancel){delete s.confirmation;mount(id);return;}
+      if(b.dataset.discoveryCancel){delete s.confirmation;s.expanded=false;mount(id);return;}
       if(!b.dataset.discoveryConfirm){const c=candidates.find(row=>row.gmail_message_id===b.dataset.reviewMessage&&row.gmail_thread_id===(b.dataset.discoveryLink||b.dataset.discoveryExclude));if(!c)return;s.confirmation={thread:c.gmail_thread_id,key:identity(c),decision:b.dataset.discoveryLink?'link':'exclude'};mount(id);return;}
       const {thread,key,decision}=s.confirmation||{},c=candidates.find(row=>identity(row)===key);
       if(!c||b.dataset.discoveryConfirm!==thread)return;
@@ -57,7 +57,7 @@ export function createCandidateMailView({read,getSession,isCurrent,onIndexed}){
     };host.append(details);
   }
   async function write(body){
-    if(body.action!=='case_discovery_decide'||!isCurrent(body.inquiry_id))throw Error('case_changed');const ticket=epoch;
+    if(!['case_discovery_sync','case_discovery_decide'].includes(body.action)||!isCurrent(body.inquiry_id))throw Error('case_changed');const ticket=epoch;
     const session=await getSession();if(!session?.access_token)throw Error('login_required');
     if(ticket!==epoch||!isCurrent(body.inquiry_id))throw Error('case_changed');
     const active=new AbortController();controller=active;const timer=setTimeout(()=>active.abort(),55000);
@@ -66,8 +66,20 @@ export function createCandidateMailView({read,getSession,isCurrent,onIndexed}){
   }
   async function check(id){
     if(states.get(id)?.busy)return;const ticket=epoch,s={busy:true};states.set(id,s);mount(id);
-    try{const value=await read('/data/mail-discovery/'+id);if(ticket===epoch&&isCurrent(id))Object.assign(s,value);}
-    catch{s.error='保存済みの関連付け候補を取得できません。';}
+    try{
+      const value=await read('/data/mail-discovery/'+id);if(ticket!==epoch||!isCurrent(id))return;Object.assign(s,value);
+      if(s.enabled!==true)return;
+      // Retain PAUI-041's 25-page bound, rate gate and committed-index refresh.
+      // This is invoked only by conversation entry, never by mount/body toggles.
+      for(let page=0;page<25&&ticket===epoch&&isCurrent(id);page++){
+        const result=await write({action:'case_discovery_sync',inquiry_id:id});if(ticket!==epoch||!isCurrent(id))return;Object.assign(s,result);
+        await onIndexed(id);if(ticket!==epoch||!isCurrent(id))return;
+        if(result.last_error){s.error='Gmail取得に失敗しました。新着なしとは判定していません。';break;}
+        if(result.has_more===false)break;
+      }
+      const refreshed=await read('/data/mail-discovery/'+id);if(ticket===epoch&&isCurrent(id))Object.assign(s,refreshed);
+    }
+    catch{s.error='Gmailの最新確認を完了できませんでした。保存済みメールを表示しています。';}
     finally{s.busy=false;if(ticket===epoch&&isCurrent(id)&&states.get(id)===s)mount(id);}
   }
   return {mount,check,detach:()=>bodies.detach(),cancel(){++epoch;controller?.abort();controller=null;activeCase=null;states.clear();bodies.clear();document.getElementById('mail-discovery')?.replaceChildren();}};
