@@ -90,6 +90,7 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
 };
 
 const SAFE = new Set([
+  ...require('./_pa-change-evidence.cjs').ERRORS,
   'estimate_send_not_ready', 'stale_estimate_preview',
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
   'legacy_confirmation_reconciliation_required', 'post_contract_change_required',
@@ -1605,7 +1606,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     p_actor: actor.id, p_case: uuid(input.case_id), p_reason: text(input.reason, 2000)
   });
 
+  const evidenceService = require('./_pa-change-evidence.cjs').createEvidenceService({ rows, one, rpc, snapshot, document, fetchImpl, postgresJsonbText });
   return {
+    ...evidenceService,
     snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview, estimateSendPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,

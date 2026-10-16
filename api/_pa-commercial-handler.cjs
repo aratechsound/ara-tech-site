@@ -4,6 +4,7 @@ const { streamAttachmentResponse } = require('./_pa-gmail.cjs');
 const { applyOriginPolicy, checkRateLimit } = require('./_request-security.cjs');
 
 const ACTIONS = new Set([
+  'change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf',
   'issue_direct_confirmation_and_send',
   'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
@@ -39,6 +40,12 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
       }
       let result;
       switch (input.action) {
+        case 'change_evidence_contract_pdf': return streamAttachmentResponse(res, await service.changeEvidenceContractPdf(input, actor));
+        case 'change_evidence_candidates': result = await service.changeEvidenceCandidates(input, actor); break;
+        case 'change_evidence_preview': result = await service.changeEvidencePreview(input, actor); break;
+        case 'change_evidence_append': result = await service.changeEvidenceAppend(input, actor); break;
+        case 'change_evidence_document': return streamAttachmentResponse(res, await service.changeEvidenceDocument(input, actor));
+        case 'change_evidence_mail_pdf': return streamAttachmentResponse(res, await service.changeEvidenceMailPdf(input, actor));
         case 'snapshot': result = await service.snapshot(input.case_id); break;
         case 'document': return streamAttachmentResponse(res, await service.document(input.case_id, input.document_id));
         case 'confirmation_preview': result = await service.confirmationPreview(input, actor); break;
