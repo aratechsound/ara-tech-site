@@ -9,6 +9,7 @@ import {createMailDiscovery} from './mail-discovery.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} from './case-workflows.mjs';
 import {createOrderDocuments} from './order-documents.mjs';
 import {createCommercialWorkflows} from './commercial-workflows.mjs';
+import {createQuoteMonitor} from './quote-monitor.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
@@ -35,6 +36,7 @@ const shortDate=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '�
 const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
+let quoteMonitorEnabled=false;
 let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
 const requests=new Set();
 class ReadFailure extends Error{constructor(code,status){super(code);this.code=code;this.status=status;}}
@@ -101,6 +103,7 @@ const portalStatuses=new Map();
 function portalStatus(id,text){portalStatuses.set(id,text);if(selected===id){const host=$('portal-candidate-status');if(host)host.textContent=text;}}
 const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurrent:id=>!!session&&selected===id,onStatus:portalStatus});
 const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?current():null,onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
+const quoteMonitor=createQuoteMonitor({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onUpdate:()=>{if(session&&cases.length)renderList();}});
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
 const discovery=createMailDiscovery({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
@@ -132,12 +135,13 @@ function renderList(){
   for(const c of list){
     const d=eventDate(c),group=$('order').value==='event'?(d?d.slice(0,7):'開催日未定'):'';
     if(group&&group!==month){month=group;html+=`<div class="month">${escape(group.replace('-','年 '))}${d?'月':''}</div>`;}
-    const a=attention(c);html+=`<button class="case ${c.id===selected?'selected':''}" data-case="${escape(c.id)}" aria-pressed="${c.id===selected}"><span class="caldate">${escape(shortDate(d))}<small>${escape(d?d.slice(0,4):'')}</small></span><span style="min-width:0"><span class="casename" title="${escape(privateText(c.event_name||'イベント名未設定'))}"><span class="case-name-track"><span>${tx(c.event_name||'イベント名未設定')}</span><span aria-hidden="true" hidden>${tx(c.event_name||'イベント名未設定')}</span></span></span><span class="caseline" style="display:block">${tx(c.organization_name||c.customer_name||c.contact_name||'顧客未設定')}</span>${a.label!==statusText(c)?'<span class="casefoot">'+(a.needsReview===true?'<span class="newdot" aria-label="顧客返信未確認"></span>':'')+'<span>'+escape(a.label)+'</span></span>':''}</span><span class="rightbadges"><span class="tiny ${statusColor(c)==='green'?'success':statusColor(c)==='amber'?'warning':'neutral'}">${escape(statusText(c))}</span>${['new','new_inquiry'].includes(c.status)||a.needsReview===true?'<span class="tiny new">NEW</span>':''}</span></button>`;
+    const a=attention(c),quoteStatus=quoteMonitor.get(c.id);html+=`<div class="quote-case-row"><button class="case ${c.id===selected?'selected':''}" data-case="${escape(c.id)}" aria-pressed="${c.id===selected}"><span class="caldate">${escape(shortDate(d))}<small>${escape(d?d.slice(0,4):'')}</small></span><span style="min-width:0"><span class="casename" title="${escape(privateText(c.event_name||'イベント名未設定'))}"><span class="case-name-track"><span>${tx(c.event_name||'イベント名未設定')}</span><span aria-hidden="true" hidden>${tx(c.event_name||'イベント名未設定')}</span></span></span><span class="caseline" style="display:block">${tx(c.organization_name||c.customer_name||c.contact_name||'顧客未設定')}</span>${a.label!==statusText(c)?'<span class="casefoot">'+(a.needsReview===true?'<span class="newdot" aria-label="顧客返信未確認"></span>':'')+'<span>'+escape(a.label)+'</span></span>':''}</span><span class="rightbadges"><span class="tiny ${statusColor(c)==='green'?'success':statusColor(c)==='amber'?'warning':'neutral'}">${escape(statusText(c))}</span>${['new','new_inquiry'].includes(c.status)||a.needsReview===true?'<span class="tiny new">NEW</span>':''}</span></button>${quoteStatus?.label?'<button type="button" class="quote-notice '+(quoteStatus.deferred?'deferred':'')+'" data-quote-case="'+escape(c.id)+'" title="'+escape(quoteStatus.checked_at?'最終確認 '+quoteStatus.checked_at:'変更見積の確認未完了')+'">'+escape(quoteStatus.label)+(quoteStatus.deferred?'・あとで確認':'')+'</button>':''}</div>`;
   }
   $('case-list').innerHTML=html||'<div class="empty-state">該当する案件はありません</div>';
   caseNames.mount($('case-list'));
   const closed=cases.filter(isClosedCase).length;
   document.querySelector('.asidebottom').innerHTML=`<span>表示 ${list.length} / ${cases.length}件</span><span>進行 ${cases.length-closed} / 完了等 ${closed}</span>`;
+  if(quoteMonitorEnabled){const known=cases.filter(c=>quoteMonitor.get(c.id)),pending=known.filter(c=>quoteMonitor.get(c.id).state==='incomplete').length;document.querySelector('.asidebottom').insertAdjacentHTML('beforeend','<span>変更見積：保存結果 '+known.length+'/'+cases.length+'件・未確認 '+(pending+cases.length-known.length)+'件（自動検査4件まで）</span>');}
 }
 function renderHeader(){
   const c=current();$('case-ref').textContent=c?'受付 '+(c.inquiry_number||'番号未提供'):'CASE —';
@@ -255,7 +259,7 @@ function render(){
   if(tab==='overview')mountGallery($('inquiry-attachment-grid'),inquiryAttachmentItems(items));
   if(tab==='estimate'){
     const id=selected,epoch=selectionEpoch;
-    orderDocuments=createOrderDocuments({host:$('order-documents'),previewScope:viewPreviewScope(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='estimate',mountFallback:(host,kind)=>mountGallery(host,items.filter(d=>kind==='formal'?d.kind==='正式受注確認書'&&d.mime_type==='application/pdf':d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'))});
+    orderDocuments=createOrderDocuments({host:$('order-documents'),previewScope:viewPreviewScope(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='estimate',deferQuote:quoteMonitorEnabled,mountFallback:(host,kind)=>mountGallery(host,items.filter(d=>kind==='formal'?d.kind==='正式受注確認書'&&d.mime_type==='application/pdf':d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'))});
     commercial.mount($('commercial-actions'),orderDocuments);
     mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
     mountGallery($('formal-document-history-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
@@ -271,12 +275,12 @@ async function loadSurface(name,url,epoch){
   catch(error){if(epoch!==selectionEpoch)return;detail[name]={state:'error',error};}
   if(epoch===selectionEpoch)render();
 }
-async function selectCase(id){
+async function selectCase(id,initialTab='overview'){
   if(!cases.some(c=>c.id===id))return;
   if(id!==selected&&!await reply.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
-  portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab='overview';const epoch=selectionEpoch;
+  portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab=initialTab;const epoch=selectionEpoch;
   renderList();render();
   // No mark-read, Gmail sync, lazy contract PDF generation or token issuance here.
   await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
@@ -285,17 +289,19 @@ async function refresh(){
   if(!await reply.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
-  portalBridge.cancel();++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
+  quoteMonitor.clear();portalBridge.cancel();++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
   renderList();render();$('case-list').innerHTML='<div class="load-state">案件一覧を取得中…</div>';$('refresh-cases').disabled=true;
   try{
-    const [list,att]=await Promise.allSettled([api('/data/cases'),api('/data/attention')]);
-    if(epoch!==listEpoch)return;
-    if(list.status!=='fulfilled')throw list.reason;
-    const map=new Map(list.value.progress.map(p=>[p.inquiry_id,p]));
-    if(att.status==='rejected')attentionError=att.reason;
-    const attentionMap=new Map(att.status==='fulfilled'?att.value.map(a=>[a.inquiry_id,a]):[]);
-    cases=list.value.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:attentionMap.get(c.id)||null,attentionLoaded:att.status==='fulfilled'}));
-    updateFilters();renderList();render();const requested=new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested);
+    const attPromise=api('/data/attention').then(value=>({value}),error=>({error}));
+    const list=await api('/data/cases');if(epoch!==listEpoch)return;
+    quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
+    const map=new Map(list.progress.map(p=>[p.inquiry_id,p]));
+    cases=list.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:null,attentionLoaded:false}));
+    updateFilters();renderList();render();
+    if(quoteMonitorEnabled)void quoteMonitor.start(cases.map(c=>({...c,monitorActive:!isClosedCase(c)})));
+    const attentionReady=attPromise.then(att=>{if(epoch!==listEpoch)return;attentionError=att.error||null;const indexed=new Map((att.value||[]).map(a=>[a.inquiry_id,a]));cases=cases.map(c=>({...c,attention:indexed.get(c.id)||null,attentionLoaded:!att.error}));renderList();renderCounts();});
+    const requested=new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested);
+    await attentionReady;
   }catch(error){if(epoch!==listEpoch)return;cases=[];listError=error;renderList();render();}
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
@@ -315,7 +321,7 @@ function renderFeatures(){
 }
 async function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(['PAUI-D-001','PAUI-D-002','PAUI-E-001','PAUI-E-003','PAUI-E-004'].includes(id)&&current()){await setTab('estimate');return;}if(current())setTab(f.target||'overview');openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){commercial.clear();reply.clear();portalBridge.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){quoteMonitor.clear();commercial.clear();reply.clear();portalBridge.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -339,11 +345,12 @@ $('login-form').addEventListener('submit',async e=>{
   }catch{$('login-status').textContent='ログインできません。既存管理者認証・閲覧権限を確認してください。';form.elements.password.value='';}
   finally{submit.disabled=false;}
 });
-document.addEventListener('click',e=>{
+document.addEventListener('click',async e=>{
   const replying=e.target.closest('[data-reply-message]');if(replying){const row=(getRows('messages')||[]).find(m=>m.gmail_message_id===replying.dataset.replyMessage);if(row)reply.open(row);return;}
   const recheck=e.target.closest('[data-portal-recheck]');if(recheck){const id=selected;recheck.disabled=true;portalBridge.recheck(id,getRows('messages')).catch(()=>{}).finally(()=>{if(recheck.isConnected)recheck.disabled=false;});return;}
   const linking=e.target.closest('[data-portal-message]');if(linking){const id=selected,messageId=linking.dataset.portalMessage;if(!(getRows('messages')||[]).some(m=>m.gmail_message_id===messageId))return;linking.disabled=true;portalBridge.link(id,messageId,{threadId:getRows('messages').find(m=>m.gmail_message_id===messageId)?.gmail_thread_id}).catch(()=>{}).finally(()=>{if(linking.isConnected)linking.disabled=false;});return;}
   if(e.target.closest('[data-legacy]')){openLegacy();return;}
+  const quote=e.target.closest('[data-quote-case]');if(quote){if(quote.dataset.quoteCase===selected)await setTab('estimate');else await selectCase(quote.dataset.quoteCase,'estimate');const target=central.querySelector('.quote-candidate-controls')||$('order-documents');if(target){target.tabIndex=-1;target.focus();}return;}
   const c=e.target.closest('[data-case]');if(c){selectCase(c.dataset.case);return;}
   const t=e.target.closest('[data-tab]');if(t){setTab(t.dataset.tab);return;}
   const feature=e.target.closest('[data-feature]');if(feature){featureJump(feature.dataset.feature);return;}
@@ -363,6 +370,6 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').cl
 window.addEventListener('pagehide',()=>{commercial.clear();reply.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 render();
 
-workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token){commercial.clear();clearAssets();}if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
+workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token){quoteMonitor.clear();commercial.clear();clearAssets();}if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
 window.addEventListener('focus',async()=>{if(!session)return;const epoch=listEpoch;try{const restored=await workspaceAuth.restore();if(epoch!==listEpoch||!session)return;if(!restored)signOut(false);else session=restored;}catch{if(epoch===listEpoch&&session)signOut(false);}});
 workspaceAuth.restore().then(async restored=>{if(!restored)return;session=restored;$('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;await refresh();}).catch(()=>{$('login-status').textContent='既存セッションを確認できません。管理者でログインしてください。';});

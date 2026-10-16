@@ -285,7 +285,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       const token=req.headers.authorization;await timed('auth',()=>admin(token));let result;
         if(u.pathname==='/data/cases'){
           const [cases,progress]=await Promise.all([allRows('pa_inquiries',{select:'*',deleted_at:'is.null',order:'id.asc'},token),allRows('pa_case_progress',{select:'*',order:'inquiry_id.asc'},token)]);
-          result={cases,progress};
+          result={cases,progress,quote_monitor:true};
         }else if(u.pathname==='/data/attention')result=await allRows('pa_case_mail_attention',{select:'*',order:'inquiry_id.asc'},token);
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-discovery'){

@@ -4,6 +4,7 @@ const { streamAttachmentResponse } = require('./_pa-gmail.cjs');
 const { applyOriginPolicy, checkRateLimit } = require('./_request-security.cjs');
 
 const ACTIONS = new Set([
+  'quote_monitor_list','quote_monitor_status','quote_monitor_check','quote_monitor_decision','quote_monitor_document','quote_monitor_history',
   'change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf',
   'issue_direct_confirmation_and_send',
   'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
@@ -40,6 +41,12 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
       }
       let result;
       switch (input.action) {
+        case 'quote_monitor_list': result = await service.quoteMonitorList(input, actor); break;
+        case 'quote_monitor_status': result = await service.quoteMonitorStatus(input, actor); break;
+        case 'quote_monitor_history': result = await service.quoteMonitorHistory(input, actor); break;
+        case 'quote_monitor_check': result = await service.quoteMonitorCheck(input, actor); break;
+        case 'quote_monitor_decision': result = await service.quoteMonitorDecision(input, actor); break;
+        case 'quote_monitor_document': return streamAttachmentResponse(res, await service.quoteMonitorDocument(input, actor));
         case 'change_evidence_contract_pdf': return streamAttachmentResponse(res, await service.changeEvidenceContractPdf(input, actor));
         case 'change_evidence_candidates': result = await service.changeEvidenceCandidates(input, actor); break;
         case 'change_evidence_preview': result = await service.changeEvidencePreview(input, actor); break;
