@@ -1,6 +1,6 @@
 import {privateText,setPrivateAmount,readPrivateAmount,revealPrivacy,resetPrivacy} from './pa-workspace-privacy.mjs';
 const pick=q=>Object.fromEntries(['source','estimate_id','message_id','thread_id','attachment_id','part_id','sha256'].filter(k=>q?.[k]!=null).map(k=>[k,q[k]]));
-const digest=async v=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x))))].map(n=>n.toString(16).padStart(2,'0')).join('');
+const digest=async v=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new window.TextEncoder().encode(JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x))))].map(n=>n.toString(16).padStart(2,'0')).join('');
 // A confirmation is one operation. A lost response is never an automatic retry.
 export async function openQuoteAdoption({candidate,request,dialog,valid,setBusy,onChanged,details}){
  const e=candidate?.evidence;if(!e||candidate.stale||e.approval?.status!=='verified'||!e.approval.exact_quote_reference||!e.approval.linked)return details(candidate);

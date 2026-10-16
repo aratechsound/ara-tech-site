@@ -75,7 +75,7 @@ export function mergeMailSources(items){
     if(match&&reverse.length===1&&!consumed.has(match)){
       consumed.add(match);
       const primary=item.read_route==='mail'?item:match;
-      const history=value=>({source_label:value.source_label,read_route:value.read_route,asset_id:value.asset_id,part_id:value.part_id,canonical_attachment_key:value.canonical_attachment_key,sha256:value.sha256,source_at:value.source_at,source_subject:value.source_subject,source_direction:value.source_direction,source_address:value.source_address,original_state:value.original_state});
+      const history=value=>({case_id:value.case_id,message_id:value.message_id,gmail_thread_id:value.gmail_thread_id,filename:value.filename,original_filename:value.original_filename,source_label:value.source_label,read_route:value.read_route,asset_id:value.asset_id,part_id:value.part_id,canonical_attachment_key:value.canonical_attachment_key,sha256:value.sha256,source_at:value.source_at,source_subject:value.source_subject,source_direction:value.source_direction,source_address:value.source_address,original_state:value.original_state});
       result.push({...primary,source_direction:primary.source_direction||item.source_direction||match.source_direction,sources:[...new Set([item.source_label,match.source_label])],source_records:[history(item),history(match)],display_identity:evidence(item,match)});
     }else result.push(item);
   }
