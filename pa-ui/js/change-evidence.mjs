@@ -34,7 +34,7 @@ export async function openChangeEvidence({request,dialog,stop,status,facts,showP
  const sender=input('送信者メールアドレス'),after=input('受信日時・開始','date'),before=input('受信日時・終了','date'),subject=input('件名'),keywords=input('キーワード'),messageId=input('Gmail Message-IDを直接指定'),threadId=input('Gmail thread IDを直接指定');
  for(const [name,node]of [['送信者メールアドレス',sender],['受信日時・開始',after],['受信日時・終了',before],['件名',subject],['キーワード',keywords],['Gmail Message-IDを直接指定',messageId],['Gmail thread IDを直接指定',threadId]])search.append(field(name,node));
  const review=el('section'),history=el('details');history.append(el('summary','変更・見積発行・Gmail送信済み履歴'));d.append(search,field('変更内容',description),field('Owner採用・訂正理由と根拠',reason),field('不足証拠・別thread・顧客と案件の対応を確認しました',relation),field('元契約・変更見積・顧客承認を確認し採用します',confirmed));
- const invalidate=()=>{version++;payload=null;prepared=null;review.replaceChildren();for(const n of d.querySelectorAll('[data-selected-evidence]'))n.remove();for(const release of releases.splice(0))release();setDirty(true);save.disabled=true;adopt.disabled=true;};
+ const invalidate=()=>{version++;payload=null;prepared=null;review.replaceChildren();for(const n of d.querySelectorAll('[data-selected-evidence],iframe'))n.remove();for(const release of releases.splice(0))release();setDirty(true);save.disabled=true;adopt.disabled=true;};
  for(const node of [contract,quote,approval,local,copy,amount,tax,issued,description,reason,relation,confirmed,messageId,threadId])node.addEventListener('input',invalidate);
  async function load(filters,detect=false){
   state=await request('change_evidence_candidates',{...(filters?{search:filters}:{}),detect});if(!safe())return;
