@@ -41,8 +41,11 @@ async function main(){
   const local={...base,quote:{source:'local',filename:'manual-quote.pdf',content_base64:manualBytes.toString('base64'),sha256:sha(manualBytes),amount_minor:110000,tax_basis:'tax_included'},approval:{source:'manual_pdf',filename:'manual-approval.pdf',content_base64:manualBytes.toString('base64'),sha256:sha(manualBytes)}};
   const localPreview=await service.changeEvidencePreview(local,f.actor),a=await service.changeEvidenceAppend({...local,event_kind:'adopted',operation_id:crypto.randomUUID(),fingerprint:localPreview.fingerprint,previous_event_id:localPreview.previous_event_id},f.actor);
   for(const method of ['changeEvidenceDocument','changeEvidenceMailPdf']){const result=await service[method]({case_id:f.inquiryId,event_id:a.id},f.actor);assert.equal(sha(result.bytes),sha(manualBytes));}
+  const dedup={...local,approval:{source:'manual_pdf',filename:'existing-copy.pdf',content_base64:f.quote.toString('base64'),sha256:sha(f.quote)}};
+  const dp=await service.changeEvidencePreview(dedup,f.actor),da=await service.changeEvidenceAppend({...dedup,event_kind:'adopted',operation_id:crypto.randomUUID(),fingerprint:dp.fingerprint,previous_event_id:dp.previous_event_id},f.actor);
+  assert.equal(sha((await service.changeEvidenceMailPdf({case_id:f.inquiryId,event_id:da.id},f.actor)).bytes),sha(f.quote),'Deduplicated manual copy reuses the protected commercial original');
   await assert.rejects(service.changeEvidenceDocument({case_id:f.inquiryId,event_id:adopted.id},f.actor),/change_evidence_changed/);
-  await service.changeEvidenceAppend({case_id:f.inquiryId,contract_id:sent.id,event_kind:'revoked',operation_id:crypto.randomUUID(),previous_event_id:a.id,reason:'Isolated revocation'},f.actor);
+  await service.changeEvidenceAppend({case_id:f.inquiryId,contract_id:sent.id,event_kind:'revoked',operation_id:crypto.randomUUID(),previous_event_id:da.id,reason:'Isolated revocation'},f.actor);
   await assert.rejects(service.changeEvidenceDocument({case_id:f.inquiryId,event_id:a.id},f.actor),/change_evidence_changed/);
   assert.equal(await digest(),before);assert.equal(f.state.sendCount,providerBefore);assert(!network.some(n=>n.host==='gmail.googleapis.com'&&n.method!=='GET'));
   console.log(JSON.stringify({status:'PASS',adopted_registered_pdf_reused:true,adopted_local_pdf_and_manual_copy:true,original_sha_checked:true,foreign_case_and_stale_event_rejected:true,revoked_read_refused:true,existing_business_tables_unchanged:true,real_provider_sends:0}));

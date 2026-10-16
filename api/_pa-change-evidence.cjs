@@ -172,7 +172,14 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
  async function savedBinary(caseId,sha,filename){
   if(!/^[a-f0-9]{64}$/u.test(sha||''))fail();
   const b=await one('pa_change_evidence_blobs',{inquiry_id:'eq.'+caseId,sha256:'eq.'+sha,select:'content,sha256'});
-  if(!b)throw Error('change_evidence_original_unavailable');const bytes=fromBytea(b.content);
+  if(!b){
+   // The append-only service deduplicates both quote and manual-copy bytes
+   // against existing commercial originals. Reuse that same case/SHA scope.
+   const docs=await rows('pa_commercial_documents',{inquiry_id:'eq.'+caseId,sha256:'eq.'+sha,select:'id',limit:'2'});
+   if(docs.length!==1)throw Error('change_evidence_original_unavailable');
+   const binary=await document(caseId,docs[0].id);if(pdf.sha(binary.bytes)!==sha)fail();return {...binary,filename};
+  }
+  const bytes=fromBytea(b.content);
   if(b.sha256!==sha||pdf.sha(bytes)!==sha)fail();await pdf.validatePdf(bytes,sha);
   return {bytes,filename,mime_type:'application/pdf'};
  }
