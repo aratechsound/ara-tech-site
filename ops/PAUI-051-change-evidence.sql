@@ -26,6 +26,7 @@ create index pa_change_evidence_case_history on public.pa_change_evidence_events
 alter table public.pa_change_evidence_blobs enable row level security;
 alter table public.pa_change_evidence_events enable row level security;
 revoke all on public.pa_change_evidence_blobs,public.pa_change_evidence_events from public,anon,authenticated,service_role;
+revoke all on sequence public.pa_change_evidence_events_event_number_seq from public,anon,authenticated,service_role;
 grant select on public.pa_change_evidence_blobs,public.pa_change_evidence_events to service_role;
 create function public.pa_change_evidence_immutable() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin raise exception 'change_evidence_immutable'; end $$;
@@ -39,7 +40,7 @@ declare v_old public.pa_change_evidence_events%rowtype; v_last public.pa_change_
 begin
  perform public.pa_v5_assert_admin(p_actor);
  if p_operation is null or p_kind not in ('saved','adopted','revoked') or jsonb_typeof(p_evidence) is distinct from 'object'
-  or jsonb_typeof(p_blobs) is distinct from 'array' or jsonb_array_length(p_blobs)>2
+  or octet_length(p_evidence::text)>250000 or jsonb_typeof(p_blobs) is distinct from 'array' or jsonb_array_length(p_blobs)>2
   or char_length(btrim(coalesce(p_reason,''))) not between 1 and 2000 then raise exception 'invalid_change_evidence'; end if;
  perform 1 from public.pa_inquiries where id=p_case and deleted_at is null for update;
  if not found then raise exception 'case_unavailable'; end if;
@@ -80,7 +81,7 @@ begin
    or char_length(btrim(coalesce(p_evidence->>'change_description','')))=0
    or char_length(btrim(coalesce(p_evidence->>'owner_reason','')))=0
    or jsonb_array_length(p_evidence->'warnings')>0 and coalesce((p_evidence->>'owner_case_relation_confirmed')::boolean,false) is not true
-   or coalesce((p_evidence->'quote'->>'amount_minor')::bigint,0)<=0
+   or coalesce((p_evidence->'quote'->>'amount_minor')::bigint,0) not between 1 and 9999999999
    or coalesce(p_evidence->'quote'->>'tax_basis','') not in ('tax_included','tax_excluded','tax_exempt')
    or coalesce(p_evidence->'approval'->>'source','') not in ('gmail','manual_pdf')
    or coalesce(p_evidence->'approval'->>'status','') not in ('verified','owner_reviewed')
@@ -96,5 +97,6 @@ begin
  return jsonb_build_object('id',v_id,'already_committed',false,'event_kind',p_kind);
 end $$;
 revoke all on function public.pa_change_evidence_immutable(),public.pa_change_evidence_append(uuid,uuid,uuid,uuid,uuid,text,jsonb,text,jsonb) from public,anon,authenticated;
+revoke all on function public.pa_change_evidence_immutable() from service_role;
 grant execute on function public.pa_change_evidence_append(uuid,uuid,uuid,uuid,uuid,text,jsonb,text,jsonb) to service_role;
 commit;
