@@ -90,6 +90,7 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
 };
 
 const SAFE = new Set([
+  'estimate_send_not_ready', 'stale_estimate_preview',
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
   'legacy_confirmation_reconciliation_required', 'post_contract_change_required',
   'delivery_outcome_unresolved', 'document_identity_mismatch', 'invalid_estimate',
@@ -549,10 +550,55 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       ...(replySource ? { replySourceMessageId: replySource.message_id, replySourceThreadId: replySource.thread_id } : {})
     }, fetchImpl);
   }
-  const composerPreview = (input, actor) => mailPreview({
-    caseId: uuid(input.case_id), actor, body: text(input.body, 20000),
-    ccAddresses: Array.isArray(input.cc_addresses) ? input.cc_addresses : [], replySource: input.reply_source || null
-  });
+  const composerPreview = (input, actor) => input.content_only === true
+    ? gmail.replyContentPreview({ inquiryId: uuid(input.case_id), actorId: actor.id, body: text(input.body, 20000),
+      ccAddresses: Array.isArray(input.cc_addresses) ? input.cc_addresses : [],
+      ...(input.reply_source ? { replySourceMessageId: input.reply_source.message_id, replySourceThreadId: input.reply_source.thread_id } : {}) }, fetchImpl)
+    : mailPreview({ caseId: uuid(input.case_id), actor, body: text(input.body, 20000),
+      ccAddresses: Array.isArray(input.cc_addresses) ? input.cc_addresses : [], replySource: input.reply_source || null });
+
+  // Read-only view of the existing fixed estimate outbox. No new revision,
+  // operation, token or dispatch is created by opening this preview.
+  async function estimateSendAuthority(input, actor, claimedLease = null) {
+    const caseId = uuid(input.case_id), jobId = uuid(input.job_id);
+    const [current, inquiry, job] = await Promise.all([snapshot(caseId), mail.getInquiry(caseId, fetchImpl),
+      one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: '*' })]);
+    const estimate = current.estimates.find(e => e.id === current.state.current_estimate_revision_id);
+    if (!estimate || estimate.id !== input.estimate_revision_id) throw Error('stale_estimate_preview');
+    const ownedClaim = claimedLease && job?.state === 'processing' && job.lease_id === claimedLease && Number(new Date(job.lease_expires_at)) > Date.now();
+    if (!job || job.job_kind !== 'estimate' || job.aggregate_id !== estimate.id || !(job.state === 'queued' || ownedClaim)
+      || current.state.estimate_change_state !== 'ready'
+      || current.offers.some(o => ['active','accepted','unknown'].includes(o.state))
+      || current.outbox.some(j => !(ownedClaim && j.id === job.id) && deliveryConflicts(j, { estimateId: estimate.id, offers: current.offers }))) throw Error('estimate_send_not_ready');
+    if (job.secret_envelope || job.reply_binding?.delivery_mode === 'standalone_production_e2e'
+      || !Array.isArray(job.attachment_ids) || job.attachment_ids.length !== 1 || job.attachment_ids[0] !== estimate.document_id) throw Error('document_identity_mismatch');
+    const documentRow = current.documents.find(d => d.id === estimate.document_id);
+    if (!documentRow || documentRow.inquiry_id !== caseId || documentRow.mime_type !== 'application/pdf') throw Error('document_identity_mismatch');
+    const original = await document(caseId, documentRow.id);
+    await pdf.validatePdf(original.bytes, documentRow.sha256);
+    const binding = job.reply_binding || {};
+    const email = await gmail.replyContentPreview({ inquiryId: caseId, actorId: actor.id, body: job.body_text,
+      attachments: [{ filename: original.filename, mime_type: original.mime_type, data: original.bytes.toString('base64url') }],
+      ccAddresses: binding.cc_addresses || [],
+      ...(binding.reply_source_explicit ? { replySourceMessageId: binding.reply_source_message_id, replySourceThreadId: binding.reply_source_thread_id } : {}) }, fetchImpl);
+    if (emailAddress(email.recipient) !== emailAddress(job.recipient) || emailAddress(email.recipient) !== emailAddress(inquiry.email)
+      || email.subject !== job.subject || email.body !== job.body_text || email.gmail_thread_id !== binding.thread_id
+      || canonical(email.cc_addresses || []) !== canonical(binding.cc_addresses || [])
+      || (binding.reply_source_message_id && email.reply_source_message_id !== binding.reply_source_message_id)) throw Error('stale_estimate_preview');
+    const { delivery: _derivedDelivery, ...estimateAuthority } = estimate;
+    const authority = { actor: actor.id, case_id: caseId, case_updated_at: inquiry.updated_at, case_facts: current.confirmation_preflight, case_revision: current.state.revision,
+      estimate: estimateAuthority, document: { id: documentRow.id, filename: original.filename, sha256: documentRow.sha256, size: original.bytes.length },
+      job_id: job.id, operation_id: job.operation_id, state: 'queued', recipient: job.recipient, subject: job.subject,
+      body_sha256: pdf.sha(Buffer.from(job.body_text, 'utf8')), thread: email.gmail_thread_id, source: email.reply_source_message_id, cc: email.cc_addresses };
+    return { current, job, estimate, documentRow, email, fingerprint: pdf.sha(Buffer.from(canonical(authority), 'utf8')) };
+  }
+  async function estimateSendPreview(input, actor) {
+    const p = await estimateSendAuthority(input, actor);
+    return { case_id: input.case_id, job_id: p.job.id, operation_id: p.job.operation_id, expected_revision: p.current.state.revision,
+      fingerprint: p.fingerprint, recipient: p.email.recipient, cc_addresses: p.email.cc_addresses, gmail_thread_id: p.email.gmail_thread_id,
+      subject: p.email.subject, body: p.email.body, html: p.email.html, estimate: p.estimate,
+      document: { id: p.documentRow.id, filename: p.documentRow.original_filename, sha256: p.documentRow.sha256, mime_type: p.documentRow.mime_type }, delivery_state: p.job.state };
+  }
   const replyBinding = (preview) => ({
     thread_id: preview.gmail_thread_id,
     confirmation_token: preview.confirmation_token,
@@ -752,7 +798,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         to: result.email.recipient, gmail_thread_id: result.email.gmail_thread_id,
         reply_source_message_id: result.email.reply_source_message_id, cc: result.email.cc_addresses || []
       },
-      estimate: { ...result.customerSnapshot.estimate, bytes: result.quoteBytes.length },
+      estimate: { ...result.customerSnapshot.estimate, tax_basis: result.estimate.tax_basis, bytes: result.quoteBytes.length },
       email: { subject: result.email.subject, body: result.email.body, html: result.email.html },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
@@ -781,7 +827,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         to: prepared.email.recipient, gmail_thread_id: prepared.email.gmail_thread_id,
         reply_source_message_id: prepared.email.reply_source_message_id, cc: prepared.email.cc_addresses || []
       },
-      estimate: { ...prepared.offer.snapshot.estimate, bytes: prepared.quoteBytes.length },
+      estimate: { ...prepared.offer.snapshot.estimate, tax_basis: prepared.estimate.tax_basis, bytes: prepared.quoteBytes.length },
       email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
@@ -1204,12 +1250,14 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         subjectOverride: job.subject, jobId: job.id, deliveryTrace
       }, fetchImpl);
     }
-    if(job.job_kind==='accept_receipt'){
+    if(job.job_kind==='accept_receipt' || (job.job_kind==='estimate' && internal.estimateSendAuthority)){
       const binding=job.reply_binding||{};
       const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,deliveryTrace,
         ...(binding.reply_source_explicit?{replySourceMessageId:binding.reply_source_message_id,replySourceThreadId:binding.reply_source_thread_id}:{})};
       const preview=await gmail.replyPreview(options,fetchImpl);
       if(emailAddress(preview.recipient)!==emailAddress(job.recipient))throw Error('recipient_changed');
+      if (internal.estimateSendAuthority && (preview.subject !== job.subject || preview.body !== job.body_text
+        || preview.gmail_thread_id !== binding.thread_id || canonical(preview.cc_addresses || []) !== canonical(binding.cc_addresses || []))) throw Error('stale_estimate_preview');
       return gmail.sendReply({...options,confirmationToken:preview.confirmation_token},fetchImpl);
     }
     if (job.job_kind === 'confirmation') {
@@ -1246,6 +1294,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,provider_message_id'
     });
     if (!staged) throw Error('outbox_not_found');
+    if (staged.job_kind === 'estimate' && input.preview_fingerprint) {
+      const proof = await estimateSendAuthority(input, actor);
+      if (proof.fingerprint !== text(input.preview_fingerprint, 64)
+        || proof.current.state.revision !== input.expected_revision) throw Error('stale_estimate_preview');
+      internal = { ...internal, estimateSendAuthority: true };
+    }
     if (staged.job_kind === 'confirmation' && !internal.legacyRecoveryAuthorization && staged.state !== 'sent') {
       const caseId = uuid(input.case_id);
       const offerId = uuid(input.offer_id);
@@ -1269,6 +1323,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     let sent;
     const deliveryTrace = { phase: 'attachment_loading', provider_request_started: false, provider_response_received: false, provider_http_status: null };
     try {
+      if (internal.estimateSendAuthority) {
+        const proof = await estimateSendAuthority(input, actor, lease);
+        if (proof.fingerprint !== input.preview_fingerprint || proof.current.state.revision !== input.expected_revision) throw Error('stale_estimate_preview');
+      }
       let documents=[];
       if(job.job_kind==='accept_receipt')documents=await require('./_pa-contract.cjs').createService({fetchImpl}).receiptAttachments(job.inquiry_id,job.aggregate_id);
       else for (const id of job.attachment_ids || []) {
@@ -1549,7 +1607,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
 
   return {
     snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,
-    recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
+    recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview, estimateSendPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,
     productionE2eRecoveryPreview, recoverProductionE2eDelivery, archiveProductionE2eCase,
     revoke: (input, actor) => rpc('pa_v5_revoke_confirmation', { p_actor: actor.id, p_case: uuid(input.case_id), p_offer: uuid(input.offer_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) }),

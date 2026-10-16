@@ -285,6 +285,7 @@ const openRecovery = async (context, state, trigger) => {
 };
 
 const api = async (context, action, input = {}, binary = false) => {
+    if (context?.commercialRequest) return context.commercialRequest(action, input, binary);
     const token = await context.getAccessToken();
     if (!token || context.getCurrentCase()?.id !== activeCaseId) throw Error("case_changed");
     const response = await fetch("/api/pa-mail?surface=commercial", {
@@ -312,18 +313,22 @@ const saveBlob = (blob, filename) => new Promise((resolve, reject) => { const re
 const openConfirmationPreview = async (context, issuedConfirmation = null, replacementConfirmation = null, confirmationMode = "LEGACY") => {
     if (confirmationPreviewOpening || !context?.getCurrentCase()?.id) return false;
     confirmationPreviewOpening = true;
+    const makeElement = context.previewElement || element;
+    const formatMoney = context.formatMoney || money;
+    const setFrame = (frame, kind, value) => { if (context.prepareFrame) context.prepareFrame(frame, kind, value); else frame[kind] = value; };
+
     const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
     const replacementMode = !issuedMode && Boolean(replacementConfirmation?.offer_id && replacementConfirmation?.version);
     const directMode = !issuedMode && !replacementMode && confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE;
     const caseId = context.getCurrentCase().id;
-    const dialog = element("dialog", "pa-confirmation-preview-dialog");
+    const dialog = makeElement("dialog", "pa-confirmation-preview-dialog");
     dialog.setAttribute("aria-labelledby", "pa-confirmation-preview-title");
-    const header = element("header", "pa-confirmation-preview__header"), heading = element("div", ""), headerActions = element("div", "actions actions--compact");
-    const title = element("h2", "", "顧客へ実際に届く内容"); title.id = "pa-confirmation-preview-title";
+    const header = makeElement("header", "pa-confirmation-preview__header"), heading = makeElement("div", ""), headerActions = makeElement("div", "actions actions--compact");
+    const title = makeElement("h2", "", "顧客へ実際に届く内容"); title.id = "pa-confirmation-preview-title";
     heading.append(
-        element("p", "pa-confirmation-preview__eyebrow", "送信前の最終確認"),
+        makeElement("p", "pa-confirmation-preview__eyebrow", "送信前の最終確認"),
         title,
-        element("p", "", issuedMode
+        makeElement("p", "", issuedMode
             ? `正式受注確認 #${issuedConfirmation.version}は発行済みです。案内メールはまだ送信されていません。`
             : replacementMode
                 ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい確認を同じ見積で準備します。案内メールは送信しません。`
@@ -331,31 +336,31 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
     );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
     headerActions.append(refreshButton, closeButton); header.append(heading, headerActions);
-    const body = element("div", "pa-confirmation-preview__body"), status = element("p", "pa-confirmation-preview__loading", "Production authorityを読み込んでいます…");
-    status.setAttribute("role", "status"); body.append(status); dialog.append(header, body); document.body.append(dialog); dialog.showModal();
+    const body = makeElement("div", "pa-confirmation-preview__body"), status = makeElement("p", "pa-confirmation-preview__loading", "Production authorityを読み込んでいます…");
+    status.setAttribute("role", "status"); body.append(status); dialog.append(header, body); document.body.append(dialog); context.trackDialog?.(dialog); dialog.showModal();
     const objectUrls = new Set(); let preview = null, operationId = null, loadEpoch = 0, busy = false;
     const revokeUrls = () => { for (const url of objectUrls) URL.revokeObjectURL(url); objectUrls.clear(); };
     const blobUrl = (blob) => { const url = URL.createObjectURL(blob); objectUrls.add(url); return url; };
-    const pair = (root, label, value) => { root.append(element("dt", "", label), element("dd", "", value || "—")); };
-    const section = (titleText) => { const node = element("section", "pa-confirmation-preview__section"); node.append(element("h3", "", titleText)); return node; };
+    const pair = (root, label, value) => { root.append(makeElement("dt", "", label), makeElement("dd", "", value || "—")); };
+    const section = (titleText) => { const node = makeElement("section", "pa-confirmation-preview__section"); node.append(makeElement("h3", "", titleText)); return node; };
     const honorific = (value) => /様\s*$/u.test(String(value || "")) ? String(value) : `${String(value || "")} 様`;
     const japaneseDate = (value) => {
         const date = new Date(`${value}T00:00:00Z`), parts = Object.fromEntries(new Intl.DateTimeFormat("ja-JP", { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric", weekday: "short" }).formatToParts(date).map((part) => [part.type, part.value]));
         return `${parts.year}年${parts.month}月${parts.day}日（${parts.weekday}）`;
     };
     const finalDialog = (model) => new Promise((resolve, reject) => {
-        const final = element("dialog", "pa-confirmation-final-dialog"), wrap = element("div", "pa-confirmation-final-dialog__body");
+        const final = makeElement("dialog", "pa-confirmation-final-dialog"), wrap = makeElement("div", "pa-confirmation-final-dialog__body");
         wrap.append(
-            element("h2", "", issuedMode || directMode ? "正式受注確認メール送信の最終確認" : replacementMode ? "正式受注確認置換の最終確認" : "正式受注確認発行の最終確認"),
-            element("p", "", issuedMode
+            makeElement("h2", "", issuedMode || directMode ? "正式受注確認メール送信の最終確認" : replacementMode ? "正式受注確認置換の最終確認" : "正式受注確認発行の最終確認"),
+            makeElement("p", "", issuedMode
                 ? `${honorific(model.recipient.customer_name)}へ正式受注確認 #${model.confirmation_version}の案内メールを送信します。`
                 : replacementMode
                     ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい専用URLと送信待ちメールを原子的に準備します。この操作では案内メールを送信しません。`
                     : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
         );
-        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", money(model.estimate.amount_minor, model.estimate.currency)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
-        const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode || directMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
-        actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
+        const facts = makeElement("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", formatMoney(model.estimate.amount_minor, model.estimate.currency)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
+        const actions = makeElement("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode || directMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
+        actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final); context.trackDialog?.(final);
         let settled = false;
         const fail = (error) => { if (settled) return; settled = true; final.remove(); reject(error); };
         final.addEventListener("cancel", (event) => { event.preventDefault(); final.close("back"); });
@@ -383,24 +388,24 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
         ]);
         if (epoch !== loadEpoch || !dialog.open) return;
         const estimateUrl = blobUrl(estimateBlob), receiptUrl = blobUrl(receiptBlob); body.replaceChildren();
-        const overview = section("送信先・案件・対象見積"), facts = element("dl", "pa-confirmation-preview__facts");
-        pair(facts, "顧客", honorific(model.recipient.customer_name)); pair(facts, "組織", model.recipient.organization); pair(facts, "To", model.recipient.to); pair(facts, "Gmail thread", model.recipient.gmail_thread_id); pair(facts, "CC", model.recipient.cc.join(", ") || "なし"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "開催日時", `${japaneseDate(model.customer_snapshot.case.event_date)} ${model.customer_snapshot.case.event_time || ""}`.trim()); pair(facts, "会場", model.customer_snapshot.case.venue); pair(facts, "対象業務", model.service_summary); pair(facts, "対象見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", `${money(model.estimate.amount_minor, model.estimate.currency)}（税込）`); pair(facts, "original filename", model.estimate.original_filename); pair(facts, "原本SHA-256", model.estimate.sha256); pair(facts, "支払期限", japaneseDate(model.customer_snapshot.terms.payment_due_date)); overview.append(facts);
-        const estimateFrame = element("iframe", "pa-confirmation-preview__pdf"); estimateFrame.title = "Productionにbindされた正規見積PDF"; estimateFrame.src = `${estimateUrl}#toolbar=1&navpanes=0&view=FitH`; overview.append(element("h4", "", "正規見積PDFを確認"), estimateFrame);
-        const terms = section("キャンセル条件・支払期限"), termsGrid = element("div", "pa-confirmation-preview__two-column"), cancellation = element("article", ""), payment = element("article", "");
-        cancellation.append(element("h4", "", "キャンセル・変更条件"), element("pre", "", model.customer_snapshot.terms.cancellation_terms)); payment.append(element("h4", "", "支払期限"), element("strong", "pa-confirmation-preview__due", japaneseDate(model.customer_snapshot.terms.payment_due_date)), element("p", "", model.customer_snapshot.terms.payment_consult_terms)); termsGrid.append(cancellation, payment); terms.append(termsGrid);
-        const customer = section("顧客が開く正式受注確認ページ"); customer.append(element("p", "pa-confirmation-preview__note", `Customer Web UI ${model.versions.customer}を同じrendererで表示しています。${issuedMode ? "専用URLは発行済みですが、この画面には表示しません。" : "secret URLは未生成です。"}`));
-        const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; customerFrame.src = "/pa-contract.html?mode=admin-pre-issue"; customer.append(customerFrame);
+        const overview = section("送信先・案件・対象見積"), facts = makeElement("dl", "pa-confirmation-preview__facts");
+        pair(facts, "顧客", honorific(model.recipient.customer_name)); pair(facts, "組織", model.recipient.organization); pair(facts, "To", model.recipient.to); pair(facts, "Gmail thread", model.recipient.gmail_thread_id); pair(facts, "CC", model.recipient.cc.join(", ") || "なし"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "開催日時", `${japaneseDate(model.customer_snapshot.case.event_date)} ${model.customer_snapshot.case.event_time || ""}`.trim()); pair(facts, "会場", model.customer_snapshot.case.venue); pair(facts, "対象業務", model.service_summary); pair(facts, "対象見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", `${formatMoney(model.estimate.amount_minor, model.estimate.currency)}（${context.previewElement ? ({tax_included:"税込",tax_excluded:"税別",tax_exempt:"非課税"})[model.estimate.tax_basis] || "税区分未提供" : "税込"}）`); pair(facts, "original filename", model.estimate.original_filename); pair(facts, "原本SHA-256", model.estimate.sha256); pair(facts, "支払期限", japaneseDate(model.customer_snapshot.terms.payment_due_date)); overview.append(facts);
+        const estimateFrame = makeElement("iframe", "pa-confirmation-preview__pdf"); estimateFrame.title = "Productionにbindされた正規見積PDF"; setFrame(estimateFrame, "src", `${estimateUrl}#toolbar=1&navpanes=0&view=FitH`); overview.append(makeElement("h4", "", "正規見積PDFを確認"), estimateFrame);
+        const terms = section("キャンセル条件・支払期限"), termsGrid = makeElement("div", "pa-confirmation-preview__two-column"), cancellation = makeElement("article", ""), payment = makeElement("article", "");
+        cancellation.append(makeElement("h4", "", "キャンセル・変更条件"), makeElement("pre", "", model.customer_snapshot.terms.cancellation_terms)); payment.append(makeElement("h4", "", "支払期限"), makeElement("strong", "pa-confirmation-preview__due", japaneseDate(model.customer_snapshot.terms.payment_due_date)), makeElement("p", "", model.customer_snapshot.terms.payment_consult_terms)); termsGrid.append(cancellation, payment); terms.append(termsGrid);
+        const customer = section("顧客が開く正式受注確認ページ"); customer.append(makeElement("p", "pa-confirmation-preview__note", `Customer Web UI ${model.versions.customer}を同じrendererで表示しています。${issuedMode ? "専用URLは発行済みですが、この画面には表示しません。" : "secret URLは未生成です。"}`));
+        const customerFrame = makeElement("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; setFrame(customerFrame, "src", "/pa-contract.html?mode=admin-pre-issue"); customer.append(customerFrame);
         const onMessage = (event) => { if (event.origin === location.origin && event.source === customerFrame.contentWindow && event.data?.type === "pa-contract-preview-ready") customerFrame.contentWindow.postMessage({ type: "pa-contract-preview-model", snapshot: model.customer_snapshot }, location.origin); };
         window.addEventListener("message", onMessage); dialog.addEventListener("close", () => window.removeEventListener("message", onMessage), { once: true });
-        const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject); email.append(emailFacts);
-        const emailColumns = element("div", "pa-confirmation-preview__two-column"), htmlWrap = element("article", ""), textWrap = element("article", ""), emailFrame = element("iframe", "pa-confirmation-preview__email");
-        emailFrame.title = "発行案内メールHTML本文"; emailFrame.srcdoc = model.email.html; htmlWrap.append(element("h4", "", "HTML本文"), emailFrame); textWrap.append(element("h4", "", "plain text本文"), element("pre", "pa-confirmation-preview__mail-text", model.email.body)); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
-        const receipt = section("承認後に生成される正式受注確認書"); receipt.append(element("p", "pa-confirmation-preview__note", `${model.versions.receipt}／Page 1・2 + Page 3以降は現在の正規見積原本。確認者・成立日時はお客様承認時に自動記録されます。`));
-        const receiptFrame = element("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; receiptFrame.src = `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`; receipt.append(receiptFrame);
+        const email = section("発行案内メール"), emailFacts = makeElement("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject); email.append(emailFacts);
+        const emailColumns = makeElement("div", "pa-confirmation-preview__two-column"), htmlWrap = makeElement("article", ""), textWrap = makeElement("article", ""), emailFrame = makeElement("iframe", "pa-confirmation-preview__email");
+        emailFrame.title = "発行案内メールHTML本文"; setFrame(emailFrame, "srcdoc", model.email.html); htmlWrap.append(makeElement("h4", "", "HTML本文"), emailFrame); textWrap.append(makeElement("h4", "", "plain text本文"), makeElement("pre", "pa-confirmation-preview__mail-text", model.email.body)); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
+        const receipt = section("承認後に生成される正式受注確認書"); receipt.append(makeElement("p", "pa-confirmation-preview__note", `${model.versions.receipt}／Page 1・2 + Page 3以降は現在の正規見積原本。確認者・成立日時はお客様承認時に自動記録されます。`));
+        const receiptFrame = makeElement("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; setFrame(receiptFrame, "src", `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`); receipt.append(receiptFrame);
         const gate = section("Owner最終確認"); gate.classList.add("pa-confirmation-preview__gate");
-        const identity = element("p", "pa-confirmation-preview__fingerprint", `内容確認ID：${model.fingerprint_short}`), checkLabel = element("label", "pa-confirmation-preview__check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkLabel.append(checkbox, element("span", "", "上記の内容を確認しました。"));
+        const identity = makeElement("p", "pa-confirmation-preview__fingerprint", `内容確認ID：${model.fingerprint_short}`), checkLabel = makeElement("label", "pa-confirmation-preview__check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkLabel.append(checkbox, makeElement("span", "", "上記の内容を確認しました。"));
         const actionLabel = directMode ? "正式受注確認として送信" : issuedMode ? "正式受注確認を送る" : replacementMode ? "旧確認を失効して新しい確認を準備（送信しない）" : "この内容で正式受注確認を発行する（送信しない）";
-        const dialogError = element("p", "pa-confirmation-preview__error hidden"); dialogError.setAttribute("role", "alert");
+        const dialogError = makeElement("p", "pa-confirmation-preview__error hidden"); dialogError.setAttribute("role", "alert");
         const finalButton = button(actionLabel, async () => {
             if (busy || !checkbox.checked || model !== preview) return;
             busy = true; checkbox.disabled = true; finalButton.disabled = true; finalButton.setAttribute("aria-busy", "true"); finalButton.textContent = "最終確認画面を開いています…"; dialogError.classList.add("hidden"); dialogError.textContent = "";
@@ -432,6 +437,11 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
             }
         }, "button button--small");
         finalButton.disabled = true; checkbox.addEventListener("change", () => { finalButton.disabled = !checkbox.checked || !preview || busy; }); gate.append(identity, checkLabel, dialogError, finalButton);
+        if (context.previewElement) {
+            pair(facts, "税区分", ({tax_included:"税込",tax_excluded:"税別",tax_exempt:"非課税"})[model.estimate.tax_basis] || "正本に区分未提供");
+            overview.append(makeElement("p", "", "配送区分：" + model.confirmation_mode + "／見積PDF原本1件。追加の資料添付はありません。"));
+            gate.append(makeElement("p", "", "商務authority fingerprint：" + model.fingerprint));
+        }
         body.append(overview, terms, customer, email, receipt, gate);
     };
     async function load() {
@@ -1035,3 +1045,6 @@ export function renderCommercialWorkspace(context) {
 }
 
 export const getCommercialDraftContext = () => activeCommercialDraftContext;
+
+// Same renderer and authority gate, with a scoped CASE DESK request/lifecycle.
+export const openConfirmationPreviewForContext = (context, issued = null) => openConfirmationPreview(context, issued, null, DIRECT_CONFIRM_WITH_ESTIMATE);
