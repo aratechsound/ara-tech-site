@@ -69,8 +69,8 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   if(input.detect===true){
    const inbound=[],outbound=[];
    for(const item of messages.filter(m=>m.direction==='inbound').slice(0,20))try{inbound.push(await message(caseId,item.gmail_message_id));}catch{detection_errors.push({message_id:item.gmail_message_id,code:'original_unavailable'});}
-   for(const item of messages.filter(m=>m.direction==='outbound').slice(0,20))for(const part of (item.attachment_metadata||[]).filter(p=>p.mime_type==='application/pdf'&&/見積|estimate|quote/iu.test(p.filename||p.original_filename||'' )).slice(0,3)){
-    try{const q=await quote(caseId,{source:'gmail',message_id:item.gmail_message_id,thread_id:item.gmail_thread_id,attachment_id:part.id,part_id:part.part_id||''});outbound.push(q.metadata);}catch{detection_errors.push({message_id:item.gmail_message_id,code:'quote_original_unavailable'});}
+   for(const item of messages.filter(m=>m.direction==='outbound').slice(0,20))for(const part of (item.attachment_metadata||[]).filter(p=>p.mime_type==='application/pdf'&&/見積|estimate|quote/iu.test((p.filename||p.original_filename||'')+' '+(item.subject||''))).slice(0,3)){
+    try{const q=await quote(caseId,{source:'gmail',message_id:item.gmail_message_id,thread_id:item.gmail_thread_id,attachment_id:part.id,part_id:part.part_id||''},true);outbound.push(q.metadata);}catch{detection_errors.push({message_id:item.gmail_message_id,code:'quote_original_unavailable'});}
    }
    for(const q of outbound)for(const a of inbound)if(a.in_reply_to===q.rfc_message_id||a.references.split(/\s+/u).includes(q.rfc_message_id)){
     for(const c of ctx.contracts)if(Date.parse(c.confirmed_at)<=Date.parse(q.sent_at)&&Date.parse(q.sent_at)<=Date.parse(a.occurred_at))detected.push({contract_id:c.id,quote:q,approval:{message_id:a.id,thread_id:a.thread_id},status:'candidate_requires_owner_review'});
@@ -82,7 +82,7 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
    detected,detection_errors,detection_state:!input.detect?'not_requested':detection_errors.length?'incomplete':detected.length>1?'multiple_candidates':detected.length===1?'candidate_found':'evidence_unidentified',
    candidate_state:messages.filter(m=>m.direction==='inbound').length>1?'multiple_candidates':'evidence_unidentified'};
  }
- async function quote(caseId,selection){
+ async function quote(caseId,selection,allowUnknownAmount=false){
   if(!selection||!['registered','gmail','local'].includes(selection.source))throw Error('invalid_change_evidence');
   let binary,source=selection.source,m=null,estimate=null;
   if(source==='registered'){
@@ -100,10 +100,11 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   const match=estimate||matched.find(e=>duplicates.some(d=>d.id===e.document_id));
   const extracted=await require('./_pa-estimate-amount.cjs').extractEstimateAmount(binary.bytes);
   const amount=Number(selection.amount_minor||match?.amount_minor||extracted.amount_minor||0),tax=selection.tax_basis||match?.tax_basis||'tax_included';
-  if(!Number.isSafeInteger(amount)||amount<1||amount>9999999999||!['tax_included','tax_excluded','tax_exempt'].includes(tax))throw Error('invalid_change_evidence');
+  const unknownAmount=allowUnknownAmount&&amount===0&&!match&&extracted.status!=='HIGH_CONFIDENCE';
+  if(!unknownAmount&&(!Number.isSafeInteger(amount)||amount<1||amount>9999999999)||!['tax_included','tax_excluded','tax_exempt'].includes(tax))throw Error('invalid_change_evidence');
   if(match&&(Number(match.amount_minor)!==amount||match.tax_basis!==tax)||extracted.status==='HIGH_CONFIDENCE'&&extracted.amount_minor!==amount)fail();
   if(selection.compare_estimate_id){const compare=matched.find(e=>e.id===selection.compare_estimate_id);if(!compare||!duplicates.some(d=>d.id===compare.document_id))fail();}
-  return {binary,metadata:{source,filename:binary.filename,sha256:sha,estimate_id:match?.id||null,document_id:match?.document_id||null,revision_number:match?.revision_number||null,amount_minor:amount,tax_basis:tax,
+  return {binary,metadata:{source,filename:binary.filename,sha256:sha,estimate_id:match?.id||null,document_id:match?.document_id||null,revision_number:match?.revision_number||null,amount_minor:unknownAmount?null:amount,tax_basis:tax,
    issued_at:match?.issued_at||selection.issued_at||null,sent_at:m?.occurred_at||null,message_id:m?.id||null,thread_id:m?.thread_id||null,rfc_message_id:m?.rfc_message_id||null,recipients:m?.to_addresses||[],attachment_id:selection.attachment_id||null,part_id:selection.part_id||null,
    registered_sha_match:!!match,amount_extraction:extracted.status}};
  }
@@ -127,6 +128,7 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   }else warnings.push('approval_evidence_missing');
   if(q.metadata.source==='local')warnings.push('local_original_delivery_unverified');
   if(!q.metadata.registered_sha_match)warnings.push('no_identical_registered_estimate');
+  if(!q.metadata.registered_sha_match&&q.metadata.amount_extraction!=='HIGH_CONFIDENCE')warnings.push('amount_requires_owner_pdf_confirmation');
   const evidence={case_id:caseId,contract_id:contract.id,contract_sha256:contractSha(contract),quote:q.metadata,approval,warnings,
    change_description:text(input.change_description||'',5000),owner_confirmed:input.owner_confirmed===true,owner_case_relation_confirmed:input.owner_case_relation_confirmed===true,owner_reason:text(input.reason||'',2000)};
   const stored=await history(caseId),previous=stored.events[0]?.id||null;
