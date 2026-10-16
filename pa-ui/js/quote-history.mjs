@@ -30,7 +30,7 @@ export function createQuoteHistory({caseId,assets,isCurrent,previewScope,monitor
  function render(){
   if(!safe()||!host)return;const groups=groupQuoteHistory(items,proofs,caseId);gallery?.dispose();
   gallery=createGallery({assets:proxy,previewScope,isCurrent:safe,previewActions:(item,controls)=>{const download=el('button','PDFをダウンロード');download.onclick=async()=>{download.disabled=true;let record;try{record=await proxy.record(item,{fresh:true});if(!safe()){assets.release(record);return;}const a=el('a');a.href=record.url;a.download=item.filename;document.body.append(a);a.click();a.remove();controls.closest('dialog')?.addEventListener('close',()=>assets.release(record),{once:true});}catch{if(record)assets.release(record);if(safe())download.textContent='原本取得未完了・再確認してください';}finally{download.disabled=false;}};controls.append(download);const c=candidate(item);if(c){const b=el('button','この見積を正式採用');b.onclick=()=>onAdopt(c);controls.append(b);}}});
-  gallery.mount(host,groups,{compact:true});
+  const grid=el('div');grid.className='quote-history-cards';host.classList.add('quote-history');host.replaceChildren(grid);gallery.mount(grid,groups,{compact:true});
   for(const [index,card]of [...host.querySelectorAll('.material-card')].entries()){
    const group=groups[index],details=el('details'),summary=el('summary','登録・送信履歴 '+group.origins.length+'出典');details.append(summary);
    for(const origin of group.origins){
@@ -43,7 +43,7 @@ export function createQuoteHistory({caseId,assets,isCurrent,previewScope,monitor
    }
    card.querySelector('.material-meta').append(details);
   }
-  const message=el('p',failures.size?'原本照合の一部が未完了です。未確認のPDFは統合していません。':'同じPDFは1カード、各送信・登録履歴は保持しています。');message.setAttribute('role','status');host.prepend(message);const b=el('button','未確認の原本を照合（最大3件）');b.disabled=checking;b.onclick=()=>check(true);host.prepend(b);
+  const message=el('p',failures.size?'原本照合の一部が未完了です。未確認のPDFは統合していません。':'同じPDFは1カード、各送信・登録履歴は保持しています。');message.setAttribute('role','status');host.prepend(message);const b=el('button','未確認の原本を照合（最大3件）');b.className='lightbtn';b.disabled=checking;b.onclick=()=>check(true);host.prepend(b);
  }
  async function check(retry=false){
   if(checking||!safe()||!host)return;checking=true;const ticket=version;render();
