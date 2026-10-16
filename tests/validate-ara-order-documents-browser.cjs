@@ -38,6 +38,7 @@ async function main(){
   assert.equal(await page.locator('.change-evidence:not(.order-documents)').count(),0);
   assert.equal(await page.locator('#formal-document-grid').count(),1);assert.equal(await page.locator('#current-estimate-grid').count(),1);
   await region.locator('canvas').nth(2).waitFor();
+  assert(await region.locator('.order-document-preview .material-card').evaluateAll(ns=>ns.every(n=>n.getBoundingClientRect().width>=n.parentElement.getBoundingClientRect().width*.98)),'Mail-carousel card widths must not shrink the document originals');
   const rects=await region.locator('.order-document').evaluateAll(ns=>ns.map(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width};}));
   assert(rects.every(r=>Math.abs(r.y-rects[0].y)<1));assert(rects[0].x<rects[1].x&&rects[1].x<rects[2].x);
   assert((await page.locator('#current-estimate-grid').innerText()).includes('改訂2'));
