@@ -1,0 +1,74 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto');
+const {chromium}=require('playwright'),{PDFDocument}=require('pdf-lib');
+const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',OP='33333333-3333-4333-8333-333333333333';
+(async()=>{
+ const pdf=await PDFDocument.create();pdf.addPage().drawText('ISOLATED DOCUMENT');const bytes=Buffer.from(await pdf.save()),sha=crypto.createHash('sha256').update(bytes).digest('hex');
+ const names=['見積書という名前の通常資料.pdf','資料B.pdf','資料C.pdf'];
+ const attachments=names.map((filename,i)=>({id:'att_'+i,part_id:String(i+1),filename,mime_type:'application/pdf',size:bytes.length}));
+ const inbound=n=>({inquiry_id:A,gmail_message_id:'received_'+n,gmail_thread_id:'thread',direction:'inbound',from_address:'fixture@example.invalid',to_addresses:['aratechsound@gmail.com'],subject:'了承候補 '+n,received_at:'2026-10-17T01:00:00Z',body_text:'見積を確認しました。\n次の行\n第三行\n第四行\n> 引用内容',attachment_metadata:[]});
+ const messages=[{inquiry_id:A,gmail_message_id:'sent',gmail_thread_id:'thread',direction:'outbound',from_address:'aratechsound@gmail.com',to_addresses:['fixture@example.invalid'],subject:'書類送信',sent_at:'2026-10-16',body_text:'送信済み原文',attachment_metadata:attachments},inbound(1),inbound(2)];
+ const cases=[{id:A,event_name:'隔離CASE DESK A',inquiry_number:'FIXTURE-A',case_type:'PA_EVENT',status:'new'},{id:B,event_name:'隔離CASE DESK B',inquiry_number:'FIXTURE-B',case_type:'PA_EVENT',status:'new'}];
+ const snapshot=id=>({state:{inquiry_id:id,revision:1,estimate_change_state:'ready'},estimates:[],documents:[],offers:[],outbox:[],billings:[],payments:[],adjustments:[],change_orders:[]});
+ const operation={operation_id:OP,inquiry_id:A,state:'SENT',gmail_message_id:'sent',gmail_thread_id:'thread',history_sync:'COMPLETE',attachments:attachments.map((a,i)=>({...a,index:i,sha256:sha,document_kind:['normal','estimate','invoice'][i]}))};
+ const calls=[],errors=[];let ready=false,adopted=0;
+ const server=http.createServer((req,res)=>{const f=path.resolve(root,new URL(req.url,'http://localhost').pathname.slice(1));if(!f.startsWith(root+path.sep))return res.writeHead(403).end();try{res.setHeader('Content-Type',/\.(mjs|js)$/.test(f)?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.wasm')?'application/wasm':'text/html; charset=utf-8');res.end(fs.readFileSync(f));}catch{res.writeHead(404).end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+ try{
+  await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
+  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const s={access_token:'isolated',user:{id:'owner'},expires_at:9999999999};export const workspaceAuth={restore:async()=>s,current:async()=>s,logout:async()=>{},subscribe:fn=>window.fixtureAuth=fn};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('LEGACY_FORBIDDEN')};"}));
+  await page.route('**/api/pa-workspace-read?**',async r=>{const p=new URL(r.request().url()).searchParams.get('path');let v=[];
+   if(p.startsWith('/data/mail-attachment/'))return r.fulfill({contentType:'application/pdf',body:bytes});
+   if(p==='/data/cases')v={quote_monitor:false,quote_adoption_simple:false,cases,progress:[]};
+   else if(p.startsWith('/data/commercial/'))v=snapshot(p.split('/').at(-1));
+   else if(p.startsWith('/data/materials/'))v={cards:[],photos:[]};
+   else if(p.startsWith('/data/mail-discovery/'))v={enabled:false,candidates:[]};
+   else if(p==='/data/mail/'+A)v=messages;
+   else if(p.startsWith('/data/mail-body/'))v={inquiry_id:A,...inbound(Number(p.split('_').at(-1)))};
+   else if(p.startsWith('/data/sent-estimates/'))v={messages:[],unknown:[]};
+   return r.fulfill({json:{ok:true,result:v}});
+  });
+  await page.route('**/api/pa-gmail',async r=>{const b=r.request().postDataJSON();calls.push(b);let result;
+   if(b.action==='reply_operation_status')return r.fulfill({json:{ok:true,result:{operation:null}}});
+   if(b.action==='reply_preview'){
+    const atts=b.attachments.map(a=>({filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length,...(a.document_kind?{document_kind:a.document_kind}:{})}));
+    return r.fulfill({json:{ok:true,preview:{inquiry_id:A,gmail_thread_id:'thread',reply_source_message_id:b.reply_source_message_id,reply_source_explicit:true,recipient:'fixture@example.invalid',subject:'Re: 了承候補 1',cc_addresses:[],body:b.body,html:'<p>Isolated preview</p>',mode:'normal',attachments:atts,confirmation_token:'isolated-confirmation',expires_at:new Date(Date.now()+600000).toISOString(),operation_id:OP,operation:{operation_id:OP,inquiry_id:A,state:'PREPARED'}}}});
+   }
+   if(b.action==='case_discovery_sync')result={complete:true,has_more:false};else throw Error('UNAUTHORIZED_FIXTURE_ACTION '+b.action);
+   return r.fulfill({json:{ok:true,result}});
+  });
+  await page.route('**/api/pa-mail?surface=commercial',async r=>{const b=r.request().postDataJSON();calls.push(b);let result;
+   if(b.action==='snapshot')result=snapshot(b.case_id);
+   else if(b.action==='reply_document_list')result={inquiry_id:b.case_id,operations:b.case_id===A?[operation]:[],truncated:false};
+   else if(b.action==='reply_document_review'){
+    const part=operation.attachments.find(a=>a.part_id===b.part_id),approval=inbound(b.approval_message_id?.endsWith('2')?2:1);
+    result={case_id:A,document_kind:part.document_kind,verified:{verification:'VERIFIED'},part,invoice_state:'SENT_DOCUMENT_REGISTRATION_UNCONFIRMED',registration_state:ready?'REGISTERED_CHANGE_AGREED':'ESTIMATE_REGISTRATION_UNCONFIRMED',can_complete:ready,existing_adoption:null,approval_matches:1,approval_candidates:[inbound(1),inbound(2)],selection:{preview:{fingerprint:'fixture',previous_event_id:null,evidence:{approval:{message_id:approval.gmail_message_id,thread_id:'thread',from:approval.from_address,to:approval.to_addresses,subject:approval.subject,occurred_at:approval.received_at,body:approval.body_text}}}}};
+   }else if(b.action==='reply_document_adopt'){adopted++;result={complete:true,registration_state:'REGISTERED_CHANGE_AGREED'};}else throw Error('UNEXPECTED_COMMERCIAL '+b.action);
+   return r.fulfill({json:{ok:true,result}});
+  });
+  await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+A+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();
+  await page.locator('[data-reply-message="received_1"]').click();let composer=page.getByRole('dialog',{name:'Gmail返信作成'});
+  await composer.locator('input[type=file]').setInputFiles(names.map(name=>({name,mimeType:'application/pdf',buffer:bytes})));
+  assert.deepEqual(await composer.locator('.reply-document-file select').evaluateAll(es=>es.map(e=>e.value)),['normal','normal','normal']);
+  await composer.getByLabel(names[1]+' の添付区分').selectOption('estimate');await composer.getByLabel(names[2]+' の添付区分').selectOption('invoice');
+  await composer.getByLabel('本文',{exact:true}).fill('Isolated reply body');await composer.getByRole('button',{name:'返信プレビュー',exact:true}).click();await composer.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();
+  const payload=calls.filter(b=>b.action==='reply_preview').at(-1);assert.deepEqual(payload.attachments.map(a=>a.document_kind||'normal'),['normal','estimate','invoice']);
+  await composer.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();await page.getByRole('dialog').filter({has:page.locator('canvas')}).getByRole('button',{name:'閉じる',exact:true}).click();
+  await composer.getByRole('button',{name:'返信を閉じる',exact:true}).click();await composer.getByRole('button',{name:'下書きを破棄',exact:true}).click();
+  const sentRow=page.locator('[data-message="sent"]');
+  await sentRow.getByRole('button',{name:names[0]+' の拡大プレビュー',exact:true}).click();let viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.locator('canvas').waitFor();assert.equal(await viewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).count(),0);await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
+  const openEstimate=async()=>{await sentRow.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).click();const d=page.getByRole('dialog',{name:'この見積書を正式採用しますか？',exact:true});await d.getByRole('button',{name:'はい',exact:true}).waitFor();return d;};
+  let adoption=await openEstimate();assert(await adoption.getByRole('button',{name:'はい',exact:true}).isDisabled());await adoption.getByRole('button',{name:'別のメールを選ぶ',exact:true}).click();
+  let picker=page.getByRole('dialog',{name:'同じ案件の了承メールを選択',exact:true});assert.equal(await picker.locator('.mail-row').count(),2);await picker.locator('[data-message="received_2"]').getByRole('button',{name:'全文を表示',exact:true}).click();await picker.locator('[data-message="received_2"]').getByRole('button',{name:'閉じる',exact:true}).click();
+  await picker.locator('section').filter({has:page.locator('[data-message="received_2"]')}).getByRole('button',{name:'このメールを選ぶ',exact:true}).click();await adoption.getByText('了承候補 2',{exact:true}).waitFor();assert.equal(adopted,0);
+  await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  const out=process.env.ARA_ACCEPTANCE_SCREENSHOTS||'/tmp/paui-056';fs.mkdirSync(out,{recursive:true});await page.screenshot({path:path.join(out,'PAUI056_MOBILE.png')});await page.setViewportSize({width:1440,height:1000});await page.screenshot({path:path.join(out,'PAUI056_DESKTOP.png')});
+  await adoption.getByRole('button',{name:'いいえ',exact:true}).click();assert.equal(adopted,0);await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
+  ready=true;adoption=await openEstimate();await adoption.getByRole('button',{name:'はい',exact:true}).click();await adoption.getByText('正式見積履歴・変更合意・Owner採用証拠を確認しました。',{exact:true}).waitFor();assert.equal(adopted,1);assert(await adoption.getByRole('button',{name:'はい',exact:true}).isDisabled());await adoption.getByRole('button',{name:'いいえ',exact:true}).click();await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
+  await sentRow.getByRole('button',{name:names[2]+' の拡大プレビュー',exact:true}).click();viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.getByRole('button',{name:'請求管理との対応を確認',exact:true}).click();const invoice=page.getByRole('dialog',{name:'請求書と送信記録の確認',exact:true});await invoice.getByText(/送信済み資料・請求登録未確認/).waitFor();assert.equal(await invoice.getByRole('button',{name:'はい',exact:true}).count(),0);
+  await invoice.getByRole('button',{name:'閉じる',exact:true}).click();await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
+  await page.locator('[data-case="'+B+'"]').click();assert.equal(await page.getByRole('dialog').count(),0);await page.getByRole('button',{name:'ログアウト',exact:true}).click();assert.equal(await page.getByRole('dialog').count(),0);
+  assert(!calls.some(b=>['send_reply','create_billing','recover_estimate','dispatch_outbox'].includes(b.action)));assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({status:'PASS',actual_desk:true,per_file_types:true,no_filename_guess:true,local_original_preview:true,normal_no_adoption:true,sent_estimate_preview:true,approval_shared_cards:true,manual_selection_and_cancel:true,registration_hold:true,one_mock_adoption:true,invoice_distinct:true,case_logout_clear:true,pc_mobile:true,real_sends:0,real_business_writes:0}));
+ }finally{await browser.close();await new Promise(r=>server.close(r));}
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,12 +1,14 @@
+import {createGallery} from './gallery.mjs';
 // Existing authenticated routes only. No implicit send or candidate adoption.
 export function createWorkflowRequest(getSession){
   return async function request(action,input){
-    const endpoint=action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply','reply_operation_status','reply_reconcile'].includes(action)?'/api/pa-gmail':null;
+    const documentRead=['reply_document_list','reply_document_verify'].includes(action);
+    const endpoint=documentRead?'/api/pa-mail?surface=commercial':action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply','reply_operation_status','reply_reconcile'].includes(action)?'/api/pa-gmail':null;
     if(!endpoint)throw Error('workflow_action_refused');
     const session=await getSession();if(!session?.access_token)throw Error('login_required');
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
     try{
-      const response=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+session.access_token,'content-type':'application/json'},body:JSON.stringify({...input,action}),signal:controller.signal});
+      const response=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+session.access_token,'content-type':'application/json'},body:JSON.stringify({...input,...(documentRead?{case_id:input.inquiry_id}:{}),action}),signal:controller.signal});
       const result=await response.json();
       if(!response.ok||result.ok!==true)throw Object.assign(Error(result.code||'workflow_unavailable'),{status:response.status});
       return result;
@@ -82,18 +84,21 @@ const button=(label,click)=>{const b=node('button',label);b.type='button';b.oncl
 const replySubject=value=>/^re\s*:/iu.test(value)?String(value):('Re: '+String(value||'')).slice(0,240);
 const ccValues=value=>[...new Set(String(value||'').split(/[;,\n]/u).map(x=>x.trim().toLowerCase()).filter(Boolean))];
 const previewError=error=>({reply_already_attempted:'同じ返信の送信操作を実行済み、または確認上限です。再送せずGmailと履歴を確認してください。',invalid_origin:'この環境のOriginは許可されていません。返信プレビューを実行できません。',not_authorized:'既存Owner認証を確認できません。送信していません。',login_required:'既存Owner認証を確認できません。送信していません。',rate_limited:'操作回数の上限です。時間を置いてプレビューを確認してください。',invalid_reply_cc:'CCは選択メールの参加者の範囲で指定してください。',reply_attachments_too_large:'添付は10件・合計3MiBまでです。',invalid_reply_source:'選択メールと案件の対応を確認できません。送信していません。',reply_target_unavailable:'このメールの返信先を安全に確認できません。送信していません。'})[error.message]||'返信プレビューを確認できません。送信していません。';
-async function attachmentsPayload(files){
+const DOCUMENT_KINDS={normal:'通常ファイル',estimate:'見積書',invoice:'請求書'};
+async function attachmentsPayload(files,kinds=[]){
   if(files.length>10||files.reduce((sum,f)=>sum+f.size,0)>3*1024*1024||files.some(f=>!f.size))throw Error('reply_attachments_too_large');
-  return Promise.all(files.map(async file=>{
+  return Promise.all(files.map(async (file,index)=>{
+    const kind=kinds[index]||'normal';
+    if(!Object.hasOwn(DOCUMENT_KINDS,kind)||kind!=='normal'&&file.type!=='application/pdf')throw Error('invalid_reply_attachment');
     const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
     for(let offset=0;offset<bytes.length;offset+=32768)binary+=String.fromCharCode(...bytes.subarray(offset,offset+32768));
-    return {filename:file.name,mime_type:file.type||'application/octet-stream',data:window.btoa(binary).replace(/\+/gu,'-').replace(/\//gu,'_').replace(/=+$/u,'')};
+    return {filename:file.name,mime_type:file.type||'application/octet-stream',data:window.btoa(binary).replace(/\+/gu,'-').replace(/\//gu,'_').replace(/=+$/u,''),...(kind!=='normal'?{document_kind:kind}:{})};
   }));
 }
 export function createReplyComposer({request,getCase,onSent}){
   let state=null;const attemptedReplies=new Set();
   const current=s=>state===s&&getCase()?.id===s.caseId;
-  function clear(){const s=state;state=null;if(s){s.leaveResolve?.(false);s.dialog.remove();s.files=[];s.preview=null;s.payload=null;}}
+  function clear(){const s=state;state=null;if(s){s.leaveResolve?.(false);for(const g of s.fileGalleries||[])g.dispose();s.dialog.remove();s.files=[];s.preview=null;s.payload=null;}}
   async function beforeLeave(){
     const s=state;if(!s)return true;
     if(s.busy){s.status.textContent='処理中です。結果を確認してから移動してください。';return false;}
@@ -118,11 +123,25 @@ export function createReplyComposer({request,getCase,onSent}){
     const cc=node('input');cc.value=ccValues(message.cc_addresses?.join(', ')).filter(x=>x!==s.recipient.toLowerCase()&&!/^aratechsound@gmail\.com$/iu.test(x)).join(', ');
     const body=node('textarea');body.rows=10;body.maxLength=20000;
     const files=node('input');files.type='file';files.multiple=true;
-    const fileList=node('p');s.status=node('p');s.status.setAttribute('role','status');s.previewHost=node('section');s.warning=node('section');s.warning.setAttribute('role','group');s.warning.setAttribute('aria-label','下書き破棄の確認');
+    const fileList=node('div');fileList.className='reply-document-files';s.kinds=[];s.fileGalleries=[];s.kindControls=[];s.status=node('p');s.status.setAttribute('role','status');s.previewHost=node('section');s.warning=node('section');s.warning.setAttribute('role','group');s.warning.setAttribute('aria-label','下書き破棄の確認');
     const invalidate=()=>{if(s.attempted)return;s.revision++;s.dirty=true;s.preview=null;s.payload=null;s.previewHost.replaceChildren();s.status.textContent='変更後の内容でプレビューを確認してください。';};
     cc.oninput=body.oninput=invalidate;
-    files.onchange=()=>{s.files=[...files.files];fileList.textContent=s.files.map(f=>f.name+' ('+f.size+' bytes)').join(' / ');invalidate();};
-    const removeFiles=button('添付を外す',()=>{s.files=[];files.value='';fileList.textContent='';invalidate();});
+    files.onchange=()=>{
+      for(const g of s.fileGalleries)g.dispose();s.fileGalleries=[];s.kindControls=[];
+      s.files=[...files.files];s.kinds=s.files.map(()=> 'normal');fileList.replaceChildren();
+      s.files.forEach((f,index)=>{
+        const row=node('section'),kind=node('select');row.className='reply-document-file';
+        kind.setAttribute('aria-label',f.name+' の添付区分');
+        for(const [value,label]of Object.entries(DOCUMENT_KINDS)){const option=node('option',label+'を添付');option.value=value;option.disabled=value!=='normal'&&f.type!=='application/pdf';kind.append(option);}
+        kind.onchange=()=>{if(s.attempted)return; s.kinds[index]=kind.value;invalidate();};s.kindControls.push(kind);
+        row.append(node('strong',f.name+' ('+f.size+' bytes)'),control('添付区分',kind));
+        if(f.type==='application/pdf'||/^image\/(png|jpeg|webp)$/u.test(f.type)){
+          const target=node('div'),g=createGallery({isCurrent:()=>current(s),requestBlob:async()=>f});
+          s.fileGalleries.push(g);row.append(target);g.mount(target,[{key:'local:'+index,asset_kind:'local',asset_id:String(index),filename:f.name,mime_type:f.type,size:f.size}],{compact:true});
+        }fileList.append(row);
+      });invalidate();
+    };
+    const removeFiles=button('添付を外す',()=>{for(const g of s.fileGalleries)g.dispose();s.fileGalleries=[];s.files=[];s.kinds=[];s.kindControls=[];files.value='';fileList.replaceChildren();invalidate();});
     const operationHost=node('section');operationHost.setAttribute('aria-label','永続送信操作');
     const operationText=node('p','送信操作の状態を確認中…');operationText.setAttribute('role','status');
     const proofText=node('div');proofText.setAttribute('aria-label','送信結果の照合根拠');proofText.setAttribute('role','status');
@@ -161,7 +180,7 @@ export function createReplyComposer({request,getCase,onSent}){
       s.busy=true;preview.disabled=true;s.preview=null;s.previewHost.replaceChildren();s.status.textContent='返信先と原本メールを確認中…';
       const revision=s.revision;
       try{
-        const attachments=await attachmentsPayload(s.files);if(!current(s)||revision!==s.revision)return;
+        const attachments=await attachmentsPayload(s.files,s.kinds);if(!current(s)||revision!==s.revision)return;
         const payload={inquiry_id:s.caseId,reply_source_message_id:s.messageId,reply_source_thread_id:s.threadId,body:body.value.trim(),cc_addresses:ccValues(cc.value),attachments,mode:'normal'};
         const fingerprint=Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256',new window.TextEncoder().encode(JSON.stringify({...payload,recipient:s.recipient,subject:s.subject})))),x=>x.toString(16).padStart(2,'0')).join('');
         if(!current(s)||revision!==s.revision)return;
@@ -170,6 +189,7 @@ export function createReplyComposer({request,getCase,onSent}){
         const p=result.preview;
         if(!p||p.inquiry_id!==s.caseId||p.gmail_thread_id!==s.threadId||p.reply_source_message_id!==s.messageId||p.reply_source_explicit!==true||p.mode!=='normal'||p.recipient.toLowerCase()!==s.recipient.toLowerCase()||p.subject!==s.subject||JSON.stringify(p.cc_addresses)!==JSON.stringify(payload.cc_addresses)||typeof p.body!=='string'||typeof p.html!=='string'||!p.confirmation_token||!Number.isFinite(Date.parse(p.expires_at))||Date.parse(p.expires_at)<=Date.now()||!Array.isArray(p.attachments)||JSON.stringify(p.attachments.map(a=>[a.filename,a.size]))!==JSON.stringify(s.files.map(f=>[f.name,f.size])))throw Error('invalid_reply_binding');
         if(!p.operation_id||p.operation?.operation_id!==p.operation_id||p.operation.inquiry_id!==s.caseId)throw Error('invalid_reply_binding');
+        if(p.attachments.some((a,i)=>(a.document_kind||'normal')!==s.kinds[i]))throw Error('invalid_reply_binding');
         showOperation(p.operation);
         if(p.operation.state!=='PREPARED'){
           if(p.operation.state==='SENT'){
@@ -180,7 +200,7 @@ export function createReplyComposer({request,getCase,onSent}){
         }
         s.newOperation=null;
         s.preview=p;s.payload=payload;s.status.textContent='プレビュー確認済み。まだ送信していません。';
-        const summary=node('p','To: '+p.recipient+' / CC: '+p.cc_addresses.join(', ')+' / 件名: '+p.subject+' / 添付: '+p.attachments.map(a=>a.filename).join(', '));
+        const summary=node('p','To: '+p.recipient+' / CC: '+p.cc_addresses.join(', ')+' / 件名: '+p.subject+' / 添付: '+p.attachments.map(a=>a.filename+'（'+DOCUMENT_KINDS[a.document_kind||'normal']+'）').join(', '));
         const text=node('pre',p.body);const frame=node('iframe');frame.title='ARA-TECH返信プレビュー';frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.srcdoc=p.html;
         const confirm=button('送信内容を最終確認',()=>{
           if(!current(s)||s.preview!==p||revision!==s.revision||s.attempted||Date.parse(p.expires_at)<=Date.now()){s.status.textContent='プレビューの再確認が必要です。';return;}
@@ -189,7 +209,7 @@ export function createReplyComposer({request,getCase,onSent}){
           const send=button('最終確認して送信',async()=>{
             if(!check.checked||s.busy||s.attempted||!current(s)||s.preview!==p||revision!==s.revision||Date.parse(p.expires_at)<=Date.now())return;
             if(attemptedReplies.has(fingerprint)||attemptedReplies.size>=100){s.status.textContent='同じ返信の送信操作を実行済み、または確認上限です。再送せずGmailと履歴を確認してください。';return;}
-            attemptedReplies.add(fingerprint);s.attempted=true;s.busy=true;send.disabled=true;preview.disabled=true;for(const el of [cc,body,files,removeFiles])el.disabled=true;
+            attemptedReplies.add(fingerprint);s.attempted=true;s.busy=true;send.disabled=true;preview.disabled=true;for(const el of [cc,body,files,removeFiles,...s.kindControls])el.disabled=true;
             s.status.textContent='送信結果を確認中…';
             try{
               const result=await request('send_reply',{...s.payload,confirmation_token:p.confirmation_token,operation_id:p.operation_id});
@@ -201,7 +221,7 @@ export function createReplyComposer({request,getCase,onSent}){
             }catch{if(current(s)){s.status.textContent='送信結果は未確認です。自動再送しません。Gmailと履歴を確認してください。';try{const r=await request('reply_operation_status',{inquiry_id:s.caseId,operation_id:p.operation_id});if(current(s))showOperation(r.result?.operation);}catch{operationText.textContent='UNKNOWN / 永続状態の読取も未確認です。再送しないでください。';}}}
             finally{if(current(s))s.busy=false;}
           });send.disabled=true;check.onchange=()=>{send.disabled=!check.checked||s.attempted;};
-          s.previewHost.append(node('p','この受信メールへの通常返信です。見積送信・正式受注送信とは別です。'),control('宛先・CC・件名・本文・添付と対象メールを確認しました',check),send);
+          s.previewHost.append(node('p','この受信メールへの通常返信です。見積書・請求書の添付だけでは正式採用・請求確定・入金処理を行いません。'),control('宛先・CC・件名・本文・添付と対象メールを確認しました',check),send);
         });s.previewHost.append(summary,text,frame,confirm);
       }catch(error){if(current(s)){s.preview=null;s.status.textContent=previewError(error);}}
       finally{if(current(s)){s.busy=false;preview.disabled=s.attempted;}}

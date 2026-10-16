@@ -781,6 +781,11 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     const subject = subjectOverride==null ? replySubject(source.subject) : cleanHeader(subjectOverride,240);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
+    for (const a of normalizedAttachments) if (a.document_kind) {
+        const bytes = Buffer.from(a.data, 'base64url');
+        const pdf = require('./_pa-contract-pdf.cjs');
+        await pdf.validatePdf(bytes, pdf.sha(bytes));
+    }
     const normalizedMode = replyMode(mode);
     if (normalizedMode !== "normal") requirePaCase(await getInquiry(inquiryId, fetchImpl));
     const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
@@ -799,7 +804,7 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
         body: normalizedBody,
         html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
-        attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
+        attachments: normalizedAttachments.map(({ filename, mime_type, size, document_kind }) => ({ filename, mime_type, size, ...(document_kind ? { document_kind } : {}) }))
     };
     if (issueConfirmationToken) {
         preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, replySourceExplicit: explicit, replySourceAuthorityHash: preview.reply_source_authority_hash, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt });

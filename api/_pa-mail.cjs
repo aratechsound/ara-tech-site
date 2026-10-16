@@ -490,16 +490,21 @@ const normalizeReplyAttachments = (value) => {
         const bytes = decodeReplyAttachmentData(attachment.data);
         totalBytes += bytes.length;
         if (totalBytes > MAX_REPLY_ATTACHMENT_BYTES) throw new Error("reply_attachments_too_large");
+        const kind = attachment.document_kind || 'normal';
+        if (!['normal', 'estimate', 'invoice'].includes(kind)
+            || kind !== 'normal' && (safeMailAttachmentMimeType(attachment.mime_type) !== 'application/pdf'
+                || !bytes.subarray(0, 5).equals(Buffer.from('%PDF-')))) throw new Error('invalid_reply_attachment');
         return {
             filename: safeOriginalFilename(attachment.filename),
             mime_type: safeMailAttachmentMimeType(attachment.mime_type),
             data: bytes.toString("base64url"),
-            size: bytes.length
+            size: bytes.length,
+            ...(kind !== 'normal' ? { document_kind: kind } : {})
         };
     });
 };
 const replyAttachmentsHash = (attachments) => crypto.createHash("sha256").update(JSON.stringify(
-    attachments.map(({ filename, mime_type, data }) => ({ filename, mime_type, data }))
+    attachments.map(({ filename, mime_type, data, document_kind }) => ({ filename, mime_type, data, ...(document_kind ? { document_kind } : {}) }))
 )).digest("hex");
 const encodeAttachmentDataLines = (data) => Buffer.from(String(data || ""), "base64url").toString("base64").match(/.{1,76}/gu)?.join("\r\n") || "";
 

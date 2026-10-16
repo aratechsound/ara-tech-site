@@ -60,7 +60,8 @@ async function inspect(message,expected,normalize,read,{attachmentBytes=true}={}
    if(typeof data!=='string'||data.length>4_500_000||hash(Buffer.from(data,'base64url'))!==attachments[i].sha256){problems.push('attachment_bytes');break;}
   }
  }
- return {gmail_message_id:n.id,gmail_thread_id:n.thread_id,rfc_message_id:rfc(message),occurred_at:n.occurred_at,binding_matches:problems.length===0,mismatches:problems,attachment_bytes_checked:attachmentBytes&&problems.length===0};
+ return {gmail_message_id:n.id,gmail_thread_id:n.thread_id,rfc_message_id:rfc(message),occurred_at:n.occurred_at,binding_matches:problems.length===0,mismatches:problems,attachment_bytes_checked:attachmentBytes&&problems.length===0,
+  ...(attachmentBytes&&problems.length===0?{attachments:n.attachments.map((a,i)=>({filename:a.filename,mime_type:a.mime_type,size:a.size,part_id:a.part_id,sha256:attachments[i].sha256}))}:{})};
 }
 async function reviewThread(op,read,normalize){
  try{

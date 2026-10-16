@@ -240,7 +240,52 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   }
   return {bytes:Buffer.from(await doc.save()),filename:'change-approval-email-copy.pdf',mime_type:'application/pdf'};
  }
+ async function replyDocumentReview(input,actor){
+  const caseId=id(input.case_id),verified=await require('./_pa-reply-documents.cjs').verify({actorId:actor.id,inquiryId:caseId,operationId:input.operation_id,messageId:input.gmail_message_id},fetchImpl);
+  const matches=verified.attachments.filter(a=>a.part_id===input.part_id&&a.sha256===input.sha256);
+  if(matches.length!==1||!['estimate','invoice'].includes(matches[0].document_kind))fail();
+  const part=matches[0],ctx=await context(caseId),stored=await history(caseId);
+  if(part.document_kind==='invoice'){
+   const docs=ctx.current.documents.filter(d=>d.sha256===part.sha256),billings=ctx.current.billings.filter(b=>docs.some(d=>d.id===b.invoice_document_id));
+   return {case_id:caseId,document_kind:'invoice',verified,part,invoice_state:billings.length===1?'REGISTERED_IDENTITY_MATCH':billings.length?'AMBIGUOUS':'SENT_DOCUMENT_REGISTRATION_UNCONFIRMED',billing:billings.length===1?{id:billings[0].id,state:billings[0].state,invoice_policy:billings[0].invoice_policy}:null,commercial_write:false};
+  }
+  const q=await quote(caseId,{source:'gmail',message_id:verified.gmail_message_id,thread_id:verified.gmail_thread_id,attachment_id:part.attachment_id,part_id:part.part_id,sha256:part.sha256},true);
+  const contracts=ctx.contracts.filter(c=>Date.parse(c.confirmed_at)<=Date.parse(verified.sent_at));
+  const base={case_id:caseId,document_kind:'estimate',verified,part,quote:q.metadata,approval_candidates:[],selection:null,can_complete:false,commercial_write:false};
+  if(contracts.length!==1)return {...base,registration_state:'CONTRACT_SELECTION_UNCONFIRMED'};
+  const contract=contracts[0],linked=await rows('pa_gmail_message_index',{inquiry_id:'eq.'+caseId,direction:'eq.inbound',select:'inquiry_id,gmail_message_id,gmail_thread_id,direction,subject,from_address,to_addresses,cc_addresses,received_at',order:'received_at.desc',limit:'21'});
+  if(input.approval_message_id&&!linked.some(m=>m.gmail_message_id===input.approval_message_id&&m.gmail_thread_id===input.approval_thread_id))fail();
+  const inspect=async m=>{
+   const selection={case_id:caseId,contract_id:contract.id,quote:{source:'gmail',message_id:verified.gmail_message_id,thread_id:verified.gmail_thread_id,attachment_id:part.attachment_id,part_id:part.part_id,sha256:part.sha256},approval:{source:'gmail',message_id:m.gmail_message_id,thread_id:m.gmail_thread_id},change_description:'送信操作に固定した見積PDFと顧客了承メールのOwner確認',reason:'Ownerが見積PDF原本・顧客了承・正式登録履歴を最終確認',owner_confirmed:true,owner_case_relation_confirmed:true};
+   const p=await preview(selection,actor,q);return {input:selection,preview:p.model};
+  };
+  const found=[],errors=[];
+  if(input.approval_message_id){try{found.push(await inspect(linked.find(m=>m.gmail_message_id===input.approval_message_id)));}catch(e){if(e.message==='change_evidence_mismatch')throw e;errors.push(input.approval_message_id);}}
+  else for(const m of linked.slice(0,10)){try{const p=await inspect(m);if(p.preview.evidence.approval.status==='verified')found.push(p);}catch{errors.push(m.gmail_message_id);}}
+  const selected=found.length===1?found[0]:null;
+  const adopted=stored.authority?.event_kind==='adopted'&&stored.authority.evidence.quote.sha256===part.sha256?stored.authority:null;
+  const originalDocuments=ctx.current.documents.filter(d=>d.sha256===part.sha256);
+  const matchingEstimates=ctx.current.estimates.filter(e=>originalDocuments.some(d=>d.id===e.document_id));
+  const estimate=matchingEstimates.length===1?matchingEstimates[0]:null;
+  const changes=estimate?ctx.current.change_orders.filter(c=>c.contract_id===contract.id&&c.estimate_revision_id===estimate.id&&c.state==='agreed'&&Number(c.agreed_amount_minor)===Number(estimate.amount_minor)):[];
+  const jobs=changes.length===1?ctx.current.outbox.filter(j=>j.aggregate_id===changes[0].id&&j.job_kind==='change_proposal'):[];
+  const agreed=estimate?.series==='change_order'&&estimate.parent_contract_id===contract.id&&changes.length===1&&jobs.length===1&&jobs[0].state==='sent';
+  // A historical estimate import is not a post-contract change agreement.
+  const registration=matchingEstimates.length>1?'ESTIMATE_REGISTRATION_AMBIGUOUS':q.metadata.registered_sha_match?(agreed?'REGISTERED_CHANGE_AGREED':'CHANGE_LEDGER_UNCONFIRMED'):'ESTIMATE_REGISTRATION_UNCONFIRMED';
+  return {...base,contract_id:contract.id,registration_state:registration,approval_candidates:linked.slice(0,20),approval_list_truncated:linked.length>20,automatic_search_incomplete:!input.approval_message_id&&(linked.length>10||errors.length>0),approval_matches:found.length,selection:selected,existing_adoption:adopted?{id:adopted.id,approval_message_id:adopted.evidence.approval.message_id}:null,
+   can_complete:registration==='REGISTERED_CHANGE_AGREED'&&!!selected&&(!!input.approval_message_id||linked.length<=10&&!errors.length)&&selected.preview.can_adopt&&selected.preview.evidence.approval.status==='verified'&&(!adopted||adopted.evidence.approval.message_id===selected.preview.evidence.approval.message_id)};
+ }
+ async function replyDocumentAdopt(input,actor){
+  // A single confirmed operation is never a route around V5 registration gates.
+  const review=await replyDocumentReview(input,actor);
+  if(!review.can_complete)throw Error('change_evidence_incomplete');
+  if(review.existing_adoption)return {id:review.existing_adoption.id,already_committed:true,registration_state:review.registration_state,complete:true};
+  const p=review.selection.preview;
+  if(p.fingerprint!==input.fingerprint||p.previous_event_id!==(input.previous_event_id||null))throw Error('change_evidence_changed');
+  const result=await changeEvidenceAppend({...review.selection.input,event_kind:'adopted',operation_id:id(input.adoption_operation_id),fingerprint:p.fingerprint,previous_event_id:p.previous_event_id,evidence_sha256:pdf.sha(canonical(p.evidence))},actor);
+  return {...result,registration_state:review.registration_state,complete:true};
+ }
  const monitor=require('./_pa-quote-monitor.cjs').createQuoteMonitor({rows,one,rpc,context,history,message,quote,preview,savedBinary,contractSha,renderMail:e=>changeEvidenceMailPdf({case_id:e.case_id},null,e)});
- return {changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf,...monitor};
+ return {replyDocumentReview,replyDocumentAdopt,changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf,...monitor};
 }
 module.exports={createEvidenceService,ERRORS,stripQuotes,canonical};
