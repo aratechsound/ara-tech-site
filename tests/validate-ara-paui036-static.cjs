@@ -29,6 +29,8 @@ function analyze(sources){
 }
 const sources=new Map(fs.readdirSync(dir).filter(n=>n.endsWith('.mjs')).map(n=>{const f=path.join(dir,n);return [f,fs.readFileSync(f,'utf8')];}));
 const config=path.join(root,'js/supabase-config.js');sources.set(config,fs.readFileSync(config,'utf8'));
+// CASE DESK shares the existing commercial display authority; analyze its exports too.
+const commercialDisplay=path.join(root,'js/pa-confirmation-display.mjs');sources.set(commercialDisplay,fs.readFileSync(commercialDisplay,'utf8'));
 assert.deepEqual(analyze(sources),[],'All published desk surfaces and their module dependencies must resolve');
 const desk=path.join(dir,'desk.mjs'),model=path.join(dir,'model.mjs');
 const badReference=new Map(sources);badReference.set(desk,sources.get(desk).replace('body:r=>deliveryUnknown(r)','body:r=>missingDeliveryHelper(r)'));
