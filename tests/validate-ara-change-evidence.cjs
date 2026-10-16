@@ -42,6 +42,11 @@ async function main(){
   await assert.rejects(service.changeEvidencePreview({...base,case_id:f.otherId},f.actor),/contract_not_found/);
   await assert.rejects(service.changeEvidencePreview({...base,quote:{...base.quote,amount_minor:999999}},f.actor),/change_evidence_mismatch/);
   const manualDoc=await PDFDocument.create();manualDoc.addPage().drawText('Manual evidence fixture');const manualBytes=Buffer.from(await manualDoc.save());
+  f.state.quote=manualBytes;
+  const unknownAmount=await service.changeEvidenceCandidates({case_id:f.inquiryId,detect:true},f.actor);assert.equal(unknownAmount.detected.length,1);assert.equal(unknownAmount.detected[0].quote.amount_minor,null,'Unavailable extraction must retain the original candidate without inventing an amount');
+  const ownerAmount=await service.changeEvidencePreview({...base,quote:{...base.quote,amount_minor:200000}},f.actor);assert(ownerAmount.evidence.warnings.includes('amount_requires_owner_pdf_confirmation'));assert.equal(ownerAmount.evidence.quote.registered_sha_match,false);
+  await assert.rejects(service.changeEvidencePreview({...base,quote:{...base.quote,amount_minor:200000,compare_estimate_id:e.id}},f.actor),/change_evidence_mismatch/);
+  f.state.quote=f.quote;
   const local={...base,quote:{source:'local',filename:'manual.pdf',content_base64:f.quote.toString('base64'),sha256:sha(f.quote),amount_minor:110000,tax_basis:'tax_included'},approval:{source:'manual_pdf',filename:'mail-copy.pdf',content_base64:manualBytes.toString('base64'),sha256:sha(manualBytes)}};
   const manual=await service.changeEvidencePreview(local,f.actor);assert.equal(manual.evidence.approval.gmail_original_verified,false);assert(manual.can_adopt);assert(manual.evidence.warnings.includes('local_original_delivery_unverified'));
   const copy=await service.changeEvidenceMailPdf(base,f.actor);assert.equal((await PDFDocument.load(copy.bytes)).getPageCount()>0,true);assert.equal(await digest(),before);
