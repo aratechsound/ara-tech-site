@@ -34,7 +34,7 @@ export function createReplyDocumentView({getCase,requestReply,requestCommercial,
       status.textContent=model.invoice_state==='REGISTERED_IDENTITY_MATCH'?'既存請求書の原本と送信記録が一致しました。請求状態・金額・期限・入金状態は変更しません。':model.invoice_state==='AMBIGUOUS'?'対応する請求記録が複数あり未確定です。':'送信済み資料・請求登録未確認。請求の発行・確定は行いません。';no.textContent='閉じる';return;
     }
     status.textContent=STATES[model.registration_state]||'正式登録の対応は未確認です。';
-    if(model.existing_adoption)content.append(el('p','保存済みのOwner採用証拠があります。重複作成しません。'));
+    if(model.existing_adoption)content.append(el('p',model.existing_adoption.identity_matches?'同じ原本・了承メールのOwner採用証拠があります。重複作成しません。':'保存済みOwner採用証拠と今回の送信原本の対応は未確認です。重複作成・自動的な採用済み判定を行いません。'));
     const selection=model.selection;
     if(selection){const a=selection.preview.evidence.approval;card(content,id,{inquiry_id:id,gmail_message_id:a.message_id,gmail_thread_id:a.thread_id,direction:'inbound',from_address:a.from,to_addresses:a.to,received_at:a.occurred_at,subject:a.subject,body_text:a.body},g);}
     else content.append(el('p',model.approval_matches>1?'了承メール候補が複数あります。Ownerが原本を選択してください。':'対応する了承メールは一意に確認できません。'));

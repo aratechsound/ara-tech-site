@@ -264,6 +264,9 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   else for(const m of linked.slice(0,10)){try{const p=await inspect(m);if(p.preview.evidence.approval.status==='verified')found.push(p);}catch{errors.push(m.gmail_message_id);}}
   const selected=found.length===1?found[0]:null;
   const adopted=stored.authority?.event_kind==='adopted'&&stored.authority.evidence.quote.sha256===part.sha256?stored.authority:null;
+  const sameAdoption=!!adopted&&!!selected&&adopted.contract_id===contract.id&&adopted.evidence.case_id===caseId
+   &&adopted.evidence.quote.message_id===verified.gmail_message_id&&adopted.evidence.quote.thread_id===verified.gmail_thread_id&&adopted.evidence.quote.part_id===part.part_id
+   &&adopted.evidence.approval.message_id===selected.preview.evidence.approval.message_id&&adopted.evidence.approval.thread_id===selected.preview.evidence.approval.thread_id;
   const originalDocuments=ctx.current.documents.filter(d=>d.sha256===part.sha256);
   const matchingEstimates=ctx.current.estimates.filter(e=>originalDocuments.some(d=>d.id===e.document_id));
   const estimate=matchingEstimates.length===1?matchingEstimates[0]:null;
@@ -272,8 +275,8 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   const agreed=estimate?.series==='change_order'&&estimate.parent_contract_id===contract.id&&changes.length===1&&jobs.length===1&&jobs[0].state==='sent';
   // A historical estimate import is not a post-contract change agreement.
   const registration=matchingEstimates.length>1?'ESTIMATE_REGISTRATION_AMBIGUOUS':q.metadata.registered_sha_match?(agreed?'REGISTERED_CHANGE_AGREED':'CHANGE_LEDGER_UNCONFIRMED'):'ESTIMATE_REGISTRATION_UNCONFIRMED';
-  return {...base,contract_id:contract.id,registration_state:registration,approval_candidates:linked.slice(0,20),approval_list_truncated:linked.length>20,automatic_search_incomplete:!input.approval_message_id&&(linked.length>10||errors.length>0),approval_matches:found.length,selection:selected,existing_adoption:adopted?{id:adopted.id,approval_message_id:adopted.evidence.approval.message_id}:null,
-   can_complete:registration==='REGISTERED_CHANGE_AGREED'&&!!selected&&(!!input.approval_message_id||linked.length<=10&&!errors.length)&&selected.preview.can_adopt&&selected.preview.evidence.approval.status==='verified'&&(!adopted||adopted.evidence.approval.message_id===selected.preview.evidence.approval.message_id)};
+  return {...base,contract_id:contract.id,registration_state:registration,approval_candidates:linked.slice(0,20),approval_list_truncated:linked.length>20,automatic_search_incomplete:!input.approval_message_id&&(linked.length>10||errors.length>0),approval_matches:found.length,selection:selected,existing_adoption:adopted?{id:adopted.id,approval_message_id:adopted.evidence.approval.message_id,identity_matches:sameAdoption}:null,
+   can_complete:registration==='REGISTERED_CHANGE_AGREED'&&!!selected&&(!!input.approval_message_id||linked.length<=10&&!errors.length)&&selected.preview.can_adopt&&selected.preview.evidence.approval.status==='verified'&&(!adopted||sameAdoption)};
  }
  async function replyDocumentAdopt(input,actor){
   // A single confirmed operation is never a route around V5 registration gates.

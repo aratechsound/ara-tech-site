@@ -81,6 +81,16 @@ const json=(body,status=200)=>({ok:status<300,status,json:async()=>body});
   const replay=await service.replyDocumentAdopt({...confirmed,adoption_operation_id:crypto.randomUUID()},f.actor);assert.equal(replay.id,committed.id);assert.equal(replay.already_committed,true);
   assert.equal((await f.db.query("select count(*)::int n from pa_change_evidence_events where event_kind='adopted'")).rows[0].n,1);
   const commercialAfter=await Promise.all(protectedTables.filter(t=>t!=='pa_change_evidence_events').map(async t=>(await f.db.query('select to_jsonb(t) v from '+t+' t order by to_jsonb(t)::text')).rows));assert.deepEqual(commercialAfter,commercialBefore);
+  // Identical PDF/RFC content under another immutable Gmail API identity is
+  // not the same previously adopted source, even if a reply reference matches.
+  const copy=structuredClone(messages.get(sent));copy.id='typed_sent_copy';messages.set(copy.id,copy);
+  await f.db.query("insert into pa_gmail_message_index(gmail_message_id,gmail_thread_id,inquiry_id,direction,from_address,to_addresses,cc_addresses,subject,message_source,sent_at,attachment_metadata) select 'typed_sent_copy',gmail_thread_id,inquiry_id,direction,from_address,to_addresses,cc_addresses,subject,message_source,sent_at,attachment_metadata from pa_gmail_message_index where gmail_message_id=$1",[sent]);
+  const copied=await ops.prepare({actorId:f.actor.id,preview,attachments,newOperation:true,previousOperationId:operation.operation_id},fetchImpl);
+  await ops.act(f.actor.id,'claim',copied.operation,{},fetchImpl);await ops.act(f.actor.id,'sent',copied.operation,{gmail_message_id:copy.id,gmail_thread_id:thread},fetchImpl);
+  const copiedInput={...completeInput,operation_id:copied.operation.operation_id,gmail_message_id:copy.id};
+  const copiedReview=await service.replyDocumentReview(copiedInput,f.actor);assert.equal(copiedReview.existing_adoption.identity_matches,false);assert.equal(copiedReview.can_complete,false);
+  await assert.rejects(service.replyDocumentAdopt({...copiedInput,adoption_operation_id:crypto.randomUUID()},f.actor),/change_evidence_incomplete/);
+  assert.equal((await f.db.query("select count(*)::int n from pa_change_evidence_events where event_kind='adopted'")).rows[0].n,1);
   assert.equal(providerWrites,0);assert(!requests.some(x=>x.path.endsWith('/messages/send')));
   console.log(JSON.stringify({status:'PASS',three_independent_types:true,legacy_normal_hash_preserved:true,classification_bound_to_operation:true,readonly_rpc_privileges:true,provider_index_part_sha_verified:true,unregistered_estimate_hold:true,invoice_unregistered_distinct:true,manual_approval_bounded:true,multiple_candidates_not_auto_selected:true,unknown_never_verified_or_resent:true,protected_business_rows_unchanged:true,real_sends:0}));
  }finally{await f.db.close();}
