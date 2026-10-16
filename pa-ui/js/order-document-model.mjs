@@ -24,4 +24,3 @@ export async function resolveOrderDocuments(request,caseId){
  if(e?.case_id!==caseId||e.contract_id!==original.id||e.quote?.sha256!==candidate.quote.sha256||e.approval?.message_id!==candidate.approval.message_id||e.approval.thread_id!==candidate.approval.thread_id||e.approval.status!=='verified'||!e.approval.exact_quote_reference||!e.approval.linked)return {state,original,notice:'候補と顧客承認の厳格な対応は未確認です。手動照合してください。'};
  return {state,original,evidence:e,payload,label:'送信済み・Owner未採用'};
 }
-
