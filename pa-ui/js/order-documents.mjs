@@ -43,6 +43,7 @@ export function createOrderDocuments({host,mountFallback,previewScope,isCurrent,
    if(model.original){columns[0].badge.textContent='正式受注済み・原本保全';make(0,'change_evidence_contract_pdf',{contract_id:model.original.id},'元の正式受注確認書.pdf',model.original.sha256);}
    const present=(model,key='baseline')=>{
    visibleKey=key;
+   if(monitor)note.textContent=privateText(model.monitorCandidate?(model.stale?'前回の候補原本を表示中です。最新照合は未完了で、正式採用ではありません。':'未採用候補を表示中です。正式採用するまで現行合意見積は変更しません。'):model.adopted?'Owner採用済みの現行合意見積を表示しています。新しい候補を表示しても正式採用は変わりません。':model.notice||'正式登録見積を表示中です。変更候補は別に確認します。');
    if(!model.evidence){if(deferQuote){mounted.delete(1);mounted.delete(2);columns[1].body.replaceChildren();columns[1].badge.textContent='正式登録見積・最新発行版（現行合意採用とは別）';mountFallback(columns[1].body,'quote');columns[2].body.replaceChildren(el('p','対応する顧客承認は未特定です。','empty-state'));columns[2].links.replaceChildren();columns[2].badge.textContent='承認証拠は未特定';}return;}
    const e=model.evidence,payload=model.event_id?{event_id:model.event_id}:model.payload;
    columns[1].h.textContent='変更見積書';columns[1].badge.textContent=model.label;columns[2].badge.textContent=model.adopted?'Owner採用済み・証拠控え':'返信原本照合済み・Owner未採用';
