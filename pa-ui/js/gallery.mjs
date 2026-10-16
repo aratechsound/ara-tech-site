@@ -27,7 +27,7 @@ export function createPreviewScope({isCurrent,expiresAt=Infinity}){
   },dispose};
 }
 // Shared by portal documents and mail attachments. Only separate money fields expire.
-export function createGallery({requestBlob,isCurrent,assets,previewScope}){
+export function createGallery({requestBlob,isCurrent,assets,previewScope,previewActions}){
   const id='asset-preview-'+(++serial),owned=!assets;
   let epoch=0,active=true,entries=[],root,dialog,observer;
   const current=()=>active&&isCurrent();
@@ -84,6 +84,7 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope}){
     const body=document.createElement('div');body.id=id+'-body';body.className='preview-content';body.textContent='原本を取得中…';
     const controls=document.createElement('div');controls.className='preview-controls';
     const close=document.createElement('button');close.textContent='閉じる';const opened=dialog;
+    if(previewActions)previewActions(item,controls);
     opened.append(title,controls,body,close);document.body.append(opened);opened.showModal();
     let renderId=0,page=1,zoom=1,pages=1,original,fullPdf,finished=false,detach=()=>{};
     const alive=()=>!finished&&(previewScope?previewScope.current():current()&&epoch===generation)&&opened.isConnected&&opened.open;

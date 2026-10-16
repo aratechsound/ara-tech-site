@@ -1,5 +1,6 @@
 import {resolveOrderDocuments,resolveMonitoredOrderDocuments} from './order-documents.mjs';
 import {openCandidateDecision} from './quote-monitor.mjs';
+import {openQuoteAdoption} from './quote-adoption.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {mountChangeEvidenceSummary,openChangeEvidence} from './change-evidence.mjs';
 import {selectConfirmationContext,confirmationDisplayState,effectiveDeliveryState} from '../../js/pa-confirmation-display.mjs';
@@ -27,7 +28,7 @@ export function commercialProjection(data){
 }
 
 export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>{},fetchImpl=fetch,onChanged=async()=>{},quoteMonitor=null}){
-  let root=null,caseId=null,epoch=0,snapshot=null,loading=null,error=null,busy=false,dirty=false,mutations=0,documents=null,documentAssets=null,evidenceRead=null,evidenceAuthority=null;
+  let root=null,caseId=null,epoch=0,snapshot=null,loading=null,error=null,busy=false,dirty=false,mutations=0,documents=null,documentAssets=null,evidenceRead=null,evidenceAuthority=null,simpleAdoption=false,quickAdopt=null;
   const dialogs=new Set(),controllers=new Set();
   const valid=(id,version)=>caseId===id&&getCase()?.id===id&&epoch===version;
   function clear(){documents?.dispose();documents=null;documentAssets?.clear();documentAssets=null;evidenceRead=null;++epoch;for(const c of controllers)c.abort();controllers.clear();for(const d of dialogs){if(d.open)d.close();d.remove();}dialogs.clear();root=null;caseId=null;snapshot=null;loading=null;error=null;dirty=false;busy=false;resetPrivacy();}
@@ -144,14 +145,15 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     if(p.current&&!p.estimateJob)root.append(el('p','この見積版に見積単独の送信待ち記録はありません。既存の送信済み・履歴を再送せず保護します。未送信の正規見積から正式受注確認を直接準備できます。'));
     const evidenceCase=caseId,evidenceEpoch=epoch;
     const openEvidence=candidate=>openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid:()=>valid(evidenceCase,evidenceEpoch),getCase,setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;},onChanged:async()=>{evidenceRead=null;snapshot=null;if(quoteMonitor)await quoteMonitor.check(evidenceCase).catch(()=>{});await load();},initialCandidate:candidate,quoteMonitor});
+    quickAdopt=candidate=>openQuoteAdoption({candidate,request,dialog,valid:()=>valid(evidenceCase,evidenceEpoch),setBusy:v=>{busy=v;},onChanged:async()=>{evidenceRead=null;snapshot=null;await load();},details:openEvidence});
     if(documents){
       documentAssets ||= createPrivateAssets({requestBlob:item=>request(item.source_ref.action,item.source_ref.payload,true),authorize:async()=>{const auth=await getSession();if(!auth?.access_token||!valid(evidenceCase,evidenceEpoch))throw Error('case_changed');},isCurrent:()=>valid(evidenceCase,evidenceEpoch)});
       const accepted=snapshot.offers.filter(o=>o.state==='accepted'&&Number.isFinite(Date.parse(o.confirmed_at))),authority=JSON.stringify(accepted.map(o=>[o.id,o.confirmed_at]));
       if(evidenceAuthority!==authority){evidenceAuthority=authority;evidenceRead=null;}
-      documents.connect({request,assets:documentAssets,openEvidence,monitor:quoteMonitor,caseId:evidenceCase,onDecision:(candidate,kind)=>openCandidateDecision({candidate,kind,caseId:evidenceCase,monitor:quoteMonitor,dialog,stop,status,valid:()=>valid(evidenceCase,evidenceEpoch),setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;}}),resolve:()=>evidenceRead ||= accepted.length?(quoteMonitor?resolveMonitoredOrderDocuments(request,evidenceCase):resolveOrderDocuments(request,evidenceCase)):Promise.resolve({state:{history:[]},original:null,notice:'正式受注の確定日時は未特定です。登録見積と履歴から確認してください。'})});
+      documents.connect({request,assets:documentAssets,openEvidence,adoptEvidence:simpleAdoption?quickAdopt:null,monitor:quoteMonitor,caseId:evidenceCase,onDecision:(candidate,kind)=>openCandidateDecision({candidate,kind,caseId:evidenceCase,monitor:quoteMonitor,dialog,stop,status,valid:()=>valid(evidenceCase,evidenceEpoch),setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;}}),resolve:()=>evidenceRead ||= accepted.length?(quoteMonitor?resolveMonitoredOrderDocuments(request,evidenceCase):resolveOrderDocuments(request,evidenceCase)):Promise.resolve({state:{history:[]},original:null,notice:'正式受注の確定日時は未特定です。登録見積と履歴から確認してください。'})});
     }else mountChangeEvidenceSummary(root,snapshot,openEvidence);
     const history=el('details');history.append(el('summary','商務正本の配送・確認履歴'));for(const o of snapshot.offers)history.append(el('p','正式確認 #'+o.version+'／'+o.state+'／保存期限 '+(o.expires_at||'未提供')));for(const j of snapshot.outbox)history.append(el('p',j.job_kind+'／'+effectiveDeliveryState(j)+'／'+(j.finished_at||j.created_at||'日時未提供')));root.append(history);
   }
   function mount(host,documentView=null){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;documents=documentView;render();if(!snapshot&&!loading&&!error)load();}
-  return {mount,beforeLeave,clear,setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
+  return {mount,beforeLeave,clear,setSimpleAdoption(value){simpleAdoption=value===true;},adoptQuote(candidate){if(simpleAdoption&&quickAdopt)return quickAdopt(candidate);},setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
 }

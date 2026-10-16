@@ -146,8 +146,36 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   const fingerprint=pdf.sha(canonical({actor:actor.id,evidence,previous}));
   return {model:{evidence,fingerprint,previous_event_id:previous,can_adopt:canAdopt,storage_available:stored.available,status:approval.status==='verified'?'customer_approval_evidence_verified':'owner_review_required',same_pdf_reused:q.metadata.registered_sha_match},blobs,bytes:q.binary.bytes};
  }
- async function changeEvidencePreview(input,actor){return (await preview(input,actor)).model;}
+ async function simplePreview(input,actor){
+  const caseId=id(input.case_id);if(input.quote?.source!=='gmail'||!input.quote.part_id||!/^[a-f0-9]{64}$/u.test(input.quote.sha256||'')||input.approval?.source!=='gmail')throw Error('change_evidence_incomplete');
+  const current=await monitor.quoteMonitorStatus({case_id:caseId},actor);
+  const matches=(current.candidates||[]).filter(c=>c.evidence?.quote.sha256===input.quote.sha256);
+  const c=matches[0];
+  if(current.scan?.state!=='ready'||current.errors?.length||current.needs_check||matches.length!==1||c.stale||c.origins?.length>1||c.evidence.contract_id!==input.contract_id||c.evidence.quote.message_id!==input.quote.message_id||c.evidence.quote.thread_id!==input.quote.thread_id||c.evidence.quote.part_id!==input.quote.part_id||c.evidence.approval?.message_id!==input.approval.message_id||c.evidence.approval?.thread_id!==input.approval.thread_id)throw Error('change_evidence_changed');
+  const stored=await history(caseId);if(stored.authority?.event_kind==='adopted'&&stored.authority.evidence.quote.sha256===input.quote.sha256)throw Error('change_evidence_changed');
+  const q=await quote(caseId,input.quote,true),required=[];
+  if(!q.metadata.amount_minor)required.push('amount_minor');
+  let tax=q.metadata.registered_sha_match?q.metadata.tax_basis:null;
+  if(!tax){const lines=await require('./_pa-estimate-amount.cjs').pdfTextLines(q.binary.bytes);const raw=lines.join(' ');if(/税込|tax[ -]included|including tax/iu.test(raw)&&!/税別|tax[ -]excluded/iu.test(raw))tax='tax_included';}
+  if(!tax&&['tax_included','tax_excluded','tax_exempt'].includes(input.quote.tax_basis))tax=input.quote.tax_basis;
+  if(!tax)required.push('tax_basis');q.metadata.tax_basis=tax;
+  const reason='Ownerが確認画面で真正見積PDFと対応する顧客承認を正式採用。PDF SHA256 '+q.metadata.sha256;
+  const normalized={...input,change_description:'確認済み見積PDFとRFC返信参照が一致する顧客承認の採用',reason,owner_confirmed:true,owner_case_relation_confirmed:true};
+  const p=await preview(normalized,actor,q),a=p.model.evidence.approval;
+  if(a.status!=='verified'||!a.exact_quote_reference||!a.linked||a.approval_language!=='candidate')throw Error('change_evidence_incomplete');
+  p.model.can_adopt=p.model.can_adopt&&!required.length;p.model.required_fields=required;p.model.simple_adoption=true;
+  return {normalized,p};
+ }
+ async function changeEvidencePreview(input,actor){return input.simple_adoption===true?(await simplePreview(input,actor)).p.model:(await preview(input,actor)).model;}
  async function changeEvidenceAppend(input,actor){
+  if(input.simple_adoption===true&&input.event_kind==='adopted'){
+   const prior=await one('pa_change_evidence_events',{operation_id:'eq.'+id(input.operation_id),select:'*'});
+   if(prior){const q=prior.evidence?.quote,a=prior.evidence?.approval;
+    if(prior.inquiry_id!==input.case_id||prior.contract_id!==input.contract_id||prior.created_by!==actor.id||prior.event_kind!=='adopted'||pdf.sha(canonical(prior.evidence))!==input.evidence_sha256||!['source','message_id','thread_id','part_id','sha256'].every(k=>q?.[k]===input.quote?.[k])||a?.message_id!==input.approval?.message_id||a?.thread_id!==input.approval?.thread_id||input.quote.amount_minor!=null&&input.quote.amount_minor!==q.amount_minor||input.quote.tax_basis!=null&&input.quote.tax_basis!==q.tax_basis)throw Error('idempotency_payload_mismatch');
+    return {id:prior.id,already_committed:true,event_kind:'adopted'};
+   }
+  }
+  let simple=null;if(input.simple_adoption===true){if(input.event_kind!=='adopted')throw Error('invalid_change_evidence');simple=await simplePreview(input,actor);input=simple.normalized;}
   const operation=id(input.operation_id),kind=input.event_kind;if(!['saved','adopted','revoked'].includes(kind))throw Error('invalid_change_evidence');
   // Replay exact normalized payload before touching Gmail. No mutable contract/state updates.
   const prior=await one('pa_change_evidence_events',{operation_id:'eq.'+operation,select:'*'});
@@ -156,7 +184,7 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
    const stored=await history(id(input.case_id)),last=stored.events[0],adopted=stored.authority;if(!last||last.id!==input.previous_event_id||adopted?.contract_id!==input.contract_id||adopted.event_kind!=='adopted')throw Error('change_evidence_changed');
    return rpc('pa_change_evidence_append',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_operation:operation,p_previous:last.id,p_kind:kind,p_evidence:adopted.evidence,p_reason:text(input.reason),p_blobs:[]});
   }
-  const p=await preview(input,actor);if(!p.model.storage_available)throw Error('change_evidence_storage_unavailable');
+  const p=simple?.p||await preview(input,actor);if(!p.model.storage_available)throw Error('change_evidence_storage_unavailable');
   if(p.model.fingerprint!==input.fingerprint||p.model.previous_event_id!==(input.previous_event_id||null))throw Error('change_evidence_changed');
   if(kind==='adopted'&&!p.model.can_adopt)throw Error('change_evidence_incomplete');
   return rpc('pa_change_evidence_append',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_operation:operation,p_previous:p.model.previous_event_id,p_kind:kind,p_evidence:p.model.evidence,p_reason:text(input.reason),p_blobs:p.blobs});
