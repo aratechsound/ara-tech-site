@@ -11,7 +11,7 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
  const cases=[{id:A,event_name:'隔離CASE DESK A',inquiry_number:'FIXTURE-A',case_type:'PA_EVENT',status:'new'},{id:B,event_name:'隔離CASE DESK B',inquiry_number:'FIXTURE-B',case_type:'PA_EVENT',status:'new'}];
  const snapshot=id=>({state:{inquiry_id:id,revision:1,estimate_change_state:'ready'},estimates:[],documents:[],offers:[],outbox:[],billings:[],payments:[],adjustments:[],change_orders:[]});
  const operation={operation_id:OP,inquiry_id:A,state:'SENT',gmail_message_id:'sent',gmail_thread_id:'thread',history_sync:'COMPLETE',attachments:attachments.map((a,i)=>({...a,index:i,sha256:sha,document_kind:['normal','estimate','invoice'][i]}))};
- const calls=[],errors=[];let ready=false,adopted=0;
+ const calls=[],errors=[],newOperations=[];let ready=false,adopted=0,documentListReads=0,mockedSends=0;const OP2='44444444-4444-4444-8444-444444444444';
  const server=http.createServer((req,res)=>{const f=path.resolve(root,new URL(req.url,'http://localhost').pathname.slice(1));if(!f.startsWith(root+path.sep))return res.writeHead(403).end();try{res.setHeader('Content-Type',/\.(mjs|js)$/.test(f)?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.wasm')?'application/wasm':'text/html; charset=utf-8');res.end(fs.readFileSync(f));}catch{res.writeHead(404).end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
  try{
@@ -32,14 +32,21 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
    if(b.action==='reply_operation_status')return r.fulfill({json:{ok:true,result:{operation:null}}});
    if(b.action==='reply_preview'){
     const atts=b.attachments.map(a=>({filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length,...(a.document_kind?{document_kind:a.document_kind}:{})}));
-    return r.fulfill({json:{ok:true,preview:{inquiry_id:A,gmail_thread_id:'thread',reply_source_message_id:b.reply_source_message_id,reply_source_explicit:true,recipient:'fixture@example.invalid',subject:'Re: 了承候補 1',cc_addresses:[],body:b.body,html:'<p>Isolated preview</p>',mode:'normal',attachments:atts,confirmation_token:'isolated-confirmation',expires_at:new Date(Date.now()+600000).toISOString(),operation_id:OP,operation:{operation_id:OP,inquiry_id:A,state:'PREPARED'}}}});
+    return r.fulfill({json:{ok:true,preview:{inquiry_id:A,gmail_thread_id:'thread',reply_source_message_id:b.reply_source_message_id,reply_source_explicit:true,recipient:'fixture@example.invalid',subject:'Re: 了承候補 1',cc_addresses:[],body:b.body,html:'<p>Isolated preview</p>',mode:'normal',attachments:atts,confirmation_token:'isolated-confirmation',expires_at:new Date(Date.now()+600000).toISOString(),operation_id:OP2,operation:{operation_id:OP2,inquiry_id:A,state:'PREPARED'}}}});
+   }
+   if(b.action==='send_reply'){
+    assert.equal(++mockedSends,1);assert.equal(b.operation_id,OP2);
+    const metadata=b.attachments.map((a,i)=>({id:'new_att_'+i,part_id:String(i+1),filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length}));
+    messages.push({...messages[0],gmail_message_id:'new_sent',sent_at:'2026-10-18',attachment_metadata:metadata});
+    const op={operation_id:OP2,inquiry_id:A,state:'SENT',gmail_message_id:'new_sent',gmail_thread_id:'thread',history_sync:'COMPLETE',attachments:metadata.map((a,i)=>({...a,index:i,sha256:sha,document_kind:b.attachments[i].document_kind||'normal'}))};newOperations.push(op);
+    return r.fulfill({json:{ok:true,result:{gmail_message_id:'new_sent',gmail_thread_id:'thread',operation:op,history_sync:'COMPLETE'}}});
    }
    if(b.action==='case_discovery_sync')result={complete:true,has_more:false};else throw Error('UNAUTHORIZED_FIXTURE_ACTION '+b.action);
    return r.fulfill({json:{ok:true,result}});
   });
   await page.route('**/api/pa-mail?surface=commercial',async r=>{const b=r.request().postDataJSON();calls.push(b);let result;
    if(b.action==='snapshot')result=snapshot(b.case_id);
-   else if(b.action==='reply_document_list')result={inquiry_id:b.case_id,operations:b.case_id===A?[operation]:[],truncated:false};
+   else if(b.action==='reply_document_list'){documentListReads++;result={inquiry_id:b.case_id,operations:b.case_id===A?[operation,...newOperations]:[],truncated:false};}
    else if(b.action==='reply_document_review'){
     const part=operation.attachments.find(a=>a.part_id===b.part_id),approval=inbound(b.approval_message_id?.endsWith('2')?2:1);
     result={case_id:A,document_kind:part.document_kind,verified:{verification:'VERIFIED'},part,invoice_state:'SENT_DOCUMENT_REGISTRATION_UNCONFIRMED',registration_state:ready?'REGISTERED_CHANGE_AGREED':'ESTIMATE_REGISTRATION_UNCONFIRMED',can_complete:ready,existing_adoption:null,approval_matches:1,approval_candidates:[inbound(1),inbound(2)],selection:{preview:{fingerprint:'fixture',previous_event_id:null,evidence:{approval:{message_id:approval.gmail_message_id,thread_id:'thread',from:approval.from_address,to:approval.to_addresses,subject:approval.subject,occurred_at:approval.received_at,body:approval.body_text}}}}};
@@ -47,6 +54,9 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
    return r.fulfill({json:{ok:true,result}});
   });
   await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+A+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();
+  // Prime the old sent-document cache before a new typed mock send.
+  await page.locator('[data-message="sent"]').getByRole('button',{name:names[0]+' の拡大プレビュー',exact:true}).click();let primed=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await primed.locator('canvas').waitFor();
+  await primed.getByRole('button',{name:'閉じる',exact:true}).click();assert(documentListReads>=1);
   await page.locator('[data-reply-message="received_1"]').click();let composer=page.getByRole('dialog',{name:'Gmail返信作成'});
   await composer.locator('input[type=file]').setInputFiles(names.map(name=>({name,mimeType:'application/pdf',buffer:bytes})));
   assert.deepEqual(await composer.locator('.reply-document-file select').evaluateAll(es=>es.map(e=>e.value)),['normal','normal','normal']);
@@ -54,7 +64,8 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
   await composer.getByLabel('本文',{exact:true}).fill('Isolated reply body');await composer.getByRole('button',{name:'返信プレビュー',exact:true}).click();await composer.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();
   const payload=calls.filter(b=>b.action==='reply_preview').at(-1);assert.deepEqual(payload.attachments.map(a=>a.document_kind||'normal'),['normal','estimate','invoice']);
   await composer.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();await page.getByRole('dialog').filter({has:page.locator('canvas')}).getByRole('button',{name:'閉じる',exact:true}).click();
-  await composer.getByRole('button',{name:'返信を閉じる',exact:true}).click();await composer.getByRole('button',{name:'下書きを破棄',exact:true}).click();
+  await composer.getByRole('button',{name:'送信内容を最終確認',exact:true}).click();await composer.getByRole('checkbox').check();await composer.getByRole('button',{name:'最終確認して送信',exact:true}).click();await composer.getByText('送信済み。履歴を更新しました。',{exact:true}).waitFor();await composer.getByRole('button',{name:'返信を閉じる',exact:true}).click();
+  const newSent=page.locator('[data-message="new_sent"]');await newSent.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();let freshViewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await freshViewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).waitFor();assert(documentListReads>=2,'successful send invalidates the old operation-classification cache');await freshViewer.getByRole('button',{name:'閉じる',exact:true}).click();
   const sentRow=page.locator('[data-message="sent"]');
   await sentRow.getByRole('button',{name:names[0]+' の拡大プレビュー',exact:true}).click();let viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.locator('canvas').waitFor();assert.equal(await viewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).count(),0);await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
   const openEstimate=async()=>{await sentRow.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).click();const d=page.getByRole('dialog',{name:'この見積書を正式採用しますか？',exact:true});await d.getByRole('button',{name:'はい',exact:true}).waitFor();return d;};
@@ -68,7 +79,7 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
   await sentRow.getByRole('button',{name:names[2]+' の拡大プレビュー',exact:true}).click();viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.getByRole('button',{name:'請求管理との対応を確認',exact:true}).click();const invoice=page.getByRole('dialog',{name:'請求書と送信記録の確認',exact:true});await invoice.getByText(/送信済み資料・請求登録未確認/).waitFor();assert.equal(await invoice.getByRole('button',{name:'はい',exact:true}).count(),0);
   await invoice.getByRole('button',{name:'閉じる',exact:true}).click();await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
   await page.locator('[data-case="'+B+'"]').click();assert.equal(await page.getByRole('dialog').count(),0);await page.getByRole('button',{name:'ログアウト',exact:true}).click();assert.equal(await page.getByRole('dialog').count(),0);
-  assert(!calls.some(b=>['send_reply','create_billing','recover_estimate','dispatch_outbox'].includes(b.action)));assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({status:'PASS',actual_desk:true,per_file_types:true,no_filename_guess:true,local_original_preview:true,normal_no_adoption:true,sent_estimate_preview:true,approval_shared_cards:true,manual_selection_and_cancel:true,registration_hold:true,one_mock_adoption:true,invoice_distinct:true,case_logout_clear:true,pc_mobile:true,real_sends:0,real_business_writes:0}));
+  assert(!calls.some(b=>['create_billing','recover_estimate','dispatch_outbox'].includes(b.action)));assert.equal(mockedSends,1);assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({status:'PASS',actual_desk:true,per_file_types:true,no_filename_guess:true,local_original_preview:true,normal_no_adoption:true,sent_estimate_preview:true,typed_send_cache_refresh:true,mocked_sends:mockedSends,approval_shared_cards:true,manual_selection_and_cancel:true,registration_hold:true,one_mock_adoption:true,invoice_distinct:true,case_logout_clear:true,pc_mobile:true,real_sends:0,real_business_writes:0}));
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
