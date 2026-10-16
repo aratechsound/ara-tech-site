@@ -1,4 +1,5 @@
 import {privateText,privateMoney,setPrivateAmount,readPrivateAmount} from './pa-workspace-privacy.mjs';
+import {createGallery} from './gallery.mjs';
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);n.textContent=privateText(String(text));n.className=cls;return n;};
 const btn=(name,fn)=>{const b=el('button',name,'lightbtn');b.type='button';b.addEventListener('click',()=>Promise.resolve(fn()).catch(()=>{}));return b;};
 const field=(name,input)=>{const n=el('label',name);input.setAttribute('aria-label',name);n.append(input);return n;};
@@ -16,9 +17,18 @@ export function mountChangeEvidenceSummary(root,data,open){
  b.append(el('p','Owner採用記録を取得して確認します。最新revision・最新送信だけでは確定しません。'));c.append(el('p','承認証拠未特定。Gmail原本と対象見積を照合してください。'));
  s.append(grid,btn('変更見積・承認証拠を検索・確認',open));root.append(s);
 }
-export async function openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid,getCase,setDirty,setBusy,onChanged}){
+export async function openChangeEvidence({request,dialog,stop,status,facts,valid,getCase,setDirty,setBusy,onChanged}){
  const d=dialog('変更見積・顧客承認証拠'),s=status(d);let state=null,payload=null,prepared=null,version=0,working=false;const releases=[];
  const safe=()=>valid()&&d.open;
+ const showPdf=(_dialog,blob,title)=>{
+  const viewer=createGallery({requestBlob:async()=>blob,isCurrent:safe});
+  const release=()=>viewer.dispose();d.addEventListener('close',release,{once:true});
+  // Reuse the existing PDF.js viewer: sandboxed browser PDF plugins may show
+  // a blank frame. The original has already passed this operation's ACL and
+  // identity checks; opening the in-memory Blob performs no further fetch.
+  void viewer.openPreview({key:crypto.randomUUID(),asset_id:crypto.randomUUID(),filename:title,mime_type:'application/pdf',size:blob.size});
+  return release;
+ };
  const error=e=>{s.textContent=privateText(({change_evidence_mismatch:'案件・メール・PDF原本の不一致です。採用できません。',change_evidence_changed:'証拠または採用履歴が変わりました。再照合してください。',change_evidence_storage_unavailable:'証拠台帳は未導入です。読取照合のみ利用できます。',change_evidence_incomplete:'承認証拠・変更内容・Owner確認が不足しています。',invalid_origin:'このテスト環境の操作許可はありません。',case_changed:'案件・認証が切り替わりました。'})[e.message]||'原本照合を完了できません。承認なし・成功とは扱いません。');};
  d.append(el('p',getCase().event_name||getCase().inquiry_number));
  const grid=el('div','','change-evidence-grid'),left=column(grid,'正式受注確認書'),middle=column(grid,'変更後の現行合意見積書'),right=column(grid,'変更承認メール');d.append(grid);

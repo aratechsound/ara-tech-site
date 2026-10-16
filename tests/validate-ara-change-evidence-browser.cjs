@@ -43,7 +43,13 @@ async function main(){
   await d.getByText('変更・見積発行・Gmail送信済み履歴',{exact:true}).click();
   await d.getByRole('button',{name:'現行採用を取り消す・監査を残す',exact:true}).click();await d.getByText('revoked / 2026-10-16 / 送信者と変更内容を確認',{exact:true}).waitFor();assert.equal(history.length,2);
   await d.getByLabel('変更見積の取得元',{exact:true}).selectOption('local');await d.getByLabel('手動提出の変更見積PDF',{exact:true}).setInputFiles({name:'local-change.pdf',mimeType:'application/pdf',buffer:bytes});await d.getByLabel('顧客承認メール',{exact:true}).selectOption('manual_pdf');await d.getByLabel('Gmail取得不能時のメール控えPDF',{exact:true}).setInputFiles({name:'manual-copy.pdf',mimeType:'application/pdf',buffer:bytes});await d.getByRole('button',{name:'3点の原本を照合（保存しない）',exact:true}).click();await d.getByText('原本照合のみ完了。保存・採用・送信は行っていません。',{exact:true}).waitFor();assert(calls.at(-1).quote.content_base64);assert(calls.at(-1).approval.content_base64);
-  await d.getByRole('button',{name:'承認メール控えPDFを表示・取得',exact:true}).click();await d.getByRole('link',{name:'メール控えPDFを保存',exact:true}).waitFor();
+  for(const name of ['元の正式受注確認PDFを表示','選択見積PDFを表示','承認メール控えPDFを表示・取得']){
+   await d.getByRole('button',{name,exact:true}).click();const viewer=page.locator('.pa-material-preview-dialog');
+   await viewer.getByText('1 / 1ページ · 100%',{exact:true}).waitFor();assert(await viewer.locator('canvas').evaluate(n=>n.width>0&&n.height>0));
+   await viewer.getByRole('button',{name:'拡大',exact:true}).click();await viewer.getByText('1 / 1ページ · 125%',{exact:true}).waitFor();
+   await viewer.getByRole('button',{name:'閉じる',exact:true}).click();await viewer.waitFor({state:'detached'});
+  }
+  await d.getByRole('link',{name:'メール控えPDFを保存',exact:true}).waitFor();
   await page.setViewportSize({width:700,height:1000});assert.equal(await d.locator('.change-evidence-grid').evaluate(n=>getComputedStyle(n).gridTemplateColumns.split(' ').length),1);await page.setViewportSize({width:1440,height:1000});
   await d.getByRole('button',{name:'閉じる',exact:true}).click();await page.getByRole('dialog',{name:'見積下書きの確認',exact:true}).getByRole('button',{name:'下書きを破棄して移動',exact:true}).click();await d.waitFor({state:'hidden'});
   await page.getByRole('button',{name:'変更見積・承認証拠を検索・確認',exact:true}).click();d=page.getByRole('dialog',{name:'変更見積・顧客承認証拠',exact:true});await d.waitFor();
