@@ -1,4 +1,3 @@
-import {openConfirmationPreviewForContext} from '../../js/pa-commercial-admin.js';
 import {selectConfirmationContext,confirmationDisplayState,effectiveDeliveryState} from '../../js/pa-confirmation-display.mjs';
 import {privateText,privateMoney,privateFrame,setPrivateAmount,readPrivateAmount,resetPrivacy} from './pa-workspace-privacy.mjs';
 
@@ -120,6 +119,9 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     if(p.unresolved||p.confirmation.accepted)return;
     const active=p.confirmation.active,job=p.confirmation.delivery;
     if(active&&(!job||job.state!=='queued'))return;
+    const id=caseId,version=epoch,authority=snapshot;
+    const {openConfirmationPreviewForContext}=await import('../../js/pa-commercial-admin.js');
+    if(!valid(id,version)||snapshot!==authority)return;
     const context={getCurrentCase:getCase,commercialRequest:request,refreshCommercial:async()=>{snapshot=null;await load();await onChanged(caseId);},trackDialog:track,
       previewElement:(tag,css,text)=>el(tag,text??'',css),formatMoney:privateMoney,
       prepareFrame:(frame,kind,value)=>{frame.referrerPolicy='no-referrer';if(kind==='srcdoc')frame.setAttribute('sandbox','');privateFrame(frame,kind,value);}};
