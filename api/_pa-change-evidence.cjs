@@ -34,12 +34,13 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   if(!gmail.validGmailId(messageId))throw Error('invalid_change_evidence');
   const raw=await gmail.gmailMessage(messageId,fetchImpl),m=gmail.normalizeMessage(raw);
   if(m.id!==messageId||!gmail.validGmailId(m.thread_id)||m.reply_identity_invalid)fail();
+  if(m.direction==='outbound'&&!(raw.labelIds||[]).includes('SENT'))fail();
   if(m.body_text.length>=50000)throw Error('change_evidence_original_unavailable');
   const links=await rows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+m.thread_id,select:'inquiry_id',limit:'100'});
   const indexed=await rows('pa_gmail_message_index',{gmail_message_id:'eq.'+m.id,select:'inquiry_id,gmail_thread_id',limit:'100'});
   if(links.some(l=>l.inquiry_id!==caseId)||indexed.some(l=>l.inquiry_id!==caseId||l.gmail_thread_id!==m.thread_id))fail();
   const inquiry=await mail.getInquiry(caseId,fetchImpl),customer=lower(inquiry.email),official=lower(mail.OFFICIAL_EMAIL);
-  if(!customer||!m.occurred_at||!m.rfc_message_id)fail();
+  if(!customer||!m.occurred_at||!/^<[^<>\s]{1,998}>$/u.test(m.rfc_message_id))fail();
   if(m.direction==='outbound'?(lower(m.from_address)!==official||!m.to_addresses.some(a=>lower(a)===customer)):
    (lower(m.from_address)!==customer||!m.to_addresses.some(a=>lower(a)===official)))fail();
   const heads=(raw.payload?.headers||[]);const header=name=>heads.filter(h=>lower(h.name)===name);
@@ -53,9 +54,9 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   if(input.search){
    const s=input.search;let q='';const customer=String(ctx.inquiry.email||'');if(!/^[^\s<>@"{}]+@[^\s<>@"{}]+$/u.test(customer))throw Error('invalid_change_evidence');
    // User filters narrow the fixed customer correspondence scope; never expand it.
-   const terms=text(s.keywords||'',300).replace(/[{}\r\n]/gu,' '),subject=text(s.subject||'',200).replace(/["{}\r\n]/gu,' ');
+   const terms=text(s.keywords||'',300).replace(/["{}\\()\r\n]/gu,' '),subject=text(s.subject||'',200).replace(/["{}\\()\r\n]/gu,' ');
    if(s.sender&&lower(s.sender)!==lower(customer)&&lower(s.sender)!==lower(mail.OFFICIAL_EMAIL))throw Error('invalid_change_evidence');
-   q=`{from:${customer} to:${customer}}`+(s.sender?' from:'+s.sender:'')+(subject?' subject:"'+subject+'"':'')+(terms?' '+terms:'');
+   q=`{from:${customer} to:${customer}}`+(s.sender?' from:'+s.sender:'')+(subject?' subject:"'+subject+'"':'')+(terms?' "'+terms+'"':'');
    for(const [field,op]of [['after','after'],['before','before']])if(s[field]){if(!/^\d{4}-\d{2}-\d{2}$/u.test(s[field]))throw Error('invalid_change_evidence');q+=' '+op+':'+s[field];}
    try{
     const found=await gmail.gmailJson('/messages?'+new URLSearchParams({q,maxResults:'20'}),{method:'GET'},fetchImpl);
