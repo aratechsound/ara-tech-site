@@ -17,8 +17,8 @@ export function mountChangeEvidenceSummary(root,data,open){
  b.append(el('p','Owner採用記録を取得して確認します。最新revision・最新送信だけでは確定しません。'));c.append(el('p','承認証拠未特定。Gmail原本と対象見積を照合してください。'));
  s.append(grid,btn('変更見積・承認証拠を検索・確認',open));root.append(s);
 }
-export async function openChangeEvidence({request,dialog,stop,status,facts,valid,getCase,setDirty,setBusy,onChanged}){
- const d=dialog('変更見積・顧客承認証拠'),s=status(d);let state=null,payload=null,prepared=null,version=0,working=false;const releases=[];
+export async function openChangeEvidence({request,dialog,stop,status,facts,valid,getCase,setDirty,setBusy,onChanged,initialCandidate=null,quoteMonitor=null}){
+ const d=dialog('変更見積・顧客承認証拠'),s=status(d);let state=null,payload=null,prepared=null,version=0,working=false,presetQuote=null,presetApproval=null;const releases=[];
  const safe=()=>valid()&&d.open;
  const showPdf=(_dialog,blob,title)=>{
   const viewer=createGallery({requestBlob:async()=>blob,isCurrent:safe});
@@ -69,12 +69,12 @@ export async function openChangeEvidence({request,dialog,stop,status,facts,valid
  search.append(btn('条件を指定してGmailを検索',async()=>{try{invalidate();await load({sender:sender.value,after:after.value,before:before.value,subject:subject.value,keywords:keywords.value});}catch(e){error(e);}}));
  async function build(){
   let q;const value=quote.value;
-  if(value==='local')q={source:'local',...await fileValue(local.files?.[0])};
+  if(value==='local')q={source:'local',...(local.files?.[0]?await fileValue(local.files[0]):presetQuote||await fileValue(null))};
   else if(value.startsWith('registered:'))q={source:'registered',estimate_id:value.slice(11)};
   else if(value.startsWith('gmail:')){const m=state.messages.find(m=>value.startsWith('gmail:'+m.gmail_message_id+':'));if(!m)throw Error('change_evidence_mismatch');const a=m.attachment_metadata.find(a=>value==='gmail:'+m.gmail_message_id+':'+a.id);q={source:'gmail',message_id:m.gmail_message_id,thread_id:m.gmail_thread_id,attachment_id:a.id,part_id:a.part_id||''};}
   else throw Error('invalid_change_evidence');
   const e=state.estimates.find(e=>e.id===q.estimate_id);q.amount_minor=Number(readPrivateAmount(amount)||e?.amount_minor);q.tax_basis=tax.value;q.issued_at=issued.value||null;
-  let a={source:'missing'};if(approval.value==='manual_pdf')a={source:'manual_pdf',...await fileValue(copy.files?.[0])};
+  let a={source:'missing'};if(approval.value==='manual_pdf')a={source:'manual_pdf',...(copy.files?.[0]?await fileValue(copy.files[0]):presetApproval||await fileValue(null))};
   else if(approval.value){const m=state.messages.find(m=>m.gmail_message_id===approval.value);a={source:'gmail',message_id:m?.gmail_message_id||messageId.value,thread_id:m?.gmail_thread_id||threadId.value};}
   return {contract_id:contract.value,quote:q,approval:a,change_description:description.value,reason:reason.value,owner_confirmed:confirmed.checked,owner_case_relation_confirmed:relation.checked};
  }
@@ -97,5 +97,27 @@ export async function openChangeEvidence({request,dialog,stop,status,facts,valid
  left.append(btn('元の正式受注確認PDFを表示',async()=>{try{const selected=contract.value,blob=await request('change_evidence_contract_pdf',{contract_id:selected},true);if(safe()&&contract.value===selected)releases.push(showPdf(d,blob,'元の正式受注確認書',left));}catch(e){error(e);}}));
  contract.addEventListener('change',()=>{const c=state?.contracts.find(c=>c.id===contract.value);const old=left.querySelector('[data-contract-facts]');if(old)old.remove();if(c){const n=el('section');n.dataset.contractFacts='';facts(n,[['契約identity',c.id],['同意日時',c.confirmed_at],['当初見積',c.snapshot.estimate?.estimate_id||c.snapshot.quote?.sha256||'snapshot参照'],['取消条件等への同意',JSON.stringify(c.snapshot.explicit_consent||{})]]);left.append(n);}});
  d.append(btn('既存メールから3点セット候補を自動検出',async()=>{try{invalidate();await load(null,true);}catch(e){error(e);}}),inspect,btn('選択見積PDFを表示',async()=>{try{const v=version,draft=await build(),blob=await request('change_evidence_document',draft,true);if(safe()&&v===version)releases.push(showPdf(d,blob,'変更見積PDF原本',review));}catch(e){error(e);}}),btn('承認メール控えPDFを表示・取得',async()=>{try{const v=version,draft=await build(),blob=await request('change_evidence_mail_pdf',draft,true);if(safe()&&v===version){releases.push(showPdf(d,blob,'Gmail原本の閲覧用写し',review));const url=URL.createObjectURL(blob),a=el('a','メール控えPDFを保存');a.href=url;a.download='change-approval-email-copy.pdf';review.append(a);releases.push(()=>URL.revokeObjectURL(url));}}catch(e){error(e);}}),save,adopt,review,history);
- d.addEventListener('close',()=>{for(const release of releases.splice(0))release();},{once:true});stop(d);d.showModal();try{await load();}catch(e){error(e);}
+ local.addEventListener('change',()=>{presetQuote=null;});copy.addEventListener('change',()=>{presetApproval=null;});quote.addEventListener('change',()=>{presetQuote=null;});approval.addEventListener('change',()=>{presetApproval=null;});
+ d.addEventListener('close',()=>{for(const release of releases.splice(0))release();},{once:true});stop(d);d.showModal();try{
+  await load();
+  if(initialCandidate&&safe()){
+   const c=initialCandidate,e=c.evidence;if(c.case_id!==getCase().id||e.case_id!==getCase().id||!state.contracts.some(v=>v.id===e.contract_id))throw Error('change_evidence_mismatch');
+   contract.value=e.contract_id;setPrivateAmount(amount,e.quote.amount_minor||'');tax.value=e.quote.tax_basis;issued.value=(e.quote.issued_at||'').slice(0,10);
+   if(e.quote.source==='gmail'){
+    const m=state.messages.find(m=>m.gmail_message_id===e.quote.message_id&&m.gmail_thread_id===e.quote.thread_id),a=m?.attachment_metadata?.find(a=>e.quote.part_id?a.part_id===e.quote.part_id:a.id===e.quote.attachment_id);
+    if(!a)throw Error('change_evidence_changed');quote.value='gmail:'+e.quote.message_id+':'+a.id;
+   }else if(e.quote.source==='registered')quote.value='registered:'+e.quote.estimate_id;
+   else{
+    if(!quoteMonitor)throw Error('change_evidence_changed');const blob=await quoteMonitor.document(getCase().id,c);if(!safe())return;
+    presetQuote=await fileValue(new File([blob],e.quote.filename,{type:'application/pdf'}));if(presetQuote.sha256!==e.quote.sha256)throw Error('change_evidence_mismatch');quote.value='local';
+   }
+   if(e.approval?.source==='gmail'){
+    if(state.messages.some(m=>m.gmail_message_id===e.approval.message_id))approval.value=e.approval.message_id;
+    else{approval.value='direct';messageId.value=e.approval.message_id;threadId.value=e.approval.thread_id;}
+   }else if(e.approval?.source==='manual_pdf'&&quoteMonitor){
+    const blob=await quoteMonitor.document(getCase().id,c,'approval');if(!safe())return;presetApproval=await fileValue(new File([blob],e.approval.filename||'manual-approval.pdf',{type:'application/pdf'}));if(presetApproval.sha256!==e.approval.manual_pdf_sha256)throw Error('change_evidence_mismatch');approval.value='manual_pdf';
+   }
+   description.value=e.change_description||'';confirmed.checked=false;relation.checked=false;s.textContent='候補を選択しました。元契約・見積原本・金額・税区分・顧客承認を再照合し、最終確認してから採用してください。';
+  }
+ }catch(e){error(e);}
 }

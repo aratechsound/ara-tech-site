@@ -1,4 +1,5 @@
-import {resolveOrderDocuments} from './order-documents.mjs';
+import {resolveOrderDocuments,resolveMonitoredOrderDocuments} from './order-documents.mjs';
+import {openCandidateDecision} from './quote-monitor.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {mountChangeEvidenceSummary,openChangeEvidence} from './change-evidence.mjs';
 import {selectConfirmationContext,confirmationDisplayState,effectiveDeliveryState} from '../../js/pa-confirmation-display.mjs';
@@ -10,7 +11,7 @@ const field=(label,input)=>{const n=el('label',label);input.setAttribute('aria-l
 const TAX={tax_included:'税込',tax_excluded:'税別',tax_exempt:'非課税'};
 const CODES={invalid_origin:'このテスト環境の操作許可はありません。',not_authorized:'Owner認証を確認できません。',case_changed:'案件または認証が切り替わりました。',stale_estimate_preview:'案件・見積版・配送内容が変わりました。再取得してください。',stale_confirmation_preview:'正式確認の内容が変わりました。再取得してください。',estimate_send_not_ready:'現在の見積配送は送信準備の対象ではありません。',delivery_outcome_unresolved:'配送結果が不明または処理中です。再送・再発行せず履歴を確認してください。',contract_already_accepted:'承諾済み契約を保護しています。',confirmation_already_active:'発行済みの正式確認を保護しています。',document_identity_mismatch:'案件・見積版とPDF原本の対応を確認できません。',commercial_state_changed:'商務正本が変わっています。再取得してください。',invalid_estimate:'見積金額・PDF・税区分を確認してください。',rate_limited:'操作上限です。時間を置いて明示的に再取得してください。'};
 const explain=e=>CODES[e.message]||'正規処理を確認できません。成功と扱わず、再送せず状態を再取得してください。';
-const ALLOWED=new Set(['change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf','snapshot','document','composer_preview','issue_estimate','estimate_send_preview','confirmation_preview','confirmation_receipt_preview','confirmation_send_preview','confirmation_send_receipt_preview','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox']);
+const ALLOWED=new Set(['quote_monitor_document','change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf','snapshot','document','composer_preview','issue_estimate','estimate_send_preview','confirmation_preview','confirmation_receipt_preview','confirmation_send_preview','confirmation_send_receipt_preview','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox']);
 
 export function commercialProjection(data){
   if(!data?.state||!Array.isArray(data.estimates)||!Array.isArray(data.offers)||!Array.isArray(data.outbox)||!Array.isArray(data.documents))throw Error('incomplete_commercial_snapshot');
@@ -25,7 +26,7 @@ export function commercialProjection(data){
     canEstimateSend:!!estimateJob&&!protectedOffer&&!unresolved&&data.state.estimate_change_state==='ready'};
 }
 
-export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>{},fetchImpl=fetch,onChanged=async()=>{}}){
+export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>{},fetchImpl=fetch,onChanged=async()=>{},quoteMonitor=null}){
   let root=null,caseId=null,epoch=0,snapshot=null,loading=null,error=null,busy=false,dirty=false,mutations=0,documents=null,documentAssets=null,evidenceRead=null,evidenceAuthority=null;
   const dialogs=new Set(),controllers=new Set();
   const valid=(id,version)=>caseId===id&&getCase()?.id===id&&epoch===version;
@@ -142,15 +143,15 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     const actions=el('div','','inlinebtns');actions.append(a,b,c,button('商務正本を再取得',async()=>{snapshot=null;await load();}));root.append(actions,el('p','見積登録・見積のみ送信・正式受注確認＋見積は別の操作です。プレビューを開いても発行・送信しません。'));
     if(p.current&&!p.estimateJob)root.append(el('p','この見積版に見積単独の送信待ち記録はありません。既存の送信済み・履歴を再送せず保護します。未送信の正規見積から正式受注確認を直接準備できます。'));
     const evidenceCase=caseId,evidenceEpoch=epoch;
-    const openEvidence=()=>openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid:()=>valid(evidenceCase,evidenceEpoch),getCase,setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;},onChanged:async()=>{evidenceRead=null;snapshot=null;await load();}});
+    const openEvidence=candidate=>openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid:()=>valid(evidenceCase,evidenceEpoch),getCase,setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;},onChanged:async()=>{evidenceRead=null;snapshot=null;if(quoteMonitor)await quoteMonitor.check(evidenceCase).catch(()=>{});await load();},initialCandidate:candidate,quoteMonitor});
     if(documents){
       documentAssets ||= createPrivateAssets({requestBlob:item=>request(item.source_ref.action,item.source_ref.payload,true),authorize:async()=>{const auth=await getSession();if(!auth?.access_token||!valid(evidenceCase,evidenceEpoch))throw Error('case_changed');},isCurrent:()=>valid(evidenceCase,evidenceEpoch)});
       const accepted=snapshot.offers.filter(o=>o.state==='accepted'&&Number.isFinite(Date.parse(o.confirmed_at))),authority=JSON.stringify(accepted.map(o=>[o.id,o.confirmed_at]));
       if(evidenceAuthority!==authority){evidenceAuthority=authority;evidenceRead=null;}
-      documents.connect({request,assets:documentAssets,openEvidence,resolve:()=>evidenceRead ||= accepted.length?resolveOrderDocuments(request,evidenceCase):Promise.resolve({state:{history:[]},original:null,notice:'正式受注の確定日時は未特定です。登録見積と履歴から確認してください。'})});
+      documents.connect({request,assets:documentAssets,openEvidence,monitor:quoteMonitor,caseId:evidenceCase,onDecision:(candidate,kind)=>openCandidateDecision({candidate,kind,caseId:evidenceCase,monitor:quoteMonitor,dialog,stop,status,valid:()=>valid(evidenceCase,evidenceEpoch),setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;}}),resolve:()=>evidenceRead ||= accepted.length?(quoteMonitor?resolveMonitoredOrderDocuments(request,evidenceCase):resolveOrderDocuments(request,evidenceCase)):Promise.resolve({state:{history:[]},original:null,notice:'正式受注の確定日時は未特定です。登録見積と履歴から確認してください。'})});
     }else mountChangeEvidenceSummary(root,snapshot,openEvidence);
     const history=el('details');history.append(el('summary','商務正本の配送・確認履歴'));for(const o of snapshot.offers)history.append(el('p','正式確認 #'+o.version+'／'+o.state+'／保存期限 '+(o.expires_at||'未提供')));for(const j of snapshot.outbox)history.append(el('p',j.job_kind+'／'+effectiveDeliveryState(j)+'／'+(j.finished_at||j.created_at||'日時未提供')));root.append(history);
   }
   function mount(host,documentView=null){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;documents=documentView;render();if(!snapshot&&!loading&&!error)load();}
-  return {mount,beforeLeave,clear,refresh:async()=>{snapshot=null;error=null;await load();}};
+  return {mount,beforeLeave,clear,setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
 }

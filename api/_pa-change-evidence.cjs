@@ -118,9 +118,9 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
    issued_at:match?.issued_at||selection.issued_at||null,sent_at:m?.occurred_at||null,message_id:m?.id||null,thread_id:m?.thread_id||null,rfc_message_id:m?.rfc_message_id||null,recipients:m?.to_addresses||[],attachment_id:selection.attachment_id||null,part_id:selection.part_id||null,
    registered_sha_match:!!match,amount_extraction:extracted.status}};
  }
- async function preview(input,actor){
+ async function preview(input,actor,verifiedQuote=null){
   const caseId=id(input.case_id),ctx=await context(caseId),contract=ctx.contracts.find(c=>c.id===input.contract_id);if(!contract)throw Error('contract_not_found');
-  const q=await quote(caseId,input.quote),warnings=[],blobs=[{filename:q.binary.filename,sha256:q.metadata.sha256,content_base64:q.binary.bytes.toString('base64')}];
+  const q=verifiedQuote||await quote(caseId,input.quote),warnings=[],blobs=[{filename:q.binary.filename,sha256:q.metadata.sha256,content_base64:q.binary.bytes.toString('base64')}];
   if(q.metadata.sent_at&&Date.parse(q.metadata.sent_at)<Date.parse(contract.confirmed_at))fail();
   let approval={source:'missing',status:'missing'},relation=false;
   if(input.approval?.source==='gmail'){
@@ -198,8 +198,8 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   if(!r)throw Error('change_evidence_original_unavailable');const bytes=fromBytea(r.pdf);if(pdf.sha(bytes)!==r.sha256)fail();
   return {bytes,filename:'accepted-order-confirmation.pdf',mime_type:'application/pdf'};
  }
- async function changeEvidenceMailPdf(input,actor){
-  const e=input.event_id?await adoptedEvidence(input):(await preview(input,actor)).model.evidence,a=e.approval;
+ async function changeEvidenceMailPdf(input,actor,cachedEvidence=null){
+  const e=cachedEvidence||(input.event_id?await adoptedEvidence(input):(await preview(input,actor)).model.evidence),a=e.approval;
   if(input.event_id&&a.source==='manual_pdf')return savedBinary(input.case_id,a.manual_pdf_sha256,a.filename);
   if(a.source!=='gmail')throw Error('change_evidence_original_unavailable');
   const ctx=await context(input.case_id),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
@@ -212,6 +212,7 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   }
   return {bytes:Buffer.from(await doc.save()),filename:'change-approval-email-copy.pdf',mime_type:'application/pdf'};
  }
- return {changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf};
+ const monitor=require('./_pa-quote-monitor.cjs').createQuoteMonitor({rows,one,rpc,context,history,message,quote,preview,savedBinary,contractSha,renderMail:e=>changeEvidenceMailPdf({case_id:e.case_id},null,e)});
+ return {changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf,...monitor};
 }
 module.exports={createEvidenceService,ERRORS,stripQuotes,canonical};

@@ -90,6 +90,7 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
 };
 
 const SAFE = new Set([
+  'invalid_quote_monitor','quote_monitor_mismatch','quote_monitor_changed','quote_monitor_cooldown','quote_monitor_storage_unavailable',
   ...require('./_pa-change-evidence.cjs').ERRORS,
   'estimate_send_not_ready', 'stale_estimate_preview',
   'not_authorized', 'case_unavailable', 'commercial_state_changed',
