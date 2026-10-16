@@ -1,3 +1,5 @@
+import {resolveOrderDocuments} from './order-documents.mjs';
+import {createPrivateAssets} from './private-assets.mjs';
 import {mountChangeEvidenceSummary,openChangeEvidence} from './change-evidence.mjs';
 import {selectConfirmationContext,confirmationDisplayState,effectiveDeliveryState} from '../../js/pa-confirmation-display.mjs';
 import {privateText,privateMoney,privateFrame,setPrivateAmount,readPrivateAmount,resetPrivacy} from './pa-workspace-privacy.mjs';
@@ -24,10 +26,10 @@ export function commercialProjection(data){
 }
 
 export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>{},fetchImpl=fetch,onChanged=async()=>{}}){
-  let root=null,caseId=null,epoch=0,snapshot=null,loading=null,error=null,busy=false,dirty=false,mutations=0;
+  let root=null,caseId=null,epoch=0,snapshot=null,loading=null,error=null,busy=false,dirty=false,mutations=0,documents=null,documentAssets=null,evidenceRead=null;
   const dialogs=new Set(),controllers=new Set();
   const valid=(id,version)=>caseId===id&&getCase()?.id===id&&epoch===version;
-  function clear(){++epoch;for(const c of controllers)c.abort();controllers.clear();for(const d of dialogs){if(d.open)d.close();d.remove();}dialogs.clear();root=null;caseId=null;snapshot=null;loading=null;error=null;dirty=false;busy=false;resetPrivacy();}
+  function clear(){documents?.dispose();documents=null;documentAssets?.clear();documentAssets=null;evidenceRead=null;++epoch;for(const c of controllers)c.abort();controllers.clear();for(const d of dialogs){if(d.open)d.close();d.remove();}dialogs.clear();root=null;caseId=null;snapshot=null;loading=null;error=null;dirty=false;busy=false;resetPrivacy();}
   async function request(action,input={},binary=false){
     if(!ALLOWED.has(action)||input.case_id&&input.case_id!==caseId)throw Error('case_changed');
     const id=caseId,version=epoch,auth=await getSession();
@@ -140,9 +142,13 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     const actions=el('div','','inlinebtns');actions.append(a,b,c,button('商務正本を再取得',async()=>{snapshot=null;await load();}));root.append(actions,el('p','見積登録・見積のみ送信・正式受注確認＋見積は別の操作です。プレビューを開いても発行・送信しません。'));
     if(p.current&&!p.estimateJob)root.append(el('p','この見積版に見積単独の送信待ち記録はありません。既存の送信済み・履歴を再送せず保護します。未送信の正規見積から正式受注確認を直接準備できます。'));
     const evidenceCase=caseId,evidenceEpoch=epoch;
-    mountChangeEvidenceSummary(root,snapshot,()=>openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid:()=>valid(evidenceCase,evidenceEpoch),getCase,setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;},onChanged:async()=>{snapshot=null;await load();}}));
+    const openEvidence=()=>openChangeEvidence({request,dialog,stop,status,facts,showPdf,valid:()=>valid(evidenceCase,evidenceEpoch),getCase,setDirty:v=>{dirty=v;},setBusy:v=>{busy=v;},onChanged:async()=>{evidenceRead=null;snapshot=null;await load();}});
+    if(documents){
+      documentAssets ||= createPrivateAssets({requestBlob:item=>request(item.source_ref.action,item.source_ref.payload,true),authorize:async()=>{const auth=await getSession();if(!auth?.access_token||!valid(evidenceCase,evidenceEpoch))throw Error('case_changed');},isCurrent:()=>valid(evidenceCase,evidenceEpoch)});
+      documents.connect({request,assets:documentAssets,openEvidence,resolve:()=>evidenceRead ||= resolveOrderDocuments(request,evidenceCase)});
+    }else mountChangeEvidenceSummary(root,snapshot,openEvidence);
     const history=el('details');history.append(el('summary','商務正本の配送・確認履歴'));for(const o of snapshot.offers)history.append(el('p','正式確認 #'+o.version+'／'+o.state+'／保存期限 '+(o.expires_at||'未提供')));for(const j of snapshot.outbox)history.append(el('p',j.job_kind+'／'+effectiveDeliveryState(j)+'／'+(j.finished_at||j.created_at||'日時未提供')));root.append(history);
   }
-  function mount(host){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;render();if(!snapshot&&!loading&&!error)load();}
+  function mount(host,documentView=null){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;documents=documentView;render();if(!snapshot&&!loading&&!error)load();}
   return {mount,beforeLeave,clear,refresh:async()=>{snapshot=null;error=null;await load();}};
 }
