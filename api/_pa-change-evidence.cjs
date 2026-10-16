@@ -35,7 +35,7 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   const raw=await gmail.gmailMessage(messageId,fetchImpl),m=gmail.normalizeMessage(raw);
   if(m.id!==messageId||!gmail.validGmailId(m.thread_id)||m.reply_identity_invalid)fail();
   if(m.direction==='outbound'&&!(raw.labelIds||[]).includes('SENT'))fail();
-  if(m.body_text.length>=50000)throw Error('change_evidence_original_unavailable');
+  if(m.body_text.length>=50000||m.subject.length>=500||/[\ufffd\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(m.body_text))throw Error('change_evidence_original_unavailable');
   const links=await rows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+m.thread_id,select:'inquiry_id',limit:'100'});
   const indexed=await rows('pa_gmail_message_index',{gmail_message_id:'eq.'+m.id,select:'inquiry_id,gmail_thread_id',limit:'100'});
   if(links.some(l=>l.inquiry_id!==caseId)||indexed.some(l=>l.inquiry_id!==caseId||l.gmail_thread_id!==m.thread_id))fail();
