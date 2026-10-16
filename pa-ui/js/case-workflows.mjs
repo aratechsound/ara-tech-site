@@ -1,4 +1,3 @@
-import {createGallery} from './gallery.mjs';
 // Existing authenticated routes only. No implicit send or candidate adoption.
 export function createWorkflowRequest(getSession){
   return async function request(action,input){
@@ -126,9 +125,12 @@ export function createReplyComposer({request,getCase,onSent}){
     const fileList=node('div');fileList.className='reply-document-files';s.kinds=[];s.fileGalleries=[];s.kindControls=[];s.status=node('p');s.status.setAttribute('role','status');s.previewHost=node('section');s.warning=node('section');s.warning.setAttribute('role','group');s.warning.setAttribute('aria-label','下書き破棄の確認');
     const invalidate=()=>{if(s.attempted)return;s.revision++;s.dirty=true;s.preview=null;s.payload=null;s.previewHost.replaceChildren();s.status.textContent='変更後の内容でプレビューを確認してください。';};
     cc.oninput=body.oninput=invalidate;
-    files.onchange=()=>{
+    files.onchange=async()=>{
       for(const g of s.fileGalleries)g.dispose();s.fileGalleries=[];s.kindControls=[];
       s.files=[...files.files];s.kinds=s.files.map(()=> 'normal');fileList.replaceChildren();
+      invalidate();const selectedFiles=s.files;
+      const {createGallery}=await import('./gallery.mjs');
+      if(!current(s)||selectedFiles!==s.files)return;
       s.files.forEach((f,index)=>{
         const row=node('section'),kind=node('select');row.className='reply-document-file';
         kind.setAttribute('aria-label',f.name+' の添付区分');
@@ -139,7 +141,7 @@ export function createReplyComposer({request,getCase,onSent}){
           const target=node('div'),g=createGallery({isCurrent:()=>current(s),requestBlob:async()=>f});
           s.fileGalleries.push(g);row.append(target);g.mount(target,[{key:'local:'+index,asset_kind:'local',asset_id:String(index),filename:f.name,mime_type:f.type,size:f.size}],{compact:true});
         }fileList.append(row);
-      });invalidate();
+      });
     };
     const removeFiles=button('添付を外す',()=>{for(const g of s.fileGalleries)g.dispose();s.fileGalleries=[];s.files=[];s.kinds=[];s.kindControls=[];files.value='';fileList.replaceChildren();invalidate();});
     const operationHost=node('section');operationHost.setAttribute('aria-label','永続送信操作');
