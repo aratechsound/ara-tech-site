@@ -161,7 +161,36 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   if(kind==='adopted'&&!p.model.can_adopt)throw Error('change_evidence_incomplete');
   return rpc('pa_change_evidence_append',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_operation:operation,p_previous:p.model.previous_event_id,p_kind:kind,p_evidence:p.model.evidence,p_reason:text(input.reason),p_blobs:p.blobs});
  }
- async function changeEvidenceDocument(input,actor){const p=await preview(input,actor);return {bytes:p.bytes,filename:p.model.evidence.quote.filename,mime_type:'application/pdf'};}
+ async function adoptedEvidence(input){
+  const caseId=id(input.case_id);await mail.getInquiry(caseId,fetchImpl);
+  const stored=await history(caseId),event=stored.authority;
+  if(!stored.available||event?.id!==id(input.event_id)||event.event_kind!=='adopted')throw Error('change_evidence_changed');
+  const e=event.evidence,c=await one('pa_contracts',{id:'eq.'+event.contract_id,inquiry_id:'eq.'+caseId,select:'*'});
+  if(!c||e.case_id!==caseId||e.contract_id!==c.id||e.contract_sha256!==contractSha(c))fail();
+  return e;
+ }
+ async function savedBinary(caseId,sha,filename){
+  if(!/^[a-f0-9]{64}$/u.test(sha||''))fail();
+  const b=await one('pa_change_evidence_blobs',{inquiry_id:'eq.'+caseId,sha256:'eq.'+sha,select:'content,sha256'});
+  if(!b){
+   // The append-only service deduplicates both quote and manual-copy bytes
+   // against existing commercial originals. Reuse that same case/SHA scope.
+   const docs=await rows('pa_commercial_documents',{inquiry_id:'eq.'+caseId,sha256:'eq.'+sha,select:'id',limit:'2'});
+   if(docs.length!==1)throw Error('change_evidence_original_unavailable');
+   const binary=await document(caseId,docs[0].id);if(pdf.sha(binary.bytes)!==sha)fail();return {...binary,filename};
+  }
+  const bytes=fromBytea(b.content);
+  if(b.sha256!==sha||pdf.sha(bytes)!==sha)fail();await pdf.validatePdf(bytes,sha);
+  return {bytes,filename,mime_type:'application/pdf'};
+ }
+ async function changeEvidenceDocument(input,actor){
+  if(input.event_id){
+   const e=await adoptedEvidence(input);
+   if(e.quote.registered_sha_match&&e.quote.document_id){const binary=await document(input.case_id,e.quote.document_id);if(pdf.sha(binary.bytes)!==e.quote.sha256)fail();return binary;}
+   return savedBinary(input.case_id,e.quote.sha256,e.quote.filename);
+  }
+  const p=await preview(input,actor);return {bytes:p.bytes,filename:p.model.evidence.quote.filename,mime_type:'application/pdf'};
+ }
  async function changeEvidenceContractPdf(input){
   const caseId=id(input.case_id);await mail.getInquiry(caseId,fetchImpl);
   const c=await one('pa_contracts',{id:'eq.'+id(input.contract_id),inquiry_id:'eq.'+caseId,select:'*'});if(!c)throw Error('contract_not_found');
@@ -170,7 +199,9 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   return {bytes,filename:'accepted-order-confirmation.pdf',mime_type:'application/pdf'};
  }
  async function changeEvidenceMailPdf(input,actor){
-  const p=await preview(input,actor),e=p.model.evidence,a=e.approval;if(a.source!=='gmail')throw Error('change_evidence_original_unavailable');
+  const e=input.event_id?await adoptedEvidence(input):(await preview(input,actor)).model.evidence,a=e.approval;
+  if(input.event_id&&a.source==='manual_pdf')return savedBinary(input.case_id,a.manual_pdf_sha256,a.filename);
+  if(a.source!=='gmail')throw Error('change_evidence_original_unavailable');
   const ctx=await context(input.case_id),doc=await PDFDocument.create();doc.registerFontkit(fontkit);
   const font=await doc.embedFont(fs.readFileSync(path.join(__dirname,'contract-fonts','NotoSansJP.ttf')),{subset:true});let page,y;
   const lines=['ARA-TECH 変更承認メール控え','Gmail原本の閲覧用写し',ctx.inquiry.event_name||'',`対象見積: ${e.quote.estimate_id||'手動証拠原本'} / ${e.quote.filename}`,`見積SHA256: ${e.quote.sha256}`,`From: ${a.from}`,`To: ${a.to.join(', ')}`,`Subject: ${a.subject}`,`日時: ${a.occurred_at}`,`Gmail Message-ID: ${a.message_id}`,`RFC Message-ID: ${a.rfc_message_id}`,`原本確認: Gmail取得済み / 承認判断: ${a.status}`,`生成: ${new Date().toISOString()}`,'顧客返信部分（原文）',a.reply_body,'引用部分（原文）',a.quoted_body||'（引用境界未特定／返信部分に原文全体を表示）'];

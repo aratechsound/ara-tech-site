@@ -7,6 +7,7 @@ import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createMailDiscovery} from './mail-discovery.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge,createReplyComposer} from './case-workflows.mjs';
+import {createOrderDocuments} from './order-documents.mjs';
 import {createCommercialWorkflows} from './commercial-workflows.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
@@ -103,8 +104,8 @@ const reply=createReplyComposer({request:workflowRequest,getCase:()=>session?cur
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
 const discovery=createMailDiscovery({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
-let mailGalleries=[];
-function disposePreviews(){bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
+let mailGalleries=[],orderDocuments=null;
+function disposePreviews(){orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
 function clearDetail(){clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
@@ -182,11 +183,10 @@ function conversation(c){
   }).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済みメールなし</div>')}<details class="group"><summary>案内・配送記録</summary>${readBlock('deliveries','配送記録',rows=>rowsHtml(rows,{title:r=>r.subject||r.message_type,body:r=>deliveryUnknown(r)?'UNKNOWN / 再送停止':r.status||'状態未取得',time:r=>r.sent_at||r.failed_at||r.requested_at}))}</details><div class="inlinebtns" style="margin-top:10px">${button('返信作成','reply','quiet',true)}${button('Gmail同期','sync','quiet',true)}${button('未紐付けメール','unlinked','quiet',true)}</div><p class="hint">NEWは保存済みのメール別根拠がある場合のみ表示。添付は資料候補へ連携できます。採用・最新版切替・公開はOwnerが資料ポータルで判断します。</p>`;
 }
 function estimate(c){
-  return moneyBar()+`<section id="commercial-actions" class="group"></section><p class="hint">${escape(statusBasis(c))}</p><section class="group"><h2 class="sectiontitle">正式受注確認書PDF</h2><p class="hint">取得できたPDFを表示。送信済み資料は履歴です。既存の契約・版・同意証跡との対応がこの参照索引では未提供のため、現在正本とは判定しません。</p><div id="formal-document-grid" class="material-grid"></div>${detail.messages?.state==='error'?errorBlock(detail.messages.error,'正式確認PDFのメール索引'):''}</section>
-  <section class="group"><h2 class="sectiontitle">現行見積書・正本</h2><p class="hint">現行有効版・契約上の正本は未確認。以下の最新発行版は版番号の記録による表示で、有効版を意味しません。</p>${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務・原本'):detail.commercial?.state!=='ready'?'<div class="load-state">商務原本を取得中…</div>':''}<div id="current-estimate-grid" class="material-grid"></div></section>
+  return moneyBar()+`${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務・原本'):''}${detail.messages?.state==='error'?errorBlock(detail.messages.error,'正式確認PDFのメール索引'):''}<section id="order-documents"></section><details class="group order-document-history" open><summary>見積・正式受注・変更承認の履歴</summary>
   <section class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','送信済み見積索引',value=>`<div id="sent-estimate-grid" class="material-grid"></div>${rowsHtml(value.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})}${value.unknown?.length?'<div class="read-error">一部メールの対応不明 / '+value.unknown.length+'件</div>':''}`)}</section>
   <details class="group estimate-history"><summary>見積書の発行履歴・全版</summary>${readBlock('commercial','見積発行履歴',state=>{const estimates=state.estimates||[];return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>原本</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${e.document_id?'原本参照あり':'原本参照未提供'}</td></tr>`).join('')||'<tr><td colspan="3">取得した正式登録見積は0件（Gmail送信履歴は上部）</td></tr>'}</tbody></table></div>`;})}<div id="estimate-history-grid" class="material-grid"></div></details>
-  <details class="group formal-history"><summary>正式受注確認の発行・同意等の履歴</summary>${readBlock('commercial','正式確認履歴',state=>{const offers=Array.isArray(state.offers)?state.offers:null;return `${offers===null?'<div class="read-error">正式確認の発行記録は未取得</div>':offers.length?rowsHtml(offers,{title:o=>'版 '+o.version+' / 発行記録',body:o=>'有効期限（保存値） '+date(o.expires_at),time:o=>o.issued_at}):'<div class="empty-state">取得できた正式確認の発行記録は0件</div>'}<p class="hint">ここは正式確認の発行日時・期限の索引です。同意・契約成立記録の不存在を意味しません。同意状態・失効・配送結果はこの取得範囲では未確認です。</p>`;})}</details><div class="inlinebtns">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  <details class="group formal-history"><summary>正式受注確認の発行・同意等の履歴</summary>${readBlock('commercial','正式確認履歴',state=>{const offers=Array.isArray(state.offers)?state.offers:null;return `${offers===null?'<div class="read-error">正式確認の発行記録は未取得</div>':offers.length?rowsHtml(offers,{title:o=>'版 '+o.version+' / 発行記録',body:o=>'有効期限（保存値） '+date(o.expires_at),time:o=>o.issued_at}):'<div class="empty-state">取得できた正式確認の発行記録は0件</div>'}<p class="hint">ここは正式確認の発行日時・期限の索引です。同意・契約成立記録の不存在を意味しません。同意状態・失効・配送結果はこの取得範囲では未確認です。</p>`;})}<div id="formal-document-history-grid" class="material-grid"></div></details></details><section id="commercial-actions" class="group"></section><p class="hint">${escape(statusBasis(c))}</p><div class="inlinebtns">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
 
 function invoice(){
@@ -254,10 +254,11 @@ function render(){
   const items=materialItems();
   if(tab==='overview')mountGallery($('inquiry-attachment-grid'),inquiryAttachmentItems(items));
   if(tab==='estimate'){
-    commercial.mount($('commercial-actions'));
-    mountGallery($('formal-document-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
-    mountGallery($('current-estimate-grid'),items.filter(d=>d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'));
+    const id=selected,epoch=selectionEpoch;
+    orderDocuments=createOrderDocuments({host:$('order-documents'),previewScope:viewPreviewScope(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='estimate',mountFallback:(host,kind)=>mountGallery(host,items.filter(d=>kind==='formal'?d.kind==='正式受注確認書'&&d.mime_type==='application/pdf':d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'))});
+    commercial.mount($('commercial-actions'),orderDocuments);
     mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
+    mountGallery($('formal-document-history-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
     if($('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
       const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
