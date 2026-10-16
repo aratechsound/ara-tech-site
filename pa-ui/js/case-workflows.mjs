@@ -138,8 +138,10 @@ export function createReplyComposer({request,getCase,onSent}){
         kind.onchange=()=>{if(s.attempted)return; s.kinds[index]=kind.value;invalidate();};s.kindControls.push(kind);
         row.append(node('strong',f.name+' ('+f.size+' bytes)'),control('添付区分',kind));
         if(f.type==='application/pdf'||/^image\/(png|jpeg|webp)$/u.test(f.type)){
-          const target=node('div'),g=createGallery({isCurrent:()=>current(s),requestBlob:async()=>f});
-          s.fileGalleries.push(g);row.append(target);g.mount(target,[{key:'local:'+index,asset_kind:'local',asset_id:String(index),filename:f.name,mime_type:f.type,size:f.size}],{compact:true});
+          const g=createGallery({isCurrent:()=>current(s),requestBlob:async()=>f});
+          const item={key:'local:'+index,asset_kind:'local',asset_id:String(index),filename:f.name,mime_type:f.type,size:f.size};
+          const original=button('原本を確認',()=>g.openPreview(item));original.setAttribute('aria-label',f.name+' の拡大プレビュー');
+          s.fileGalleries.push(g);row.append(original);
         }fileList.append(row);
       });
     };

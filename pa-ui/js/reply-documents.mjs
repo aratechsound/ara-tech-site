@@ -12,7 +12,7 @@ export function createReplyDocumentView({getCase,requestReply,requestCommercial,
  function load(id){if(caseId!==id){clear();caseId=id;}const g=epoch;
   return loadPromise ||= requestReply('reply_document_list',{inquiry_id:id}).then(r=>{if(!valid(id,g)||r.result?.inquiry_id!==id)throw Error('case_changed');return r.result;});
  }
- function dialog(title){const d=el('dialog');d.className='case-commercial-dialog';d.setAttribute('aria-label',title);d.dataset.externalMoneyGuard='true';d.append(el('h2',title));dialogs.add(d);d.addEventListener('close',()=>{dialogs.delete(d);d.remove();},{once:true});document.body.append(d);return d;}
+ function dialog(title){const d=el('dialog');d.className='case-commercial-dialog';d.setAttribute('aria-label',title);d.dataset.replyDocumentReview='';d.dataset.externalMoneyGuard='true';d.append(el('h2',title));dialogs.add(d);d.addEventListener('close',()=>{dialogs.delete(d);d.remove();},{once:true});document.body.append(d);return d;}
  function card(host,id,row,g){
   const holder=el('div');holder.innerHTML=mailRow(row,{actions:false,dateText:row.received_at?new Date(row.received_at).toLocaleString('ja-JP'):'日時未取得'});host.append(holder);
   bodies.mount(holder.firstElementChild,id,row,()=>valid(id,g)&&holder.isConnected);
