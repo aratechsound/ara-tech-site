@@ -8,7 +8,7 @@ async function main(){
  global.fetch=async()=>{throw Error('LIVE_NETWORK_FORBIDDEN');};
  const f=await setup({transport:async()=>({gmail_message_id:'mock_sent',gmail_thread_id:'thread_123'})});
  try{
-  await f.db.exec(read('20261016090000_paui051_change_evidence.sql'));
+  await f.db.exec(require('node:fs').readFileSync(require('node:path').join(__dirname,'../ops/PAUI-051-change-evidence.sql'),'utf8'));
   const e=await f.createEstimate(),p=await f.service.confirmationPreview({case_id:f.inquiryId,confirmation_mode:MODE},f.actor);
   const sent=await f.service.issueDirectConfirmationAndSend({case_id:f.inquiryId,confirmation_mode:MODE,preview_fingerprint:p.fingerprint,operation_id:crypto.randomUUID()},f.actor);
   const job=(await f.db.query('select * from pa_commercial_outbox where id=$1',[sent.outbox_id])).rows[0],offer=(await f.db.query('select * from pa_contract_offers where id=$1',[sent.id])).rows[0];
