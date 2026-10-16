@@ -91,8 +91,17 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
    binary=await document(caseId,estimate.document_id);
   }else if(source==='gmail'){
    m=await message(caseId,selection.message_id);if(m.direction!=='outbound'||!m.linked||m.thread_id!==selection.thread_id)fail();
-   const part=m.attachments.find(a=>a.id===selection.attachment_id&&(!selection.part_id||a.part_id===selection.part_id));if(!part)fail();
-   binary=await gmail.getAttachmentBinary({inquiryId:caseId,gmailMessageId:m.id,gmailAttachmentId:part.id,gmailPartId:part.part_id||''},fetchImpl);
+   // Gmail attachment resource IDs can change between full-message reads.
+   // Admit the persisted case/message/id/part pair first, then resolve that
+   // exact MIME part in the fresh original through the existing binary reader.
+   const indexed=await rows('pa_gmail_message_index',{inquiry_id:'eq.'+caseId,gmail_message_id:'eq.'+m.id,select:'attachment_metadata',limit:'1'});
+   const admitted=(indexed[0]?.attachment_metadata||[]).filter(a=>a.id===selection.attachment_id&&(!selection.part_id||a.part_id===selection.part_id));
+   if(admitted.length!==1)fail();
+   const partId=admitted[0].part_id||'';
+   if(partId&&m.attachments.some(a=>a.id===selection.attachment_id&&a.part_id!==partId))fail();
+   const parts=m.attachments.filter(a=>partId?a.part_id===partId:a.id===selection.attachment_id);
+   if(parts.length!==1||parts[0].mime_type!=='application/pdf')fail();
+   binary=await gmail.getAttachmentBinary({inquiryId:caseId,gmailMessageId:m.id,gmailAttachmentId:selection.attachment_id,gmailPartId:partId},fetchImpl);
   }else binary={bytes:Buffer.from(text(selection.content_base64,2000000),'base64'),filename:text(selection.filename,500),mime_type:'application/pdf'};
   if(binary.mime_type!=='application/pdf')fail();await pdf.validatePdf(binary.bytes,selection.sha256||pdf.sha(binary.bytes));const sha=pdf.sha(binary.bytes);
   if(selection.sha256&&sha!==selection.sha256)fail();
