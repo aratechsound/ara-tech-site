@@ -109,13 +109,13 @@ export async function openChangeEvidence({request,dialog,stop,status,facts,valid
    }else if(e.quote.source==='registered')quote.value='registered:'+e.quote.estimate_id;
    else{
     if(!quoteMonitor)throw Error('change_evidence_changed');const blob=await quoteMonitor.document(getCase().id,c);if(!safe())return;
-    presetQuote=await fileValue(new File([blob],e.quote.filename,{type:'application/pdf'}));if(presetQuote.sha256!==e.quote.sha256)throw Error('change_evidence_mismatch');quote.value='local';
+    presetQuote=await fileValue(new window.File([blob],e.quote.filename,{type:'application/pdf'}));if(presetQuote.sha256!==e.quote.sha256)throw Error('change_evidence_mismatch');quote.value='local';
    }
    if(e.approval?.source==='gmail'){
     if(state.messages.some(m=>m.gmail_message_id===e.approval.message_id))approval.value=e.approval.message_id;
     else{approval.value='direct';messageId.value=e.approval.message_id;threadId.value=e.approval.thread_id;}
    }else if(e.approval?.source==='manual_pdf'&&quoteMonitor){
-    const blob=await quoteMonitor.document(getCase().id,c,'approval');if(!safe())return;presetApproval=await fileValue(new File([blob],e.approval.filename||'manual-approval.pdf',{type:'application/pdf'}));if(presetApproval.sha256!==e.approval.manual_pdf_sha256)throw Error('change_evidence_mismatch');approval.value='manual_pdf';
+    const blob=await quoteMonitor.document(getCase().id,c,'approval');if(!safe())return;presetApproval=await fileValue(new window.File([blob],e.approval.filename||'manual-approval.pdf',{type:'application/pdf'}));if(presetApproval.sha256!==e.approval.manual_pdf_sha256)throw Error('change_evidence_mismatch');approval.value='manual_pdf';
    }
    description.value=e.change_description||'';confirmed.checked=false;relation.checked=false;s.textContent='候補を選択しました。元契約・見積原本・金額・税区分・顧客承認を再照合し、最終確認してから採用してください。';
   }
