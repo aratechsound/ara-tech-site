@@ -64,7 +64,13 @@ function createSentQuoteWorkflow({rows,one,rpc,context,history,message,quote,con
   if(!pre&&(contract?.snapshot.currency!=='JPY'||!baseEstimate||baseEstimate.tax_basis!==tax||!number(baseline)||!total||!delta
     ||basis!=='revised_total'||total!==baseline+delta||amount!==total))reasons.push('TOTAL_AND_ADDITIONAL_AMOUNT_REQUIRED');
   if(values.owner_amounts_confirmed!==true)reasons.push('OWNER_AMOUNT_CONFIRMATION_REQUIRED');
-  if(['closed','cancelled','declined','schedule_unavailable'].includes(ctx.inquiry.status)||ctx.current.outbox.some(j=>['unknown','processing'].includes(j.state))
+  let deliveryGate=null,deliveryHold=false;
+  if(ctx.current.outbox.some(j=>['unknown','processing'].includes(j.state)||j.delivery_state==='unknown_after_provider_start')){
+   try{deliveryGate=await rpc('pa_sent_quote_delivery_gate_v1',{p_actor:actor.id,p_case:caseId,p_contract:contract?.id||null});
+    deliveryHold=deliveryGate?.case_id!==caseId||deliveryGate?.contract_id!==(contract?.id||null)||deliveryGate?.read_only!==true||deliveryGate?.blocked!==false;
+   }catch{deliveryHold=true;}
+  }
+  if(['closed','cancelled','declined','schedule_unavailable'].includes(ctx.inquiry.status)||deliveryHold
     ||!pre&&(ctx.current.billings.length||ctx.current.state.settlement_state!=='unsettled'||ctx.current.state.unresolved_changes||changes.some(c=>['proposal','customer_acknowledged'].includes(c.state))))reasons.push('COMMERCIAL_STATE_HOLD');
   if(!pre&&ctx.current.documents.some(d=>d.sha256===q.metadata.sha256))reasons.push('EXISTING_REGISTRATION_REQUIRES_REVIEW');
   if(!registrations||registrations.length>100||!h.available)reasons.push('STORAGE_UNAVAILABLE');
@@ -81,10 +87,10 @@ function createSentQuoteWorkflow({rows,one,rpc,context,history,message,quote,con
    previous_event_id:h.events[0]?.id||null,existing_adoption_id:existing?.id||null,contract_id:contract?.id||null,
    document_amount_minor:amount,revised_total_minor:total,additional_amount_minor:delta,base_amount_minor:baseline,amount_basis:basis||null,currency:'JPY',tax_basis:tax||null,conditions,owner_amounts_confirmed:values.owner_amounts_confirmed===true,owner_approval_confirmed:selected?.status==='owner_reviewed'&&manualConfirmed,owner_approval_reason:selected?.status==='owner_reviewed'?manualReason:''};
   const evidence={case_id:caseId,contract_id:contract?.id||null,contract_sha256:contract?contractSha(contract):null,quote:{...q.metadata,amount_minor:amount,tax_basis:tax||null},approval:selected||{source:'missing',status:'missing'},warnings:selected?.status==='owner_reviewed'?['quote_reply_relation_requires_owner_confirmation']:[],change_description:'既送付見積原本と顧客了承の正式登録',owner_confirmed:true,owner_case_relation_confirmed:true,owner_reason:selected?.status==='owner_reviewed'?manualReason:'Ownerが送付済みPDF・顧客了承・金額の意味と正式登録を確認'};
-  const fingerprint=pdf.sha(canonical({actor:actor.id,request,evidence,commercial_state:ctx.current.state,contract_snapshot:contract?.snapshot,history_head:h.events[0]?.id||null}));
+  const fingerprint=pdf.sha(canonical({actor:actor.id,request,evidence,commercial_state:ctx.current.state,contract_snapshot:contract?.snapshot,history_head:h.events[0]?.id||null,delivery_gate:deliveryGate}));
   request.preview_fingerprint=fingerprint;
   const recorded=registrations?.find(r=>r.gmail_message_id===q.metadata.message_id&&r.part_id===q.metadata.part_id&&r.quote_sha256===q.metadata.sha256);
-  return {bytes:q.binary.bytes,request,evidence,model:{case_id:caseId,phase:pre?'PRE_CONTRACT':'POST_CONTRACT',quote:evidence.quote,approval:selected,approval_candidates:linked.slice(0,20),approval_list_truncated:linked.length>20,approval_matches:found.length,automatic_search_incomplete:!manual&&(linked.length>10||!!failures),base_amount_minor:baseline,existing_adoption_id:existing?.id||null,existing_registration_operation_id:recorded?.created_by===actor.id?recorded.operation_id:null,values:request,can_complete:!reasons.length,reasons:[...new Set(reasons)],fingerprint,write:false,storage_available:!!registrations}};
+  return {bytes:q.binary.bytes,request,evidence,model:{case_id:caseId,phase:pre?'PRE_CONTRACT':'POST_CONTRACT',quote:evidence.quote,approval:selected,approval_candidates:linked.slice(0,20),approval_list_truncated:linked.length>20,approval_matches:found.length,automatic_search_incomplete:!manual&&(linked.length>10||!!failures),base_amount_minor:baseline,existing_adoption_id:existing?.id||null,existing_registration_operation_id:recorded?.created_by===actor.id?recorded.operation_id:null,values:request,can_complete:!reasons.length,reasons:[...new Set(reasons)],fingerprint,write:false,storage_available:!!registrations,delivery_gate:deliveryGate}};
  }
  async function sentQuotePreview(input,actor){return (await build(input,actor)).model;}
  async function sentQuoteStatus(input,actor){
