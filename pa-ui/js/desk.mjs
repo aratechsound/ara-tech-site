@@ -2,6 +2,7 @@ import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} fro
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
+import {downloadFilename} from './original-download.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
@@ -39,11 +40,11 @@ const shortDate=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '�
 const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
-let quoteMonitorEnabled=false;
+let quoteMonitorEnabled=false,commercialOriginalsRead=false;
 let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
 const requests=new Set();
 class ReadFailure extends Error{constructor(code,status){super(code);this.code=code;this.status=status;}}
-function failText(error){return error.status===403?'403 / 認証・ACL未解決':error.status===401?'認証・ACLまたは既存商務参照が未解決':error.code==='incomplete_result'?'一覧を完全に取得できませんでした':'読取に失敗しました';}
+function failText(error){if((error.code||error.message)==='invalid_origin')return 'Preview Origin制限で商務原本を取得できません';return error.status===403?'403 / 認証・ACL未解決':error.status===401?'認証・ACLまたは既存商務参照が未解決':error.code==='incomplete_result'?'一覧を完全に取得できませんでした':'読取に失敗しました';}
 function errorBlock(error,label=''){
   return `<div class="read-error" role="status">${escape(label)} ${escape(failText(error))}<small>取得不能を「なし」「未入金」「確認済み」と扱いません。再取得は明示操作です。</small></div>`;
 }
@@ -60,6 +61,8 @@ async function api(url,{blob=false}={}){
     if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(response.status===401)clearAssets();if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
     if(blob){
       const value=await response.blob(),proof=response.headers.get('X-PA-Attachment-Identity');
+      const disposition=response.headers.get('Content-Disposition');if(disposition)value.originalFilename=downloadFilename(disposition);
+      const digest=response.headers.get('X-PA-Original-SHA256');if(digest)value.originalSha256=digest;
       // Sanitized proof flags only, retained with the existing session Blob.
       if(proof){try{value.identityProof=JSON.parse(proof);}catch{}}
       return value;
@@ -82,7 +85,8 @@ function caseAssets(){
   if(!privateAssets){const id=selected,epoch=selectionEpoch,token=session?.access_token;
     privateAssets=createPrivateAssets({isCurrent:()=>selected===id&&selectionEpoch===epoch&&!!session,
       authorize:async()=>{let value;try{value=await workspaceAuth.current();}catch{signOut(false);throw new ReadFailure('login_required',401);}if(value?.access_token!==token){clearAssets();throw new ReadFailure('login_required',401);}},
-      requestBlob:item=>api(assetRoute(id,item),{blob:true})});
+      requestDownload:item=>item.asset_kind==='document'||item.download_ref?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item).replace('/data/','/data/download/'),{blob:true}),
+      requestBlob:item=>commercialOriginalsRead&&(item.asset_kind==='document'||item.asset_kind==='receipt')?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item),{blob:true})});
   }
   return privateAssets;
 }
@@ -273,9 +277,9 @@ function render(){
     }
   }
 }
-async function loadSurface(name,url,epoch){
+async function loadSurface(name,url,epoch,reader=null){
   detail[name]={state:'loading'};
-  try{const value=await api(url);if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
+  try{const value=await (reader?reader():api(url));if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
   catch(error){if(epoch!==selectionEpoch)return;detail[name]={state:'error',error};}
   if(epoch===selectionEpoch)render();
 }
@@ -287,7 +291,7 @@ async function selectCase(id,initialTab='overview'){
   portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab=initialTab;const epoch=selectionEpoch;
   renderList();render();
   // No mark-read, Gmail sync, lazy contract PDF generation or token issuance here.
-  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
+  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercial.originalIndex(id):null),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
   if(!await reply.beforeLeave())return;
@@ -298,7 +302,7 @@ async function refresh(){
   try{
     const attPromise=api('/data/attention').then(value=>({value}),error=>({error}));
     const list=await api('/data/cases');if(epoch!==listEpoch)return;
-    simpleAdoptionEnabled=list.quote_adoption_simple===true;commercial.setSimpleAdoption(simpleAdoptionEnabled);quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
+    commercialOriginalsRead=list.commercial_originals_read===true;simpleAdoptionEnabled=list.quote_adoption_simple===true;commercial.setSimpleAdoption(simpleAdoptionEnabled);quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
     const map=new Map(list.progress.map(p=>[p.inquiry_id,p]));
     cases=list.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:null,attentionLoaded:false}));
     updateFilters();renderList();render();

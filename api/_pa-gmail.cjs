@@ -583,11 +583,17 @@ const streamAttachmentResponse = async (response, attachment) => {
     response.statusCode = 200;
     response.setHeader("Content-Type", safeAttachmentMimeType(attachment.mime_type));
     response.setHeader("Content-Disposition", attachmentContentDisposition(attachment.filename));
+    response.setHeader("Content-Length", String(bytes.length));
+    response.setHeader("X-PA-Original-SHA256", crypto.createHash("sha256").update(bytes).digest("hex"));
     response.setHeader("Cache-Control", "private, no-store, max-age=0");
     response.setHeader("X-Content-Type-Options", "nosniff");
     for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+        if (response.destroyed) return;
         if (!response.write(bytes.subarray(offset, Math.min(offset + 64 * 1024, bytes.length)))) {
-            await new Promise((resolve) => response.once("drain", resolve));
+            await new Promise((resolve) => {
+                const done=()=>{response.off?.("drain",done);response.off?.("close",done);resolve();};
+                response.once("drain",done);response.once("close",done);
+            });
         }
     }
     response.end();
