@@ -47,7 +47,7 @@ async function attachment({messageId,metadata,raw}) {
     ? await gmailJson('/messages/'+encodeURIComponent(messageId)+'/attachments/'+encodeURIComponent(fresh.gmail_attachment_id),{method:'GET'},boundedFetch)
     : part?.body;
   if(typeof payload?.data!=='string'||payload.data.length>Math.ceil(MAX*4/3)+4||! /^[A-Za-z0-9_-]*={0,2}$/.test(payload.data))throw Error('asset_identity_mismatch');
-  return {bytes:Buffer.from(payload.data,'base64url'),mime:fresh.mime_type};
+  return {bytes:Buffer.from(payload.data,'base64url'),mime:fresh.mime_type,filename:fresh.filename};
 }
 // Internal registered-row alias loader. The Owner read adapter proves exact
 // case/message/thread ownership before calling; no public unknown-ID route.

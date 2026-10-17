@@ -1,3 +1,4 @@
+import {saveOriginal} from './original-download.mjs';
 // Read-only document presentation shared by admin, organizer and staff portals.
 // All asset access is supplied by the caller's existing authorized API adapter.
 export function createPortalDocumentView({getAttachmentRecord, getPdfjs, orgText,
@@ -7,7 +8,7 @@ export function createPortalDocumentView({getAttachmentRecord, getPdfjs, orgText
     titleSelector='#preview-dialog-title', nextPreview: next, isCurrentPreview: current}) {
 const $ = selector => document.querySelector(selector === '#preview-dialog' ? dialogSelector : selector === '#preview-dialog-body' ? bodySelector : selector === '#preview-dialog-title' ? titleSelector : selector);
 const pdfDocuments = new Map();
-let generation=0;
+let generation=0,downloadGeneration=0;
 const nextPreview = next || (() => ++generation);
 const isCurrentPreview = current || (id => id === generation);
 const attachmentKey = item => item.key || `${item.asset_kind}:${item.asset_id}`;
@@ -15,6 +16,8 @@ const isImage = (item) => /^image\//iu.test(item.mime_type || "");
 const isPdf = (item) => String(item.mime_type || "").toLowerCase() === "application/pdf" || /\.pdf$/iu.test(item.filename || "");
 const canPreview = (item) => isImage(item) || isPdf(item);
 const getBlobUrl = async (item) => (await getAttachmentRecord(item)).url;
+const downloadOriginal=async(item,stillCurrent=()=>true)=>{const ticket=downloadGeneration;await saveOriginal({item,assets:{record:(value,options)=>getAttachmentRecord(value,{...options,fresh:true}),release:record=>URL.revokeObjectURL(record.url)},isCurrent:()=>ticket===downloadGeneration&&stillCurrent()});};
+const saveButton=item=>{const b=document.createElement('button');b.type='button';b.className='view-button document-download';orgUi(b,orgText('download'));b.onclick=async()=>{b.disabled=true;try{await downloadOriginal(item);}catch{showToast(orgText('orgOriginalError'));}finally{b.disabled=false;}};return b;};
 const getPdfDocument = async (item) => {
     const key = attachmentKey(item);
     if (pdfDocuments.has(key)) return pdfDocuments.get(key);
@@ -46,6 +49,7 @@ const renderPdfPage = async (item, pageNumber, canvas, requestedCssWidth, reques
 
 const closePreview = () => {
     nextPreview();
+    $('#preview-dialog')?.querySelector('[data-original-download]')?.remove();
     const dialog = $("#preview-dialog");
     if (!dialog) return;
     if (dialog.open) dialog.close();
@@ -63,6 +67,8 @@ const showPreview = async (item) => {
     orgUi(loading, orgText("orgLoading"));
     body.replaceChildren(loading);
     if (!dialog.open) dialog.showModal();
+    dialog.querySelector('[data-original-download]')?.remove();
+    const save=saveButton(item);save.dataset.originalDownload='true';body.before(save);
     try {
         if (isImage(item)) {
             const image = document.createElement("img");
@@ -181,7 +187,7 @@ const makeDocumentCard = (latest, { fixed = false, collection = false } = {}) =>
     view.className = "view-button";
     orgUi(view, orgText("orgLargePreview"));
     view.addEventListener("click", () => showPreview(latest));
-    const download = document.createElement("button");download.type="button";download.className="view-button document-download";orgUi(download,orgText("download"));download.addEventListener("click",async()=>{download.disabled=true;let record;try{record=await getAttachmentRecord(latest,{fresh:true});const anchor=document.createElement("a");anchor.href=record.url;anchor.download=latest.filename;anchor.click();}catch{showToast(orgText("orgOriginalError"));}finally{download.disabled=false;if(record)setTimeout(()=>URL.revokeObjectURL(record.url),1000);}});
+    const download=saveButton(latest);
     const type = document.createElement("span");type.className="badge document-type";orgUi(type,isPdf(latest)?"PDF":isImage(latest)?orgText("orgImage"):orgText("orgDocument"));badges.append(type);
     body.append(titleRow, meta, badges, view, download);
     card.append(body);
@@ -231,16 +237,17 @@ const makePhotoTile = item => {
     const label=document.createElement('span');orgUi(label,item.filename);tile.append(label);
     getBlobUrl(item).then(url=>{const image=document.createElement('img');image.src=url;image.alt=item.filename;tile.prepend(image);}).catch(()=>orgUi(label,orgText('orgPhotoUnavailable',{filename:item.filename})));
     tile.addEventListener('click',()=>showPreview(item));
-    const wrap=document.createElement('div');wrap.className='photo-tile';wrap.append(tile);
+    const wrap=document.createElement('div');wrap.className='photo-tile';wrap.append(tile,saveButton(item));
     return wrap;
 };
 const makePerformerDocument = item => {
     const button=document.createElement('button');button.type='button';button.className='performer-document';
     const thumb=document.createElement('span');thumb.className='performer-thumb';thumb.append(makeHistoryThumbnail(item));
     const label=document.createElement('span');label.className='performer-document__label';orgUi(label,item.filename);
-    button.append(thumb,label);button.addEventListener('click',()=>showPreview(item));return button;
+    button.append(thumb,label);button.addEventListener('click',()=>showPreview(item));
+    const wrap=document.createElement('div');wrap.append(button,saveButton(item));return wrap;
 };
-const clear = () => {closePreview();for(const pending of pdfDocuments.values())pending.then(pdf=>pdf.destroy()).catch(()=>{});pdfDocuments.clear();};
+const clear = () => {++downloadGeneration;closePreview();for(const pending of pdfDocuments.values())pending.then(pdf=>pdf.destroy()).catch(()=>{});pdfDocuments.clear();};
 return {makeEmptyCard,makeDocumentCard,makePhotoTile,makePerformerDocument,makePreview,makeHistoryThumbnail,
     showPreview,closePreview,getBlobUrl,getPdfDocument,renderPdfPage,clear};
 }

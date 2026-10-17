@@ -586,8 +586,12 @@ const streamAttachmentResponse = async (response, attachment) => {
     response.setHeader("Cache-Control", "private, no-store, max-age=0");
     response.setHeader("X-Content-Type-Options", "nosniff");
     for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+        if (response.destroyed) return;
         if (!response.write(bytes.subarray(offset, Math.min(offset + 64 * 1024, bytes.length)))) {
-            await new Promise((resolve) => response.once("drain", resolve));
+            await new Promise((resolve) => {
+                const done=()=>{response.off?.("drain",done);response.off?.("close",done);resolve();};
+                response.once("drain",done);response.once("close",done);
+            });
         }
     }
     response.end();

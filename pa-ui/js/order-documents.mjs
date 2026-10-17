@@ -1,3 +1,4 @@
+import {saveOriginal} from './original-download.mjs';
 export {resolveOrderDocuments,resolveMonitoredOrderDocuments} from './order-document-model.mjs';
 import {createGallery} from './gallery.mjs';
 import {privateText} from './pa-workspace-privacy.mjs';
@@ -36,8 +37,7 @@ export function createOrderDocuments({host,mountFallback,previewScope,isCurrent,
     if(record?.identity===identity){record.action=action;record.payload=payload;gallery=record.gallery;}
     else{record={identity,action,payload};gallery=createGallery({assets,previewScope,isCurrent:safe,requestBlob:()=>request(record.action,record.payload,true)});record.gallery=gallery;mounted.set(i,record);galleries.push(gallery);gallery.mount(c.body,[item],{compact:true});}
     c.links.replaceChildren(button('PDFを拡大',()=>gallery.openPreview(item)),button('PDFをダウンロード',async()=>{
-     const record=await assets.record(item,{fresh:true});if(!safe()){assets.release(record);return;}
-     const a=el('a');a.href=record.url;a.download=filename;document.body.append(a);a.click();a.remove();downloads.push(()=>assets.release(record));
+     await saveOriginal({item,assets,isCurrent:safe});
     }),button('関連履歴',linkHistory));
    };
    if(model.original){columns[0].badge.textContent='正式受注済み・原本保全';make(0,'change_evidence_contract_pdf',{contract_id:model.original.id},'元の正式受注確認書.pdf',model.original.sha256);}
