@@ -4,6 +4,7 @@ const { streamAttachmentResponse } = require('./_pa-gmail.cjs');
 const { applyOriginPolicy, checkRateLimit } = require('./_request-security.cjs');
 
 const ACTIONS = new Set([
+  'sent_quote_preview','sent_quote_adopt','sent_quote_status',
   'reply_document_list','reply_document_verify','reply_document_review','reply_document_adopt',
   'quote_monitor_list','quote_monitor_status','quote_monitor_check','quote_monitor_decision','quote_monitor_document','quote_monitor_history',
   'change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf',
@@ -42,6 +43,9 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
       }
       let result;
       switch (input.action) {
+        case 'sent_quote_preview': result = await service.sentQuotePreview(input, actor); break;
+        case 'sent_quote_adopt': result = await service.sentQuoteAdopt(input, actor); break;
+        case 'sent_quote_status': result = await service.sentQuoteStatus(input, actor); break;
         case 'reply_document_list': result = await service.replyDocumentList(input, actor); break;
         case 'reply_document_verify': result = await service.replyDocumentVerify(input, actor); break;
         case 'reply_document_review': result = await service.replyDocumentReview(input, actor); break;

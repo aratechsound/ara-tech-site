@@ -89,7 +89,7 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
   return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n${request}\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
 };
 
-const SAFE = new Set([
+const SAFE = new Set([...require('./_pa-sent-quote.cjs').ERRORS,
   'invalid_quote_monitor','quote_monitor_mismatch','quote_monitor_changed','quote_monitor_cooldown','quote_monitor_storage_unavailable',
   ...require('./_pa-change-evidence.cjs').ERRORS,
   'estimate_send_not_ready', 'stale_estimate_preview',
