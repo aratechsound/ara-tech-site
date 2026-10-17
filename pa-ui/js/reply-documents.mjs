@@ -1,3 +1,4 @@
+import {createSentQuoteRegistration} from './sent-quote-registration.mjs';
 import {mailRow} from './mail-row.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {privateText} from './pa-workspace-privacy.mjs';
@@ -5,10 +6,11 @@ const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.
 const button=(text,fn)=>{const b=el('button',text);b.type='button';b.className='lightbtn';b.onclick=fn;return b;};
 const STATES={ESTIMATE_REGISTRATION_UNCONFIRMED:'Owner採用証拠と正式見積履歴への登録は別です。正式見積登録が未確認のため、正式採用を完了できません。',CHANGE_LEDGER_UNCONFIRMED:'見積履歴はありますが、正式受注後の変更合意台帳が未確認です。元契約を維持し、再送・自動登録を行いません。',CONTRACT_SELECTION_UNCONFIRMED:'対応する元契約を一意に確認できません。',REGISTERED_CHANGE_AGREED:'正式見積履歴と変更合意台帳の対応を確認しました。'};
 export function createReplyDocumentView({getCase,requestReply,requestCommercial,readBody}){
+ const registration=createSentQuoteRegistration({getCase,request:requestCommercial,readBody});
  let epoch=0,caseId=null,loadPromise=null;const dialogs=new Set();
  const valid=(id,g)=>getCase()?.id===id&&caseId===id&&epoch===g;
  const bodies=createMailBodyView({request:readBody,isAuthenticated:()=>!!getCase(),excerptText:text=>String(text).split('\n').slice(0,3).join('\n')});
- function clear(){epoch++;caseId=null;loadPromise=null;bodies.clear();for(const d of dialogs){d.close();d.remove();}dialogs.clear();}
+ function clear(){registration.clear();epoch++;caseId=null;loadPromise=null;bodies.clear();for(const d of dialogs){d.close();d.remove();}dialogs.clear();}
  function load(id){if(caseId!==id){clear();caseId=id;}const g=epoch;
   return loadPromise ||= requestReply('reply_document_list',{inquiry_id:id}).then(r=>{if(!valid(id,g)||r.result?.inquiry_id!==id)throw Error('case_changed');return r.result;});
  }
@@ -33,6 +35,7 @@ export function createReplyDocumentView({getCase,requestReply,requestCommercial,
     if(item.document_kind==='invoice'){
       status.textContent=model.invoice_state==='REGISTERED_IDENTITY_MATCH'?'既存請求書の原本と送信記録が一致しました。請求状態・金額・期限・入金状態は変更しません。':model.invoice_state==='AMBIGUOUS'?'対応する請求記録が複数あり未確定です。':'送信済み資料・請求登録未確認。請求の発行・確定は行いません。';no.textContent='閉じる';return;
     }
+    if(!model.can_complete)content.append(button('正式登録の内容を確認',()=>registration.open({case_id:id,operation_id:operation.operation_id,quote:{source:'gmail',message_id:item.message_id,thread_id:operation.gmail_thread_id,attachment_id:model.part.attachment_id,part_id:item.part_id,sha256:item.sha256}},()=>{if(current())status.textContent='正式登録結果を確認しました。詳細は保存履歴を確認してください。';})));
     status.textContent=STATES[model.registration_state]||'正式登録の対応は未確認です。';
     if(model.existing_adoption)content.append(el('p',model.existing_adoption.identity_matches?'同じ原本・了承メールのOwner採用証拠があります。重複作成しません。':'保存済みOwner採用証拠と今回の送信原本の対応は未確認です。重複作成・自動的な採用済み判定を行いません。'));
     const selection=model.selection;
@@ -71,5 +74,5 @@ export function createReplyDocumentView({getCase,requestReply,requestCommercial,
    const b=button(a.document_kind==='estimate'?'この見積書を正式採用':'請求管理との対応を確認',()=>review({...item,document_kind:a.document_kind,sha256:a.sha256},op));controls.append(b);
   }).catch(()=>{if(valid(id,g)&&controls.isConnected)controls.append(el('p','添付区分は未確認です。専用読取経路・認証・権限の確認が必要です。'));});
  }
- return {previewActions,clear};
+ return {previewActions,registrationActions:registration.previewActions,clear};
 }

@@ -289,6 +289,6 @@ function createEvidenceService({rows,one,rpc,snapshot,document,fetchImpl,postgre
   return {...result,registration_state:review.registration_state,complete:true};
  }
  const monitor=require('./_pa-quote-monitor.cjs').createQuoteMonitor({rows,one,rpc,context,history,message,quote,preview,savedBinary,contractSha,renderMail:e=>changeEvidenceMailPdf({case_id:e.case_id},null,e)});
- return {replyDocumentReview,replyDocumentAdopt,changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf,...monitor};
+ return {replyDocumentReview,replyDocumentAdopt,changeEvidenceCandidates:candidates,changeEvidencePreview,changeEvidenceAppend,changeEvidenceDocument,changeEvidenceMailPdf,changeEvidenceContractPdf,...monitor,...require('./_pa-sent-quote.cjs').createSentQuoteWorkflow({rows,one,rpc,context,history,message,quote,contractSha,fetchImpl})};
 }
 module.exports={createEvidenceService,ERRORS,stripQuotes,canonical};
