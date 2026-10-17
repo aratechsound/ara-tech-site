@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+// Only the browser needs UTF-8 filenames; keep the CI/DB locale unchanged.
 const {chromium}=require('playwright');
 (async()=>{
  const data=await import('./paui027-fixture.mjs'),root=path.resolve(__dirname,'..'),pdf=Buffer.from(data.pdf()),image=Buffer.from(data.image,'base64'),audio=Buffer.from('ID3fixture-original-audio');
@@ -13,7 +14,7 @@ const {chromium}=require('playwright');
  document.querySelector('#preview-close').onclick=()=>view.closePreview();window.expire=()=>{expired=true;view.clear();};
  </script>`;
  const requests=[];const server=http.createServer((req,res)=>{requests.push({url:req.url,method:req.method});if(req.url==='/test'){res.setHeader('Content-Type','text/html');return res.end(html);}if(req.url.startsWith('/original/')){const key=req.url.split('/').at(-1),bytes=key==='pdf'?pdf:key==='image'?image:audio;res.setHeader('Content-Type',key==='pdf'?'application/pdf':key==='image'?'image/png':'audio/mpeg');return res.end(bytes);}const p=path.join(root,decodeURIComponent(req.url));if(!p.startsWith(root+path.sep)||!fs.existsSync(p)){res.writeHead(404);return res.end();}res.setHeader('Content-Type',p.endsWith('.mjs')?'text/javascript':p.endsWith('.css')?'text/css':'application/octet-stream');res.end(fs.readFileSync(p));});
- await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true}),page=await browser.newPage({acceptDownloads:true,viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true,env:{...process.env,LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}}),page=await browser.newPage({acceptDownloads:true,viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
  async function save(button,name,bytes){const [d]=await Promise.all([page.waitForEvent('download'),button.click()]);assert.equal(d.suggestedFilename(),name);assert.deepEqual(fs.readFileSync(await d.path()),bytes);}
  try{
   await page.goto('http://127.0.0.1:'+server.address().port+'/test');await page.locator('#documents .document-card').first().waitFor();

@@ -89,7 +89,7 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
   return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n${request}\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
 };
 
-const SAFE = new Set([...require('./_pa-sent-quote.cjs').ERRORS,
+const SAFE = new Set(['commercial_inventory_incomplete',...require('./_pa-sent-quote.cjs').ERRORS,
   'invalid_quote_monitor','quote_monitor_mismatch','quote_monitor_changed','quote_monitor_cooldown','quote_monitor_storage_unavailable',
   ...require('./_pa-change-evidence.cjs').ERRORS,
   'estimate_send_not_ready', 'stale_estimate_preview',
@@ -529,6 +529,30 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       production_e2e_test: productionE2e ? { state: productionE2e.state, allowed_recipient: productionE2e.allowed_recipient } : null,
       related_materials: buildRelatedMaterials({ caseId, state: effectiveState, estimates, documents, gmailMessages, portalCards, portalVersions: casePortalVersions, portalPhotos })
     };
+  }
+
+  // Metadata-only companion to the existing Owner commercial API. No state
+  // initialization, RPC, issue, sync, audit, billing or document mutation.
+  async function originalIndex(caseId) {
+    await mail.getInquiry(uuid(caseId),fetchImpl);
+    const read=async(table,select,order)=>{const result=[];for(let offset=0;offset<10000;offset+=250){
+      const batch=await rows(table,{inquiry_id:'eq.'+caseId,select,order,limit:'250',offset:String(offset)});
+      if(!Array.isArray(batch)||batch.some(r=>r.inquiry_id!==caseId))throw Error('document_identity_mismatch');
+      result.push(...batch);if(batch.length<250)return result;
+    }throw Error('commercial_inventory_incomplete');};
+    const [estimates,documents,offers,billings,contracts]=await Promise.all([
+      read('pa_estimate_revisions','id,inquiry_id,revision_number,issued_at,amount_minor,currency,document_id','issued_at.desc,id.asc'),
+      read('pa_commercial_documents','id,inquiry_id,original_filename,mime_type,sha256,created_at','created_at.desc,id.asc'),
+      read('pa_contract_offers','id,inquiry_id,version,issued_at,expires_at','version.desc,id.asc'),
+      read('pa_billings','id,inquiry_id,invoice_policy,invoice_delivery_state,due_date,customer_planned_payment_on,created_at','created_at.desc,id.asc'),
+      read('pa_contracts','id,inquiry_id,version','version.desc,id.asc')
+    ]);
+    const receipts=[];
+    for(let at=0;at<contracts.length;at+=250){const ids=contracts.slice(at,at+250).map(c=>uuid(c.id));
+      const batch=await rows('pa_contract_receipts',{contract_id:'in.('+ids.join(',')+')',select:'contract_id,sha256',limit:'251'});
+      if(!Array.isArray(batch)||batch.length>ids.length||batch.some(r=>!ids.includes(r.contract_id))||new Set(batch.map(r=>r.contract_id)).size!==batch.length)throw Error('document_identity_mismatch');receipts.push(...batch);
+    }
+    return {case_id:caseId,estimates,documents,offers:offers.map(o=>{const receipt=receipts.find(r=>r.contract_id===o.id);return {...o,...(receipt&&/^[a-f0-9]{64}$/.test(receipt.sha256)?{stored_receipt_sha256:receipt.sha256}:{})};}),billings,read_projection:true};
   }
 
   async function document(caseId, documentId) {
@@ -1610,6 +1634,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   const evidenceService = require('./_pa-change-evidence.cjs').createEvidenceService({ rows, one, rpc, snapshot, document, fetchImpl, postgresJsonbText });
   return {
     ...evidenceService,
+    originalIndex,
     replyDocumentList: (input, actor) => require('./_pa-reply-documents.cjs').list({actorId:actor.id,inquiryId:input.case_id},fetchImpl),
     replyDocumentVerify: (input, actor) => require('./_pa-reply-documents.cjs').verify({actorId:actor.id,inquiryId:input.case_id,operationId:input.operation_id,messageId:input.gmail_message_id},fetchImpl),
     snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,

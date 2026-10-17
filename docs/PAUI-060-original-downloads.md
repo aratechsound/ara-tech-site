@@ -16,7 +16,16 @@ public URLs or an arbitrary-path reader. The existing 20 MiB bound remains.
 
 Case/message/thread/MIME-part attribution, original MIME/size, persisted SHA
 where available, registered portal/version/storage-path relationships and
-commercial PDF hashes are verified before responding. Owner and case access
+commercial PDF hashes are verified before responding.
+Commercial files and accepted receipts proactively use the existing protected
+POST commercial API (`document` / `change_evidence_contract_pdf`), retaining its
+Origin and rate gate. No fallback follows an Owner-JWT ACL denial. The present
+Production tables do not grant authenticated direct SELECT for commercial
+originals/contracts/receipts; a metadata-only `original_index` action uses that same protected API,
+without calling the state-initializing snapshot path or changing DB grants.
+The read adapter advertises this API capability; older servers without that
+capability retain their earlier Owner-JWT metadata protocol. This is protocol
+compatibility, not a fixture/runtime-environment implementation branch. Owner and case access
 are rechecked before a download response. Downloads use the existing portal
 attachment filename encoder and stream, attachment disposition, no-store,
 nosniff, a sandbox policy, byte length and SHA256. The client independently
@@ -30,7 +39,7 @@ The shared event-portal view exposes saves for cards, photos, performer files
 and the existing nested PDF dialog, retaining its existing authorization path.
 
 An unaccepted confirmation has no saved acceptance receipt. Its metadata is
-not a PDF original. A read-only receipt download requires the exact accepted
+not a PDF original. The existing read-only receipt action requires the exact accepted
 contract and an immutable stored receipt with matching SHA; it never regenerates
 or reissues a confirmation. Inquiry records with no canonical original reference
 remain explicitly unavailable. No filename inference creates an identity.

@@ -9,7 +9,7 @@ const ACTIONS = new Set([
   'quote_monitor_list','quote_monitor_status','quote_monitor_check','quote_monitor_decision','quote_monitor_document','quote_monitor_history',
   'change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf',
   'issue_direct_confirmation_and_send',
-  'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
+  'original_index', 'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
   'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
   'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview', 'estimate_send_preview',
@@ -62,6 +62,7 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'change_evidence_append': result = await service.changeEvidenceAppend(input, actor); break;
         case 'change_evidence_document': return streamAttachmentResponse(res, await service.changeEvidenceDocument(input, actor));
         case 'change_evidence_mail_pdf': return streamAttachmentResponse(res, await service.changeEvidenceMailPdf(input, actor));
+        case 'original_index': result = await service.originalIndex(input.case_id); break;
         case 'snapshot': result = await service.snapshot(input.case_id); break;
         case 'document': return streamAttachmentResponse(res, await service.document(input.case_id, input.document_id));
         case 'confirmation_preview': result = await service.confirmationPreview(input, actor); break;

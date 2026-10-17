@@ -13,6 +13,7 @@ const SUPABASE = 'https://kogbnremsouajxxsgxro.supabase.co';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MIME = new Set(['application/pdf','image/png','image/jpeg','image/webp']);
+const mailIdentity=m=>JSON.stringify([m.inquiry_id,m.gmail_message_id,m.gmail_thread_id,m.attachment_metadata]);
 const BASIC = Object.freeze({
   tokens: ['pa_schedule_tokens','id,issued_at,expires_at,revoked_at,answered_at','issued_at.desc'],
   responses: ['pa_schedule_responses','*',null],
@@ -127,6 +128,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
   }
   async function asset(id,kind,assetId,token,download=false){
     const item=await timed('material_index',()=>registeredAsset(id,kind,assetId,token,download));
+    const unchanged=async()=>{if(download&&JSON.stringify(await registeredAsset(id,kind,assetId,token,true))!==JSON.stringify(item))throw new ReadError('asset_identity_mismatch',409);};
     // Gmail attachment retrieval requires the existing canonical Provider module and
     // credential/session path; never get a refresh token or use an alternate path here.
     if(['gmail_attachment','pa_attachment'].includes(item.source_type)){
@@ -143,6 +145,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         attachments:Array.isArray(message.attachment_metadata)?message.attachment_metadata:[],loadCurrent,
         loadHistorical:attachmentId=>timed('provider_original',()=>providerRead(()=>provider.registeredVariant({messageId:ref.gmail_message_id,attachmentId,raw})))})));
       if(original.mime!==contentType(item.mime_type))throw new ReadError('asset_identity_mismatch',409);
+      if(download){await unchanged();if(mailIdentity(await mailMessage(id,ref.gmail_message_id,token))!==mailIdentity(message))throw new ReadError('mail_binding_mismatch',403);}
       return {...original,filename:item.display_filename||original.filename};
     }
     if(item.source_type!=='portal_upload')throw new ReadError('canonical_attachment_path_unavailable',503);
@@ -154,7 +157,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const response=await request(SUPABASE+'/storage/v1/object/pa-portal-assets/'+parts.map(encodeURIComponent).join('/'),{token});
     const bytes=await boundedBytes(response);
     if(((!download||MIME.has(mime))&&!validMagic(bytes,mime))||crypto.createHash('sha256').update(bytes).digest('hex')!==ref.sha256||ref.size!==undefined&&Number(ref.size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
-    return {bytes,mime,filename:item.display_filename};
+    await unchanged();return {bytes,mime,filename:item.display_filename};
   }
   const MAIL_ID=/^[A-Za-z0-9_-]{1,256}$/;
   const ATTACH_ID=/^[^\s\u0000-\u001f\\/]{1,1000}$/;
@@ -265,13 +268,15 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     let item;
     if(readMailAttachment)item=await timed('provider_original',()=>readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token}));
     else {const raw=await boundProviderMessage(message);item=await timed('provider_original',()=>providerRead(()=>provider.attachment({messageId,metadata:matches[0],raw})));}
-    return validateMailFile(matches[0],item,download);
+    const result=validateMailFile(matches[0],item,download);
+    if(download&&mailIdentity(await mailMessage(id,messageId,token))!==mailIdentity(message))throw new ReadError('mail_binding_mismatch',403);
+    return result;
   }
   function validateMailFile(metadata,item,download=false){
     const mime=contentType(metadata.mime_type),bytes=item.bytes;
     if(!download&&!MIME.has(mime))throw new ReadError('preview_type_refused',415);
     if(!Buffer.isBuffer(bytes)||bytes.length>MAX_BYTES)throw new ReadError('file_too_large',413);
-    if(contentType(item.mime)!==mime||((!download||MIME.has(mime))&&!validMagic(bytes,mime))||metadata.size!==undefined&&Number(metadata.size)!==bytes.length||metadata.sha256&&metadata.sha256!==crypto.createHash('sha256').update(bytes).digest('hex'))throw new ReadError('asset_identity_mismatch',409);
+    if(contentType(item.mime)!==mime||((!download||MIME.has(mime))&&!validMagic(bytes,mime))||metadata.size!==undefined&&Number(metadata.size)!==bytes.length||[metadata.sha256,metadata.source_content_sha256].some(h=>h&&h!==crypto.createHash('sha256').update(bytes).digest('hex')))throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime,filename:item.filename||metadata.original_filename||metadata.filename};
   }
   async function commercial(id,token){
@@ -299,16 +304,6 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     if(((!download||MIME.has(mime))&&!validMagic(bytes,mime))||crypto.createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime,filename:item.original_filename};
   }
-  async function receipt(id,contractId,token){
-    await readableCase(id,token);assertId(contractId);
-    const contracts=await rows('pa_contracts',{id:'eq.'+contractId,inquiry_id:'eq.'+id,select:'id,inquiry_id',limit:2},token);
-    if(contracts.length!==1||contracts[0].id!==contractId||contracts[0].inquiry_id!==id)throw new ReadError('original_unavailable',404);
-    const found=await rows('pa_contract_receipts',{contract_id:'eq.'+contractId,select:'contract_id,pdf,sha256',limit:2},token);
-    if(found.length!==1||found[0].contract_id!==contractId)throw new ReadError('original_unavailable',404);
-    const item=found[0];if(typeof item.pdf!=='string'||!/^\\x(?:[a-f0-9]{2})+$/i.test(item.pdf)||item.pdf.length>MAX_BYTES*2+2)throw new ReadError('asset_identity_mismatch',409);
-    const bytes=Buffer.from(item.pdf.slice(2),'hex');if(!validMagic(bytes,'application/pdf')||crypto.createHash('sha256').update(bytes).digest('hex')!==item.sha256)throw new ReadError('asset_identity_mismatch',409);
-    return {bytes,mime:'application/pdf',filename:'accepted-order-confirmation.pdf'};
-  }
   return async(req,res)=>timings.run(Object.create(null),async()=>{
     const start=performance.now(),end=res.end.bind(res);
     res.end=body=>{if(!res.headersSent&&!res.destroyed){addTime('api_total',performance.now()-start);const values=timings.getStore();res.setHeader('Server-Timing',Object.entries(values).map(([name,ms])=>name+';dur='+ms.toFixed(2)).join(', '));}return end(body);};
@@ -322,14 +317,14 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
       if(!route?.startsWith('/data/')||route.includes('?')||route.includes('#'))throw new ReadError('route_refused',403);
       const u={pathname:route},segments=route.split('/').filter(Boolean).map(decodeURIComponent);
       const download=segments[1]==='download';
-      if(download){segments.splice(1,1);if(!['mail-attachment','sent-estimate-attachment','material','document','contract-receipt'].includes(segments[1]))throw new ReadError('route_refused',403);u.pathname='/'+segments.join('/');}
+      if(download){segments.splice(1,1);if(!['mail-attachment','sent-estimate-attachment','material','document'].includes(segments[1]))throw new ReadError('route_refused',403);u.pathname='/'+segments.join('/');}
       const sendDownload=async item=>{await admin(req.headers.authorization);await readableCase(assertId(segments[2]),req.headers.authorization);return sendOriginal(res,item);};
       if(req.headers['sec-fetch-site']==='cross-site')throw new ReadError('origin_refused',403);
       if(req.headers.origin&&req.headers.origin!=='https://'+req.headers.host)throw new ReadError('origin_refused',403);
       const token=req.headers.authorization;await timed('auth',()=>admin(token));let result;
         if(u.pathname==='/data/cases'){
           const [cases,progress]=await Promise.all([allRows('pa_inquiries',{select:'*',deleted_at:'is.null',order:'id.asc'},token),allRows('pa_case_progress',{select:'*',order:'inquiry_id.asc'},token)]);
-          result={cases,progress,quote_monitor:true,quote_adoption_simple:true};
+          result={cases,progress,quote_monitor:true,quote_adoption_simple:true,commercial_originals_read:true};
         }else if(u.pathname==='/data/attention')result=await allRows('pa_case_mail_attention',{select:'*',order:'inquiry_id.asc'},token);
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-discovery'){
@@ -366,9 +361,6 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           if(!Buffer.isBuffer(item.bytes)||item.bytes.length>MAX_BYTES||item.mime!=='application/pdf'||!validMagic(item.bytes,item.mime)||item.bytes.length!==Number(matches[0].size))throw new ReadError('asset_identity_mismatch',409);
           if(download)return await sendDownload({...item,filename:item.filename||matches[0].original_filename||matches[0].filename});
           res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
-        }
-        else if(download&&segments.length===4&&segments[1]==='contract-receipt'){
-          return await sendDownload(await receipt(assertId(segments[2]),segments[3],token));
         }
         else if(segments.length===5&&segments[1]==='mail-attachment'){
           const item=await mailAttachment(assertId(segments[2]),segments[3],segments[4],token,download);
