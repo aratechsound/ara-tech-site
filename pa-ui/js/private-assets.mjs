@@ -1,7 +1,7 @@
 // Memory only. A store belongs to one case and one exact Auth session.
 // It never grants access: cache hits still check the current local Auth session,
 // and full previews always call the normal authenticated original endpoint.
-export function createPrivateAssets({requestBlob,authorize,isCurrent=()=>true,onMetric=()=>{},maxBytes=64*1024*1024}){
+export function createPrivateAssets({requestBlob,requestDownload,authorize,isCurrent=()=>true,onMetric=()=>{},maxBytes=64*1024*1024}){
   const records=new Map(),sizes=new Map(),pdfs=new Map(),documents=new Set(),thumbs=new Map(),urls=new Set(),queue=[];
   let generation=0,active=0,bytes=0,closed=false,worker;
   const stale=()=>Object.assign(Error('stale_asset'),{code:'read_timeout_or_cancelled'});
@@ -12,10 +12,11 @@ export function createPrivateAssets({requestBlob,authorize,isCurrent=()=>true,on
     while(active<2&&queue.length){const job=queue.shift();active++;Promise.resolve().then(async()=>{await valid(job.g);if(!job.needed())throw stale();return job.run();}).then(job.resolve,job.reject).finally(()=>{active--;pump();});}
   }
   function schedule(run,{priority=0,needed=()=>true}={}){const g=generation;return new Promise((resolve,reject)=>{queue.push({run,priority,needed,g,resolve,reject});pump();});}
-  async function record(item,{fresh=false,priority=0,needed=()=>true}={}){
+  async function record(item,{fresh=false,download=false,priority=0,needed=()=>true}={}){
+    if(download)fresh=true;
     const g=generation,k=key(item);await valid(g);
     if(!fresh&&records.has(k)){onMetric('original_cache_hit',0);return records.get(k);}
-    const pending=schedule(async()=>{const start=performance.now(),blob=await requestBlob(item);onMetric('original_get',performance.now()-start);await valid(g);const url=URL.createObjectURL(blob);urls.add(url);return {blob,url};},{priority,needed});
+    const pending=schedule(async()=>{const start=performance.now(),blob=await (download&&requestDownload?requestDownload:requestBlob)(item);onMetric('original_get',performance.now()-start);await valid(g);const url=URL.createObjectURL(blob);urls.add(url);return {blob,url};},{priority,needed});
     if(!fresh)records.set(k,pending);
     try{const result=await pending;if(!fresh){bytes+=result.blob.size;sizes.set(k,result.blob.size);
       while((bytes>maxBytes||records.size>64)&&records.size>1){const old=[...records.keys()].find(v=>v!==k&&sizes.has(v));if(!old)break;bytes-=sizes.get(old)||0;sizes.delete(old);const entry=records.get(old);records.delete(old);entry.then(release).catch(()=>{});const doc=pdfs.get(old);pdfs.delete(old);doc?.then(destroyPdf).catch(()=>{});for(const t of thumbs.keys())if(t.startsWith(old+':'))thumbs.delete(t);}

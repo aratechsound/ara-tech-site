@@ -1,3 +1,4 @@
+import {downloadButton} from './original-download.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {resetPrivacy} from './pa-workspace-privacy.mjs';
 import {escape,publicScope} from './model.mjs';
@@ -8,10 +9,10 @@ async function getPdfjs(){
   return pdfjsPromise;
 }
 export function previewError(e){
-  const codes={gmail_not_configured:'Gmail読取設定が未接続',provider_read_failed:'Gmail原本の読取に失敗しました',provider_read_denied:'権限拒否 / Gmail原本の閲覧が拒否されました',canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本未取得 / 404（削除・期限切れ・対応不明）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
+  const codes={invalid_origin:'このPreviewでは商務原本の取得が許可されていません（Origin制限）',change_evidence_original_unavailable:'保存済み原本が未提供です',contract_not_found:'対象契約の保存済み原本が未提供です',file_too_large:'サイズ上限（20 MiB）を超えるため取得できません',original_unavailable:'保存済み原本が未提供です。再生成・推定取得は行いません',gmail_not_configured:'Gmail読取設定が未接続',provider_read_failed:'Gmail原本の読取に失敗しました',provider_read_denied:'権限拒否 / Gmail原本の閲覧が拒否されました',canonical_attachment_path_unavailable:'未取得 / 正規の添付読取経路が未接続',body_read_path_unavailable:'本文未取得 / 保存済み抜粋なし・正規の本文読取経路が未接続',not_found:'原本未取得 / 404（削除・期限切れ・対応不明）',asset_identity_mismatch:'原本の整合性検証に失敗',preview_type_refused:'内容プレビュー非対応',read_timeout_or_cancelled:'読取がタイムアウトまたは中断されました'};
   const bindings={attachment_mail_mismatch:'対応不明 / メールの添付索引との紐付けを検証できません',mail_binding_mismatch:'対応不明 / 案件・メールの紐付けを検証できません',case_binding_mismatch:'対応不明 / 案件・資料の紐付けを検証できません'};
   const identity={attachment_identity_ambiguous:'対応不明 / 原本候補が複数あり一意に検証できません',attachment_identity_unavailable:'原本未取得 / 安全な照合の取得上限を超えました'};
-  return codes[e.code]||bindings[e.code]||identity[e.code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
+  const code=e.code||e.message;return codes[code]||bindings[code]||identity[code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
 }
 // The view owns the open preview; disposable thumbnail galleries do not.
 // This scope is memory-only and never authorizes or fetches an original.
@@ -27,7 +28,7 @@ export function createPreviewScope({isCurrent,expiresAt=Infinity}){
   },dispose};
 }
 // Shared by portal documents and mail attachments. Only separate money fields expire.
-export function createGallery({requestBlob,isCurrent,assets,previewScope,previewActions}){
+export function createGallery({requestBlob,isCurrent,assets,previewScope,previewActions,downloadLabel='ダウンロード'}){
   const id='asset-preview-'+(++serial),owned=!assets;
   let epoch=0,active=true,entries=[],root,dialog,observer;
   const current=()=>active&&isCurrent();
@@ -84,6 +85,8 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope,preview
     const body=document.createElement('div');body.id=id+'-body';body.className='preview-content';body.textContent='原本を取得中…';
     const controls=document.createElement('div');controls.className='preview-controls';
     const close=document.createElement('button');close.textContent='閉じる';const opened=dialog;
+    const downloadStatus=document.createElement('span');downloadStatus.setAttribute('role','status');
+    controls.append(downloadButton({item,assets,label:downloadLabel,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{if(opened.open)downloadStatus.textContent=previewError(e);}}),downloadStatus);
     if(previewActions)previewActions(item,controls);
     opened.append(title,controls,body,close);document.body.append(opened);opened.showModal();
     let renderId=0,page=1,zoom=1,pages=1,original,fullPdf,finished=false,detach=()=>{};
@@ -95,7 +98,7 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope,preview
     function closePreview(){if(opened.open)opened.close();finish();}
     close.onclick=closePreview;opened.addEventListener('close',finish,{once:true});
     if(previewScope)detach=previewScope.attach(closePreview);
-    if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。原本の取得・ダウンロードは行いません。';return;}
+    if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。ダウンロードで原本を保存できます（権限・原本照合後）。';return;}
     try{
       original=await attachmentRecord(item,{fresh:true,priority:100});if(!alive()){assets.release(original);return;}
       if(item.mime_type!=='application/pdf'){
@@ -119,7 +122,11 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope,preview
     ++epoch;root=target;entries=items;
     root.innerHTML=items.map(d=>`<article class="material-card ${compact?'attachment-card':''}"><button class="material-thumb" data-material-key="${escape(d.key)}" aria-label="${escape(d.filename)} の拡大プレビュー" ${d.asset_id?'':'disabled'}><span class="thumb-lock">${d.asset_id?'必要時に原本を取得':escape(d.original_state||'原本識別子未登録')}</span></button><div class="material-meta"><div class="material-name">${escape(d.title||d.filename)}</div>${compact||warehouse?'':`<div class="material-info">${d.filename!==d.title?escape(d.filename)+'<br>':''}更新 ${escape(d.updated_at?new Date(d.updated_at).toLocaleString('ja-JP'):'未提供')}<br>版 ${escape(d.version_label)}<br>公開区分 ${escape(d.access_scope||'未取得（既存ACLで制御）')}<br>所有者 ${escape(publicScope(d.owner_kind))}</div>`}${d.original_state?'<div class="material-info">'+escape(d.original_state)+'</div>':''}<div class="material-badges"><span class="tiny neutral">${escape(fileType(d))}</span>${Number.isFinite(Number(d.size))&&d.size!=null?'<span class="tiny neutral">'+Math.ceil(Number(d.size)/1024)+' KB</span>':''}${compact||warehouse?'':'<span class="tiny neutral">'+escape(d.change)+'</span>'}</div>${!warehouse&&(d.versions||[]).length>1?'<details class="material-info"><summary>版履歴 '+d.versions.length+'件</summary>'+d.versions.map(v=>`<div>版 ${escape(v.version_label||'未提供')} / ${escape(v.created_at||'日付未提供')}</div>`).join('')+'</details>':''}</div></article>`).join('')||'<div class="empty-state">取得済み資料はありません</div>';
     root.querySelectorAll('.material-card').forEach((card,index)=>{
-      const item=items[index];const name=card.querySelector('.material-name');name.title=item.filename;if(!showSource&&!warehouse){const full=document.createElement('details');full.className='material-info';const label=document.createElement('summary');label.textContent='ファイル名全文';const text=document.createElement('div');text.textContent=item.filename;full.append(label,text);card.querySelector('.material-meta').append(full);}
+      const item=items[index];
+      const downloadStatus=document.createElement('div');downloadStatus.className='material-error';downloadStatus.setAttribute('role','status');
+      const save=downloadButton({item,assets,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{downloadStatus.textContent=previewError(e);}});
+      card.querySelector('.material-meta').append(save,downloadStatus);
+      const name=card.querySelector('.material-name');name.title=item.filename;if(!showSource&&!warehouse){const full=document.createElement('details');full.className='material-info';const label=document.createElement('summary');label.textContent='ファイル名全文';const text=document.createElement('div');text.textContent=item.filename;full.append(label,text);card.querySelector('.material-meta').append(full);}
       if(warehouse){
         const meta=document.createElement('div');meta.className='material-info warehouse-meta';
         const at=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('ja-JP'):'未提供';
