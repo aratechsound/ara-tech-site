@@ -2,6 +2,7 @@ import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} fro
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
+import {downloadFilename} from './original-download.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
@@ -59,6 +60,8 @@ async function api(url,{blob=false}={}){
     if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(response.status===401)clearAssets();if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
     if(blob){
       const value=await response.blob(),proof=response.headers.get('X-PA-Attachment-Identity');
+      const disposition=response.headers.get('Content-Disposition');if(disposition)value.originalFilename=downloadFilename(disposition);
+      const digest=response.headers.get('X-PA-Original-SHA256');if(digest)value.originalSha256=digest;
       // Sanitized proof flags only, retained with the existing session Blob.
       if(proof){try{value.identityProof=JSON.parse(proof);}catch{}}
       return value;
@@ -81,6 +84,7 @@ function caseAssets(){
   if(!privateAssets){const id=selected,epoch=selectionEpoch,token=session?.access_token;
     privateAssets=createPrivateAssets({isCurrent:()=>selected===id&&selectionEpoch===epoch&&!!session,
       authorize:async()=>{let value;try{value=await workspaceAuth.current();}catch{signOut(false);throw new ReadFailure('login_required',401);}if(value?.access_token!==token){clearAssets();throw new ReadFailure('login_required',401);}},
+      requestDownload:item=>api(assetRoute(id,item).replace('/data/','/data/download/'),{blob:true}),
       requestBlob:item=>api(assetRoute(id,item),{blob:true})});
   }
   return privateAssets;
