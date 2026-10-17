@@ -358,7 +358,14 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           if(!raw.labelIds?.includes('SENT'))throw new ReadError('mail_binding_mismatch',403);
           const item=await timed('provider_original',()=>providerRead(()=>provider.attachment({messageId:message.gmail_message_id,metadata:matches[0],raw})));
           if(!Buffer.isBuffer(item.bytes)||item.bytes.length>MAX_BYTES||item.mime!=='application/pdf'||!validMagic(item.bytes,item.mime)||item.bytes.length!==Number(matches[0].size))throw new ReadError('asset_identity_mismatch',409);
-          if(download)return await sendDownload({...item,filename:item.filename||matches[0].original_filename||matches[0].filename});
+          if(download){
+            // Historical sent PDFs may have no index row. Recheck the exact
+            // thread owners and reject a new index conflict before releasing bytes.
+            const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+message.gmail_thread_id,select:'inquiry_id,gmail_thread_id'},token);
+            const indexes=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+message.gmail_message_id,select:'inquiry_id,gmail_thread_id,gmail_message_id'},token);
+            if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id)||indexes.length>1||indexes.some(m=>m.inquiry_id!==id||m.gmail_thread_id!==message.gmail_thread_id||m.gmail_message_id!==message.gmail_message_id))throw new ReadError('mail_binding_mismatch',403);
+            return await sendDownload({...item,filename:item.filename||matches[0].original_filename||matches[0].filename});
+          }
           res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
         }
         else if(segments.length===5&&segments[1]==='mail-attachment'){
