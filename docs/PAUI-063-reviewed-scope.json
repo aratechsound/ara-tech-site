@@ -1,0 +1,39 @@
+{
+  "task_id": "PAUI-063",
+  "production_base": "b3f144ac9e46cb6db66a4f19021dd2162f7dd670",
+  "reviewed_product_files": {
+    "api/_pa-case-mail.cjs": "c9b4f02a5374e19278b5c5a96612f1d5b830c18c60e09d8b9e43b22b53658700",
+    "api/_pa-change-evidence.cjs": "a14ae989cff823452cf723869e26d92a6a7a1f7c8fb174f0e9c86662e99de949",
+    "api/_pa-commercial-handler.cjs": "5e824099113e44adf570e2ef8eecbe7f7e2f54bb39b13d54abf96608fd16991c",
+    "api/_pa-commercial.cjs": "a2509e7ce333fb818b06d64850ad63ddba0337cdfa31e20f57029593fc1fabee",
+    "api/_pa-gmail.cjs": "1d8a1a9f1d8defaa133acd9264bb9f9e1c759e8c7a1f1f20955d64fd616c3440",
+    "api/_pa-mail.cjs": "583cff2c4574a3ee5e6d9a6c47ca8edc5248e9dc1be9dbe494453e3b32c8c2ce",
+    "api/_pa-reply-documents.cjs": "c30e696e04b19b51ffd754ca74186982272b18ee2d0457c47b27f74b64986a08",
+    "api/_pa-reply-operations.cjs": "67ae21bb5358d7fd5a24e73a086ca06869c150c60b461d8f0414b675671fc9ae",
+    "api/_pa-reply-proof.cjs": "197fc5b0bfcc16237f211604f16c798c28873b014946c5019818d40173fc356e",
+    "api/_pa-sent-quote.cjs": "46856080b79ff0db5b813c5d33b88aef4806c906f03cdcec8822c2ccf1bf5aff",
+    "api/_pa-workspace-read.cjs": "18f77b25930c30c9086be4b080fdd1a02a015b458e0cc41f9dd2f6aa2ad91e57",
+    "pa-case-portal.css": "0fb6bd65f10aba6c00eb9855b2d7d6c23ab81fc75ec783a2ca1c5fe33dffb33c",
+    "pa-ui/connected.css": "d8ab5677fe1971b3070b59b43fff1287ba665edf46869a658ff39cd8b144ee23",
+    "pa-ui/js/case-mail-compose.mjs": "16ae96e0327a580604233f7788ca3bfd14e048ac3730211f162ac00625a4e23c",
+    "pa-ui/js/case-trash.mjs": "0ebe3a04bd59af8461c12fafbbdaff24fd7e7bb6594f9cf71ea0efaf08e6c169",
+    "pa-ui/js/case-workflows.mjs": "98151094d386ed4d1c7a75467351160b52f749ca65eaed186d3895af951bb8d0",
+    "pa-ui/js/commercial-workflows.mjs": "756d1d545ecd6f552d3dcd29c8e1c54ca1a803c645f8322162a26df11cbdbb5c",
+    "pa-ui/js/desk.mjs": "132a201f0ee2f0fdf5da67cea8cb6d356de65c3f84209d2fd4bf2ce308a09236",
+    "pa-ui/js/document-warehouse.mjs": "072c3bf6746da1f0b567cb16f2f9d6fd48e0b5c132aaf49e89173ec8b3c56df3",
+    "pa-ui/js/gallery.mjs": "7cb70596c6e15579c7db00f4d52fe1280471a843b12cd4d00105a1a102c45332",
+    "pa-ui/js/mail-carousel.mjs": "914949427fd64293a3fa29a33a49c216fbb5f20ca478b062319f70bb623225e1",
+    "pa-ui/js/order-documents.mjs": "bf0800b5709e72655a64cc78ccf194e7a7d6ce00762863d76b30fa1ec4961840",
+    "pa-ui/js/portal-document-view.mjs": "6d46b34837ca8d04dbd76097b276598828a894e67568a34215a4d722a025a64a",
+    "pa-ui/js/quote-history.mjs": "cdfaf89fd61ccf13ff656b7a00b5a0251c6543d27eb6a251b5642d53a9a01ae4",
+    "pa-ui/js/reply-documents.mjs": "71a6c03939f8fc24dffa2b75bafbd048e9e705e4f83c5bfc72f146c88ac002fc",
+    "pa-ui/js/sent-quote-registration.mjs": "06b4d4032d9dd790ae115e62d820ea44c4a0b94132965fe21f1559346984964b"
+  },
+  "approved_sql": {
+    "ops/PAUI-056-document-read.sql": "913cf91d88b404f641f5825752f110e864a1a4e8f566655a83b4710cb29f475b",
+    "ops/PAUI-058-sent-quote-adoption.sql": "71305f14cf5a9b94ebe1d5543aee776431f55040f263a96c672968d029863158"
+  },
+  "schema_apply": false,
+  "origin_change": false,
+  "legacy_change": false
+}

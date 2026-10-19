@@ -28,6 +28,17 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
    else if(p.startsWith('/data/sent-estimates/'))v={messages:[],unknown:[]};
    return r.fulfill({json:{ok:true,result:v}});
   });
+  // PAUI-063 reuses the PAUI-062 shared composer. Keep every classification,
+  // cache invalidation and adoption/invoice safety assertion from PAUI-056.
+  await page.route('**/api/pa-gmail?case_mail=1**',async r=>{const req=r.request(),u=new URL(req.url()),b=req.method()==='GET'?Object.fromEntries(u.searchParams):req.postDataJSON();calls.push(b);
+   const result=x=>r.fulfill({json:{ok:true,result:x}});
+   if(b.action==='context')return result({inquiry_id:A,kind:b.kind,to:'fixture@example.invalid',cc:[],subject:'Re: 了承候補 1',source_id:b.source_id,thread_id:'thread',allowed_recipients:['fixture@example.invalid']});
+   if(b.action==='status')return result({operation:null});
+   if(b.action==='preview')return result({...b,attachments:b.attachments.map(a=>({filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length,sha256:sha,...(a.document_kind?{document_kind:a.document_kind}:{})})),html:'<p>Isolated preview</p>',body:b.body,operation_id:OP2,operation:{operation_id:OP2,inquiry_id:A,state:'PREPARED'},confirmation_token:'isolated-confirmation',expires_at:new Date(Date.now()+600000).toISOString()});
+   assert.equal(b.action,'send');assert.equal(++mockedSends,1);assert.equal(b.operation_id,OP2);assert.equal(b.owner_confirmed,true);
+   const metadata=b.attachments.map((a,i)=>({id:'new_att_'+i,part_id:String(i+1),filename:a.filename,mime_type:a.mime_type,size:Buffer.from(a.data,'base64url').length}));
+   messages.push({...messages[0],gmail_message_id:'new_sent',sent_at:'2026-10-18',attachment_metadata:metadata});const op={operation_id:OP2,inquiry_id:A,state:'SENT',gmail_message_id:'new_sent',gmail_thread_id:'thread',history_sync:'COMPLETE',attachments:metadata.map((a,i)=>({...a,index:i,sha256:sha,document_kind:b.attachments[i].document_kind||'normal'}))};newOperations.push(op);return result({operation:op,history_sync:'COMPLETE'});
+  });
   await page.route('**/api/pa-gmail',async r=>{const b=r.request().postDataJSON();calls.push(b);let result;
    if(b.action==='reply_operation_status')return r.fulfill({json:{ok:true,result:{operation:null}}});
    if(b.action==='reply_preview'){
@@ -57,14 +68,14 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
   // Prime the old sent-document cache before a new typed mock send.
   await page.locator('[data-message="sent"]').getByRole('button',{name:names[0]+' の拡大プレビュー',exact:true}).click();let primed=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await primed.locator('canvas').waitFor();
   await primed.getByRole('button',{name:'閉じる',exact:true}).click();assert(documentListReads>=1);
-  await page.locator('[data-reply-message="received_1"]').click();let composer=page.getByRole('dialog',{name:'Gmail返信作成'});
+  await page.locator('[data-reply-message="received_1"]').click();let composer=page.getByRole('dialog',{name:'CASE DESKメール作成'});
   await composer.locator('input[type=file]').setInputFiles(names.map(name=>({name,mimeType:'application/pdf',buffer:bytes})));
   assert.deepEqual(await composer.locator('.reply-document-file select').evaluateAll(es=>es.map(e=>e.value)),['normal','normal','normal']);
-  await composer.getByLabel(names[1]+' の添付区分').selectOption('estimate');await composer.getByLabel(names[2]+' の添付区分').selectOption('invoice');
-  await composer.getByLabel('本文',{exact:true}).fill('Isolated reply body');await composer.getByRole('button',{name:'返信プレビュー',exact:true}).click();await composer.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();
-  const payload=calls.filter(b=>b.action==='reply_preview').at(-1);assert.deepEqual(payload.attachments.map(a=>a.document_kind||'normal'),['normal','estimate','invoice']);
+  await composer.getByLabel('添付区分 2',{exact:true}).selectOption('estimate');await composer.getByLabel('添付区分 3',{exact:true}).selectOption('invoice');
+  await composer.getByLabel('本文',{exact:true}).fill('Isolated reply body');await composer.getByRole('button',{name:'送信前プレビュー',exact:true}).click();await composer.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();
+  const payload=calls.filter(b=>b.action==='preview').at(-1);assert.deepEqual(payload.attachments.map(a=>a.document_kind||'normal'),['normal','estimate','invoice']);
   await composer.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();await page.getByRole('dialog').filter({has:page.locator('canvas')}).getByRole('button',{name:'閉じる',exact:true}).click();
-  await composer.getByRole('button',{name:'送信内容を最終確認',exact:true}).click();await composer.getByRole('checkbox').check();await composer.getByRole('button',{name:'最終確認して送信',exact:true}).click();await composer.getByText('送信済み。履歴を更新しました。',{exact:true}).waitFor();await composer.getByRole('button',{name:'返信を閉じる',exact:true}).click();
+  await composer.getByRole('checkbox').check();await composer.getByRole('button',{name:'最終確認してGmail送信',exact:true}).click();await composer.getByText('送信済み。履歴を更新しました。',{exact:true}).waitFor();await composer.getByRole('button',{name:'メール作成を閉じる',exact:true}).click();
   const newSent=page.locator('[data-message="new_sent"]');await newSent.getByRole('button',{name:names[1]+' の拡大プレビュー',exact:true}).click();let freshViewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await freshViewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).waitFor();assert(documentListReads>=2,'successful send invalidates the old operation-classification cache');await freshViewer.getByRole('button',{name:'閉じる',exact:true}).click();
   const sentRow=page.locator('[data-message="sent"]');
   await sentRow.getByRole('button',{name:names[0]+' の拡大プレビュー',exact:true}).click();let viewer=page.getByRole('dialog').filter({has:page.locator('.preview-content')});await viewer.locator('canvas').waitFor();assert.equal(await viewer.getByRole('button',{name:'この見積書を正式採用',exact:true}).count(),0);await viewer.getByRole('button',{name:'閉じる',exact:true}).click();
