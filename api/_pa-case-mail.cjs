@@ -20,6 +20,7 @@ async function authority(input,f=fetch){
   const [links,index]=await Promise.all([rows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+input.thread_id,select:'inquiry_id',limit:'3'},f),rows('pa_gmail_message_index',{gmail_message_id:'eq.'+input.source_id,select:'inquiry_id,gmail_thread_id',limit:'3'},f)]);
   if(links.length!==1||links[0].inquiry_id!==inquiry.id||index.length!==1||index[0].inquiry_id!==inquiry.id||index[0].gmail_thread_id!==input.thread_id)throw Error('reply_operation_mismatch');
   raw=await gmail.gmailMessage(input.source_id,f);source=gmail.normalizeMessage(raw);
+  const headers=raw.payload?.headers||[];for(const name of ['from','to','cc','subject','message-id','references']){const found=headers.filter(h=>String(h.name).toLowerCase()===name);if(found.length>1||found.some(h=>/[\r\n]/u.test(h.value)))throw Error('invalid_reply_source');}
   if(source.id!==input.source_id||source.thread_id!==input.thread_id||source.reply_identity_invalid||!/^<[^<>\s]{1,998}>$/u.test(source.rfc_message_id))throw Error('invalid_reply_source');
   if(source.direction==='outbound'){
    if(address(source.from_address)!==mail.OFFICIAL_EMAIL||!source.to_addresses.map(address).includes(customer)||!raw.labelIds?.includes('SENT')||(source.reply_to&&address(source.reply_to)!==mail.OFFICIAL_EMAIL))throw Error('case_mail_recipient_unverified');
@@ -29,6 +30,7 @@ async function authority(input,f=fetch){
    else if(!valid(from)||(source.reply_to&&address(source.reply_to)!==from)||from!==customer&&![...source.to_addresses,...source.cc_addresses].map(address).includes(customer))throw Error('case_mail_recipient_unverified');
   }
  }else if(input.kind!=='new')throw Error('invalid_reply_source');
+ if(source?.direction==='inbound'&&['gmail_owner_confirmed','general_public_form'].includes(inquiry.first_form_data?.import_source)&&address(source.reply_to||source.from_address)!==customer)throw Error('case_mail_recipient_unverified');
  const allowed=unique([customer,...(source?[source.from_address,source.reply_to,...source.to_addresses,...source.cc_addresses]:[])]);
  const recipient=input.to==null?(source?.direction==='inbound'&&valid(address(source.reply_to||source.from_address))?address(source.reply_to||source.from_address):customer):address(input.to);
  if(!allowed.includes(recipient))throw Error('case_mail_recipient_unverified');
@@ -66,7 +68,8 @@ function binding(a,input){
  const manifest=attachments.map(x=>({filename:x.filename,mime_type:x.mime_type,size:x.size,sha256:hash(Buffer.from(x.data,'base64url'))}));
  return {b:{contract:'PAUI-062',account:mail.OFFICIAL_EMAIL,case_email:a.case_email,inquiry_id:a.inquiry_id,kind:a.kind,thread_id:a.thread_id,source_id:a.source_id,source_rfc:a.source_rfc,authority_hash:a.authority_hash,to:a.to,cc:a.cc,subject:a.subject,body_sha256:hash(body),attachments:manifest,invoice},body,attachments};
 }
-async function preview(input,actorId,f=fetch){const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
+async function validateInvoice(input){if(input.kind!=='invoice')return;try{const attachments=mail.normalizeReplyAttachments(input.attachments||[]);if(attachments.length!==1)throw Error();const doc=await require('pdf-lib').PDFDocument.load(Buffer.from(attachments[0].data,'base64url'));if(doc.isEncrypted||doc.getPageCount()<1||doc.getPageCount()>1000)throw Error();}catch{throw Error('invalid_invoice_pdf');}}
+async function preview(input,actorId,f=fetch){await validateInvoice(input);const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
  return {...a,body,html:mail.buildCustomerHtml(body),attachments:b.attachments,invoice:b.invoice,operation:safe(o),operation_id:o.operation_id,expires_at:o.expires_at,confirmation_token:token({actor_id:actorId,inquiry_id:a.inquiry_id,operation_id:o.operation_id,binding_hash:hash(canonical(b)),expires_at:Date.parse(o.expires_at)})};}
 async function status(input,actorId,f=fetch){const row=await rpc(actorId,'get',{inquiry_id:input.inquiry_id,operation_id:input.operation_id||null},f);return {operation:safe(row.operation)};}
 async function send(input,actorId,f=fetch){
@@ -75,7 +78,7 @@ async function send(input,actorId,f=fetch){
  if(o.binding_hash!==signed.binding_hash)throw Error('reply_operation_mismatch');
  let claimed=false,started=false;
  try{
-  const a=await authority(input,f),{b,body,attachments}=binding(a,input);
+  await validateInvoice(input);const a=await authority(input,f),{b,body,attachments}=binding(a,input);
   if(hash(canonical(b))!==signed.binding_hash||b.kind==='invoice'&&input.invoice_limitations_confirmed!==true)throw Error('invalid_confirmation');
   if(o.state==='SENT')return {operation:safe(o),gmail_message_id:o.gmail_message_id,gmail_thread_id:o.gmail_thread_id,already_sent:true,history_sync:o.history_sync};
   if(o.state!=='PREPARED'||Date.parse(o.expires_at)<=Date.now())throw Error('reply_operation_blocked');
@@ -109,7 +112,7 @@ async function inspectNew(message,b,f){
  const values=name=>headers.filter(h=>String(h.name).toLowerCase()===name).map(h=>String(h.value));
  if(!ids(message.id)||!message.labelIds?.includes('SENT')||n.thread_id!==b.thread_id||!proof.rfc(message)
   ||values('in-reply-to').length||values('references').length||values('from').length!==1||values('to').length!==1||values('cc').length>1||values('bcc').length||values('subject').length!==1
-  ||n.reply_identity_invalid||address(n.from_address)!==b.account||JSON.stringify(unique(n.to_addresses))!==JSON.stringify([b.to])||JSON.stringify(unique(n.cc_addresses))!==JSON.stringify(b.cc)
+  ||n.reply_identity_invalid||address(n.from_address)!==b.account||JSON.stringify([...new Set(n.to_addresses.map(address))].sort())!==JSON.stringify([b.to])||JSON.stringify([...new Set(n.cc_addresses.map(address))].sort())!==JSON.stringify(b.cc)
   ||proof.subject(values('subject')[0])!==b.subject||hash(mail.normalizeCustomerBody(n.body_text))!==b.body_sha256||n.attachments.length!==b.attachments.length)return false;
  const parts=[];const collect=p=>{if(!p)return;parts.push(p);for(const x of p.parts||[])collect(x);};collect(message.payload);
  for(let i=0;i<n.attachments.length;i++){const a=n.attachments[i],expected=b.attachments[i];if(a.filename!==expected.filename||a.mime_type!==expected.mime_type||a.size!==expected.size)return false;
