@@ -68,7 +68,7 @@ export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=
     previewHost.append(el('p','To: '+p.to+' / CC: '+p.cc.join(', ')+' / 件名: '+p.subject),...p.attachments.map(a=>el('p','添付: '+a.filename+' / SHA256: '+a.sha256)),el('pre',p.body),frame);
     const confirm=el('input');confirm.type='checkbox';const invoiceConfirm=el('input');invoiceConfirm.type='checkbox';
     previewHost.append(field('対象案件・宛先・件名・本文・添付を最終確認しました',confirm));
-    if(p.invoice)previewHost.append(field('PDFの請求金額と宛先を確認しました。正式請求登録は未成立の場合があり、元契約・改訂見積との差異と記録上の制限を理解した上で、このPDFを送付します',invoiceConfirm));
+    if(p.invoice)previewHost.append(el('p',p.invoice.formal_billing_match?'既存正式請求とPDF原本SHA・金額が一致。今回の送付で請求状態は変更しません。':'正式請求とのPDF原本対応は未確認です。今回の操作で正式請求登録は成立しません。'),field('PDFの請求金額と宛先を確認しました。正式請求登録は未成立の場合があり、元契約・改訂見積との差異と記録上の制限を理解した上で、このPDFを送付します',invoiceConfirm));
     const send=btn('最終確認してGmail送信',async()=>{
      if(!confirm.checked||p.invoice&&!invoiceConfirm.checked||s.busy||s.attempted||!current(s)||s.preview!==p||s.version!==version||Date.parse(p.expires_at)<=Date.now())return;
      s.attempted=true;s.busy=true;send.disabled=true;prepare.disabled=true;for(const x of [source,to,cc,subject,body,files,existing,amount])x.disabled=true;s.status.textContent='送信結果を確認中…';

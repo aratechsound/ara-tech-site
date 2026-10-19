@@ -4,7 +4,7 @@ const {chromium}=require('playwright'),{PDFDocument}=require('pdf-lib');
 const {fixture}=require('./helpers/ara-case-real-fixture.cjs');const f=fixture(),root=path.resolve(__dirname,'..'),caseId=randomUUID(),source='case_mail_fixture_'+Date.now(),thread=source;
 (async()=>{
  f.sql(`insert into pa_inquiries(id,created_by,customer_name,email,event_name,case_type) values('${caseId}','${f.actor}','Synthetic owner mail','customer@example.invalid','Synthetic case mail','PA_EVENT');`);
- f.sql(fs.readFileSync(path.join(root,'ops/PAUI-062-case-mail-operation.sql'),'utf8'));
+ f.sql(fs.readFileSync(path.join(root,'ops/PAUI-062-case-mail-operation.sql'),'utf8'));f.sql("notify pgrst, 'reload schema';");
  const raw=f.raw(source,thread);raw.payload.headers=raw.payload.headers.map(h=>h.name==='From'?{...h,value:'aratechsound@gmail.com'}:h.name==='To'?{...h,value:'customer@example.invalid'}:h);raw.labelIds=['SENT'];raw.payload.parts=raw.payload.parts.slice(0,1);f.state.messages.set(source,raw);
  await require('../api/_pa-gmail.cjs').manualLink({inquiryId:caseId,actorId:f.actor,gmailThreadId:thread},f.fetchImpl);
  const handler=require('../api/_pa-case-mail-handler.cjs').createHandler({fetchImpl:f.fetchImpl});let actions=[];
@@ -15,11 +15,11 @@ const {fixture}=require('./helpers/ara-case-real-fixture.cjs');const f=fixture()
  }catch(e){res.writeHead(500);res.end(JSON.stringify({error:e.message}));}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port;process.env.ALLOWED_ORIGINS=url;
  const browser=await chromium.launch({headless:true});let contexts=[];
- const page=async(width=1280)=>{const c=await browser.newContext({viewport:{width,height:900}});contexts.push(c);const p=await c.newPage();await p.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());await p.goto(url);return p;};
+ const page=async(width=1280)=>{const c=await browser.newContext({viewport:{width,height:900}});contexts.push(c);const p=await c.newPage();p.on('response',async r=>{if(r.url().includes('/api/pa-gmail')&&r.status()>=400)console.error('FIXTURE_API',r.status(),await r.text());});await p.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());await p.goto(url);return p;};
  try{
   const p=await page();await p.locator('#contact').click();const d=p.getByRole('dialog');await d.getByText(/照合済みの宛先候補/).waitFor();assert.equal(await d.getByLabel('To',{exact:true}).inputValue(),'customer@example.invalid');assert.equal(await d.getByLabel('To',{exact:true}).isEditable(),true);assert.equal(await d.getByLabel('件名',{exact:true}).isEditable(),true);
   await d.getByLabel('本文',{exact:true}).fill('Synthetic contact authored by owner');await d.getByLabel('件名',{exact:true}).fill('Edited case contact');
-  await d.getByRole('button',{name:'送信前プレビュー',exact:true}).click();await d.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();assert.equal(f.state.sends,0);const send=d.getByRole('button',{name:'最終確認してGmail送信',exact:true});assert.equal(await send.isDisabled(),true);await d.getByRole('checkbox').check();await send.click();await d.getByText(/送信済み/).first().waitFor();assert.equal(f.state.sends,1);
+  await d.getByRole('button',{name:'送信前プレビュー',exact:true}).click();try{await d.getByText('プレビュー確認済み。まだ送信していません。',{exact:true}).waitFor();}catch(e){console.error('FIXTURE_COMPOSER',await d.innerText());throw e;}assert.equal(f.state.sends,0);const send=d.getByRole('button',{name:'最終確認してGmail送信',exact:true});assert.equal(await send.isDisabled(),true);await d.getByRole('checkbox').check();await send.click();await d.getByText(/送信済み/).first().waitFor();assert.equal(f.state.sends,1);
   // A second Chromium session reads the durable state. No provider retry.
   const p2=await page(390);await p2.locator('#contact').click();const d2=p2.getByRole('dialog');await d2.getByText(/保存済み送信操作.*SENT/).waitFor();assert.equal(f.state.sends,1);assert.equal(await d2.getByRole('button',{name:'最終確認してGmail送信',exact:true}).count(),0);
   const before=actions.length;await d2.getByRole('button',{name:'メール作成を閉じる',exact:true}).click();assert.equal(actions.slice(before).filter(a=>['send','preview'].includes(a)).length,0);

@@ -62,6 +62,7 @@ begin
   elsif p_action='unknown' and e.state in ('SENDING','UNKNOWN') then
    insert into public.pa_reply_operation_events_v1(operation_id,state) values(o.operation_id,'UNKNOWN') returning * into e;
   elsif p_action='sent' and e.state in ('SENDING','UNKNOWN') then
+   if exists(select 1 from public.pa_gmail_thread_links where gmail_thread_id=p_payload->>'gmail_thread_id' and inquiry_id<>c) or exists(select 1 from public.pa_gmail_message_index where gmail_message_id=p_payload->>'gmail_message_id' and inquiry_id<>c) then raise exception 'reply_operation_mismatch';end if;
    if coalesce(p_payload->>'gmail_message_id','') !~ '^[A-Za-z0-9_-]{1,200}$' or coalesce(p_payload->>'gmail_thread_id','') !~ '^[A-Za-z0-9_-]{1,200}$' then raise exception 'reply_operation_mismatch';end if;
    insert into public.pa_reply_operation_events_v1(operation_id,state,evidence) values(o.operation_id,'SENT',jsonb_build_object('gmail_message_id',p_payload->>'gmail_message_id','gmail_thread_id',p_payload->>'gmail_thread_id','history_sync','INCOMPLETE')) returning * into e;
   elsif p_action='history' and e.state='SENT' then
