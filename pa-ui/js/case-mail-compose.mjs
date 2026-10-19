@@ -58,7 +58,7 @@ export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=
    if(s.busy||s.attempted||!current(s))return;if(s.files.length>10||s.files.reduce((n,f)=>n+f.size,0)>3*1024*1024){s.status.textContent='添付は10件・合計3MiBまでです。';return;}
    s.busy=true;prepare.disabled=true;const version=s.version;previewHost.replaceChildren();
    try{const input={...payload(),attachments:await Promise.all(s.files.map(attachment)),...(s.newOperation?{new_operation:true,previous_operation_id:s.newOperation}:{})};if(!current(s)||version!==s.version)return;const p=await request('preview',input);if(!current(s)||version!==s.version)return;
-    if(p.inquiry_id!==c.id||p.to!==input.to.toLowerCase()||p.subject!==input.subject||p.operation?.operation_id!==p.operation_id||JSON.stringify(p.cc)!==JSON.stringify([...input.cc].sort())||p.attachments.length!==s.files.length||p.attachments.some((a,i)=>a.filename!==s.files[i].name||a.size!==s.files[i].size))throw Error('invalid_confirmation');
+    if(p.inquiry_id!==c.id||p.kind!==input.kind||p.source_id!==(input.source_id||null)||p.thread_id!==(input.thread_id||null)||p.to!==input.to.toLowerCase()||p.subject!==input.subject||p.operation?.operation_id!==p.operation_id||JSON.stringify(p.cc)!==JSON.stringify([...input.cc].sort())||p.attachments.length!==s.files.length||p.attachments.some((a,i)=>a.filename!==s.files[i].name||a.size!==s.files[i].size))throw Error('invalid_confirmation');
     showOperation(p.operation);s.newOperation=null;
     if(p.operation.state!=='PREPARED'){
      s.status.textContent='保存済み操作: '+p.operation.state+'。同じ操作は再送しません。';if(p.operation.state==='SENT')previewHost.append(btn('別の送信操作を新しく準備',()=>{s.newOperation=p.operation_id;s.status.textContent='別の送信であることを確認し、再度プレビューしてください。';}));return;
