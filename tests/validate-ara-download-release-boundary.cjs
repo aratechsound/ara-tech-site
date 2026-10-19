@@ -10,23 +10,33 @@ assert.equal(scope.task_id,'PAUI-063');assert.equal(scope.schema_apply,false);as
 const invoiceScope=JSON.parse(fs.readFileSync(path.join(root,'docs/PAUI-064-reviewed-scope.json'),'utf8'));
 assert.equal(invoiceScope.task_id,'PAUI-064');assert.equal(invoiceScope.production_base,'f58efac7c428628b7330d307efc9025b1b961ba1');
 for(const k of ['schema_apply','origin_change','legacy_change','customer_send'])assert.equal(invoiceScope[k],false);
-const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files};
+const generalScope=JSON.parse(fs.readFileSync(path.join(root,'docs/PAUI-068-reviewed-scope.json'),'utf8'));
+assert.equal(generalScope.task_id,'PAUI-068');for(const k of ['production_changed','db_applied','gmail_send'])assert.equal(generalScope[k],false);
+const generalAllowed=["api/_ara-unlinked-mail.cjs", "api/_pa-mail-discovery.cjs", "api/pa-gmail.js", "api/_ara-inbox-registration.cjs", "pa-ui/js/desk.mjs", "pa-ui/js/model.mjs", "pa-ui/js/case-workflows.mjs", "pa-ui/js/general-inbox.mjs", "pa-ui/brand-black.css", "ops/PAUI-066-thread-identity-guard-CANDIDATE.sql", "ops/PAUI-068-inbox-message-registration-CANDIDATE.sql", "docs/PAUI-066-isolated-implementation-review.md"];
+assert.deepEqual(Object.keys(generalScope.reviewed_product_files).sort(),[...generalAllowed].sort());
+for(const [p,sha]of Object.entries(generalScope.reviewed_test_files))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' PAUI-068 audited test changed');
+const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files,...generalScope.reviewed_product_files};
 for(const [p,sha]of Object.entries({...reviewed,...scope.approved_sql,...invoiceScope.reviewed_test_helpers}))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' reviewed scope mismatch');
 const tracked=git('ls-tree','-r','--name-only',base).toString().trim().split('\n');
 // PAUI-062's unified editable composer supersedes two old screen-specific UI
 // fixtures. Pin their reviewed replacements; every other baseline remains exact.
+// PAUI-066 audited safety correction: one exact protected legacy regression
+// changed to reject cross-customer mail in an already linked thread. Do not
+// alter any other baseline test; fingerprint reviewed before release.
+const reviewed066Tests={'tests/validate-ara-paui041-discovery.cjs':'78ad7176190e398c40cc8eeacdf80e33ae1112dd29bde14b5ba138334dfaf72f'};
 const unifiedUi={
  'tests/validate-ara-case-workflows-browser.cjs':'76fcc20af5e577da5b1be53104cf6363f927f39e5d0885a5578dae9b3a10b4cf',
  'tests/validate-ara-candidate-recovery-browser.cjs':'d175ec32ee1c17a9012308424e2bfbab6ec4ad1de9c1bda3c3dde780e1dcb475'
 };
 for(const p of new Set([...protectedFiles.filter(p=>tracked.includes(p)),...tracked.filter(p=>p.startsWith('tests/')||p.startsWith('ops/')||p.startsWith('.github/'))])){
- const bytes=fs.readFileSync(path.join(root,p));if(reviewed[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),reviewed[p],p+' reviewed integration changed');else if(unifiedUi[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),unifiedUi[p],p+' unified UI contract changed');
+ const bytes=fs.readFileSync(path.join(root,p));if(reviewed[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),reviewed[p],p+' reviewed integration changed');else if(reviewed066Tests[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),reviewed066Tests[p],p+' PAUI-066 cross-customer guard changed');else if(unifiedUi[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),unifiedUi[p],p+' unified UI contract changed');
  else assert.deepEqual(bytes,git('show',base+':'+p),p+' production contract changed');
 }
 // Preserve every PAUI-063 regression verbatim except this scope validator and
 // the explicitly pinned shared fixture's read-only invoice-history response.
 const previousTests=git('ls-tree','-r','--name-only',invoiceScope.production_base).toString().trim().split('\n').filter(p=>p.startsWith('tests/'));
 for(const p of previousTests){if(p==='tests/validate-ara-download-release-boundary.cjs')continue;
+ if(reviewed066Tests[p]){assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),reviewed066Tests[p],p+' PAUI-066 preserved regression changed');continue;}
  const bytes=fs.readFileSync(path.join(root,p));if(invoiceScope.reviewed_test_helpers[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),invoiceScope.reviewed_test_helpers[p]);
  else assert.deepEqual(bytes,git('show',invoiceScope.production_base+':'+p),p+' PAUI-063 regression changed');}
 const backend=fs.readFileSync(path.join(root,'api/_pa-workspace-read.cjs'),'utf8');

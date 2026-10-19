@@ -72,12 +72,13 @@ module.exports = async (request, response) => {
         if (input.action === "inbox_list") return sendJson(response, 200, { ok: true, result: await listUnlinkedMail({actorId:user.id,cursor:input.cursor}) });
         if (input.action === "case_discovery_sync") return sendJson(response,200,{ok:true,result:await require('./_pa-mail-discovery.cjs').syncDiscovery({inquiryId:input.inquiry_id,actorId:user.id})});
         if (input.action === "case_discovery_decide") return sendJson(response,200,{ok:true,result:await require('./_pa-mail-discovery.cjs').decideDiscovery({inquiryId:input.inquiry_id,actorId:user.id,threadId:input.gmail_thread_id,fingerprint:input.fingerprint,decision:input.decision})});
-        if (input.action === "inbox_review") return sendJson(response, 200, {ok:true,result:await reviewUnlinkedMail({messageId:input.gmail_message_id})});
+        if (input.action === "inbox_review") return sendJson(response, 200, {ok:true,result:await reviewUnlinkedMail({messageId:input.gmail_message_id,actorId:user.id})});
         if (input.action === "inbox_attachment") return streamAttachmentResponse(response,await reviewUnlinkedMail({messageId:input.gmail_message_id,attachmentId:input.gmail_attachment_id}));
         if (input.action === "inbox_sync") return sendJson(response, 200, { ok: true, result: await syncUnlinkedMail({ actorId: user.id }) });
         if (input.action === "inbox_decide") return sendJson(response, 200, { ok: true, result: await decideUnlinkedMail({ actorId: user.id,
             messageId: input.gmail_message_id, action: input.decision, caseId: input.inquiry_id,
-            customerName: input.customer_name, customerEmail: input.customer_email, caseType: input.case_type }) });
+            customerName: input.customer_name, customerEmail: input.customer_email, caseType: input.case_type,
+            reviewToken: input.review_token, identityConfirmed: input.identity_confirmed }) });
         if (input.action === "sync") {
             const result = await syncCase({ inquiryId: input.inquiry_id, actorId: user.id });
             return sendJson(response, 200, { ok: true, result });
@@ -138,7 +139,8 @@ module.exports = async (request, response) => {
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
         const code = String(error?.message || "");
-        if (["mail_operation_conflict","mail_page_conflict","mail_link_conflict","inquiry_archived"].includes(code)) return sendJson(response, 409, { ok: false, code, phase:error.phase||'candidate_review', database_code:error.databaseCode||null });
+        if (["mail_operation_conflict","mail_page_conflict","mail_link_conflict","mail_identity_review_required","inbox_review_stale","inquiry_archived"].includes(code)) return sendJson(response, 409, { ok: false, code, phase:error.phase||'candidate_review', database_code:error.databaseCode||null });
+        if (code === "inbox_registration_unavailable") return sendJson(response, 503, {ok:false,code});
         if (/^reply_operation_(?:unknown|blocked|mismatch|conflict)$/.test(code)) return sendJson(response,409,{ok:false,code});
         if (code === "gmail_mailbox_mismatch") return sendJson(response, 503, { ok: false, code });
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });

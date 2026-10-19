@@ -42,3 +42,4 @@ b,strong,.fact b,.headmeta b,.caldate,.label-pair b,.record-head strong,.mail-su
 #formal-document-grid,#current-estimate-grid,#estimate-history-grid{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
 .warehouse-meta{line-height:1.6}.brief{margin:8px 0}.brief strong{font-weight:400}
 @media(max-width:760px){.event-information .facts{grid-template-columns:1fr}.files-controls{align-items:stretch}.files-controls .search{max-width:none}}
+.general-inquiry-form{display:grid;gap:12px;margin:16px 0;max-width:720px}.general-inquiry-form label{display:grid;gap:6px;overflow-wrap:anywhere}.general-inquiry-form input:not([type=checkbox]),.general-inquiry-form select{font:inherit;color:#eee;background:#111;border:1px solid var(--border);border-radius:4px;padding:9px;min-width:0;width:100%;box-sizing:border-box}.general-inquiry-form button{justify-self:start}.general-inquiry-form input[type=checkbox]{justify-self:start}.globalnav{overflow-x:auto}

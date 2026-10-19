@@ -1,0 +1,27 @@
+{
+  "task_id": "PAUI-068",
+  "base": "ca98c415de508cc0914e0e2fcb2000cbda30f970",
+  "production_changed": false,
+  "db_applied": false,
+  "gmail_send": false,
+  "reviewed_product_files": {
+    "api/_ara-unlinked-mail.cjs": "a98af49a108cf1b5e00c2b056d8ccf2ba71cbf9ecde043edac671d53a904a0eb",
+    "api/_pa-mail-discovery.cjs": "3ec6cfedd6184494bf7b45ac608d18db850c2ac1c97043fd96c5887e30acc8bb",
+    "api/pa-gmail.js": "c5539f7e11319bdf7c35c71399ae8428edad23c9dca54be317d38869fe2addfa",
+    "api/_ara-inbox-registration.cjs": "a2bb12f2e95eba11907fa462707d77ac9a9d430c7b05b61677c11c4d3ebe0b7c",
+    "pa-ui/js/desk.mjs": "1fa7d34b66b7007bccd395b3fb6472f338b222ba2955ea48ccc85fc3ac2c26cb",
+    "pa-ui/js/model.mjs": "eeecf82e964963cff42dd41e87d804b9c419832d2ee970959deeb3fd07c36d24",
+    "pa-ui/js/case-workflows.mjs": "f4fa0e69b76f773b83062c05107601ff0d70fece2bc3c07379814a9d4904dde5",
+    "pa-ui/js/general-inbox.mjs": "cd94839b4de78d583d8fc926b1d75c3c6ec0f5ccfa3509c3168aaa5c474bbacf",
+    "pa-ui/brand-black.css": "937b1fb041f1dbf8824adafc14a116b91f37a890354ea39317407a49564b2567",
+    "ops/PAUI-066-thread-identity-guard-CANDIDATE.sql": "89f29250fb0fddb00d87e4143b4961b12b63efa0a2bffadd3f83d1a4a41d09ca",
+    "ops/PAUI-068-inbox-message-registration-CANDIDATE.sql": "8cef132c99ffa92409c76ac4698e820d926c0db62109294fbff343e90b37cef9",
+    "docs/PAUI-066-isolated-implementation-review.md": "a6247a3272320710ad74b6ecec71e2bac6b99d299508775be8042ac0789e447b"
+  },
+  "reviewed_test_files": {
+    "tests/validate-ara-general-inquiry-068.cjs": "5ab6e6158d019bfae14130e691f78d82ec6a4d47c9371a1842e8948290905a51",
+    "tests/validate-ara-general-inquiry-068-browser.cjs": "81e09b5820e6836b58c605b2bbcc6586cd157cda9b534058f8c3902078092240",
+    "tests/validate-ara-paui041-discovery.cjs": "78ad7176190e398c40cc8eeacdf80e33ae1112dd29bde14b5ba138334dfaf72f"
+  },
+  "test13_audit": "Classified row direction is independent from index ownership. Assert unverified official-only inbound stays pending; use explicit customer To and SENT for valid outbound index. No safety guard relaxed."
+}
