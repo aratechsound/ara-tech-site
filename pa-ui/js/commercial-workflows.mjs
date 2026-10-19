@@ -1,3 +1,4 @@
+import {downloadFilename} from './original-download.mjs';
 import {resolveOrderDocuments,resolveMonitoredOrderDocuments} from './order-documents.mjs';
 import {openCandidateDecision} from './quote-monitor.mjs';
 import {openQuoteAdoption} from './quote-adoption.mjs';
@@ -12,7 +13,7 @@ const field=(label,input)=>{const n=el('label',label);input.setAttribute('aria-l
 const TAX={tax_included:'税込',tax_excluded:'税別',tax_exempt:'非課税'};
 const CODES={invalid_origin:'このテスト環境の操作許可はありません。',not_authorized:'Owner認証を確認できません。',case_changed:'案件または認証が切り替わりました。',stale_estimate_preview:'案件・見積版・配送内容が変わりました。再取得してください。',stale_confirmation_preview:'正式確認の内容が変わりました。再取得してください。',estimate_send_not_ready:'現在の見積配送は送信準備の対象ではありません。',delivery_outcome_unresolved:'配送結果が不明または処理中です。再送・再発行せず履歴を確認してください。',contract_already_accepted:'承諾済み契約を保護しています。',confirmation_already_active:'発行済みの正式確認を保護しています。',document_identity_mismatch:'案件・見積版とPDF原本の対応を確認できません。',commercial_state_changed:'商務正本が変わっています。再取得してください。',invalid_estimate:'見積金額・PDF・税区分を確認してください。',rate_limited:'操作上限です。時間を置いて明示的に再取得してください。'};
 const explain=e=>CODES[e.message]||'正規処理を確認できません。成功と扱わず、再送せず状態を再取得してください。';
-const ALLOWED=new Set(['quote_monitor_document','change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf','snapshot','document','composer_preview','issue_estimate','estimate_send_preview','confirmation_preview','confirmation_receipt_preview','confirmation_send_preview','confirmation_send_receipt_preview','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox']);
+const ALLOWED=new Set(['original_index','sent_quote_preview','sent_quote_adopt','sent_quote_status','reply_document_review','reply_document_adopt','quote_monitor_document','change_evidence_contract_pdf','change_evidence_candidates','change_evidence_preview','change_evidence_append','change_evidence_document','change_evidence_mail_pdf','snapshot','document','composer_preview','issue_estimate','estimate_send_preview','confirmation_preview','confirmation_receipt_preview','confirmation_send_preview','confirmation_send_receipt_preview','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox']);
 
 export function commercialProjection(data){
   if(!data?.state||!Array.isArray(data.estimates)||!Array.isArray(data.offers)||!Array.isArray(data.outbox)||!Array.isArray(data.documents))throw Error('incomplete_commercial_snapshot');
@@ -37,12 +38,12 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     const id=caseId,version=epoch,auth=await getSession();
     if(!auth?.access_token||!valid(id,version))throw Error('case_changed');
     const controller=new AbortController();controllers.add(controller);
-    const mutation=['change_evidence_append','issue_estimate','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox'].includes(action);if(mutation)++mutations;
+    const mutation=['sent_quote_adopt','reply_document_adopt','change_evidence_append','issue_estimate','issue_confirmation','issue_direct_confirmation_and_send','dispatch_outbox'].includes(action);if(mutation)++mutations;
     try{
       const r=await fetchImpl('/api/pa-mail?surface=commercial',{method:'POST',cache:'no-store',redirect:'error',signal:controller.signal,
         headers:{Authorization:'Bearer '+auth.access_token,'Content-Type':'application/json'},body:JSON.stringify({...input,action,case_id:id})});
       if(!valid(id,version))throw Error('case_changed');
-      if(binary&&r.ok)return r.blob();
+      if(binary&&r.ok){const blob=await r.blob(),name=r.headers.get('Content-Disposition'),digest=r.headers.get('X-PA-Original-SHA256');if(name)blob.originalFilename=downloadFilename(name);if(digest)blob.originalSha256=digest;return blob;}
       const p=await r.json();if(!r.ok||!p.ok){const e=Error(p.code||'commercial_request_failed');if([401,403].includes(r.status)&&p.code!=='invalid_origin')onAuthFailure();throw e;}
       return p.result;
     }finally{controllers.delete(controller);if(mutation)--mutations;}
@@ -155,5 +156,5 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
     const history=el('details');history.append(el('summary','商務正本の配送・確認履歴'));for(const o of snapshot.offers)history.append(el('p','正式確認 #'+o.version+'／'+o.state+'／保存期限 '+(o.expires_at||'未提供')));for(const j of snapshot.outbox)history.append(el('p',j.job_kind+'／'+effectiveDeliveryState(j)+'／'+(j.finished_at||j.created_at||'日時未提供')));root.append(history);
   }
   function mount(host,documentView=null){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;documents=documentView;render();if(!snapshot&&!loading&&!error)load();}
-  return {mount,beforeLeave,clear,setSimpleAdoption(value){simpleAdoption=value===true;},adoptQuote(candidate){if(simpleAdoption&&quickAdopt)return quickAdopt(candidate);},setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
+  return {mount,beforeLeave,clear,async originalIndex(id){if(!id||getCase()?.id!==id)throw Error('case_changed');if(caseId!==id){clear();caseId=id;}const value=await request('original_index');if(value?.case_id!==id||!value.read_projection)throw Error('incomplete_commercial_snapshot');return value;},async downloadOriginal(input){const id=getCase()?.id;if(!id||input.case_id!==id||Boolean(input.document_id)===Boolean(input.contract_id))throw Error('case_changed');if(caseId!==id){clear();caseId=id;}return request(input.document_id?'document':'change_evidence_contract_pdf',input,true);},async replyDocument(action,input){if(!['reply_document_review','reply_document_adopt','sent_quote_preview','sent_quote_adopt','sent_quote_status'].includes(action))throw Error('case_changed');const id=getCase()?.id;if(!id)throw Error('case_changed');if(caseId!==id){clear();caseId=id;}return request(action,input);},setSimpleAdoption(value){simpleAdoption=value===true;},adoptQuote(candidate){if(simpleAdoption&&quickAdopt)return quickAdopt(candidate);},setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
 }

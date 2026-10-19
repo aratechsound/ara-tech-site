@@ -5,6 +5,8 @@ import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs'
 import {downloadFilename} from './original-download.mjs';
 import {createPrivateAssets} from './private-assets.mjs';
 import {createGallery,createPreviewScope,previewError} from './gallery.mjs';
+import {createCaseTrash,createCaseTrashRequest} from './case-trash.mjs';
+import {createReplyDocumentView} from './reply-documents.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {mailRow} from './mail-row.mjs';
 import {createCaseMailComposer,createCaseMailRequest} from './case-mail-compose.mjs';
@@ -40,7 +42,7 @@ const shortDate=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '�
 const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
-let quoteMonitorEnabled=false;
+let quoteMonitorEnabled=false,commercialOriginalsRead=false;
 let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
 const requests=new Set();
 class ReadFailure extends Error{constructor(code,status){super(code);this.code=code;this.status=status;}}
@@ -72,7 +74,7 @@ async function api(url,{blob=false}={}){
   finally{clearTimeout(timer);requests.delete(controller);}
 }
 let privateAssets=null,previewScope=null,quoteHistory=null,simpleAdoptionEnabled=false;
-function clearAssets(){quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
+function clearAssets(){replyDocuments.clear();quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
 function viewPreviewScope(){
   if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}
   if(!previewScope){const id=selected,epoch=selectionEpoch,viewTab=tab;
@@ -85,8 +87,8 @@ function caseAssets(){
   if(!privateAssets){const id=selected,epoch=selectionEpoch,token=session?.access_token;
     privateAssets=createPrivateAssets({isCurrent:()=>selected===id&&selectionEpoch===epoch&&!!session,
       authorize:async()=>{let value;try{value=await workspaceAuth.current();}catch{signOut(false);throw new ReadFailure('login_required',401);}if(value?.access_token!==token){clearAssets();throw new ReadFailure('login_required',401);}},
-      requestDownload:item=>api(assetRoute(id,item).replace('/data/','/data/download/'),{blob:true}),
-      requestBlob:item=>api(assetRoute(id,item),{blob:true})});
+      requestDownload:item=>item.asset_kind==='document'||item.download_ref?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item).replace('/data/','/data/download/'),{blob:true}),
+      requestBlob:item=>commercialOriginalsRead&&(item.asset_kind==='document'||item.asset_kind==='receipt')?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item),{blob:true})});
   }
   return privateAssets;
 }
@@ -109,9 +111,11 @@ const workflowRequest=createWorkflowRequest(async()=>{const value=await workspac
 const portalStatuses=new Map();
 function portalStatus(id,text){portalStatuses.set(id,text);if(selected===id){const host=$('portal-candidate-status');if(host)host.textContent=text;}}
 const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurrent:id=>!!session&&selected===id,onStatus:portalStatus});
-const caseMail=createCaseMailComposer({request:createCaseMailRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),getCase:()=>session?current():null,getMessages:()=>getRows('messages')||[],getFiles:()=>materialItems(),readFile:async item=>(await caseAssets().record(item,{fresh:true})).blob,isAuthenticated:()=>!!session&&(!session.expires_at||session.expires_at*1000>Date.now()),onSent:async id=>{if(selected!==id)return;const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch),loadSurface('audit','/data/case/'+id+'/audit',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
+const caseMail=createCaseMailComposer({request:createCaseMailRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),getCase:()=>session?current():null,getMessages:()=>getRows('messages')||[],getFiles:()=>materialItems(),readFile:async item=>(await caseAssets().record(item,{fresh:true})).blob,isAuthenticated:()=>!!session&&(!session.expires_at||session.expires_at*1000>Date.now()),onSent:async id=>{if(selected!==id)return;replyDocuments.clear();const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch),loadSurface('audit','/data/case/'+id+'/audit',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
 const quoteMonitor=createQuoteMonitor({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onUpdate:()=>{if(session&&cases.length)renderList();}});
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
+const trash=createCaseTrash({getCase:()=>session?current():null,request:createCaseTrashRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),onTrashed:async saved=>{await refresh();if(cases.some(c=>c.id===saved.inquiry_id)||listError){openInfo('ゴミ箱の保存結果','<p>保存応答は受領しましたが、一覧の反映は未確認です。再移動しないでください。</p>');return;}openInfo('ゴミ箱へ移動しました','<p>'+escape(saved.inquiry_number)+' / 通常一覧からの除外を読戻し確認しました。記録は保持しています。</p>');}});
+const replyDocuments=createReplyDocumentView({getCase:()=>session?current():null,requestReply:workflowRequest,requestCommercial:(action,input)=>commercial.replyDocument(action,input),readBody:(id,row)=>api('/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id))});
 const discovery=createCandidateMailView({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
@@ -180,7 +184,7 @@ function overview(c){
   const p=c.progress||{},a=attention(c),f=c.first_form_data||{};
   const next=p.next_action||p.next_action_memo||c.next_action||'次の対応は未登録';
   const step=Number(p.current_step),original=inquiryFields(c);
-  return `<section class="group event-information"><h2 class="sectiontitle">イベント基本情報</h2><div class="facts">${fact('イベント名',c.event_name)}${fact('開催日',eventDate(c))}${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('会場',c.venue)}${fact('主催者',f.organizer_name||c.organization_name)}${fact('顧客',c.customer_name)}${fact('連絡担当者',c.contact_name||f.contact_name)}${fact('社内担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('電話番号',c.phone||f.contact_phone)}${fact('メール',c.email||f.contact_email)}</div></section>
+  return `<div class="inlinebtns"><button class="action quiet" data-case-trash>ゴミ箱へ移動</button></div><section class="group event-information"><h2 class="sectiontitle">イベント基本情報</h2><div class="facts">${fact('イベント名',c.event_name)}${fact('開催日',eventDate(c))}${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('会場',c.venue)}${fact('主催者',f.organizer_name||c.organization_name)}${fact('顧客',c.customer_name)}${fact('連絡担当者',c.contact_name||f.contact_name)}${fact('社内担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('電話番号',c.phone||f.contact_phone)}${fact('メール',c.email||f.contact_email)}</div></section>
   <section class="group inquiry-original"><h2 class="sectiontitle">お客様からの依頼内容</h2><p class="hint">問い合わせ受付の保存値を全文表示します。後日の変更は下の回答記録・やり取りで確認してください。</p>${original.length?original.map(o=>`<article class="request-field"><h3>${escape(o.label)}</h3><div class="request-original">${tx(o.value)}</div></article>`).join(''):'<div class="empty-state">問い合わせ原文は未提供</div>'}<details class="subsequent-requests"><summary>受付後の回答・追加依頼・変更記録</summary>${readBlock('responses','受付後の回答',rows=>rows.map(row=>`<article class="request-field"><time>${escape(date(row.submitted_at||row.responded_at||row.created_at))}</time>${['request_summary','additional_notes','notes','question_details'].filter(key=>row[key]).map(key=>`<h3>${escape(({request_summary:'依頼内容',additional_notes:'追加備考',notes:'備考',question_details:'確認事項'})[key])}</h3><div class="request-original">${tx(row[key])}</div>`).join('')||'<p class="hint">この回答に依頼本文の提供はありません。日程調整画面で回答を確認できます。</p>'}</article>`).join('')||'<div class="empty-state">取得した回答記録に保存値なし。追加メールはやり取りで確認してください。</div>')}</details></section>
   <section class="group"><h2 class="sectiontitle">問い合わせ添付資料 ${button('資料倉庫を開く','documents','quiet')}</h2>${detail.materials?.state==='error'?errorBlock(detail.materials.error,'問い合わせ添付のポータル索引'):detail.materials?.state!=='ready'?'<div class="load-state">添付索引を取得中…</div>':''}<div id="inquiry-attachment-grid" class="material-grid"></div><p class="hint">問い合わせ由来を保存記録から確認できる資料のみ表示。対応不明の資料は資料倉庫で確認できます。</p></section>
   <section class="group case-current"><h2 class="sectiontitle">現在の案件状態</h2><div class="stage-info"><strong>現在の案件状態：${escape(statusText(c))}</strong><p>${escape(statusBasis(c))}</p></div><div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>メール返信確認：${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><p class="hint">${c.attention?.attention_state==='waiting_customer'?'顧客回答待ちは保存済みメール確認状態です。何への回答かはこの索引では未提供。契約の同意・成立状態とは別に確認します。':'案件・契約の状態とメール返信の確認状態は別の記録です。'}</p>${attentionError?errorBlock(attentionError,'新着状態'):''}</section>
@@ -193,7 +197,7 @@ function conversation(c){
   }).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済みメールなし</div>')}<details class="group"><summary>案内・配送記録</summary>${readBlock('deliveries','配送記録',rows=>rowsHtml(rows,{title:r=>r.subject||r.message_type,body:r=>deliveryUnknown(r)?'UNKNOWN / 再送停止':r.status||'状態未取得',time:r=>r.sent_at||r.failed_at||r.requested_at}))}</details><div class="inlinebtns" style="margin-top:10px">${button('メール作成・返信','case-mail-compose','quiet')}${button('Gmail同期','sync','quiet',true)}${button('未紐付けメール','unlinked','quiet',true)}</div><p class="hint">NEWは保存済みのメール別根拠がある場合のみ表示。添付は資料候補へ連携できます。採用・最新版切替・公開はOwnerが資料ポータルで判断します。</p>`;
 }
 function estimate(c){
-  return moneyBar()+`${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務・原本'):''}${detail.messages?.state==='error'?errorBlock(detail.messages.error,'正式確認PDFのメール索引'):''}<section id="order-documents"></section><details class="group order-document-history" open><summary>見積・正式受注・変更承認の履歴</summary>
+  return button('メール作成','case-mail-compose','quiet')+moneyBar()+`${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務・原本'):''}${detail.messages?.state==='error'?errorBlock(detail.messages.error,'正式確認PDFのメール索引'):''}<section id="order-documents"></section><details class="group order-document-history" open><summary>見積・正式受注・変更承認の履歴</summary>
   <section class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','送信済み見積索引',value=>`<div id="sent-estimate-grid" class="material-grid"></div>${rowsHtml(value.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})}${value.unknown?.length?'<div class="read-error">一部メールの対応不明 / '+value.unknown.length+'件</div>':''}`)}</section>
   <details class="group estimate-history"><summary>見積書の発行履歴・全版</summary>${readBlock('commercial','見積発行履歴',state=>{const estimates=state.estimates||[];return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>原本</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${e.document_id?'原本参照あり':'原本参照未提供'}</td></tr>`).join('')||'<tr><td colspan="3">取得した正式登録見積は0件（Gmail送信履歴は上部）</td></tr>'}</tbody></table></div>`;})}<div id="estimate-history-grid" class="material-grid"></div></details>
   <details class="group formal-history"><summary>正式受注確認の発行・同意等の履歴</summary>${readBlock('commercial','正式確認履歴',state=>{const offers=Array.isArray(state.offers)?state.offers:null;return `${offers===null?'<div class="read-error">正式確認の発行記録は未取得</div>':offers.length?rowsHtml(offers,{title:o=>'版 '+o.version+' / 発行記録',body:o=>'有効期限（保存値） '+date(o.expires_at),time:o=>o.issued_at}):'<div class="empty-state">取得できた正式確認の発行記録は0件</div>'}<p class="hint">ここは正式確認の発行日時・期限の索引です。同意・契約成立記録の不存在を意味しません。同意状態・失効・配送結果はこの取得範囲では未確認です。</p>`;})}<div id="formal-document-history-grid" class="material-grid"></div></details></details><section id="commercial-actions" class="group"></section><p class="hint">${escape(statusBasis(c))}</p><div class="inlinebtns">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
@@ -228,7 +232,7 @@ function renderMailPreviews(){
     if(!container)continue;
     const items=mailAttachments(row),strip=container.querySelector('[data-attachments]');
     if(strip){
-      const g=createMailAttachmentCarousel({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createMailAttachmentCarousel({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api('/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount(strip,items);
     }
     bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
@@ -236,7 +240,7 @@ function renderMailPreviews(){
 }
 function mountGallery(target,items,track=true){
   const id=selected,epoch=selectionEpoch,viewTab=tab;
-  const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  const g=createGallery({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab===viewTab,requestBlob:item=>api(item.asset_kind==='mail'?(item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
   if(track)mailGalleries.push(g);g.mount(target,items,{warehouse:true});return g;
 }
 function renderGallery(){
@@ -268,32 +272,32 @@ function render(){
     orderDocuments=createOrderDocuments({host:$('order-documents'),previewScope:viewPreviewScope(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='estimate',deferQuote:quoteMonitorEnabled,mountFallback:(host,kind)=>mountGallery(host,items.filter(d=>kind==='formal'?d.kind==='正式受注確認書'&&d.mime_type==='application/pdf':d.source==='commercial'&&d.kind==='見積書'&&d.latest_state==='最新発行版'))});
     commercial.mount($('commercial-actions'),orderDocuments);
     if(!simpleAdoptionEnabled)mountGallery($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&d.source!=='gmail'));
-    else{quoteHistory ||= createQuoteHistory({caseId:id,assets:caseAssets(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch,previewScope:viewPreviewScope(),monitor:quoteMonitor,onAdopt:c=>commercial.adoptQuote(c)});quoteHistory.mount($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&(d.source==='commercial'||d.source_direction==='outbound')));$('sent-estimate-grid')?.closest('section').setAttribute('hidden','');}
+    else{quoteHistory ||= createQuoteHistory({caseId:id,assets:caseAssets(),isCurrent:()=>!!session&&selected===id&&selectionEpoch===epoch,previewScope:viewPreviewScope(),monitor:quoteMonitor,onAdopt:c=>commercial.adoptQuote(c),registrationActions:replyDocuments.registrationActions});quoteHistory.mount($('estimate-history-grid'),items.filter(d=>d.kind==='見積書'&&(d.source==='commercial'||d.source_direction==='outbound')));$('sent-estimate-grid')?.closest('section').setAttribute('hidden','');}
     mountGallery($('formal-document-history-grid'),items.filter(d=>d.kind==='正式受注確認書'&&d.mime_type==='application/pdf'));
     if(!simpleAdoptionEnabled&&$('sent-estimate-grid')){const id=selected,epoch=selectionEpoch;
-      const g=createGallery({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+      const g=createGallery({previewActions:replyDocuments.previewActions,assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api((item.read_route==='sent-estimate'?'/data/sent-estimate-attachment/':'/data/mail-attachment/')+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount($('sent-estimate-grid'),items.filter(d=>d.source==='gmail'&&d.kind==='見積書'&&d.source_direction==='outbound'),{compact:true,showSource:true});
     }
   }
 }
-async function loadSurface(name,url,epoch){
+async function loadSurface(name,url,epoch,reader=null){
   detail[name]={state:'loading'};
-  try{const value=await api(url);if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
+  try{const value=await (reader?reader():api(url));if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
   catch(error){if(epoch!==selectionEpoch)return;detail[name]={state:'error',error};}
   if(epoch===selectionEpoch)render();
 }
 async function selectCase(id,initialTab='overview'){
   if(!cases.some(c=>c.id===id))return;
-  if(!await caseMail.beforeLeave())return;
+  if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
   portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab=initialTab;const epoch=selectionEpoch;
   renderList();render();
   // No mark-read, Gmail sync, lazy contract PDF generation or token issuance here.
-  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
+  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercial.originalIndex(id):null),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
-  if(!await caseMail.beforeLeave())return;
+  if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
   quoteMonitor.clear();portalBridge.cancel();++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
@@ -301,7 +305,7 @@ async function refresh(){
   try{
     const attPromise=api('/data/attention').then(value=>({value}),error=>({error}));
     const list=await api('/data/cases');if(epoch!==listEpoch)return;
-    simpleAdoptionEnabled=list.quote_adoption_simple===true;commercial.setSimpleAdoption(simpleAdoptionEnabled);quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
+    commercialOriginalsRead=list.commercial_originals_read===true;simpleAdoptionEnabled=list.quote_adoption_simple===true;commercial.setSimpleAdoption(simpleAdoptionEnabled);quoteMonitorEnabled=list.quote_monitor===true;commercial.setQuoteMonitor(quoteMonitorEnabled?quoteMonitor:null);
     const map=new Map(list.progress.map(p=>[p.inquiry_id,p]));
     cases=list.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:null,attentionLoaded:false}));
     updateFilters();renderList();render();
@@ -314,7 +318,7 @@ async function refresh(){
 }
 async function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
-  if(name!==tab){if(!await caseMail.beforeLeave())return;
+  if(name!==tab){if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;commercial.clear();if(tab==='conversation')discovery.cancel();}
   resetPrivacy();tab=name;render();central.scrollTop=0;
   document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
@@ -329,7 +333,7 @@ function renderFeatures(){
 }
 async function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(['PAUI-D-001','PAUI-D-002','PAUI-E-001','PAUI-E-003','PAUI-E-004'].includes(id)&&current()){await setTab('estimate');return;}if(current())setTab(f.target||'overview');openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){quoteMonitor.clear();commercial.clear();caseMail.clear();portalBridge.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){trash.clear();quoteMonitor.clear();commercial.clear();caseMail.clear();portalBridge.clear();portalStatuses.clear();discovery.cancel();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -354,6 +358,7 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',async e=>{
+  if(e.target.closest('[data-case-trash]')){if(await caseMail.beforeLeave()&&await commercial.beforeLeave())trash.open();return;}
   const contact=e.target.closest('[data-case-mail-message]');if(contact){const row=(getRows('messages')||[]).find(m=>m.gmail_message_id===contact.dataset.caseMailMessage);if(row)await caseMail.open('contact',row);return;}
   if(e.target.closest('[data-invoice-dispatch]')){await caseMail.open('invoice');return;}
   if(e.target.closest('[data-action="case-mail-compose"]')){await caseMail.open('new');return;}
@@ -369,7 +374,7 @@ document.addEventListener('click',async e=>{
   const top=e.target.closest('[data-top]');if(top)setTab(top.dataset.top==='files'?'documents':top.dataset.top==='inbox'?'conversation':'overview');
 });
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
-$('refresh-cases').onclick=refresh;$('sign-out').onclick=async()=>{if(await caseMail.beforeLeave()&&await commercial.beforeLeave())signOut();};$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
+$('refresh-cases').onclick=refresh;$('sign-out').onclick=async()=>{if(trash.beforeLeave()&&await caseMail.beforeLeave()&&await commercial.beforeLeave())signOut();};$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
 $('new-case').disabled=false;$('new-case').title='既存の登録画面を開く';$('new-case').onclick=()=>window.open('/pa-admin-legacy.html','_blank','noopener,noreferrer');
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});
@@ -378,7 +383,7 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{discovery.cancel();commercial.clear();caseMail.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{trash.clear();discovery.cancel();commercial.clear();caseMail.clear();portalBridge.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 render();
 
 workspaceAuth.subscribe?.((event,value)=>{if(session&&value?.access_token!==session.access_token){discovery.cancel();quoteMonitor.clear();commercial.clear();clearAssets();}if(event==='TOKEN_REFRESHED'&&session)session=value;if(event==='SIGNED_OUT')signOut(false);});
