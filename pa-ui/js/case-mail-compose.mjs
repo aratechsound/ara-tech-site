@@ -7,13 +7,13 @@ export function createCaseMailRequest(getSession,onAuthFailure=()=>{}){return as
  const session=await getSession();if(!session?.access_token)throw Error('login_required');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try{let url='/api/pa-gmail?case_mail=1',options={method:read?'GET':'POST',cache:'no-store',headers:{authorization:'Bearer '+session.access_token},signal:controller.signal};
-  if(read)url+='&'+new URLSearchParams({...input,action});else{options.headers['content-type']='application/json';options.body=JSON.stringify({...input,action});}
+  if(read)url+='&'+new window.URLSearchParams({...input,action});else{options.headers['content-type']='application/json';options.body=JSON.stringify({...input,action});}
   const response=await fetch(url,options);let data;try{data=await response.json();}catch{throw Error('case_mail_unavailable');}
   if(response.status===401||data.code==='not_authorized')onAuthFailure();
   if(!response.ok||data.ok!==true)throw Error(data.code||'case_mail_unavailable');return data.result;
  }finally{clearTimeout(timer);}
 };}
-async function attachment(file){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return {filename:file.name,mime_type:file.type||'application/octet-stream',data:btoa(binary).replace(/\+/gu,'-').replace(/\//gu,'_').replace(/=+$/u,'')};}
+async function attachment(file){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return {filename:file.name,mime_type:file.type||'application/octet-stream',data:window.btoa(binary).replace(/\+/gu,'-').replace(/\//gu,'_').replace(/=+$/u,'')};}
 const errors={invalid_origin:'このPreviewの送信準備はOrigin制限で停止しています。設定を迂回しません。',case_mail_recipient_unverified:'宛先を案件・Gmail原本と照合できません。案件の宛先または選択メールの参加者を指定してください。',invalid_reply_cc:'CCを原本参加者と照合できません。',invalid_invoice_pdf:'請求書PDF1件と税込金額を確認してください。',invoice_amount_unverified:'入力金額を契約・採用済み見積・既存請求と照合できません。送付は停止しています。',case_mail_stale:'案件または原本が更新されました。プレビューを作り直してください。',reply_operation_blocked:'送信済みまたは結果不明の操作です。同じ操作を再送できません。',case_mail_unavailable:'送信準備を確認できません。送信せず停止しています。'};
 export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=>[],readFile,onSent=async()=>{},isAuthenticated=()=>true}){
  let state=null;
@@ -44,7 +44,7 @@ export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=
    if(pdfs.length){s.gallery=createGallery({requestBlob:async item=>pdfs[Number(item.asset_id)],isCurrent:()=>current(s)});s.gallery.mount(pdfHost,pdfs.map((f,i)=>({key:'compose-'+i,asset_id:String(i),asset_kind:'local',filename:f.name,mime_type:f.type,byte_size:f.size})));}
   }
   files.onchange=()=>{if(s.attempted)return;s.files=[...files.files];invalidate();renderFiles();};
-  existing.onchange=async()=>{if(!existing.value||s.busy||s.attempted)return;s.busy=true;const version=++s.version;try{const item=docs[Number(existing.value)],blob=await readFile(item);if(!current(s)||version!==s.version)return;s.files=[new File([blob],blob.originalFilename||item.filename,{type:'application/pdf'})];invalidate();await renderFiles();}catch{s.status.textContent='原本を取得できません。権限・Origin制限は解除しません。';}finally{if(current(s))s.busy=false;}};
+  existing.onchange=async()=>{if(!existing.value||s.busy||s.attempted)return;s.busy=true;const version=++s.version;try{const item=docs[Number(existing.value)],blob=await readFile(item);if(!current(s)||version!==s.version)return;s.files=[new window.File([blob],blob.originalFilename||item.filename,{type:'application/pdf'})];invalidate();await renderFiles();}catch{s.status.textContent='原本を取得できません。権限・Origin制限は解除しません。';}finally{if(current(s))s.busy=false;}};
   const showOperation=o=>{s.operation=o;operation.textContent=o?'保存済み送信操作 '+o.operation_id+' / '+o.state+(o.state==='SENT'&&o.history_sync!=='COMPLETE'?' / 送信済み・履歴同期未完了':''): 'この案件の新しいメール作成操作はありません。';if(o&&['UNKNOWN','SENDING'].includes(o.state)){s.status.textContent='結果未確定の送信操作があります。再送せず結果照合を行ってください。';}};
   async function loadContext(){const version=++s.version;prepare.disabled=true;context.textContent='案件・メール原本と宛先を照合中…';
    try{const p=payload(),a=await request('context',{inquiry_id:c.id,kind:p.kind,...(p.source_id?{source_id:p.source_id,thread_id:p.thread_id}:{})},true);if(!current(s)||s.version!==version)return;
