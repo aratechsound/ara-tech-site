@@ -87,10 +87,10 @@ function binding(a,input){
  return {b:{contract:'PAUI-062',account:mail.OFFICIAL_EMAIL,case_email:a.case_email,inquiry_id:a.inquiry_id,kind:a.kind,thread_id:a.thread_id,source_id:a.source_id,source_rfc:a.source_rfc,authority_hash:a.authority_hash,unverified_recipients:a.unverified_recipients,to:a.to,cc:a.cc,subject:a.subject,body_sha256:hash(body),attachments:manifest},body,attachments};
 }
 async function preview(input,actorId,f=fetch){const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
- return {...a,body,html:mail.buildCustomerHtml(body),attachments:b.attachments,unverified_recipients:b.unverified_recipients,recipient_confirmation_needed:b.unverified_recipients.length>0,operation:safe(o),operation_id:o.operation_id,expires_at:o.expires_at,confirmation_token:token({actor_id:actorId,inquiry_id:a.inquiry_id,operation_id:o.operation_id,binding_hash:hash(canonical(b)),expires_at:Date.parse(o.expires_at)})};}
+ return {...a,body,html:mail.buildCustomerHtml(body),attachments:b.attachments,unverified_recipients:b.unverified_recipients,recipient_confirmation_needed:b.unverified_recipients.length>0,operation:safe(o),operation_id:o.operation_id,expires_at:o.expires_at,confirmation_token:token({actor_id:actorId,inquiry_id:a.inquiry_id,operation_id:o.operation_id,binding_hash:hash(canonical(b)),entry_context:a.purpose,expires_at:Date.parse(o.expires_at)})};}
 async function status(input,actorId,f=fetch){const row=await rpc(actorId,'get',{inquiry_id:input.inquiry_id,operation_id:input.operation_id||null},f);return {operation:safe(row.operation)};}
 async function send(input,actorId,f=fetch){
- const signed=verify(input.confirmation_token);if(signed.actor_id!==actorId||signed.inquiry_id!==input.inquiry_id||signed.operation_id!==input.operation_id||input.owner_confirmed!==true)throw Error('invalid_confirmation');
+ const signed=verify(input.confirmation_token);if(signed.actor_id!==actorId||signed.inquiry_id!==input.inquiry_id||signed.operation_id!==input.operation_id||input.owner_confirmed!==true||signed.entry_context!==undefined&&signed.entry_context!==(input.purpose||'general'))throw Error('invalid_confirmation');
  let o=(await rpc(actorId,'get',{inquiry_id:input.inquiry_id,operation_id:input.operation_id},f)).operation;
  if(o.binding_hash!==signed.binding_hash)throw Error('reply_operation_mismatch');
  let claimed=false,started=false;
@@ -113,7 +113,7 @@ async function send(input,actorId,f=fetch){
   o=(await rpc(actorId,'sent',{inquiry_id:a.inquiry_id,operation_id:o.operation_id,gmail_message_id:ack.id,gmail_thread_id:ack.threadId},f)).operation;
   let complete=true;
   try{
-   await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:'gmail_case_message_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,entry_context:a.purpose,gmail_message_id:ack.id,gmail_thread_id:ack.threadId,reply_source_message_id:a.source_id,attachments:b.attachments,formal_billing_created:false,formal_invoice_dispatched:false,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
+   await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:'gmail_case_message_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,entry_context:signed.entry_context||'legacy_unbound',gmail_message_id:ack.id,gmail_thread_id:ack.threadId,reply_source_message_id:a.source_id,attachments:b.attachments,formal_billing_created:false,formal_invoice_dispatched:false,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
    await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:'gmail_case_reply_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,gmail_message_id:ack.id,gmail_thread_id:ack.threadId,attachment_count:b.attachments.length,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
    // Existing binding/sync path, only after an actual ACK. It rejects foreign links.
    const linked=await gmail.getGlobalThreadLink(ack.threadId,f);
@@ -154,4 +154,5 @@ async function reconcile(input,actorId,f=fetch){
  const verification=verified?{status:'VERIFIED',occurred_at:gmail.normalizeMessage(message).occurred_at,attachments:gmail.normalizeMessage(message).attachments.map((a,i)=>({filename:a.filename,mime_type:a.mime_type,size:a.size,part_id:a.part_id,sha256:b.attachments[i].sha256}))}:null;
  return {operation:safe(o),verified,verification,reason:verified?'EXACT_PROVIDER_RECORD':'UNKNOWN_NO_UNIQUE_PROOF',automatic_resend:false};
 }
-module.exports={authority,binding,preview,status,send,reconcile,rpc,safe,canonical};
+const invoice_history=require('./_pa-invoice-mail-read.cjs').createInvoiceMailRead({getInquiry:mail.getInquiry,rows,rpc,gmailMessage:gmail.gmailMessage,normalize:gmail.normalizeMessage,official:mail.OFFICIAL_EMAIL,subject:proof.subject,uuid,ids});
+module.exports={authority,binding,preview,status,send,reconcile,rpc,safe,canonical,invoice_history};

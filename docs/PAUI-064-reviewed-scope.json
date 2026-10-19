@@ -1,0 +1,21 @@
+{
+  "task_id": "PAUI-064",
+  "production_base": "f58efac7c428628b7330d307efc9025b1b961ba1",
+  "reviewed_product_files": {
+    "api/_pa-case-mail-handler.cjs": "75e4fd0e56886e01c08734144c89c1419dd6f93199fb6b85120853c6c1333406",
+    "api/_pa-case-mail.cjs": "d90e4d540b19f6f33f37dc63ae3ed9aed8f53d3e808072e45659d932ccd9abe6",
+    "api/_pa-commercial-handler.cjs": "a2ac6ecc5cfdb41a2516a516034a5597e6d99a20d0d5118984c96ccde331d605",
+    "api/_pa-commercial.cjs": "7ebd2a6c4d5ee1893d708ffc35b302f6f8ac18ad10ba3bc7ac927c9c66913b71",
+    "api/_pa-invoice-mail-read.cjs": "fabe5324ce7e3d4179099c8082a4297afd051adfa19fdd87d9eae441ec568c95",
+    "pa-ui/js/commercial-workflows.mjs": "82646c746c49dbd7c27dc34aaf979dda9dde1e3a53f8074f66efb5b5d18bbe4f",
+    "pa-ui/js/desk.mjs": "3fe043373e7be50392b3a60af961d8ba0f2f71f3787fc43572f9efa1fbbad4c3",
+    "pa-ui/js/invoice-mail-view.mjs": "2e74bbdffc69bd45d4df7720b5d114577b9791b0e13c32403c7dd15be9a16c29"
+  },
+  "reviewed_test_helpers": {
+    "tests/helpers/case-mail-ui-fixture.cjs": "f55fbfccb92717beb91b449ca984ec46e3e271a20edf11bcca5107202113bda1"
+  },
+  "schema_apply": false,
+  "origin_change": false,
+  "legacy_change": false,
+  "customer_send": false
+}
