@@ -16,6 +16,8 @@ function createWorkspaceHandler(options) {
 function workspaceRequest(req) {
   let url;
   try { url = new URL(req.url, 'https://ara-tech.cc'); } catch { return null; }
+  // Scoped CASE DESK composition has its own unchanged-strength Owner/Origin gates.
+  if (url.pathname === '/api/pa-gmail' && url.searchParams.has('case_mail')) return {caseMailRoute:true,request:req};
   const original = url.pathname === '/api/pa-workspace-read';
   if (!original && (url.pathname !== '/api/pa-gmail' || !url.searchParams.has('workspace_read'))) return null;
   if (original && !url.searchParams.has('workspace_read')) return req;
@@ -28,6 +30,7 @@ function workspaceRequest(req) {
 }
 let handler;
 async function dispatchWorkspaceRead(req, res) {
+  if(req.caseMailRoute===true)return require('./_pa-case-mail-handler.cjs').createHandler()(req.request,res);
   try {
     handler ||= createWorkspaceHandler();
     return await handler(req, res);

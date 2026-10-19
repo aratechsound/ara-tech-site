@@ -48,8 +48,6 @@ const sendJson = (response, status, payload) => {
 };
 
 module.exports = async (request, response) => {
-    const caseMail = new URL(request.url, 'https://ara-tech.cc').searchParams;
-    if (caseMail.getAll('case_mail').length === 1 && caseMail.get('case_mail') === '1') return require('./_pa-case-mail-handler.cjs').createHandler()(request, response);
     const workspace = workspaceRequest(request);
     if (workspace) return dispatchWorkspaceRead(workspace, response);
     if (request.method !== "POST") {

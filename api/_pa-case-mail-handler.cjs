@@ -3,6 +3,7 @@ const mail=require('./_pa-mail.cjs'),service=require('./_pa-case-mail.cjs'),secu
 const reply=(res,status,value)=>{res.setHeader('Cache-Control','private, no-store, max-age=0');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Type','application/json; charset=utf-8');return res.status(status).json(value);};
 function createHandler({fetchImpl=fetch,verifyAdmin=mail.verifyAdmin,checkRateLimit=security.checkRateLimit,applyOriginPolicy=security.applyOriginPolicy}={}){return async(req,res)=>{
  try{
+  const route=new URL(req.url,'https://ara-tech.cc');if(route.pathname!=='/api/pa-gmail'||route.searchParams.getAll('case_mail').length!==1||route.searchParams.get('case_mail')!=='1'||route.searchParams.has('workspace_read')||route.searchParams.has('path')||req.method==='POST'&&[...route.searchParams.keys()].some(k=>k!=='case_mail'))throw Error('invalid_case_mail');
   if(!['GET','POST'].includes(req.method))return reply(res,405,{ok:false,code:'method_not_allowed'});
   if(req.method==='POST'&&!applyOriginPolicy(req,res))return reply(res,403,{ok:false,code:'invalid_origin'});
   const match=String(req.headers?.authorization||'').match(/^Bearer ([^\s]+)$/u);if(!match)throw Error('not_authorized');const actor=await verifyAdmin(match[1],fetchImpl);
