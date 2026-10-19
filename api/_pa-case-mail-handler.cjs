@@ -9,7 +9,7 @@ function createHandler({fetchImpl=fetch,verifyAdmin=mail.verifyAdmin,checkRateLi
   const match=String(req.headers?.authorization||'').match(/^Bearer ([^\s]+)$/u);if(!match)throw Error('not_authorized');const actor=await verifyAdmin(match[1],fetchImpl);
   let input;
   if(req.method==='GET'){
-   const url=new URL(req.url,'https://ara-tech.cc');const allowed=['case_mail','action','inquiry_id','kind','source_id','thread_id','operation_id'];
+   const url=new URL(req.url,'https://ara-tech.cc');const allowed=['case_mail','action','inquiry_id','kind','purpose','source_id','thread_id','operation_id'];
    for(const key of url.searchParams.keys())if(!allowed.includes(key)||url.searchParams.getAll(key).length!==1)throw Error('invalid_case_mail');input=Object.fromEntries(url.searchParams);
    if(!['context','status'].includes(input.action))throw Error('invalid_action');
   }else{input=typeof req.body==='object'&&!Buffer.isBuffer(req.body)?req.body:JSON.parse(String(req.body||''));if(!input||Array.isArray(input)||Buffer.byteLength(JSON.stringify(input))>4500000)throw Error('invalid_case_mail');}

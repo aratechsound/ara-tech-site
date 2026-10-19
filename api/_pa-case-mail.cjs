@@ -10,7 +10,7 @@ const unique=v=>[...new Set(v.map(address).filter(valid))].sort();
 const canonical=v=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
 async function rows(table,q,f){const v=await mail.supabaseRequest('/rest/v1/'+table+'?'+new URLSearchParams(q),{},f);if(!Array.isArray(v))throw Error('case_mail_read_unavailable');return v;}
 async function rpc(actorId,action,payload,f){const v=await mail.supabaseRequest('/rest/v1/rpc/pa_case_mail_operation_v1',{method:'POST',body:JSON.stringify({p_actor:actorId,p_action:action,p_payload:payload})},f);if(v?.ok!==true)throw Error('case_mail_operation_unavailable');return v;}
-function safe(o){if(!o)return null;return {...oldOps.safe(o),gmail_thread_id:o.gmail_thread_id||null,kind:o.binding.kind,recipient:o.binding.to,subject:o.binding.subject,attachments:o.binding.attachments,invoice:o.binding.invoice||null};}
+function safe(o){if(!o)return null;return {...oldOps.safe(o),gmail_thread_id:o.gmail_thread_id||null,kind:o.binding.kind,purpose:o.binding.purpose,recipient:o.binding.to,subject:o.binding.subject,attachments:o.binding.attachments,invoice:o.binding.invoice||null,formal_invoice_dispatched:false};}
 async function boundRecipientEvidence(inquiry,recipient,cc,allowed,f){
  const wanted=[...new Set([recipient,...cc].filter(v=>!allowed.includes(v)))];if(!wanted.length)return [];
  const index=await rows('pa_gmail_message_index',{inquiry_id:'eq.'+inquiry.id,select:'gmail_message_id,gmail_thread_id,from_address,to_addresses,cc_addresses',order:'indexed_at.desc',limit:'200'},f);
@@ -35,7 +35,8 @@ async function boundRecipientEvidence(inquiry,recipient,cc,allowed,f){
  }return verified;
 }
 async function authority(input,f=fetch){
- if(!uuid(input.inquiry_id)||!['reply','contact','new','invoice'].includes(input.kind))throw Error('invalid_case_mail');
+ if(!uuid(input.inquiry_id)||!['reply','contact','new'].includes(input.kind)||!['general','invoice'].includes(input.purpose||'general'))throw Error('invalid_case_mail');
+ const purpose=input.purpose||'general';
  const inquiry=await mail.getInquiry(input.inquiry_id,f);let source=null,raw=null;
  const customer=address(inquiry.email);if(!valid(customer))throw Error('case_mail_recipient_unverified');
  if(input.source_id||input.thread_id){
@@ -63,39 +64,30 @@ async function authority(input,f=fetch){
  for(const evidence of recipientEvidence)if(evidence.verified&&!allowed.includes(evidence.recipient))allowed.push(evidence.recipient);allowed.sort();
  const unverifiedRecipients=recipientEvidence.filter(e=>!e.verified).map(e=>e.recipient);
  const sourceSubject=source?proof.subject(source.subject):'';
- const subject=input.subject==null?(input.kind==='invoice'?'請求書送付のご案内':input.kind==='new'?'':gmail.replySubject(sourceSubject)):String(input.subject);
+ const subject=input.subject==null?(input.kind==='new'?(purpose==='invoice'?'請求書送付のご案内':''):gmail.replySubject(sourceSubject)):String(input.subject);
  if(subject&&(/[\r\n\u0000-\u001f]/u.test(subject)||subject.length>240))throw Error('invalid_subject');
  const evidence={case_id:inquiry.id,customer,recipient_evidence:recipientEvidence,source:source?{id:source.id,thread_id:source.thread_id,from:source.from_address,reply_to:source.reply_to,to:source.to_addresses,cc:source.cc_addresses,rfc:source.rfc_message_id,references:source.references}:null};
  let invoice=null;
- if(input.kind==='invoice'){
+ if(purpose==='invoice')try{
   const [contracts,billings,events]=await Promise.all([rows('pa_contracts',{inquiry_id:'eq.'+inquiry.id,select:'id,version,snapshot,snapshot_sha256',order:'version.desc',limit:'2'},f),rows('pa_billings',{inquiry_id:'eq.'+inquiry.id,select:'id,amount_minor,invoice_document_id,invoice_policy',order:'billing_number.desc',limit:'100'},f),rows('pa_change_evidence_events',{inquiry_id:'eq.'+inquiry.id,event_kind:'in.(adopted,revoked)',select:'id,event_kind,evidence,event_number',order:'event_number.desc',limit:'1'},f)]);
   const documentIds=[...new Set(billings.map(b=>b.invoice_document_id).filter(uuid))];
   const documents=documentIds.length?await rows('pa_commercial_documents',{inquiry_id:'eq.'+inquiry.id,id:'in.('+documentIds.join(',')+')',select:'id,sha256',limit:'100'},f):[];
   const contract=contracts[0]||null,adopted=events[0]?.event_kind==='adopted'?events[0]:null;
   const snapshot=contract?.snapshot;const contractAmount=snapshot?.estimate?.amount_minor??snapshot?.quote?.amount_minor??snapshot?.amount_minor??null;
   invoice={contract_id:contract?.id||null,contract_amount_minor:contractAmount,adopted_amount_minor:adopted?.evidence?.quote?.amount_minor??null,adoption_id:adopted?.id||null,adopted_quote_sha256:adopted?.evidence?.quote?.sha256||null,billings:billings.map(b=>({id:b.id,amount_minor:b.amount_minor,document_id:b.invoice_document_id,document_sha256:documents.find(d=>d.id===b.invoice_document_id)?.sha256||null,policy:b.invoice_policy})),formal_billing_created:false};
-  evidence.invoice={...invoice,contract_sha256:contract?.snapshot_sha256||null};
- }
- return {case_email:customer,inquiry_id:inquiry.id,case_number:inquiry.inquiry_number,case_name:inquiry.event_name,kind:input.kind,source_id:source?.id||null,thread_id:source?.thread_id||null,source_rfc:source?.rfc_message_id||null,source_references:source?.references||'',source_subject:sourceSubject,source_direction:source?.direction||null,to:recipient,cc:ccAddresses,allowed_recipients:allowed,unverified_recipients:unverifiedRecipients,recipient_confirmation_needed:unverifiedRecipients.length>0,subject,authority_hash:hash(canonical(evidence)),invoice};
+ }catch{invoice={context_unavailable:true,formal_billing_created:false};}
+ return {case_email:customer,inquiry_id:inquiry.id,case_number:inquiry.inquiry_number,case_name:inquiry.event_name,kind:input.kind,purpose,source_id:source?.id||null,thread_id:source?.thread_id||null,source_rfc:source?.rfc_message_id||null,source_references:source?.references||'',source_subject:sourceSubject,source_direction:source?.direction||null,to:recipient,cc:ccAddresses,allowed_recipients:allowed,unverified_recipients:unverifiedRecipients,recipient_confirmation_needed:unverifiedRecipients.length>0,subject,authority_hash:hash(canonical(evidence)),invoice};
 }
 function token(payload){const key=String(process.env.SUPABASE_SERVICE_ROLE_KEY||'');if(!key)throw Error('case_mail_unavailable');const data=Buffer.from(JSON.stringify(payload)).toString('base64url');return data+'.'+crypto.createHmac('sha256',key).update('PAUI-062:'+data).digest('base64url');}
 function verify(tokenValue){try{const [data,sig,...extra]=String(tokenValue).split('.');const expected=token(JSON.parse(Buffer.from(data,'base64url'))).split('.')[1];if(extra.length||!sig||sig.length!==expected.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))throw Error();const p=JSON.parse(Buffer.from(data,'base64url'));if(p.expires_at<=Date.now())throw Error();return p;}catch{throw Error('invalid_confirmation');}}
 function binding(a,input){
  const attachments=mail.normalizeReplyAttachments(input.attachments||[]),body=mail.normalizeCustomerBody(mail.cleanBody(input.body));
  if(!a.subject||!String(input.body||'').trim()||String(input.body).length>20000)throw Error('invalid_case_mail');
- let invoice=null;
- if(a.kind==='invoice'){
-  const amount=Number(input.invoice_amount_minor);
-  if(attachments.length!==1||attachments[0].mime_type!=='application/pdf'||Buffer.from(attachments[0].data,'base64url').subarray(0,5).toString()!=='%PDF-'||!Number.isSafeInteger(amount)||amount<=0)throw Error('invalid_invoice_pdf');
-  const known=[a.invoice.adopted_amount_minor,a.invoice.contract_amount_minor,...a.invoice.billings.map(b=>b.amount_minor)].filter(v=>v!==null).map(Number);
-  invoice={...a.invoice,pdf_amount_minor:amount,pdf_amount_basis:'OWNER_CONFIRMATION_REQUIRED',amount_matches_saved_evidence:known.includes(amount),amount_differs_from_contract:a.invoice.contract_amount_minor!==null&&Number(a.invoice.contract_amount_minor)!==amount,formal_billing_match:a.invoice.billings.some(b=>Number(b.amount_minor)===amount&&b.document_sha256===hash(Buffer.from(attachments[0].data,'base64url'))),limitations_ack_required:true};
- }
  const manifest=attachments.map(x=>({filename:x.filename,mime_type:x.mime_type,size:x.size,sha256:hash(Buffer.from(x.data,'base64url'))}));
- return {b:{contract:'PAUI-062',account:mail.OFFICIAL_EMAIL,case_email:a.case_email,inquiry_id:a.inquiry_id,kind:a.kind,thread_id:a.thread_id,source_id:a.source_id,source_rfc:a.source_rfc,authority_hash:a.authority_hash,unverified_recipients:a.unverified_recipients,to:a.to,cc:a.cc,subject:a.subject,body_sha256:hash(body),attachments:manifest,invoice},body,attachments};
+ return {b:{contract:'PAUI-062',account:mail.OFFICIAL_EMAIL,case_email:a.case_email,inquiry_id:a.inquiry_id,kind:a.kind,thread_id:a.thread_id,source_id:a.source_id,source_rfc:a.source_rfc,authority_hash:a.authority_hash,unverified_recipients:a.unverified_recipients,to:a.to,cc:a.cc,subject:a.subject,body_sha256:hash(body),attachments:manifest},body,attachments};
 }
-async function validateInvoice(input){if(input.kind!=='invoice')return;try{const attachments=mail.normalizeReplyAttachments(input.attachments||[]);if(attachments.length!==1)throw Error();const doc=await require('pdf-lib').PDFDocument.load(Buffer.from(attachments[0].data,'base64url'));if(doc.isEncrypted||doc.getPageCount()<1||doc.getPageCount()>1000)throw Error();}catch{throw Error('invalid_invoice_pdf');}}
-async function preview(input,actorId,f=fetch){await validateInvoice(input);const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
- return {...a,body,html:mail.buildCustomerHtml(body),attachments:b.attachments,invoice:b.invoice,unverified_recipients:b.unverified_recipients,recipient_confirmation_needed:b.unverified_recipients.length>0,operation:safe(o),operation_id:o.operation_id,expires_at:o.expires_at,confirmation_token:token({actor_id:actorId,inquiry_id:a.inquiry_id,operation_id:o.operation_id,binding_hash:hash(canonical(b)),expires_at:Date.parse(o.expires_at)})};}
+async function preview(input,actorId,f=fetch){const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
+ return {...a,body,html:mail.buildCustomerHtml(body),attachments:b.attachments,unverified_recipients:b.unverified_recipients,recipient_confirmation_needed:b.unverified_recipients.length>0,operation:safe(o),operation_id:o.operation_id,expires_at:o.expires_at,confirmation_token:token({actor_id:actorId,inquiry_id:a.inquiry_id,operation_id:o.operation_id,binding_hash:hash(canonical(b)),expires_at:Date.parse(o.expires_at)})};}
 async function status(input,actorId,f=fetch){const row=await rpc(actorId,'get',{inquiry_id:input.inquiry_id,operation_id:input.operation_id||null},f);return {operation:safe(row.operation)};}
 async function send(input,actorId,f=fetch){
  const signed=verify(input.confirmation_token);if(signed.actor_id!==actorId||signed.inquiry_id!==input.inquiry_id||signed.operation_id!==input.operation_id||input.owner_confirmed!==true)throw Error('invalid_confirmation');
@@ -103,8 +95,8 @@ async function send(input,actorId,f=fetch){
  if(o.binding_hash!==signed.binding_hash)throw Error('reply_operation_mismatch');
  let claimed=false,started=false;
  try{
-  await validateInvoice(input);const a=await authority(input,f),{b,body,attachments}=binding(a,input);
-  if(hash(canonical(b))!==signed.binding_hash||b.kind==='invoice'&&input.invoice_limitations_confirmed!==true||b.unverified_recipients.length&&input.unverified_recipients_confirmed!==true)throw Error('invalid_confirmation');
+  const a=await authority(input,f),{b,body,attachments}=binding(a,input);
+  if(hash(canonical(b))!==signed.binding_hash||b.unverified_recipients.length&&input.unverified_recipients_confirmed!==true)throw Error('invalid_confirmation');
   if(o.state==='SENT')return {operation:safe(o),gmail_message_id:o.gmail_message_id,gmail_thread_id:o.gmail_thread_id,already_sent:true,history_sync:o.history_sync};
   if(o.state!=='PREPARED'||Date.parse(o.expires_at)<=Date.now())throw Error('reply_operation_blocked');
   const config=mail.mailConfig(),access=await mail.getGmailAccessToken(config,f);
@@ -121,7 +113,7 @@ async function send(input,actorId,f=fetch){
   o=(await rpc(actorId,'sent',{inquiry_id:a.inquiry_id,operation_id:o.operation_id,gmail_message_id:ack.id,gmail_thread_id:ack.threadId},f)).operation;
   let complete=true;
   try{
-   await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:b.kind==='invoice'?'gmail_invoice_dispatched':'gmail_case_message_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,gmail_message_id:ack.id,gmail_thread_id:ack.threadId,reply_source_message_id:a.source_id,attachments:b.attachments,invoice:b.invoice,formal_billing_created:false,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
+   await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:'gmail_case_message_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,entry_context:a.purpose,gmail_message_id:ack.id,gmail_thread_id:ack.threadId,reply_source_message_id:a.source_id,attachments:b.attachments,formal_billing_created:false,formal_invoice_dispatched:false,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
    await mail.supabaseRequest('/rest/v1/pa_inquiry_audit',{method:'POST',prefer:'return=representation',body:JSON.stringify({inquiry_id:a.inquiry_id,actor_user_id:actorId,action:'gmail_case_reply_sent',details:{operation_id:o.operation_id,communication_kind:b.kind,gmail_message_id:ack.id,gmail_thread_id:ack.threadId,attachment_count:b.attachments.length,attachment_filenames:b.attachments.map(x=>x.filename)}})},f);
    // Existing binding/sync path, only after an actual ACK. It rejects foreign links.
    const linked=await gmail.getGlobalThreadLink(ack.threadId,f);
@@ -129,7 +121,7 @@ async function send(input,actorId,f=fetch){
    else await gmail.manualLink({inquiryId:a.inquiry_id,gmailThreadId:ack.threadId,conversationRole:'secondary_conversation',actorId},f);
   }catch{complete=false;}
   try{o=(await rpc(actorId,'history',{inquiry_id:a.inquiry_id,operation_id:o.operation_id,complete},f)).operation;}catch{complete=false;}
-  return {operation:safe(o),gmail_message_id:ack.id,gmail_thread_id:ack.threadId,history_sync:complete?'COMPLETE':'INCOMPLETE',formal_billing_created:false};
+  return {operation:safe(o),gmail_message_id:ack.id,gmail_thread_id:ack.threadId,history_sync:complete?'COMPLETE':'INCOMPLETE',formal_billing_created:false,formal_invoice_dispatched:false};
  }catch(e){if(claimed||!started&&!['invalid_confirmation','reply_operation_blocked'].includes(e.message)){try{await rpc(actorId,started?'unknown':'failed',{inquiry_id:input.inquiry_id,operation_id:o.operation_id},f);}catch{}}if(started)throw Error('reply_operation_unknown');throw e;}
 }
 async function inspectNew(message,b,f){
@@ -147,7 +139,7 @@ async function inspectNew(message,b,f){
 }
 async function reconcile(input,actorId,f=fetch){
  let o=(await rpc(actorId,'get',{inquiry_id:input.inquiry_id,operation_id:input.operation_id},f)).operation;if(!o||!['SENT','SENDING','UNKNOWN'].includes(o.state))return {operation:safe(o),verified:false};
- const b=o.binding;const a=await authority({inquiry_id:b.inquiry_id,kind:b.kind,source_id:b.source_id,thread_id:b.thread_id,to:b.to,cc:b.cc,subject:b.subject},f);if(a.authority_hash!==b.authority_hash)throw Error('case_mail_stale');
+ const b=o.binding;const a=await authority({inquiry_id:b.inquiry_id,kind:b.kind,purpose:b.purpose,source_id:b.source_id,thread_id:b.thread_id,to:b.to,cc:b.cc,subject:b.subject},f);if(a.authority_hash!==b.authority_hash)throw Error('case_mail_stale');
  let message=null,verified=false;
  try{
   if(o.gmail_message_id)message=await gmail.gmailMessage(o.gmail_message_id,f);
