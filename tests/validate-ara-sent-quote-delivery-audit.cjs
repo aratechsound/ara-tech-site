@@ -21,7 +21,11 @@ async function fixture(){
  // through the normal fixture API. Current reissue guards are not bypassed by
  // application code; only this isolated historical fixture is seeded directly.
  await f.db.exec('begin;alter table pa_commercial_outbox disable trigger user');
- await f.db.query("update pa_commercial_outbox set state='unknown',delivery_state=null,provider_request_started=null,provider_response_received=null where id=$1",[f.old.outbox_id]);
+ // This is a historical Provider-UNKNOWN fixture, not the cancellation event
+ // produced moments ago by replaceConfirmation. Its finish must predate the
+ // replacement. Retaining cancellation's clock_timestamp can share the same
+ // millisecond with the replacement on fast CI and correctly fail the SQL gate.
+ await f.db.query("update pa_commercial_outbox set state='unknown',delivery_state=null,provider_request_started=null,provider_response_received=null,finished_at=(select issued_at from pa_contract_offers where id=$2) where id=$1",[f.old.outbox_id,f.old.id]);
  await f.db.exec('alter table pa_commercial_outbox enable trigger user;commit');
  f.contractId=offer.id;
  const doc=await PDFDocument.create();doc.addPage().drawText('TOTAL JPY 200,000');f.bytes=Buffer.from(await doc.save());
@@ -85,6 +89,7 @@ async function main({overlay}={}){
   await deny('thread_mismatch','pa_commercial_outbox',"update pa_commercial_outbox set reply_binding=jsonb_set(reply_binding,'{thread_id}','\"other_thread\"') where id=$1",[f.old.outbox_id]);
   await deny('attachment_mismatch','pa_commercial_outbox',"update pa_commercial_outbox set attachment_ids='{}' where id=$1",[f.old.outbox_id]);
   await deny('chronology_mismatch','pa_commercial_outbox',"update pa_commercial_outbox set finished_at=clock_timestamp()+interval '1 day' where id=$1",[f.old.outbox_id]);
+  await deny('same_tick_not_proven_before_replacement','pa_commercial_outbox',"update pa_commercial_outbox set finished_at=(select issued_at from pa_contract_offers where id=$2) where id=$1",[f.old.outbox_id,f.contractId]);
   await deny('ack_identity_missing','pa_commercial_outbox',"update pa_commercial_outbox set provider_message_id=null where id=$1",[f.replacement.outbox_id]);
   await f.db.exec('begin');try{await f.db.exec('alter table pa_commercial_outbox disable trigger user');await assert.rejects(f.db.query('update pa_commercial_outbox set provider_response_received=false where id=$1',[f.replacement.outbox_id]),err=>err.code==='23514');evidence.incomplete_ack_rejected_by_existing_constraint=true;}finally{await f.db.exec('rollback');}
   await f.db.exec('begin');try{await f.db.query("insert into pa_commercial_outbox(id,inquiry_id,operation_id,job_kind,aggregate_id,state,recipient,subject,body_text,reply_binding,attachment_ids) values(gen_random_uuid(),$1,gen_random_uuid(),'confirmation',gen_random_uuid(),'unknown','customer@example.invalid','Synthetic','Synthetic','{}','{}')",[f.inquiryId]);assert.equal((await f.gate()).blocked,true);evidence.additional_unknown_blocks=true;}finally{await f.db.exec('rollback');}
