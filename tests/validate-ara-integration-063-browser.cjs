@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'..'),A='11111111-1111-4111-8111-111111111111'
 (async()=>{let removed=false,mode='ok',trashPosts=0,previews=[],commercialReads=0;const writes=[],errors=[];
  const data=await import('./paui027-fixture.mjs'),original=Buffer.from(data.pdf()),digest=crypto.createHash('sha256').update(original).digest('hex'),D='33333333-3333-4333-8333-333333333333';
  const server=http.createServer((req,res)=>{const p=path.resolve(root,new URL(req.url,'http://localhost').pathname.slice(1));if(!p.startsWith(root+path.sep)||!fs.existsSync(p))return res.writeHead(404).end();res.setHeader('Content-Type',p.endsWith('.mjs')?'text/javascript':p.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(p));});
- await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true,env:{...process.env,LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
  try{for(const width of [1440,390]){
   removed=false;const page=await browser.newPage({viewport:{width,height:950}});page.on('pageerror',e=>errors.push(e.message));await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const s={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>s,current:async()=>s,logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('legacy must not open');};"}));
