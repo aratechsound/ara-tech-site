@@ -158,3 +158,18 @@ export function createCommercialWorkflows({getCase,getSession,onAuthFailure=()=>
   function mount(host,documentView=null){const id=getCase()?.id;if(!id)return;if(caseId!==id){clear();caseId=id;}root=host;documents=documentView;render();if(!snapshot&&!loading&&!error)load();}
   return {mount,beforeLeave,clear,async originalIndex(id){if(!id||getCase()?.id!==id)throw Error('case_changed');if(caseId!==id){clear();caseId=id;}const value=await request('original_index');if(value?.case_id!==id||!value.read_projection)throw Error('incomplete_commercial_snapshot');return value;},async downloadOriginal(input){const id=getCase()?.id;if(!id||input.case_id!==id||Boolean(input.document_id)===Boolean(input.contract_id))throw Error('case_changed');if(caseId!==id){clear();caseId=id;}return request(input.document_id?'document':'change_evidence_contract_pdf',input,true);},async replyDocument(action,input){if(!['reply_document_review','reply_document_adopt','sent_quote_preview','sent_quote_adopt','sent_quote_status'].includes(action))throw Error('case_changed');const id=getCase()?.id;if(!id)throw Error('case_changed');if(caseId!==id){clear();caseId=id;}return request(action,input);},setSimpleAdoption(value){simpleAdoption=value===true;},adoptQuote(candidate){if(simpleAdoption&&quickAdopt)return quickAdopt(candidate);},setQuoteMonitor(value){quoteMonitor=value;evidenceRead=null;},refresh:async()=>{snapshot=null;error=null;await load();}};
 }
+
+// Case-scoped read projections must survive disposal of tab-specific write forms.
+export function createCommercialProjectionRead({getCase,getSession,onAuthFailure=()=>{},fetchImpl=fetch}){
+ let epoch=0;const controllers=new Set();
+ return {clear(){++epoch;for(const c of controllers)c.abort();controllers.clear();},async read(action,id){
+  if(!['original_index','billing_index'].includes(action)||getCase()?.id!==id)throw Error('case_changed');
+  const g=epoch,auth=await getSession();if(!auth?.access_token||g!==epoch||getCase()?.id!==id)throw Error('case_changed');
+  const c=new AbortController();controllers.add(c);const timer=setTimeout(()=>c.abort(),25000);
+  try{const r=await fetchImpl('/api/pa-mail?surface=commercial',{method:'POST',cache:'no-store',redirect:'error',signal:c.signal,headers:{Authorization:'Bearer '+auth.access_token,'Content-Type':'application/json'},body:JSON.stringify({action,case_id:id})});
+   if(g!==epoch||getCase()?.id!==id)throw Error('case_changed');
+   const p=await r.json();if(!r.ok||p.ok!==true){const e=Error(p.code||'commercial_request_failed');e.code=e.message;e.status=r.status;if(r.status===401||r.status===403&&p.code!=='invalid_origin')onAuthFailure();throw e;}
+   if(p.result?.case_id!==id||p.result.read_projection!==true||!Array.isArray(p.result.billings))throw Error('incomplete_commercial_snapshot');return p.result;
+  }finally{clearTimeout(timer);controllers.delete(c);}
+ }};
+}

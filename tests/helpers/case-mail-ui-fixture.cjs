@@ -13,6 +13,7 @@ function caseMailFixture({inquiryId,messages,caseEmail,onPreview=async()=>{},onS
    const source=messages().find(m=>m.gmail_message_id===p.source_id);if(p.source_id&&!source)return route.fulfill({status:409,json:{ok:false,code:'reply_operation_mismatch'}});
    return result({inquiry_id:inquiryId,kind:p.kind,source_id:source?.gmail_message_id||null,thread_id:source?.gmail_thread_id||null,to:source?.direction==='inbound'?source.from_address:caseEmail,cc:[],subject:source?'Re: '+source.subject:'',allowed_recipients:[caseEmail]});
   }
+  if(p.action==='invoice_history'){require('node:assert/strict').equal(req.method(),'GET');return result({inquiry_id:inquiryId,read_only:true,records:[],errors:[],partial:false,truncated:false});}
   if(p.action==='status')return result({operation:p.operation_id?[...operations.values()].find(o=>o.operation_id===p.operation_id)||null:latest});
   if(p.action==='reconcile')return result({operation:latest,verified:false});
   if(p.action==='preview'){

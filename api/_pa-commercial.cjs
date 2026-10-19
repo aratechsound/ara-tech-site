@@ -533,6 +533,15 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
 
   // Metadata-only companion to the existing Owner commercial API. No state
   // initialization, RPC, issue, sync, audit, billing or document mutation.
+  async function billingIndex(caseId) {
+    await mail.getInquiry(uuid(caseId),fetchImpl);
+    const billings=[];
+    for(let offset=0;offset<10000;offset+=250){
+      const batch=await rows('pa_billings',{inquiry_id:'eq.'+caseId,select:'id,inquiry_id,invoice_document_id,invoice_policy,invoice_delivery_state,due_date,customer_planned_payment_on,state,created_at',order:'created_at.desc,id.asc',limit:'250',offset:String(offset)});
+      if(!Array.isArray(batch)||batch.some(b=>b.inquiry_id!==caseId))throw Error('document_identity_mismatch');
+      billings.push(...batch);if(batch.length<250)return {case_id:caseId,billings,read_projection:true};
+    }throw Error('commercial_inventory_incomplete');
+  }
   async function originalIndex(caseId) {
     await mail.getInquiry(uuid(caseId),fetchImpl);
     const read=async(table,select,order)=>{const result=[];for(let offset=0;offset<10000;offset+=250){
@@ -1634,6 +1643,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   const evidenceService = require('./_pa-change-evidence.cjs').createEvidenceService({ rows, one, rpc, snapshot, document, fetchImpl, postgresJsonbText });
   return {
     ...evidenceService,
+    billingIndex,
     originalIndex,
     replyDocumentList: (input, actor) => require('./_pa-reply-documents.cjs').list({actorId:actor.id,inquiryId:input.case_id},fetchImpl),
     replyDocumentVerify: (input, actor) => require('./_pa-reply-documents.cjs').verify({actorId:actor.id,inquiryId:input.case_id,operationId:input.operation_id,messageId:input.gmail_message_id},fetchImpl),

@@ -11,9 +11,9 @@ function createHandler({fetchImpl=fetch,verifyAdmin=mail.verifyAdmin,checkRateLi
   if(req.method==='GET'){
    const url=new URL(req.url,'https://ara-tech.cc');const allowed=['case_mail','action','inquiry_id','kind','purpose','source_id','thread_id','operation_id'];
    for(const key of url.searchParams.keys())if(!allowed.includes(key)||url.searchParams.getAll(key).length!==1)throw Error('invalid_case_mail');input=Object.fromEntries(url.searchParams);
-   if(!['context','status'].includes(input.action))throw Error('invalid_action');
+   if(!['context','status','invoice_history'].includes(input.action))throw Error('invalid_action');
   }else{input=typeof req.body==='object'&&!Buffer.isBuffer(req.body)?req.body:JSON.parse(String(req.body||''));if(!input||Array.isArray(input)||Buffer.byteLength(JSON.stringify(input))>4500000)throw Error('invalid_case_mail');}
-  if(!['context','preview','send','status','reconcile'].includes(input.action))throw Error('invalid_action');
+  if(!['context','preview','send','status','reconcile','invoice_history'].includes(input.action)||input.action==='invoice_history'&&req.method!=='GET')throw Error('invalid_action');
   const rate=await checkRateLimit({request:req,policyName:input.action==='send'?'PA_GMAIL_SEND_REPLY':'PA_GMAIL_REPLY_PREVIEW',scope:actor.id,fetchImpl});if(!rate.allowed){res.setHeader('Retry-After',String(Math.max(1,rate.retryAfter)));return reply(res,429,{ok:false,code:'rate_limited'});}
   const result=input.action==='context'?await service.authority(input,fetchImpl):await service[input.action](input,actor.id,fetchImpl);
   return reply(res,200,{ok:true,result});

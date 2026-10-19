@@ -13,7 +13,8 @@ import {createCaseMailComposer,createCaseMailRequest} from './case-mail-compose.
 import {createCandidateMailView} from './mail-candidate-view.mjs';
 import {createWorkflowRequest,createPortalCandidateBridge} from './case-workflows.mjs';
 import {createOrderDocuments} from './order-documents.mjs';
-import {createCommercialWorkflows} from './commercial-workflows.mjs';
+import {createCommercialWorkflows,createCommercialProjectionRead} from './commercial-workflows.mjs';
+import {invoiceMailHtml} from './invoice-mail-view.mjs';
 import {createQuoteMonitor} from './quote-monitor.mjs';
 import {createQuoteHistory} from './quote-history.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
@@ -74,7 +75,7 @@ async function api(url,{blob=false}={}){
   finally{clearTimeout(timer);requests.delete(controller);}
 }
 let privateAssets=null,previewScope=null,quoteHistory=null,simpleAdoptionEnabled=false;
-function clearAssets(){replyDocuments.clear();quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
+function clearAssets(){commercialRead.clear();replyDocuments.clear();quoteHistory?.dispose();quoteHistory=null;previewScope?.dispose();previewScope=null;privateAssets?.clear();privateAssets=null;}
 function viewPreviewScope(){
   if(previewScope&&!previewScope.current()){previewScope.dispose();previewScope=null;}
   if(!previewScope){const id=selected,epoch=selectionEpoch,viewTab=tab;
@@ -111,8 +112,10 @@ const workflowRequest=createWorkflowRequest(async()=>{const value=await workspac
 const portalStatuses=new Map();
 function portalStatus(id,text){portalStatuses.set(id,text);if(selected===id){const host=$('portal-candidate-status');if(host)host.textContent=text;}}
 const portalBridge=createPortalCandidateBridge({request:workflowRequest,isCurrent:id=>!!session&&selected===id,onStatus:portalStatus});
-const caseMail=createCaseMailComposer({request:createCaseMailRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),getCase:()=>session?current():null,getMessages:()=>getRows('messages')||[],getFiles:()=>materialItems(),readFile:async item=>(await caseAssets().record(item,{fresh:true})).blob,isAuthenticated:()=>!!session&&(!session.expires_at||session.expires_at*1000>Date.now()),onSent:async id=>{if(selected!==id)return;replyDocuments.clear();const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch),loadSurface('audit','/data/case/'+id+'/audit',epoch)]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
+const caseMail=createCaseMailComposer({request:createCaseMailRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),getCase:()=>session?current():null,getMessages:()=>getRows('messages')||[],getFiles:()=>materialItems(),readFile:async item=>(await caseAssets().record(item,{fresh:true})).blob,isAuthenticated:()=>!!session&&(!session.expires_at||session.expires_at*1000>Date.now()),onSent:async id=>{if(selected!==id)return;replyDocuments.clear();const epoch=selectionEpoch;const attentionRows=await api('/data/attention');if(selected!==id||selectionEpoch!==epoch)return;const attentionRow=attentionRows.find(row=>row.inquiry_id===id);cases=cases.map(c=>c.id===id?{...c,attention:attentionRow||null,attentionLoaded:true}:c);renderList();await Promise.all([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch),loadSurface('audit','/data/case/'+id+'/audit',epoch),...(tab==='invoice'?[loadSurface('billing','billing_index',epoch,()=>commercialRead.read('billing_index',id)),loadSurface('invoiceMail','invoice_history',epoch,()=>invoiceHistoryRead('invoice_history',{inquiry_id:id},true))]:[])]);if(selected===id&&selectionEpoch===epoch&&['messages','deliveries'].some(name=>detail[name]?.state!=='ready'))throw Error('reply_history_unconfirmed');}});
 const quoteMonitor=createQuoteMonitor({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onUpdate:()=>{if(session&&cases.length)renderList();}});
+const commercialRead=createCommercialProjectionRead({getCase:()=>session?current():null,getSession:()=>workspaceAuth.current(),onAuthFailure:()=>signOut(false)});
+const invoiceHistoryRead=createCaseMailRequest(()=>workspaceAuth.current(),()=>signOut(false));
 const commercial=createCommercialWorkflows({getCase:()=>session?current():null,getSession:async()=>{session=await workspaceAuth.current();return session;},onAuthFailure:()=>signOut(false),onChanged:async id=>{if(selected===id)await loadSurface('commercial','/data/commercial/'+id,selectionEpoch);}});
 const trash=createCaseTrash({getCase:()=>session?current():null,request:createCaseTrashRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),onTrashed:async saved=>{await refresh();if(cases.some(c=>c.id===saved.inquiry_id)||listError){openInfo('ゴミ箱の保存結果','<p>保存応答は受領しましたが、一覧の反映は未確認です。再移動しないでください。</p>');return;}openInfo('ゴミ箱へ移動しました','<p>'+escape(saved.inquiry_number)+' / 通常一覧からの除外を読戻し確認しました。記録は保持しています。</p>');}});
 const replyDocuments=createReplyDocumentView({getCase:()=>session?current():null,requestReply:workflowRequest,requestCommercial:(action,input)=>commercial.replyDocument(action,input),readBody:(id,row)=>api('/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id))});
@@ -204,7 +207,7 @@ function estimate(c){
 }
 
 function invoice(){
-  return moneyBar()+`<h2 class="sectiontitle">請求状態</h2><button class="action" data-invoice-dispatch>請求書を送付</button><p class="hint">共通のメール作成画面を開きます。添付は任意です。正式請求登録・請求書送付記録・契約額更新とは別です。</p>`+button('現行合意見積の証拠を参照','estimate')+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div><div class="inlinebtns" style="margin-top:12px">${button('請求発行・入金更新','billing-write','quiet',true)}${button('案件完了','close-case','quiet',true)}</div>`;
+  return moneyBar()+`<h2 class="sectiontitle">請求状態</h2><button class="action" data-invoice-dispatch>請求書を送付</button><p class="hint">共通のメール作成画面を開きます。添付は任意です。正式請求登録・請求書送付記録・契約額更新とは別です。</p>`+button('現行合意見積の証拠を参照','estimate')+readBlock('billing','正式請求',s=>s.billings.length?rowsHtml(s.billings,{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}):'<div class="empty-state">正式請求記録なし</div>')+`<section class="group"><h2 class="sectiontitle">送信済みPDF・メール履歴</h2><div id="invoice-mail-history"></div></section><div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div><div class="inlinebtns" style="margin-top:12px">${button('請求発行・入金更新','billing-write','quiet',true)}${button('案件完了','close-case','quiet',true)}</div>`;
 }
 function schedule(c){
   const p=c.progress||{};
@@ -263,6 +266,19 @@ function render(){
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
   central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
   if(tab==='documents')renderGallery();
+  if(tab==='invoice'){
+    const id=selected,epoch=selectionEpoch;
+    if(!detail.billing)void loadSurface('billing','billing_index',epoch,()=>commercialRead.read('billing_index',id));
+    if(!detail.invoiceMail)void loadSurface('invoiceMail','invoice_history',epoch,async()=>{const r=await invoiceHistoryRead('invoice_history',{inquiry_id:id},true);if(r.inquiry_id!==id||r.read_only!==true||!Array.isArray(r.records))throw new ReadFailure('invalid_read_response',503);return r;});
+    const host=$('invoice-mail-history');host.innerHTML=readBlock('invoiceMail','請求関連の送信履歴',data=>invoiceMailHtml(data,detail.billing));
+    const value=getRows('invoiceMail');if(value)for(const row of value.records){
+      if(row.state!=='SENT'||row.verification!=='SENT_IDENTITY_VERIFIED')continue;
+      const mail=host.querySelector('[data-message="'+row.gmail_message_id+'"]');if(!mail)continue;
+      const safe=()=>!!session&&selected===id&&selectionEpoch===epoch&&tab==='invoice';
+      bodyView.mount(mail,id,{gmail_message_id:row.gmail_message_id,gmail_thread_id:row.gmail_thread_id,body_text:row.body_text},safe);
+      const target=mail.querySelector('.attachment-strip');if(target){const g=createMailAttachmentCarousel({assets:caseAssets(),previewScope:viewPreviewScope(),isCurrent:safe});mailGalleries.push(g);g.mount(target,row.attachments);}
+    }
+  }
   if(['estimate','documents'].includes(tab)&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
   if(tab==='conversation'){renderMailPreviews();discovery.mount(selected);const host=document.createElement('p');host.id='portal-candidate-status';host.setAttribute('role','status');host.textContent=portalStatuses.get(selected)||'';const recheck=document.createElement('button');recheck.type='button';recheck.className='lightbtn';recheck.textContent='索引済み添付を再照合（最大20通）';recheck.dataset.portalRecheck='';central.prepend(host,recheck);}
   const items=materialItems();
@@ -294,7 +310,7 @@ async function selectCase(id,initialTab='overview'){
   portalBridge.cancel();++selectionEpoch;abortRequests();clearDetail();selected=id;tab=initialTab;const epoch=selectionEpoch;
   renderList();render();
   // No mark-read, Gmail sync, lazy contract PDF generation or token issuance here.
-  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercial.originalIndex(id):null),loadSurface('materials','/data/materials/'+id,epoch)]));
+  await Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercialRead.read('original_index',id):null),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
   if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
