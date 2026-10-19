@@ -20,10 +20,10 @@ export async function saveOriginal({item,assets,isCurrent,label}){
   if(label)label.textContent='ダウンロードしました';
  }finally{if(record)setTimeout(()=>assets.release(record),1000);}
 }
-export function downloadButton({item,assets,isCurrent,onError,onStart=()=>{},label='ダウンロード'}){
+export function downloadButton({item,assets,isCurrent,onError,onStart=()=>{},label='ダウンロード',allowCommercial=false}){
  const b=document.createElement('button');b.type='button';b.className='lightbtn original-download';b.textContent=label;
- b.disabled=!item.asset_id||item.asset_kind==='document'||item.asset_kind==='receipt';
- if(item.asset_kind==='document'||item.asset_kind==='receipt')b.title='商務原本のダウンロードは今回の限定リリース対象外です（既存の取得経路・制限を維持）';
+  b.disabled=!item.asset_id||!allowCommercial&&(item.asset_kind==='document'||item.asset_kind==='receipt');
+  if(!allowCommercial&&(item.asset_kind==='document'||item.asset_kind==='receipt'))b.title='商務原本のダウンロードは今回の限定リリース対象外です（既存の取得経路・制限を維持）';
  b.onclick=async()=>{if(b.disabled)return;b.disabled=true;onStart();try{await saveOriginal({item,assets,isCurrent});}catch(e){if(isCurrent())onError?.(e);}finally{if(isCurrent())b.disabled=false;}};
  return b;
 }

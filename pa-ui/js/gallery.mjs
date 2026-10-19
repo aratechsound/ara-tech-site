@@ -86,7 +86,7 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope,preview
     const controls=document.createElement('div');controls.className='preview-controls';
     const close=document.createElement('button');close.textContent='閉じる';const opened=dialog;
     const downloadStatus=document.createElement('span');downloadStatus.setAttribute('role','status');
-    controls.append(downloadButton({item,assets,label:downloadLabel,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{if(opened.open)downloadStatus.textContent=previewError(e);}}),downloadStatus);
+    controls.append(downloadButton({item,assets,allowCommercial:assets.commercialOriginals===true,label:downloadLabel,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{if(opened.open)downloadStatus.textContent=previewError(e);}}),downloadStatus);
     if(previewActions)previewActions(item,controls);
     opened.append(title,controls,body,close);document.body.append(opened);opened.showModal();
     let renderId=0,page=1,zoom=1,pages=1,original,fullPdf,finished=false,detach=()=>{};
@@ -124,7 +124,7 @@ export function createGallery({requestBlob,isCurrent,assets,previewScope,preview
     root.querySelectorAll('.material-card').forEach((card,index)=>{
       const item=items[index];
       const downloadStatus=document.createElement('div');downloadStatus.className='material-error';downloadStatus.setAttribute('role','status');
-      const save=downloadButton({item,assets,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{downloadStatus.textContent=previewError(e);}});
+      const save=downloadButton({item,assets,allowCommercial:assets.commercialOriginals===true,isCurrent:()=>previewScope?previewScope.current():current(),onStart:()=>downloadStatus.textContent='',onError:e=>{downloadStatus.textContent=previewError(e);}});
       card.querySelector('.material-meta').append(save,downloadStatus);
       const name=card.querySelector('.material-name');name.title=item.filename;if(!showSource&&!warehouse){const full=document.createElement('details');full.className='material-info';const label=document.createElement('summary');label.textContent='ファイル名全文';const text=document.createElement('div');text.textContent=item.filename;full.append(label,text);card.querySelector('.material-meta').append(full);}
       if(warehouse){

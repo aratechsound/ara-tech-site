@@ -90,7 +90,7 @@ function caseAssets(){
       requestDownload:item=>item.asset_kind==='document'||item.download_ref?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item).replace('/data/','/data/download/'),{blob:true}),
       requestBlob:item=>commercialOriginalsRead&&(item.asset_kind==='document'||item.asset_kind==='receipt')?commercial.downloadOriginal({case_id:id,...(item.download_ref?{contract_id:item.download_ref.id}:{document_id:item.asset_id})}):api(assetRoute(id,item),{blob:true})});
   }
-  return privateAssets;
+  privateAssets.commercialOriginals=commercialOriginalsRead;return privateAssets;
 }
 function current(){return cases.find(c=>c.id===selected)||null;}
 function getRows(surface){const state=detail[surface];return state?.state==='ready'?state.value:null;}
