@@ -426,3 +426,4 @@ body.staff-portal-view.staff-general #performer-section{display:none!important}
 
 body.staff-portal-view .header-inner{justify-content:space-between;gap:12px}
 body.staff-portal-view .performer-document__label{grid-column:1 / -1}
+.photo-tile > .document-download{position:absolute;bottom:8px;right:8px;z-index:2;width:auto;margin:0}

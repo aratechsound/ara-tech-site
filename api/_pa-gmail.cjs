@@ -583,11 +583,17 @@ const streamAttachmentResponse = async (response, attachment) => {
     response.statusCode = 200;
     response.setHeader("Content-Type", safeAttachmentMimeType(attachment.mime_type));
     response.setHeader("Content-Disposition", attachmentContentDisposition(attachment.filename));
+    response.setHeader("Content-Length", String(bytes.length));
+    response.setHeader("X-PA-Original-SHA256", crypto.createHash("sha256").update(bytes).digest("hex"));
     response.setHeader("Cache-Control", "private, no-store, max-age=0");
     response.setHeader("X-Content-Type-Options", "nosniff");
     for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+        if (response.destroyed) return;
         if (!response.write(bytes.subarray(offset, Math.min(offset + 64 * 1024, bytes.length)))) {
-            await new Promise((resolve) => response.once("drain", resolve));
+            await new Promise((resolve) => {
+                const done=()=>{response.off?.("drain",done);response.off?.("close",done);resolve();};
+                response.once("drain",done);response.once("close",done);
+            });
         }
     }
     response.end();
@@ -781,6 +787,11 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     const subject = subjectOverride==null ? replySubject(source.subject) : cleanHeader(subjectOverride,240);
     const normalizedBody = normalizeCustomerBody(cleanBody(body));
     const normalizedAttachments = normalizeReplyAttachments(attachments);
+    for (const a of normalizedAttachments) if (a.document_kind) {
+        const bytes = Buffer.from(a.data, 'base64url');
+        const pdf = require('./_pa-contract-pdf.cjs');
+        await pdf.validatePdf(bytes, pdf.sha(bytes));
+    }
     const normalizedMode = replyMode(mode);
     if (normalizedMode !== "normal") requirePaCase(await getInquiry(inquiryId, fetchImpl));
     const attachmentsHash = replyAttachmentsHash(normalizedAttachments);
@@ -799,7 +810,7 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
         body: normalizedBody,
         html: buildCustomerHtml(normalizedBody),
         mode: normalizedMode,
-        attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
+        attachments: normalizedAttachments.map(({ filename, mime_type, size, document_kind }) => ({ filename, mime_type, size, ...(document_kind ? { document_kind } : {}) }))
     };
     if (issueConfirmationToken) {
         preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, replySourceExplicit: explicit, replySourceAuthorityHash: preview.reply_source_authority_hash, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt });

@@ -83,7 +83,7 @@ function verify(tokenValue){try{const [data,sig,...extra]=String(tokenValue).spl
 function binding(a,input){
  const attachments=mail.normalizeReplyAttachments(input.attachments||[]),body=mail.normalizeCustomerBody(mail.cleanBody(input.body));
  if(!a.subject||!String(input.body||'').trim()||String(input.body).length>20000)throw Error('invalid_case_mail');
- const manifest=attachments.map(x=>({filename:x.filename,mime_type:x.mime_type,size:x.size,sha256:hash(Buffer.from(x.data,'base64url'))}));
+ const manifest=attachments.map(x=>({filename:x.filename,mime_type:x.mime_type,size:x.size,sha256:hash(Buffer.from(x.data,'base64url')),...(x.document_kind?{document_kind:x.document_kind}:{})}));
  return {b:{contract:'PAUI-062',account:mail.OFFICIAL_EMAIL,case_email:a.case_email,inquiry_id:a.inquiry_id,kind:a.kind,thread_id:a.thread_id,source_id:a.source_id,source_rfc:a.source_rfc,authority_hash:a.authority_hash,unverified_recipients:a.unverified_recipients,to:a.to,cc:a.cc,subject:a.subject,body_sha256:hash(body),attachments:manifest},body,attachments};
 }
 async function preview(input,actorId,f=fetch){const a=await authority(input,f),{b,body,attachments}=binding(a,input);if(!(await gmail.mailboxProfile(f)).matchesOfficialMailbox)throw Error('gmail_mailbox_mismatch');const row=await rpc(actorId,'prepare',{operation_id:crypto.randomUUID(),inquiry_id:a.inquiry_id,binding:b,binding_hash:hash(canonical(b)),new_operation:input.new_operation===true,previous_operation_id:input.previous_operation_id||null},f);const o=row.operation;
@@ -151,6 +151,7 @@ async function reconcile(input,actorId,f=fetch){
   }
  }catch{verified=false;}
  if(verified&&o.state!=='SENT')o=(await rpc(actorId,'sent',{inquiry_id:b.inquiry_id,operation_id:o.operation_id,gmail_message_id:message.id,gmail_thread_id:message.threadId},f)).operation;
- return {operation:safe(o),verified,reason:verified?'EXACT_PROVIDER_RECORD':'UNKNOWN_NO_UNIQUE_PROOF',automatic_resend:false};
+ const verification=verified?{status:'VERIFIED',occurred_at:gmail.normalizeMessage(message).occurred_at,attachments:gmail.normalizeMessage(message).attachments.map((a,i)=>({filename:a.filename,mime_type:a.mime_type,size:a.size,part_id:a.part_id,sha256:b.attachments[i].sha256}))}:null;
+ return {operation:safe(o),verified,verification,reason:verified?'EXACT_PROVIDER_RECORD':'UNKNOWN_NO_UNIQUE_PROOF',automatic_resend:false};
 }
 module.exports={authority,binding,preview,status,send,reconcile,rpc,safe,canonical};

@@ -14,7 +14,7 @@ export function groupQuoteHistory(items,proofs,caseId){
  return result.map(group=>{const registered=group.origins.filter(i=>i.source==='commercial');const representative=registered.find(i=>/[一-龠ぁ-んァ-ヶ]/u.test(i.filename||''))||registered[0]||group.origins[0];return {...representative,...group,representative,title:representative.filename,original_state:group.verified_sha256?'PDF実バイトSHA256一致・表示統合（正式採用とは別）':'原本一致未確認・個別表示'};});
 }
 const el=(tag,text='')=>{const n=document.createElement(tag);n.textContent=privateText(String(text));return n;};
-export function createQuoteHistory({caseId,assets,isCurrent,previewScope,monitor,onAdopt}){
+export function createQuoteHistory({caseId,assets,isCurrent,previewScope,monitor,onAdopt,registrationActions}){
  const proofs=new Map(),failures=new Set();let active=true,host=null,items=[],gallery=null,checking=false,version=0,unsubscribe=null;
  const safe=()=>active&&isCurrent();
  const candidate=item=>{const found=(monitor?.getFull(caseId)?.candidates||[]).filter(c=>c.evidence?.quote.sha256===item.verified_sha256&&c.decision?.event_kind!=='excluded');return found.length===1&&!found[0].stale&&!(found[0].origins?.length>1)&&found[0].evidence.approval?.status==='verified'&&found[0].evidence.approval.exact_quote_reference&&found[0].evidence.approval.linked?found[0]:null;};
@@ -29,7 +29,7 @@ export function createQuoteHistory({caseId,assets,isCurrent,previewScope,monitor
  const proxy={...assets,async record(item,options){const original=item.representative||item;const record=await assets.record(original,options);try{if(await verify(original,record.blob)&&safe())queueMicrotask(()=>{if(safe()&&host)render();});return record;}catch(e){assets.release(record);throw e;}}};
  function render(){
   if(!safe()||!host)return;const groups=groupQuoteHistory(items,proofs,caseId);gallery?.dispose();
-  gallery=createGallery({assets:proxy,previewScope,isCurrent:safe,previewActions:(item,controls)=>{const download=el('button','PDFをダウンロード');download.onclick=async()=>{download.disabled=true;let record;try{record=await proxy.record(item,{fresh:true});if(!safe()){assets.release(record);return;}const a=el('a');a.href=record.url;a.download=item.filename;document.body.append(a);a.click();a.remove();controls.closest('dialog')?.addEventListener('close',()=>assets.release(record),{once:true});}catch{if(record)assets.release(record);if(safe())download.textContent='原本取得未完了・再確認してください';}finally{download.disabled=false;}};controls.append(download);const c=candidate(item);if(c){const b=el('button','この見積を正式採用');b.onclick=()=>onAdopt(c);controls.append(b);}}});
+  gallery=createGallery({assets:proxy,previewScope,isCurrent:safe,downloadLabel:'PDFをダウンロード',previewActions:(item,controls)=>{registrationActions?.(item,controls);const c=candidate(item);if(c){const b=el('button','この見積を正式採用');b.onclick=()=>onAdopt(c);controls.append(b);}}});
   const grid=el('div');grid.className='quote-history-cards';host.classList.add('quote-history');host.replaceChildren(grid);gallery.mount(grid,groups,{compact:true});
   for(const [index,card]of [...host.querySelectorAll('.material-card')].entries()){
    const group=groups[index],details=el('details'),summary=el('summary','登録・送信履歴 '+group.origins.length+'出典');details.append(summary);
