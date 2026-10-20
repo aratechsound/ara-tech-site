@@ -354,11 +354,8 @@ const sendJson = (response, status, payload) => {
 
 module.exports = async (request, response) => {
     if (request.method === "GET" && String(request.url || "").includes("general_config")) {
-        // A missing/invalid configuration must never choose the legacy route.
+        // Common intake is the only permitted route: never fall back to Formspree.
         const gate = process.env.ARA_GENERAL_INQUIRY_ENABLED;
-        if (gate === 'false') {
-            return sendJson(response, 200, { mode: 'LEGACY', enabled: false });
-        }
         try {
             if (gate !== 'true') throw Error('CONFIG_REQUIRED');
             const p = require('./_ara-intake.cjs').policy();

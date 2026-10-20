@@ -1,5 +1,8 @@
 export const STATUS = Object.freeze({new:'新規問い合わせ',new_inquiry:'新規問い合わせ',follow_up_pending:'フォロー待ち',waiting_customer_reply:'顧客回答待ち',hearing:'ヒアリング中',rough_estimate:'概算見積中',customer_intent_confirmed:'依頼意思確認済',schedule_coordination:'日程・人員調整中',reviewing:'内容確認中',second_form_not_issued:'日程フォーム未発行',second_form_issued:'日程フォーム発行済',customer_responded:'顧客回答済',schedule_unconfirmed:'日程未確定',schedule_adjusting:'日程調整中',needs_confirmation:'確認事項あり',declined:'見送り',schedule_confirmed:'日程確保完了',schedule_unavailable:'日程確保不可',on_hold:'保留',cancelled:'取消',closed:'対応終了',formal_order_confirmed:'正式受注済',owner_payment_completed:'入金確認済みで完了'});
 export const STEPS=['問い合わせ受付','ヒアリング','概算提示','依頼意思確認','日程・人員調整','正式見積','発注確認','予約確定','事前準備','最終確認','本番実施','請求','入金確認','完了'];
+export const isGeneralInquiry=c=>!!c?.case_type&&c.case_type!=='PA_EVENT';
+export const inquiryKind=c=>({OTHER:'一般問い合わせ',AUDIO_INSTALL:'音響設備',AV_INSTALL:'映像・音響設備',LIGHTING_INSTALL:'照明設備',VIDEO_INSTALL:'映像設備',EQUIPMENT_RENTAL:'機材レンタル'})[c?.case_type]||c?.case_type||'問い合わせ';
+export const caseTitle=c=>isGeneralInquiry(c)?c.customer_name||c.organization_name||c.contact_name||'一般問い合わせ':c?.event_name||'イベント名未設定';
 export const escape = x => String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // PAUI-009 completion authority: explicit saved close/terminal records only.
 // Event dates, event completion, payment balance and settlement never close a case.

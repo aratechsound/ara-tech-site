@@ -1,6 +1,9 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..'),out=path.resolve(root,'../../outputs/ARA-CASE-001R3-audit'),base='http://127.0.0.1:8875';
 const before=execFileSync('git',['show','cac44214dba8f273377ab66fc95b2aad7e4fc38d:js/ara-general-inquiry.js'],{cwd:root,encoding:'utf8'});
+// The Before scenario must pair the original client with its original DOM.
+// The direct-intake page deliberately no longer has data-fs-error/legacy action.
+const beforeHtml=execFileSync('git',['show','cac44214dba8f273377ab66fc95b2aad7e4fc38d:general-inquiry.html'],{cwd:root,encoding:'utf8'});
 const fake=`window.__widget={renders:0,resets:0};window.turnstile={render(node,options){window.__widget.renders++;window.__proofOptions=options;return 'fixture-widget';},reset(id){if(id!=='fixture-widget')throw Error('wrong widget');window.__widget.resets++;},};window.__solve=()=>{const t='single-use-'+crypto.randomUUID();if(window.__proofOptions)window.__proofOptions.callback(t);else{let i=document.querySelector('[name="cf-turnstile-response"]');if(!i){i=document.createElement('input');i.type='hidden';i.name='cf-turnstile-response';document.querySelector('#contact-form').append(i);}i.value=t;}};if(!document.querySelector('script[src*="render=explicit"]'))window.__solve();`;
 (async()=>{
  const browser=await chromium.launch({headless:true});const records=[],beforeRecords=[];
@@ -15,6 +18,7 @@ const fake=`window.__widget={renders:0,resets:0};window.turnstile={render(node,o
    if(url.hostname!=='127.0.0.1')return route.abort();if(url.pathname==='/api/pa-inquiry'&&request.method()==='GET'&&page.configNetwork)return route.abort();
    if(old&&url.pathname==='/api/pa-inquiry'&&request.method()==='GET'){const response=await route.fetch({headers:{...request.headers(),'x-ara-fixture-baseline-config':'true'}});page.beforeConfig={status:response.status(),body:await response.json()};return route.fulfill({response});}
    if(old&&url.pathname==='/js/ara-general-inquiry.js')return route.fulfill({contentType:'text/javascript',body:before});
+   if(old&&url.pathname==='/general-inquiry.html')return route.fulfill({contentType:'text/html',body:beforeHtml});
    if(url.pathname==='/api/pa-inquiry'&&request.method()==='POST'){
     const input=request.postDataJSON();const response=await route.fetch();const body=await response.json();
     page.posts.push({key:input.submission_key,proof:input.captcha_token,body,status:response.status()});
@@ -30,7 +34,7 @@ const fake=`window.__widget={renders:0,resets:0};window.turnstile={render(node,o
  }
  async function fillCommon(p){await p.locator('#general-case-fields').waitFor({state:'visible'});await p.locator('#case-type').selectOption('AUDIO_INSTALL');await p.locator('#subject').fill('R3施工相談');}
  async function solve(p){await p.waitForFunction(()=>window.__solve);await p.evaluate(()=>window.__solve());await p.waitForFunction(()=>!document.querySelector('[type=submit]').disabled);}
- async function send(p){const n=p.posts.length;await p.locator('[type=submit]').click();for(let i=0;p.posts.length===n&&i<1000;i++)await new Promise(r=>setTimeout(r,20));assert.equal(p.posts.length,n+1,'POST dispatched');await p.waitForFunction(()=>document.querySelector('[data-fs-error]').textContent.includes('保存しました')||document.querySelector('[data-fs-error]').textContent.includes('確認できません')).catch(async e=>{console.log(JSON.stringify({errors:p.errors,posts:p.posts.map(x=>({key:x.key,status:x.status,body:x.body})),message:await p.locator('[data-fs-error]').innerText()}));throw e;});assert.equal(p.posts.length,n+1);}
+ async function send(p){const n=p.posts.length;await p.locator('[type=submit]').click();for(let i=0;p.posts.length===n&&i<1000;i++)await new Promise(r=>setTimeout(r,20));assert.equal(p.posts.length,n+1,'POST dispatched');await p.waitForFunction(()=>document.querySelector('[data-fs-error], [data-intake-error]').textContent.includes('保存しました')||document.querySelector('[data-fs-error], [data-intake-error]').textContent.includes('確認できません')).catch(async e=>{console.log(JSON.stringify({errors:p.errors,posts:p.posts.map(x=>({key:x.key,status:x.status,body:x.body})),message:await p.locator('[data-fs-error], [data-intake-error]').innerText()}));throw e;});assert.equal(p.posts.length,n+1);}
  async function state(p){return (await p.request.get(base+'/fixture-state?key='+p.posts[0].key)).json();}
  // Before: real baseline client, the same single-use fake and real DB/API.
  for(const scenario of ['db_once','lost_response']){
@@ -66,6 +70,6 @@ const fake=`window.__widget={renders:0,resets:0};window.turnstile={render(node,o
   await p.locator('button').filter({hasText:'受付方法を再確認'}).click();await fillCommon(p);assert.equal(await p.locator('#message').inputValue(),'再試行でも入力を保持する');await solve(p);await send(p);assert.equal(p.posts.length,1);assert.equal(p.legacy.length,0);assert.equal(await p.evaluate(()=>window.__widget.renders),1);
   records.push({scenario,result:'PASS',unavailable_blocks_native:true,no_legacy:true,recovered_single_submit:true});await p.close();
  }
- const legacy=await pageFor('off');await legacy.waitForFunction(()=>!document.querySelector('[type=submit]').disabled);await legacy.locator('[type=submit]').click();await legacy.waitForFunction(()=>window.__legacyInitializations===1);assert.equal(legacy.posts.length,0);assert.equal(legacy.legacy.length,1);records.push({scenario:'explicit OFF -> LEGACY',result:'PASS',loader:1,legacy_posts:1,common_posts:0});await legacy.close();
+ const disabled=await pageFor('off');await disabled.waitForFunction(()=>document.querySelector('form').dataset.intakeMode==='UNAVAILABLE');assert.equal(await disabled.locator('[type=submit]').isEnabled(),false);await disabled.evaluate(()=>{document.querySelector('form').requestSubmit();document.querySelector('form').submit();});assert.equal(disabled.posts.length,0);assert.equal(disabled.legacy.length,0);records.push({scenario:'explicit OFF -> UNAVAILABLE',result:'PASS',legacy_posts:0,common_posts:0,fail_closed:true});await disabled.close();
  await browser.close();fs.writeFileSync(path.join(out,'R3_BROWSER_API_PG.json'),JSON.stringify({recorded_at:new Date().toISOString(),scope:'actual browser/client/API/PostgREST/PostgreSQL; single-use Turnstile and Gmail providers fake; fake Formspree submit only; no external requests',before:beforeRecords,checks:records,result:'PASS'},null,2));console.log('R3 before 4 and after '+records.length+' PASS');
 })().catch(e=>{console.error(e);process.exit(1);});

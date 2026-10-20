@@ -2,7 +2,7 @@
 export function createWorkflowRequest(getSession){
   return async function request(action,input){
     const documentRead=['reply_document_list','reply_document_verify'].includes(action);
-    const endpoint=documentRead?'/api/pa-mail?surface=commercial':action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply','reply_operation_status','reply_reconcile'].includes(action)?'/api/pa-gmail':null;
+    const endpoint=documentRead?'/api/pa-mail?surface=commercial':action==='candidate_backfill'?'/api/pa-portal':['reply_preview','send_reply','reply_operation_status','reply_reconcile','inbox_list','inbox_review','inbox_decide'].includes(action)?'/api/pa-gmail':null;
     if(!endpoint)throw Error('workflow_action_refused');
     const session=await getSession();if(!session?.access_token)throw Error('login_required');
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);

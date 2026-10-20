@@ -1,26 +1,23 @@
-const form = document.getElementById('contact-form'), message = document.querySelector('[data-fs-error]');
-const button = form.querySelector('[type=submit]'), extra = document.getElementById('general-case-fields'), legacyAction = form.action;
+const form = document.getElementById('contact-form'), message = document.querySelector('[data-intake-error]');
+const button = form.querySelector('[type=submit]');
 let mode = 'UNAVAILABLE', initializing = false, sending = false, key = crypto.randomUUID();
-let config, token = '', widgetId = null, legacyInitialized = false, legacyLoaded = false, widgetScript;
+let config = null, token = '', widgetId = null, widgetScript;
 const status = document.createElement('p'); status.setAttribute('role', 'status');
 const retryConfig = document.createElement('button'); retryConfig.type = 'button'; retryConfig.textContent = '受付方法を再確認'; retryConfig.hidden = true;
 const retryCaptcha = document.createElement('button'); retryCaptcha.type = 'button'; retryCaptcha.textContent = '確認処理をやり直す'; retryCaptcha.hidden = true;
 form.append(status, retryConfig, retryCaptcha);
-extra.querySelectorAll('input,select').forEach(field => { field.disabled = true; });
 function update() {
-    button.disabled = initializing || sending || (mode !== 'LEGACY' && mode !== 'COMMON')
-        || (mode === 'LEGACY' && !legacyLoaded)
-        || (mode === 'COMMON' && config.spam_adapter === 'turnstile' && !token);
+    button.disabled = initializing || sending || mode !== 'COMMON'
+        || (config?.spam_adapter === 'turnstile' && !token);
     retryConfig.disabled = initializing; retryCaptcha.disabled = sending; form.dataset.intakeMode = mode;
 }
 function unavailable() {
     mode = 'UNAVAILABLE'; token = '';
-    status.textContent = '受付方法を確認できません。再確認してください。入力内容は保持しています。';
+    status.textContent = '直接受付の準備ができていません。再確認してください。入力内容は保持しています。';
     retryConfig.hidden = false; update();
 }
 function validConfig(value) {
     if (!value || typeof value !== 'object') return false;
-    if (value.mode === 'LEGACY') return value.enabled === false;
     return value.mode === 'COMMON' && value.enabled === true
         && ((value.spam_adapter === 'turnstile' && typeof value.captcha_site_key === 'string' && value.captcha_site_key.trim())
             || (value.spam_adapter === 'fixture' && value.captcha_site_key === null));
@@ -64,35 +61,23 @@ async function prepareCaptcha() {
 }
 retryCaptcha.addEventListener('click', () => { if (!sending) prepareCaptcha(); });
 async function initialize() {
-    if (initializing || mode === 'COMMON' || (mode === 'LEGACY' && legacyLoaded)) return;
+    if (initializing || mode === 'COMMON') return;
     initializing = true; status.textContent = '受付方法を確認しています…'; update();
     try {
         const response = await fetch('/api/pa-inquiry?general_config=1');
         if (!response.ok) throw Error('config_unavailable');
         const next = await response.json(); if (!validConfig(next)) throw Error('config_unavailable'); config = next;
-        if (next.mode === 'LEGACY') {
-            if (!legacyInitialized) {
-                window.formspree ||= function () { (window.formspree.q ||= []).push(arguments); };
-                window.formspree('initForm', {formElement: '#contact-form', formId: 'mojqjwnr', onSuccess: () => location.assign('thanks.html?sent=1')});
-                legacyInitialized = true;
-            }
-            await loadScript('https://unpkg.com/@formspree/ajax@1');
-            legacyLoaded = true; form.action = legacyAction; mode = 'LEGACY'; status.textContent = '';
-        } else {
-            mode = 'COMMON'; form.action = '/api/pa-inquiry'; extra.hidden = false;
-            extra.querySelectorAll('input,select').forEach(field => { field.disabled = false; });
-            if (config.spam_adapter === 'turnstile') await prepareCaptcha(); else status.textContent = '';
-        }
+        mode = 'COMMON';
+        if (config.spam_adapter === 'turnstile') await prepareCaptcha();
+        else status.textContent = '';
         retryConfig.hidden = true;
     } catch { unavailable(); }
     finally { initializing = false; update(); }
 }
 retryConfig.addEventListener('click', initialize);
-// Guard Enter/requestSubmit and direct native submission while route/proof is unknown.
-const nativeSubmit = form.submit.bind(form);
-form.submit = () => { if (mode === 'LEGACY' && !button.disabled) nativeSubmit(); else form.requestSubmit(); };
+// Never allow a native submit to bypass direct-intake readiness or verified proof.
+form.submit = () => form.requestSubmit();
 form.addEventListener('submit', async event => {
-    if (mode === 'LEGACY' && !button.disabled) return;
     event.preventDefault(); event.stopImmediatePropagation();
     if (button.disabled || mode !== 'COMMON') return;
     sending = true; update(); message.style.display = 'block'; message.textContent = '受付を保存しています…';

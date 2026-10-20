@@ -1,0 +1,12 @@
+{
+  "task_id": "PAUI-071",
+  "scope": "TWO_LEGACY_FORM_SPREE_STATIC_TESTS_ONLY",
+  "base_commit": "73bdc0a738e3325fc6d0df9b523a4954d6359277",
+  "production_base": "ca98c415de508cc0914e0e2fcb2000cbda30f970",
+  "reviewed_test_files": {
+    "tests/validate-ara-20260723-003.cjs": "e7fa544ae823f8f2b4d4f42222ee710990145e23afda8abab02200111fd63752",
+    "tests/validate-ara-20260724-004.cjs": "a6caf240e847df3ab538933570dc9d819dd0b19d5504312b07d39881c2029577"
+  },
+  "protection": "Keep all other test, auth, mail, CI, security, production, owner and DB contracts byte-identical. Scope-pin only these two replaced obsolete routing tests.",
+  "side_effects_allowed": false
+}

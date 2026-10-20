@@ -1,0 +1,36 @@
+{
+  "task_id": "PAUI-072",
+  "base_commit": "73bdc0a738e3325fc6d0df9b523a4954d6359277",
+  "inherited_paui071_zip_sha256": "36ba6073ffa77ecd900a4a6774a8b254e0ebf5c2d941659122a6e8bf3bf550ea",
+  "allowed_changes": [
+    "docs/PAUI-072-reviewed-scope.json",
+    "tests/helpers/reply-route-preservation.cjs",
+    "tests/helpers/reviewed-fixture-transition.cjs",
+    "tests/start-ara-case-postgres.py",
+    "tests/validate-ara-download-release-boundary.cjs",
+    "tests/validate-ara-integration-063-browser.cjs",
+    "tests/validate-ara-paui-integration.cjs",
+    "tests/validate-ara-paui038-excerpts.cjs"
+  ],
+  "reviewed_files": {
+    "tests/start-ara-case-postgres.py": "5e8195ae370447665ff77fb964d67624745fd58a4ca6310e9158b0c7e852a8ce",
+    "tests/validate-ara-integration-063-browser.cjs": "3bc042eb19e1d437ad190319b2a6dd95fdcbfbfbc2a178e1ca61f6a336ff9e8a",
+    "tests/helpers/reply-route-preservation.cjs": "a7a8d939cda0a2f5e0d05e6cd87149b07879c359cfa26b6afe3684e9c8bb8dbf",
+    "tests/helpers/reviewed-fixture-transition.cjs": "c1ca2655025c12cd3826946a16b2ae5faf14d7070a3e164de3d8c4a02ef3906c",
+    "tests/validate-ara-paui-integration.cjs": "dd8afbee5f48fb0323281925ef9dd11acb7343ecd14bb710a796b16df0c2967c",
+    "tests/validate-ara-paui038-excerpts.cjs": "d7016af42a4b40076c3e21c1a74eb885fbf9c3b989f7a4a43732d427209086cb"
+  },
+  "before_sha256": {
+    "tests/start-ara-case-postgres.py": "cbe43882bc36d936256575eab8edc1ec90a3163a610e0ed5bc5b4f862460b0df",
+    "tests/validate-ara-integration-063-browser.cjs": "476b1ab7587e891ad57aa26d88a9a1b87a9122f041eb6ea5a904f52b74d45517",
+    "tests/helpers/reply-route-preservation.cjs": "f0f99b05c721d65a2b87bc277b6f00be07417931eb985fdd9f46e8cdf3bf58e9",
+    "tests/helpers/reviewed-fixture-transition.cjs": "783505ddf3e22d2fced08dbb281da4eeb17b92b48e55f3a52c315e3572f09cd7",
+    "tests/validate-ara-paui-integration.cjs": "fb71474138ff568fefaf0f96513c3bf5d389e8160bd1bea1b7a30fc0b2e92f39",
+    "tests/validate-ara-paui038-excerpts.cjs": "1979422fd2693ab1cdc276f57f8adfefaca060fe9cbf74051aa9242dd6b53c33"
+  },
+  "product_code_changed": false,
+  "production_changed": false,
+  "production_db_apply": false,
+  "gmail_send": false,
+  "sql_source_sha256": "c97c95b7a45a1e19752689f548527a4c8769ed22bbcf21942bedd0c9eaa174f6"
+}

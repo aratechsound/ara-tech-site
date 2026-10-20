@@ -33,7 +33,8 @@ assert.doesNotMatch(general, /noindex/i);
 assert.match(general, /このフォームは、ツアーPA、設備施工・保守、技術講習、営業・取材、既存案件などのお問い合わせ窓口です。イベントPA・ステージ制作の新規依頼は、イベント依頼・空き状況確認フォームをご利用ください。/);
 assert.match(general, /href="pa-inquiry\.html">イベント依頼・空き状況確認フォームへ<\/a>/);
 
-assert.match(general, /<form id="contact-form" action="https:\/\/formspree\.io\/f\/mojqjwnr" method="POST" accept-charset="UTF-8">/);
+assert.match(general, /<form id="contact-form" action="\/api\/pa-inquiry" method="POST" accept-charset="UTF-8">/);
+assert.doesNotMatch(general, /formspree\.io|unpkg\.com\/@formspree/i);
 for (const requiredField of [
     /<select id="inquiry-type" name="種類"[^>]*required>/,
     /<input id="name" type="text" name="お名前"[^>]*required>/,
@@ -46,8 +47,8 @@ for (const requiredField of [
 const generalModule = read('js/ara-general-inquiry.js');
 assert.match(general, /<script\b[^>]*type="module"[^>]*src="js\/ara-general-inquiry\.js"[^>]*><\/script>/);
 assert.match(generalModule, /document\.getElementById\('contact-form'\)/);
-assert.match(generalModule, /window\.formspree\('initForm', \{formElement: '#contact-form', formId: 'mojqjwnr', onSuccess: \(\) => location\.assign\('thanks\.html\?sent=1'\)\}\)/);
-assert.match(generalModule, /await loadScript\('https:\/\/unpkg\.com\/@formspree\/ajax@1'\)/);
+assert.doesNotMatch(generalModule, /window\.formspree|formspree\.io|@formspree/i);
+assert.match(generalModule, /loadScript\('https:\/\/challenges\.cloudflare\.com\/turnstile/);
 const messagePlaceholder = general.match(/<textarea id="message"[^>]*placeholder="([^"]+)"/)?.[1] || '';
 assert.ok(messagePlaceholder);
 assert.doesNotMatch(messagePlaceholder, /開催日時|開催日|予定人数/);
@@ -106,14 +107,14 @@ for (const file of publicHtmlFiles) {
     }
 }
 
-assert.match(generalModule, /if \(value\.mode === 'LEGACY'\) return value\.enabled === false/);
+assert.doesNotMatch(generalModule, /LEGACY|window\.formspree|formspree\.io|@formspree/i);
 assert.match(generalModule, /return value\.mode === 'COMMON' && value\.enabled === true/);
 assert.match(generalModule, /if \(!validConfig\(next\)\) throw Error\('config_unavailable'\)/);
-assert.match(generalModule, /if \(next\.mode === 'LEGACY'\) \{[\s\S]*?await loadScript[\s\S]*?mode = 'LEGACY';[\s\S]*?\} else \{\s*mode = 'COMMON'; form\.action = '\/api\/pa-inquiry'/);
+assert.match(generalModule, /mode = 'COMMON'/);
 assert.match(generalModule, /catch \{ unavailable\(\); \}/);
 assert.match(generalModule, /function unavailable\(\) \{\s*mode = 'UNAVAILABLE'; token = ''/);
-assert.match(generalModule, /button\.disabled = initializing \|\| sending \|\| \(mode !== 'LEGACY' && mode !== 'COMMON'\)/);
-assert.match(generalModule, /if \(mode === 'LEGACY' && !button\.disabled\) return;\s*event\.preventDefault\(\); event\.stopImmediatePropagation\(\);\s*if \(button\.disabled \|\| mode !== 'COMMON'\) return/);
+assert.match(generalModule, /button\.disabled = initializing \|\| sending \|\| mode !== 'COMMON'/);
+assert.match(generalModule, /event\.preventDefault\(\); event\.stopImmediatePropagation\(\);\s*if \(button\.disabled \|\| mode !== 'COMMON'\) return/);
 assert.match(generalModule, /form_kind: 'general'/);
 assert.match(generalModule, /fetch\('\/api\/pa-inquiry', \{method: 'POST'/);
 assert.match(general, /<script src="\/js\/analytics\.js" defer><\/script>/);

@@ -9,6 +9,21 @@ const norm=x=>String(x||'').normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{
 const address=x=>String(x||'').trim().toLowerCase();
 const official=address(OFFICIAL_EMAIL);
 const enabled=()=>process.env.PAUI041_DISCOVERY_ENABLED==='true';
+// This is deliberately limited to the legacy generic Formspree subject, not
+// arbitrary customer mail or native intake's uniquely numbered notifications.
+const isGenericIntakeNotice=m=>{
+  const subject=norm(m?.subject).replace(/^(?:re|fw|fwd|返信)+/u,'');
+  return subject.startsWith('newsubmissionfromaratechお問い合わせ')
+    || subject==='newsubmissionfromaratech';
+};
+const sameCustomerParticipant=(m,authority,caseId)=>{
+  const row=authority.cases.find(c=>c.id===caseId),expected=address(row?.email);
+  if(!expected||expected===official)return false;
+  const recipients=[...(m.to_addresses||[]),...(m.cc_addresses||[])].map(address);
+  return m.direction==='outbound'
+    ? address(m.from_address)===official&&recipients.includes(expected)
+    : address(m.from_address)===expected&&recipients.includes(official);
+};
 const rpc=(name,input,fetchImpl)=>supabaseRequest('/rest/v1/rpc/'+name,{method:'POST',body:JSON.stringify(input)},fetchImpl);
 function signals(authority){
   return authority.cases.map(c=>{
@@ -77,8 +92,19 @@ function threadRows(raw,threadId,context,inquiryId,ownerConfirmed=false){
   return messages.map(m=>{
     const excluded=m.labels.some(l=>['SPAM','TRASH','DRAFT'].includes(l));
     const conflict=context.authority.messages.find(i=>i.gmail_message_id===m.id&&(i.inquiry_id!==inquiryId||i.gmail_thread_id!==threadId));
-    const status=excluded||linked&&linked.inquiry_id!==inquiryId?'EXCLUDED_WITH_REASON':conflict?'RELATED_CANDIDATE':belongs?'INDEXED':'RELATED_CANDIDATE';
-    return {gmail_message_id:m.id,gmail_thread_id:threadId,status,reason:excluded?'non_regular_label':linked&&linked.inquiry_id!==inquiryId?'linked_to_other_case':conflict?'index_attribution_conflict':linked?'approved_thread':ownerConfirmed?'owner_confirmed':match.reason,candidate_case_ids:match.candidates,fingerprint,subject:m.subject,direction:m.direction,occurred_at:m.occurred_at,
+    // Existing index identities are never moved by this path. However their
+    // generic notification provenance must not authorize *other* messages.
+    const known=context.authority.messages.some(i=>i.gmail_message_id===m.id&&i.inquiry_id===inquiryId&&i.gmail_thread_id===threadId);
+    const formNotice=isGenericIntakeNotice(m);
+    const verified=known||sameCustomerParticipant(m,context.authority,inquiryId);
+    const participantUnverified=!!linked&&!ownerConfirmed&&!verified;
+    const status=excluded||linked&&linked.inquiry_id!==inquiryId?'EXCLUDED_WITH_REASON'
+      :conflict||formNotice||participantUnverified?'RELATED_CANDIDATE':belongs?'INDEXED':'RELATED_CANDIDATE';
+    const reason=excluded?'non_regular_label':linked&&linked.inquiry_id!==inquiryId?'linked_to_other_case'
+      :conflict?'index_attribution_conflict':formNotice?'generic_intake_message_identity_required'
+      :participantUnverified?'linked_thread_participant_unverified'
+      :linked?'approved_thread':ownerConfirmed?'owner_confirmed':match.reason;
+    return {gmail_message_id:m.id,gmail_thread_id:threadId,status,reason,candidate_case_ids:match.candidates,fingerprint,subject:m.subject,direction:m.direction,occurred_at:m.occurred_at,
       index:status==='INDEXED'?{gmail_message_id:m.id,gmail_thread_id:threadId,inquiry_id:inquiryId,direction:m.direction,message_source:m.direction==='inbound'?'gmail_received':'gmail_direct',from_address:m.from_address,to_addresses:m.to_addresses,cc_addresses:m.cc_addresses,subject:m.subject,sent_at:m.direction==='outbound'?m.occurred_at:null,received_at:m.direction==='inbound'?m.occurred_at:null,attachment_metadata:m.attachments}:null};
   });
 }
@@ -132,9 +158,19 @@ async function decideDiscovery({inquiryId,actorId,threadId,fingerprint,decision}
   if(!enabled()||!isUuid(inquiryId)||!validGmailId(threadId)||!['link','exclude'].includes(decision)||!/^[a-f0-9]{64}$/.test(fingerprint||''))throw Error('invalid_mail_decision');
   await getInquiry(inquiryId,fetchImpl);
   const context=await rpc('paui041_context',{p_case:inquiryId,p_actor:actorId},fetchImpl),provider=await providerFactory(fetchImpl);
-  let rows=threadRows(await provider.thread(threadId),threadId,context,inquiryId,decision==='link');
+  const raw=await provider.thread(threadId);
+  // Thread-wide Owner approval cannot resolve a per-submission Formspree
+  // identity, even when other mail in the same thread belongs to this case.
+  if(raw.messages?.some(m=>isGenericIntakeNotice(normalizeMessage(m))))throw Error('mail_identity_review_required');
+  // Owner approval of a whole thread is not approval of multiple unrelated
+  // senders. Such threads must be reviewed at message granularity.
+  const inboundSenders=new Set((raw.messages||[])
+    .filter(m=>!(m.labelIds||[]).some(l=>['SPAM','TRASH','DRAFT','SENT'].includes(l)))
+    .map(m=>address(normalizeMessage(m).from_address)).filter(Boolean));
+  if(inboundSenders.size>1)throw Error('mail_identity_review_required');
+  let rows=threadRows(raw,threadId,context,inquiryId,decision==='link');
   if(rows.some(r=>r.fingerprint!==fingerprint))throw Error('mail_link_conflict');
   if(decision==='exclude')rows=rows.map(r=>({...r,index:null,status:'EXCLUDED_WITH_REASON',reason:'owner_excluded'}));
   return rpc('paui041_commit',{p_case:inquiryId,p_actor:actorId,p_version:context.state?.version||0,p_authority:context.authority,p_state:null,p_rows:rows,p_owner:true},fetchImpl);
 }
-module.exports={enabled,signals,matchThread,buildQuery,threadRows,createProvider,syncDiscovery,decideDiscovery};
+module.exports={enabled,isGenericIntakeNotice,signals,matchThread,buildQuery,threadRows,createProvider,syncDiscovery,decideDiscovery};

@@ -1,6 +1,7 @@
 const { OFFICIAL_EMAIL, supabaseRequest, getInquiry, isUuid } = require('./_pa-mail.cjs');
 const { gmailJson, gmailMessage, getGlobalThreadLink, normalizeMessage, validGmailId } = require('./_pa-gmail.cjs');
 const { CASE_TYPES } = require('./_ara-case.cjs');
+const {isGenericIntakeNotice}=require('./_pa-mail-discovery.cjs');
 const rpc = async (name, input, fetchImpl) => { try { return await supabaseRequest(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(input) }, fetchImpl); } catch (error) { if (error.message === 'supabase_400' || error.message === 'supabase_409') { const wrapped=new Error(error.safeDatabaseReason || 'mail_operation_conflict');wrapped.databaseCode=error.databaseCode;wrapped.phase=name;throw wrapped; } throw error; } };
 const assertBusinessMailbox = async (fetchImpl = fetch) => {
  const profile = await gmailJson('/profile', {}, fetchImpl);
@@ -39,7 +40,8 @@ const syncUnlinkedMail = async ({ actorId, now = new Date() }, fetchImpl = fetch
   if (!validGmailId(mail.id) || !validGmailId(mail.thread_id)) throw new Error('gmail_page_invalid');
   if ((raw.labelIds || []).some(id => ['DRAFT', 'SENT', 'SPAM', 'TRASH'].includes(id)) || mail.direction !== 'inbound') continue;
   // Global lookup deliberately includes archived cases.
-  if (await getGlobalThreadLink(mail.thread_id, fetchImpl)) continue;
+  // Generic Formspree notices require a per-message identity decision.
+  if (await getGlobalThreadLink(mail.thread_id, fetchImpl) && !isGenericIntakeNotice(mail)) continue;
   rows.push({ gmail_message_id: mail.id, gmail_thread_id: mail.thread_id, from_address: mail.from_address,
    subject: mail.subject.slice(0,500), snippet: String(raw.snippet || mail.body_text || '').slice(0,500),
    received_at: mail.occurred_at, has_attachments: mail.attachments.length > 0 });
@@ -50,11 +52,12 @@ const syncUnlinkedMail = async ({ actorId, now = new Date() }, fetchImpl = fetch
  return { ...await listUnlinkedMail({actorId},fetchImpl), has_more: Boolean(result.nextPageToken)||Date.parse(coveredUntil)<cutoff,
   attempted_at:attemptedAt,last_successful_page_at:new Date().toISOString(),covered_until:coveredUntil,captured_cutoff:new Date(cutoff).toISOString() };
 };
-const reviewUnlinkedMail = async ({messageId,attachmentId},fetchImpl=fetch) => {
+const reviewUnlinkedMail = async ({messageId,attachmentId,actorId},fetchImpl=fetch) => {
+ if(actorId&&!attachmentId)return require('./_ara-inbox-registration.cjs').review({messageId,actorId},fetchImpl);
  if(!validGmailId(messageId))throw Error('invalid_mail_decision');
  await assertBusinessMailbox(fetchImpl);
  const candidates=await supabaseRequest(`/rest/v1/ara_unlinked_mail?gmail_message_id=eq.${messageId}&decision=eq.pending&select=*&limit=1`,{},fetchImpl);
- if(!candidates?.[0]||await getGlobalThreadLink(candidates[0].gmail_thread_id,fetchImpl))throw Error('mail_link_conflict');
+ if(!candidates?.[0]||await getGlobalThreadLink(candidates[0].gmail_thread_id,fetchImpl)&&!isGenericIntakeNotice(candidates[0]))throw Error('mail_link_conflict');
  const raw=await gmailMessage(messageId,fetchImpl),mail=normalizeMessage(raw);
  if(mail.id!==messageId||mail.thread_id!==candidates[0].gmail_thread_id||mail.direction!=='inbound')throw Error('invalid_mail_decision');
  if(attachmentId){
@@ -64,9 +67,10 @@ const reviewUnlinkedMail = async ({messageId,attachmentId},fetchImpl=fetch) => {
   const bytes=Buffer.from(r.data||'','base64url');if(!bytes.length||bytes.length>15000000)throw Error('invalid_gmail_attachment');
   return {filename:require('./_pa-gmail.cjs').safeAttachmentFilename(part.filename),mime_type:part.mime_type,size:bytes.length,bytes};
  }
- return {...mail,body_html:'',customer_candidate:mail.reply_to||mail.from_address,customer_confirmed:false};
+ return {...mail,body_html:'',customer_candidate:isGenericIntakeNotice(mail)?null:mail.reply_to||mail.from_address,customer_confirmed:false};
 };
-const decideUnlinkedMail = async ({ actorId, messageId, action, caseId, customerName, customerEmail, caseType }, fetchImpl = fetch) => {
+const decideUnlinkedMail = async ({ actorId, messageId, action, caseId, customerName, customerEmail, caseType, reviewToken, identityConfirmed }, fetchImpl = fetch) => {
+ if(action==='create'&&reviewToken)return require('./_ara-inbox-registration.cjs').register({actorId,messageId,customerName,customerEmail,caseType,reviewToken,identityConfirmed},fetchImpl);
  if (!validGmailId(messageId) || !['create','link','exclude'].includes(action)) throw new Error('invalid_mail_decision');
  if (action === 'link') { if (!isUuid(caseId)) throw new Error('invalid_mail_decision'); await getInquiry(caseId, fetchImpl); }
  if (action === 'create' && (!CASE_TYPES[caseType] || !customerName || String(customerName).length > 160
@@ -77,8 +81,15 @@ const decideUnlinkedMail = async ({ actorId, messageId, action, caseId, customer
   const candidate = await supabaseRequest(`/rest/v1/ara_unlinked_mail?gmail_message_id=eq.${encodeURIComponent(messageId)}&select=*&limit=1`, {}, fetchImpl);
   const mail = normalizeMessage(await gmailMessage(messageId, fetchImpl));
   if (!candidate?.[0] || mail.id !== messageId || mail.thread_id !== candidate[0].gmail_thread_id || mail.direction !== 'inbound') throw new Error('invalid_mail_decision');
+  if(isGenericIntakeNotice(mail))throw Error('mail_identity_review_required');
   content = String(mail.body_text || mail.body || candidate[0].snippet || '');
   if (content.length > 20000) throw new Error('invalid_mail_decision');
+ }
+ // This legacy RPC adopts a *whole thread*. Reject generic intake identity
+ // until the isolated per-message adoption flow is implemented and tested.
+ if(action!=='exclude'){
+  const candidates=await supabaseRequest(`/rest/v1/ara_unlinked_mail?gmail_message_id=eq.${encodeURIComponent(messageId)}&select=*&limit=1`,{},fetchImpl);
+  if(candidates?.[0]&&isGenericIntakeNotice(candidates[0]))throw Error('mail_identity_review_required');
  }
  return rpc('ara_decide_mail', { p_actor: actorId, p_message: messageId, p_action: action,
   p_case: action === 'link' ? caseId : null, p_customer: customerName || null, p_email: customerEmail || null, p_type: caseType || null, p_content: content }, fetchImpl);

@@ -16,7 +16,10 @@ assert.match(contact, /id="general-inquiry"/);
 assert.match(contact, /href="pa-inquiry\.html\?source=contact"/);
 assert.match(contact, /href="general-inquiry\.html"/);
 assert.doesNotMatch(contact, /<form\b|formspree/i);
-assert.match(generalInquiry, /action="https:\/\/formspree\.io\/f\/mojqjwnr"/);
+assert.match(generalInquiry, /<form id="contact-form" action="\/api\/pa-inquiry" method="POST"/);
+assert.doesNotMatch(generalInquiry, /formspree\.io|unpkg\.com\/@formspree/i);
+assert.match(read('js/ara-general-inquiry.js'), /mode !== 'COMMON'/);
+assert.doesNotMatch(read('js/ara-general-inquiry.js'), /LEGACY|window\.formspree|formspree\.io|@formspree/i);
 assert.doesNotMatch(contact, /<option value="PAレンタル">/);
 assert.doesNotMatch(contact, /<option value="ステージ制作">/);
 
