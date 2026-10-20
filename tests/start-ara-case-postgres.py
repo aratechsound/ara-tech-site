@@ -81,6 +81,30 @@ run(psql,'grant usage on schema public to anon,authenticated,service_role;grant 
 run(psql,"alter table public.work_admins enable row level security;drop policy if exists fixture_admin_self_read on public.work_admins;create policy fixture_admin_self_read on public.work_admins for select to authenticated using(user_id=auth.uid());grant select on public.work_admins to authenticated;")
 # Additive ordinary-reply ledger after existing grants; preserves old migration plan.
 run(psql,(root/'ops/PAUI-046-reply-operations.sql').read_text(encoding='utf8'))
+# The R3 direct-intake fixture owns this dependency. The existing PA mail
+# fixture installs its own RPC explicitly; do not pre-create it in PA/legacy DBs.
+if r3:
+ # PAUI-072: the common composer uses the existing additive PAUI-062 RPC.
+ # Fresh fixture only; SQL bytes and all production roles/grants stay unchanged.
+ case_mail_sql=root/'ops/PAUI-062-case-mail-operation.sql'
+ if hashlib.sha256(case_mail_sql.read_bytes()).hexdigest()!='c97c95b7a45a1e19752689f548527a4c8769ed22bbcf21942bedd0c9eaa174f6':
+  raise RuntimeError('HOLD: PAUI-062 fixture SQL identity changed')
+ run(psql,case_mail_sql.read_text(encoding='utf8'))
+ rpc_contract=run(psql,"""select count(*)=1 and bool_and(
+  p.prosecdef and p.proargnames=array['p_actor','p_action','p_payload']::text[]
+  and pg_get_function_identity_arguments(p.oid)='p_actor uuid, p_action text, p_payload jsonb'
+  and p.proconfig=array['search_path=""']::text[]
+  and has_function_privilege('service_role',p.oid,'EXECUTE')
+  and not has_function_privilege('anon',p.oid,'EXECUTE')
+  and not has_function_privilege('authenticated',p.oid,'EXECUTE')
+  and not exists(select 1 from aclexplode(p.proacl) a where a.grantee=0 and a.privilege_type='EXECUTE'))
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='pa_case_mail_operation_v1';""")
+ if rpc_contract.splitlines()[2].strip()!='t':
+  raise RuntimeError('HOLD: PAUI-062 fixture RPC identity/privilege mismatch')
+ # Install before startup in CI; explicitly reload for the supported existing
+ # local PostgREST process as well. No role or RLS workaround is introduced.
+ run(psql,"NOTIFY pgrst, 'reload schema';")
 config=rt/('postgrest-r3.conf' if r3 else 'postgrest-guards.conf' if guards else 'postgrest-final.conf' if final else 'postgrest-legacy.conf' if legacy else 'postgrest.conf')
 config.write_text(f'db-uri = "postgresql://authenticator@127.0.0.1:55437/{database}"\ndb-schemas = "public"\ndb-anon-role = "anon"\nserver-host = "127.0.0.1"\nserver-port = {rest_port}\njwt-secret = "ara-case-r2-fixture-secret-at-least-32-characters"\n',encoding='utf8')
 with socket.socket() as s:rest=s.connect_ex(('127.0.0.1',rest_port))==0
