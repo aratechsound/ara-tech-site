@@ -86,8 +86,8 @@
         .btn-submit:hover { transform: translateY(-3px); background: #0056b3; }
         .btn-submit:disabled { cursor: wait; opacity: .72; transform: none; }
         .form-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; display: none; font-size: .9rem; font-weight: 700; margin-bottom: 20px; padding: 12px 14px; }
-        .form-error[data-fs-active] { display: block; }
-        [data-fs-field][aria-invalid="true"] { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .12); }
+        .form-error[data-intake-active] { display: block; }
+        [data-intake-field][aria-invalid="true"] { border-color: #dc3545; box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .12); }
 
         .info-box { background: #eef6ff; border-radius: 15px; padding: 30px; height: 100%; }
         .info-item { display: flex; align-items: flex-start; margin-bottom: 25px; }
@@ -157,9 +157,9 @@
                         <div class="col-lg-7 px-md-4">
                             <h2 class="form-heading fw-bold mb-4">一般お問い合わせフォーム</h2>
 
-                            <div class="form-error" data-fs-error role="alert"></div>
-                            <form id="contact-form" action="https://formspree.io/f/mojqjwnr" method="POST" accept-charset="UTF-8">
-                                <div id="general-case-fields" hidden>
+                            <div class="form-error" data-intake-error role="alert"></div>
+                            <form id="contact-form" action="/api/pa-inquiry" method="POST" accept-charset="UTF-8">
+                                <div id="general-case-fields">
                                 <div class="mb-4"><label for="case-type" class="form-label">案件種別</label><select id="case-type" class="form-select" required><option value="">選択してください</option><option value="PA_EVENT">PA・イベント音響</option><option value="AUDIO_INSTALL">音響設備施工</option><option value="AV_INSTALL">AV設備施工</option><option value="LIGHTING_INSTALL">照明設備施工</option><option value="VIDEO_INSTALL">映像設備施工</option><option value="EQUIPMENT_RENTAL">機材レンタル</option><option value="OTHER">その他</option></select></div>
                                 <div class="mb-4"><label for="subject">件名</label><input id="subject" class="form-control" maxlength="240" required></div>
                                 <div class="mb-4"><label for="organization">組織名（任意）</label><input id="organization" class="form-control" maxlength="200"></div>
@@ -169,7 +169,7 @@
                                 </div>
                                 <div class="mb-4">
                                     <label for="inquiry-type" class="form-label">お問い合わせの種類<span class="required-badge">必須</span></label>
-                                    <select id="inquiry-type" name="種類" class="form-select" data-fs-field required>
+                                    <select id="inquiry-type" name="種類" class="form-select" data-intake-field required>
                                         <option value="" selected disabled>選択してください</option>
                                         <option value="ツアーPA">ツアー・ライブPA派遣</option>
                                         <option value="設備導入">店舗設備（音響・照明・映像）導入・保守</option>
@@ -182,22 +182,22 @@
                                 </div>
                                 <div class="mb-4">
                                     <label for="name" class="form-label">お名前 / 貴社名<span class="required-badge">必須</span></label>
-                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" data-fs-field required>
+                                    <input id="name" type="text" name="お名前" class="form-control" autocomplete="name" placeholder="例：山田 太郎 / 株式会社◯◯制作" data-intake-field required>
                                 </div>
                                 <div class="mb-4">
                                     <label for="email" class="form-label">メールアドレス<span class="required-badge">必須</span></label>
-                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" data-fs-field required>
+                                    <input id="email" type="email" name="email" class="form-control" autocomplete="email" placeholder="example@mail.com" data-intake-field required>
                                 </div>
                                 <div class="mb-4">
                                     <label for="tel" class="form-label">電話番号</label>
-                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678" data-fs-field>
+                                    <input id="tel" type="tel" name="電話番号" class="form-control" autocomplete="tel" placeholder="080-1234-5678" data-intake-field>
                                 </div>
                                 <div class="mb-4">
                                     <label for="message" class="form-label">ご相談内容<span class="required-badge">必須</span></label>
-                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="ご相談の概要、対象の設備・サービス、ご希望の連絡時期などを、わかる範囲でご記入ください。" data-fs-field required></textarea>
+                                    <textarea id="message" name="メッセージ" class="form-control" rows="6" placeholder="ご相談の概要、対象の設備・サービス、ご希望の連絡時期などを、わかる範囲でご記入ください。" data-intake-field required></textarea>
                                 </div>
                                 <div class="text-center mt-5">
-                                    <button type="submit" class="btn-submit shadow" data-fs-submit-btn>内容を送信する</button>
+                                    <button type="submit" class="btn-submit shadow" data-intake-submit-btn disabled>内容を送信する</button>
                                 </div>
                             </form>
                         </div>

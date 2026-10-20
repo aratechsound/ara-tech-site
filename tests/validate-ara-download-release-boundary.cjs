@@ -15,7 +15,15 @@ assert.equal(generalScope.task_id,'PAUI-068');for(const k of ['production_change
 const generalAllowed=["api/_ara-unlinked-mail.cjs", "api/_pa-mail-discovery.cjs", "api/pa-gmail.js", "api/_ara-inbox-registration.cjs", "pa-ui/js/desk.mjs", "pa-ui/js/model.mjs", "pa-ui/js/case-workflows.mjs", "pa-ui/js/general-inbox.mjs", "pa-ui/brand-black.css", "ops/PAUI-066-thread-identity-guard-CANDIDATE.sql", "ops/PAUI-068-inbox-message-registration-CANDIDATE.sql", "docs/PAUI-066-isolated-implementation-review.md"];
 assert.deepEqual(Object.keys(generalScope.reviewed_product_files).sort(),[...generalAllowed].sort());
 for(const [p,sha]of Object.entries(generalScope.reviewed_test_files))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' PAUI-068 audited test changed');
-const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files,...generalScope.reviewed_product_files};
+// PAUI-069: exact direct-intake product scope and individually reviewed
+// legacy-contract tests. No prefix/pattern exceptions to protected files.
+const directScope=JSON.parse(fs.readFileSync(path.join(root,'docs/PAUI-069-reviewed-scope.json'),'utf8'));
+assert.equal(directScope.task_id,'PAUI-069');assert.equal(directScope.inherited_source,'b5f2dfd551d7d25c37325adfa15b0fa1d849d0cb');
+for(const k of ['production_changed','db_applied','gmail_send'])assert.equal(directScope[k],false);
+assert.deepEqual(Object.keys(directScope.reviewed_product_files).sort(),['api/pa-inquiry.js','general-inquiry.html','js/ara-general-inquiry.js']);
+assert.deepEqual(Object.keys(directScope.reviewed_test_files).sort(),['tests/validate-ara-case-r3-config.cjs','tests/validate-ara-case-r3.cjs','tests/validate-ara-direct-intake-069.cjs']);
+for(const [p,sha]of Object.entries(directScope.reviewed_test_files))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' PAUI-069 audited test changed');
+const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files,...generalScope.reviewed_product_files,...directScope.reviewed_product_files,...directScope.reviewed_test_files};
 for(const [p,sha]of Object.entries({...reviewed,...scope.approved_sql,...invoiceScope.reviewed_test_helpers}))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' reviewed scope mismatch');
 const tracked=git('ls-tree','-r','--name-only',base).toString().trim().split('\n');
 // PAUI-062's unified editable composer supersedes two old screen-specific UI
@@ -36,6 +44,7 @@ for(const p of new Set([...protectedFiles.filter(p=>tracked.includes(p)),...trac
 // the explicitly pinned shared fixture's read-only invoice-history response.
 const previousTests=git('ls-tree','-r','--name-only',invoiceScope.production_base).toString().trim().split('\n').filter(p=>p.startsWith('tests/'));
 for(const p of previousTests){if(p==='tests/validate-ara-download-release-boundary.cjs')continue;
+ if(directScope.reviewed_test_files[p]){assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),directScope.reviewed_test_files[p],p+' PAUI-069 exact legacy contract changed');continue;}
  if(reviewed066Tests[p]){assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),reviewed066Tests[p],p+' PAUI-066 preserved regression changed');continue;}
  const bytes=fs.readFileSync(path.join(root,p));if(invoiceScope.reviewed_test_helpers[p])assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),invoiceScope.reviewed_test_helpers[p]);
  else assert.deepEqual(bytes,git('show',invoiceScope.production_base+':'+p),p+' PAUI-063 regression changed');}

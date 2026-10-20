@@ -1,0 +1,19 @@
+{
+  "task_id": "PAUI-069",
+  "base_source": "ca98c415de508cc0914e0e2fcb2000cbda30f970",
+  "inherited_source": "b5f2dfd551d7d25c37325adfa15b0fa1d849d0cb",
+  "production_changed": false,
+  "db_applied": false,
+  "gmail_send": false,
+  "reviewed_product_files": {
+    "general-inquiry.html": "dd2f00c9cda9ea31bdf292ab8095f98e7ef7b3eff9d1969699faf15bcaac6801",
+    "js/ara-general-inquiry.js": "9687deb5f8c12f0268bb27c538c2fcf4b347b83a1cc34448884524af4900802e",
+    "api/pa-inquiry.js": "c6133c39b4265f88a2f0dbb2c172d13011d30005f6af4cabe85c911986cadc40"
+  },
+  "reviewed_test_files": {
+    "tests/validate-ara-case-r3-config.cjs": "4477d8be54683f26fabe8c01704a6030fc4a5764eddb60206175c77e01c7b05c",
+    "tests/validate-ara-case-r3.cjs": "57fa5774787e20dd6aee49a47d42f7ad80dae18bd9938cfd86e2b9511232562f",
+    "tests/validate-ara-direct-intake-069.cjs": "776cf16d760fc74b6d4162d87b07f58edc90438355f66e38495939c1c79c5c78"
+  },
+  "audit": "Direct intake ONLY uses ara_register_general. OFF fails closed. Historical R3 Before assertions kept with exact baseline HTML and JS. No test deletion/skip. New test uses real PG16 and APIs, provider fake, isolated network."
+}
