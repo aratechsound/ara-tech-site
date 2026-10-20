@@ -1,4 +1,6 @@
 import {createGeneralInbox} from './general-inbox.mjs';
+import {createGeneralCaseCompletion} from './general-case-completion.mjs';
+import * as generalIntegration from './integration.mjs';
 import {caseTitle,isGeneralInquiry,inquiryKind} from './model.mjs';
 import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} from './document-warehouse.mjs';
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
@@ -122,13 +124,14 @@ const commercial=createCommercialWorkflows({getCase:()=>session?current():null,g
 const trash=createCaseTrash({getCase:()=>session?current():null,request:createCaseTrashRequest(async()=>{const value=await workspaceAuth.current();if(!session||value?.access_token!==session.access_token)throw Error('login_required');return value;},()=>signOut(false)),onTrashed:async saved=>{await refresh();if(cases.some(c=>c.id===saved.inquiry_id)||listError){openInfo('ゴミ箱の保存結果','<p>保存応答は受領しましたが、一覧の反映は未確認です。再移動しないでください。</p>');return;}openInfo('ゴミ箱へ移動しました','<p>'+escape(saved.inquiry_number)+' / 通常一覧からの除外を読戻し確認しました。記録は保持しています。</p>');}});
 const replyDocuments=createReplyDocumentView({getCase:()=>session?current():null,requestReply:workflowRequest,requestCommercial:(action,input)=>commercial.replyDocument(action,input),readBody:(id,row)=>api('/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id))});
 const discovery=createCandidateMailView({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
+const generalCompletion=createGeneralCaseCompletion({getCase:current,isAuthenticated:()=>!!session,save:snapshot=>generalIntegration.saveGeneralCompletion(snapshot),onSaved:async saved=>{cases=cases.map(c=>c.id===saved.id?{...c,...saved}:c);renderList();render();await loadSurface('audit','/data/case/'+saved.id+'/audit',selectionEpoch);}});
 const generalInbox=createGeneralInbox({request:workflowRequest,isAuthenticated:()=>!!session,onAuthFailure:()=>signOut(false),onRegistered:async id=>{await refresh();if(cases.some(c=>c.id===id))await selectCase(id);else openInfo('登録結果の読戻し未確認','<p>登録応答を受領しました。再登録せず一覧を再取得してください。</p>');}});
 async function openGeneralInbox(){if(!session||!generalInbox.beforeLeave()||!trash.beforeLeave()||!await caseMail.beforeLeave()||!await commercial.beforeLeave())return;commercial.clear();portalBridge.cancel();++listEpoch;++selectionEpoch;abortRequests();clearDetail();selected=null;$('refresh-cases').disabled=false;renderList();render();await generalInbox.mount(central);}
 const inboxEntry=document.createElement('button');inboxEntry.textContent='未紐付けメール';inboxEntry.dataset.inboxOpen='';inboxEntry.onclick=openGeneralInbox;document.querySelector('.globalnav').append(inboxEntry);
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
 function disposePreviews(){discovery.detach();quoteHistory?.unmount();orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){generalInbox.clear();discovery.cancel();clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){generalCompletion.clear();generalInbox.clear();discovery.cancel();clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -191,7 +194,7 @@ function renderInspector(){
   $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('案件状態',statusText(c))}<p class="hint">${escape(statusBasis(c))}</p>${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section>${deliveryNotice()}`;
 }
 function overview(c){
-  if(isGeneralInquiry(c))return '<section class="group"><h2>一般問い合わせ</h2><div class="facts">'+fact('顧客',c.customer_name)+fact('問い合わせ種別',inquiryKind(c))+fact('受付日時',date(c.received_at))+fact('メール',c.email)+fact('返信状況',attention(c).label)+'</div><h3>問い合わせ内容</h3><div class="request-original">'+tx(c.request_summary||c.first_form_data?.original_body||'原文未提供')+'</div><div class="inlinebtns">'+button('メール作成・返信','case-mail-compose','quiet')+button('やり取りを確認','conversation','quiet')+'</div></section>';
+  if(isGeneralInquiry(c))return '<section class="group"><h2>一般問い合わせ</h2><div class="facts">'+fact('顧客',c.customer_name)+fact('問い合わせ種別',inquiryKind(c))+fact('受付日時',date(c.received_at))+fact('メール',c.email)+fact('電話',c.phone)+fact('組織',c.organization_name)+fact('対応状態',statusText(c))+fact('返信状況',attention(c).label)+'</div><h3>問い合わせ内容</h3><div class="request-original">'+tx(c.request_summary||c.first_form_data?.original_body||'原文未提供')+'</div><div class="inlinebtns">'+button('メール作成・返信','case-mail-compose','quiet')+button('やり取りを確認','conversation','quiet')+(isClosedCase(c)?'<span class="hint">対応完了（保存済み）</span>':'<button class="action quiet" data-general-complete>対応完了にする</button>')+'</div></section>';
 
   const p=c.progress||{},a=attention(c),f=c.first_form_data||{};
   const next=p.next_action||p.next_action_memo||c.next_action||'次の対応は未登録';
@@ -312,7 +315,7 @@ async function loadSurface(name,url,epoch,reader=null){
   if(epoch===selectionEpoch&&!generalInbox.active)render();
 }
 async function selectCase(id,initialTab='overview'){
-  if(!cases.some(c=>c.id===id)||!generalInbox.beforeLeave())return;
+  if(!cases.some(c=>c.id===id)||!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
   if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
@@ -323,7 +326,7 @@ async function selectCase(id,initialTab='overview'){
   await Promise.all((general?['audit','deliveries','links']:['tokens','responses','audit','deliveries','payments','links']).map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),...(general?[]:[loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercialRead.read('original_index',id):null)]),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
-  if(!generalInbox.beforeLeave())return;
+  if(!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
   if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
@@ -344,6 +347,7 @@ async function refresh(){
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
 async function setTab(name){
+  if(!generalCompletion.beforeLeave())return;
   if(isGeneralInquiry(current())&&['estimate','invoice','schedule'].includes(name))return;
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
   if(name!==tab){if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
@@ -386,6 +390,8 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',async e=>{
+  if(e.target.closest('[data-general-complete]')){if(await caseMail.beforeLeave()&&await commercial.beforeLeave())generalCompletion.open();return;}
+  if(!generalCompletion.beforeLeave())return;
   if(e.target.closest('[data-action="unlinked"]')){await openGeneralInbox();return;}
   if(e.target.closest('[data-case-trash]')){if(await caseMail.beforeLeave()&&await commercial.beforeLeave())trash.open();return;}
   const contact=e.target.closest('[data-case-mail-message]');if(contact){const row=(getRows('messages')||[]).find(m=>m.gmail_message_id===contact.dataset.caseMailMessage);if(row)await caseMail.open('contact',row);return;}

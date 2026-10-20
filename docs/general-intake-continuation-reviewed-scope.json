@@ -1,0 +1,26 @@
+{
+  "continuation_of": [
+    "PAUI-069",
+    "PAUI-070",
+    "PAUI-071",
+    "PAUI-072"
+  ],
+  "task_registry": "UNKNOWN",
+  "new_task_id_issued": false,
+  "base_commit": "ce002e4ad23b1464b36adf7b83346abae8fd90f9",
+  "production_changed": false,
+  "db_applied": false,
+  "gmail_send": false,
+  "before_sha256": {
+    "pa-ui/js/desk.mjs": "1fa7d34b66b7007bccd395b3fb6472f338b222ba2955ea48ccc85fc3ac2c26cb",
+    "pa-ui/js/integration.mjs": "d496ab2fcb08b1dcbbc42b2b78181c781b7782a19faeb24a59b7edbe10bcf042",
+    "pa-ui/js/general-case-completion.mjs": null,
+    "tests/validate-ara-general-completion.cjs": null
+  },
+  "reviewed_files": {
+    "pa-ui/js/desk.mjs": "b6ff3b9732bb7618995b243222bf0b02ba4d3cfc40adc5733c8af5f63967c5ed",
+    "pa-ui/js/integration.mjs": "b47357e54fe50e071391c133422ab760250ff4e91f9a0c6086688e083cdad1cc",
+    "pa-ui/js/general-case-completion.mjs": "7a76193efdb583e1992fb05317323023c6c739d9d2a38a096e3f64e6c60292e1",
+    "tests/validate-ara-general-completion.cjs": "280abefa78552ff4c07001aa8da97edff96183ee2aedac5dab1da9ce343927a2"
+  }
+}

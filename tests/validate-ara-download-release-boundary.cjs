@@ -49,7 +49,22 @@ for(const k of ['product_code_changed','production_changed','production_db_apply
 assert.deepEqual(repair072.allowed_changes,["docs/PAUI-072-reviewed-scope.json", "tests/helpers/reply-route-preservation.cjs", "tests/helpers/reviewed-fixture-transition.cjs", "tests/start-ara-case-postgres.py", "tests/validate-ara-download-release-boundary.cjs", "tests/validate-ara-integration-063-browser.cjs", "tests/validate-ara-paui-integration.cjs", "tests/validate-ara-paui038-excerpts.cjs"],'PAUI-072 allowed paths changed');
 assert.deepEqual(repair072.reviewed_files,repair072Pinned,'PAUI-072 exact repair manifest drift');
 for(const [p,h]of Object.entries(repair072Pinned))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),h,p+' PAUI-072 exact repair changed');
-const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files,...generalScope.reviewed_product_files,...directScope.reviewed_product_files,...directScope.reviewed_test_files};
+// Owner-requested continuation: exact general-contact/completion delta only.
+// Existing PAUI-068/069/071/072 manifests and all prior test pins remain intact.
+const completionPath='docs/general-intake-continuation-reviewed-scope.json';
+const completionBytes=fs.readFileSync(path.join(root,completionPath));
+assert.equal(require('node:crypto').createHash('sha256').update(completionBytes).digest('hex'),'7a0c10017fdfbc0fab70660362114e6918a687d87a821ef17e1fd5eec2a56c1e','General completion manifest bytes changed');
+const completion=JSON.parse(completionBytes);
+assert.equal(completion.base_commit,'ce002e4ad23b1464b36adf7b83346abae8fd90f9');
+assert.equal(completion.new_task_id_issued,false);
+for(const k of ['production_changed','db_applied','gmail_send'])assert.equal(completion[k],false);
+const completionPaths=["pa-ui/js/desk.mjs", "pa-ui/js/integration.mjs", "pa-ui/js/general-case-completion.mjs", "tests/validate-ara-general-completion.cjs"];
+assert.deepEqual(Object.keys(completion.reviewed_files).sort(),[...completionPaths].sort());
+for(const [p,h]of Object.entries(completion.reviewed_files)){
+ assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),h,p+' general completion exact bytes changed');
+ if(completion.before_sha256[p]!==null)assert.equal(require('node:crypto').createHash('sha256').update(git('show',completion.base_commit+':'+p)).digest('hex'),completion.before_sha256[p],p+' general completion predecessor drift');
+}
+const reviewed={...scope.reviewed_product_files,...invoiceScope.reviewed_product_files,...generalScope.reviewed_product_files,...directScope.reviewed_product_files,...directScope.reviewed_test_files,...completion.reviewed_files};
 for(const [p,sha]of Object.entries({...reviewed,...scope.approved_sql,...invoiceScope.reviewed_test_helpers}))assert.equal(require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root,p))).digest('hex'),sha,p+' reviewed scope mismatch');
 const tracked=git('ls-tree','-r','--name-only',base).toString().trim().split('\n');
 // PAUI-062's unified editable composer supersedes two old screen-specific UI
