@@ -1,5 +1,6 @@
 import {createGeneralInbox} from './general-inbox.mjs';
 import {createGeneralCaseCompletion} from './general-case-completion.mjs';
+import {createPaCaseCompletion,lifecycleSections} from './pa-case-completion.mjs';
 import * as generalIntegration from './integration.mjs';
 import {caseTitle,isGeneralInquiry,inquiryKind} from './model.mjs';
 import {warehouseItems,filterWarehouse,inquiryFields,inquiryAttachmentItems} from './document-warehouse.mjs';
@@ -125,13 +126,14 @@ const trash=createCaseTrash({getCase:()=>session?current():null,request:createCa
 const replyDocuments=createReplyDocumentView({getCase:()=>session?current():null,requestReply:workflowRequest,requestCommercial:(action,input)=>commercial.replyDocument(action,input),readBody:(id,row)=>api('/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id))});
 const discovery=createCandidateMailView({read:api,getSession:async()=>{session=await workspaceAuth.current();return session;},isCurrent:id=>!!session&&selected===id&&tab==='conversation',onIndexed:async id=>{if(selected===id){const before=new Set((getRows('messages')||[]).map(row=>row.gmail_message_id));const epoch=selectionEpoch;await loadSurface('messages','/data/mail/'+id,epoch);if(selected===id&&selectionEpoch===epoch)await portalBridge.newlyIndexed(id,before,getRows('messages'));}}});
 const generalCompletion=createGeneralCaseCompletion({getCase:current,isAuthenticated:()=>!!session,save:snapshot=>generalIntegration.saveGeneralCompletion(snapshot),onSaved:async saved=>{cases=cases.map(c=>c.id===saved.id?{...c,...saved}:c);renderList();render();await loadSurface('audit','/data/case/'+saved.id+'/audit',selectionEpoch);}});
+const paCompletion=createPaCaseCompletion({getCase:current,isAuthenticated:()=>!!session,read:snapshot=>generalIntegration.readPaCompletion(snapshot),save:(...args)=>generalIntegration.savePaCompletion(...args),readBack:id=>generalIntegration.readPaCompletionStatus(id),onSaved:async saved=>{cases=cases.map(c=>c.id===saved.id?{...c,...saved}:c);renderList();render();await loadSurface('audit','/data/case/'+saved.id+'/audit',selectionEpoch);}});
 const generalInbox=createGeneralInbox({request:workflowRequest,isAuthenticated:()=>!!session,onAuthFailure:()=>signOut(false),onRegistered:async id=>{await refresh();if(cases.some(c=>c.id===id))await selectCase(id);else openInfo('登録結果の読戻し未確認','<p>登録応答を受領しました。再登録せず一覧を再取得してください。</p>');}});
-async function openGeneralInbox(){if(!session||!generalInbox.beforeLeave()||!trash.beforeLeave()||!await caseMail.beforeLeave()||!await commercial.beforeLeave())return;commercial.clear();portalBridge.cancel();++listEpoch;++selectionEpoch;abortRequests();clearDetail();selected=null;$('refresh-cases').disabled=false;renderList();render();await generalInbox.mount(central);}
+async function openGeneralInbox(){if(!paCompletion.beforeLeave()||!session||!generalInbox.beforeLeave()||!trash.beforeLeave()||!await caseMail.beforeLeave()||!await commercial.beforeLeave())return;commercial.clear();portalBridge.cancel();++listEpoch;++selectionEpoch;abortRequests();clearDetail();selected=null;$('refresh-cases').disabled=false;renderList();render();await generalInbox.mount(central);}
 const inboxEntry=document.createElement('button');inboxEntry.textContent='未紐付けメール';inboxEntry.dataset.inboxOpen='';inboxEntry.onclick=openGeneralInbox;document.querySelector('.globalnav').append(inboxEntry);
 const caseNames=createCaseNameView();
 let mailGalleries=[],orderDocuments=null;
 function disposePreviews(){discovery.detach();quoteHistory?.unmount();orderDocuments?.dispose();orderDocuments=null;bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){generalCompletion.clear();generalInbox.clear();discovery.cancel();clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){paCompletion.clear();generalCompletion.clear();generalInbox.clear();discovery.cancel();clearAssets();resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -199,7 +201,7 @@ function overview(c){
   const p=c.progress||{},a=attention(c),f=c.first_form_data||{};
   const next=p.next_action||p.next_action_memo||c.next_action||'次の対応は未登録';
   const step=Number(p.current_step),original=inquiryFields(c);
-  return `<div class="inlinebtns"><button class="action quiet" data-case-trash>ゴミ箱へ移動</button></div><section class="group event-information"><h2 class="sectiontitle">イベント基本情報</h2><div class="facts">${fact('イベント名',c.event_name)}${fact('開催日',eventDate(c))}${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('会場',c.venue)}${fact('主催者',f.organizer_name||c.organization_name)}${fact('顧客',c.customer_name)}${fact('連絡担当者',c.contact_name||f.contact_name)}${fact('社内担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('電話番号',c.phone||f.contact_phone)}${fact('メール',c.email||f.contact_email)}</div></section>
+  return `<section class="group event-information"><h2 class="sectiontitle">イベント基本情報</h2><div class="facts">${fact('イベント名',c.event_name)}${fact('開催日',eventDate(c))}${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('会場',c.venue)}${fact('主催者',f.organizer_name||c.organization_name)}${fact('顧客',c.customer_name)}${fact('連絡担当者',c.contact_name||f.contact_name)}${fact('社内担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('電話番号',c.phone||f.contact_phone)}${fact('メール',c.email||f.contact_email)}</div></section>
   <section class="group inquiry-original"><h2 class="sectiontitle">お客様からの依頼内容</h2><p class="hint">問い合わせ受付の保存値を全文表示します。後日の変更は下の回答記録・やり取りで確認してください。</p>${original.length?original.map(o=>`<article class="request-field"><h3>${escape(o.label)}</h3><div class="request-original">${tx(o.value)}</div></article>`).join(''):'<div class="empty-state">問い合わせ原文は未提供</div>'}<details class="subsequent-requests"><summary>受付後の回答・追加依頼・変更記録</summary>${readBlock('responses','受付後の回答',rows=>rows.map(row=>`<article class="request-field"><time>${escape(date(row.submitted_at||row.responded_at||row.created_at))}</time>${['request_summary','additional_notes','notes','question_details'].filter(key=>row[key]).map(key=>`<h3>${escape(({request_summary:'依頼内容',additional_notes:'追加備考',notes:'備考',question_details:'確認事項'})[key])}</h3><div class="request-original">${tx(row[key])}</div>`).join('')||'<p class="hint">この回答に依頼本文の提供はありません。日程調整画面で回答を確認できます。</p>'}</article>`).join('')||'<div class="empty-state">取得した回答記録に保存値なし。追加メールはやり取りで確認してください。</div>')}</details></section>
   <section class="group"><h2 class="sectiontitle">問い合わせ添付資料 ${button('資料倉庫を開く','documents','quiet')}</h2>${detail.materials?.state==='error'?errorBlock(detail.materials.error,'問い合わせ添付のポータル索引'):detail.materials?.state!=='ready'?'<div class="load-state">添付索引を取得中…</div>':''}<div id="inquiry-attachment-grid" class="material-grid"></div><p class="hint">問い合わせ由来を保存記録から確認できる資料のみ表示。対応不明の資料は資料倉庫で確認できます。</p></section>
   <section class="group case-current"><h2 class="sectiontitle">現在の案件状態</h2><div class="stage-info"><strong>現在の案件状態：${escape(statusText(c))}</strong><p>${escape(statusBasis(c))}</p></div><div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>メール返信確認：${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><p class="hint">${c.attention?.attention_state==='waiting_customer'?'顧客回答待ちは保存済みメール確認状態です。何への回答かはこの索引では未提供。契約の同意・成立状態とは別に確認します。':'案件・契約の状態とメール返信の確認状態は別の記録です。'}</p>${attentionError?errorBlock(attentionError,'新着状態'):''}</section>
@@ -277,6 +279,7 @@ function render(){
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
   if(!isGeneralInquiry(c))central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
+  if(tab==='overview')central.insertAdjacentHTML('beforeend',lifecycleSections(c));
   if(tab==='documents')renderGallery();
   if(tab==='invoice'){
     const id=selected,epoch=selectionEpoch;
@@ -315,7 +318,7 @@ async function loadSurface(name,url,epoch,reader=null){
   if(epoch===selectionEpoch&&!generalInbox.active)render();
 }
 async function selectCase(id,initialTab='overview'){
-  if(!cases.some(c=>c.id===id)||!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
+  if(!cases.some(c=>c.id===id)||!paCompletion.beforeLeave()||!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
   if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
@@ -326,7 +329,7 @@ async function selectCase(id,initialTab='overview'){
   await Promise.all((general?['audit','deliveries','links']:['tokens','responses','audit','deliveries','payments','links']).map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),...(general?[]:[loadSurface('commercial','/data/commercial/'+id,epoch,commercialOriginalsRead?()=>commercialRead.read('original_index',id):null)]),loadSurface('materials','/data/materials/'+id,epoch)]));
 }
 async function refresh(){
-  if(!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
+  if(!paCompletion.beforeLeave()||!generalCompletion.beforeLeave()||!generalInbox.beforeLeave())return;
   if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
   if(!await commercial.beforeLeave())return;
   commercial.clear();
@@ -347,7 +350,7 @@ async function refresh(){
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
 async function setTab(name){
-  if(!generalCompletion.beforeLeave())return;
+  if(!paCompletion.beforeLeave()||!generalCompletion.beforeLeave())return;
   if(isGeneralInquiry(current())&&['estimate','invoice','schedule'].includes(name))return;
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
   if(name!==tab){if(!trash.beforeLeave()||!await caseMail.beforeLeave())return;
@@ -390,8 +393,9 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',async e=>{
+  if(e.target.closest('[data-pa-complete]')){if(generalCompletion.beforeLeave()&&trash.beforeLeave()&&await caseMail.beforeLeave()&&await commercial.beforeLeave())await paCompletion.open();return;}
   if(e.target.closest('[data-general-complete]')){if(await caseMail.beforeLeave()&&await commercial.beforeLeave())generalCompletion.open();return;}
-  if(!generalCompletion.beforeLeave())return;
+  if(!paCompletion.beforeLeave()||!generalCompletion.beforeLeave())return;
   if(e.target.closest('[data-action="unlinked"]')){await openGeneralInbox();return;}
   if(e.target.closest('[data-case-trash]')){if(await caseMail.beforeLeave()&&await commercial.beforeLeave())trash.open();return;}
   const contact=e.target.closest('[data-case-mail-message]');if(contact){const row=(getRows('messages')||[]).find(m=>m.gmail_message_id===contact.dataset.caseMailMessage);if(row)await caseMail.open('contact',row);return;}
@@ -409,7 +413,7 @@ document.addEventListener('click',async e=>{
   const top=e.target.closest('[data-top]');if(top)setTab(top.dataset.top==='files'?'documents':top.dataset.top==='inbox'?'conversation':'overview');
 });
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
-$('refresh-cases').onclick=refresh;$('sign-out').onclick=async()=>{if(trash.beforeLeave()&&await caseMail.beforeLeave()&&await commercial.beforeLeave())signOut();};$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
+$('refresh-cases').onclick=refresh;$('sign-out').onclick=async()=>{if(paCompletion.beforeLeave()&&trash.beforeLeave()&&await caseMail.beforeLeave()&&await commercial.beforeLeave())signOut();};$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
 $('new-case').disabled=false;$('new-case').title='既存の登録画面を開く';$('new-case').onclick=()=>window.open('/pa-admin-legacy.html','_blank','noopener,noreferrer');
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});

@@ -1,3 +1,4 @@
+import {caseTitle} from './model.mjs';
 const make=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const reasons=[['test_case','テスト案件'],['duplicate','重複登録'],['input_error','入力ミス'],['other','その他']];
 export function createCaseTrashRequest(getSession,onAuthFailure=()=>{}){return async input=>{
@@ -19,7 +20,7 @@ export function createCaseTrash({getCase,request,onTrashed}){
   const status=make('p');status.setAttribute('role','status');const yes=make('button','ゴミ箱へ移動する'),no=make('button','キャンセル');yes.disabled=true;
   const s={id:c.id,number:c.inquiry_number,dialog:d,status,busy:false,attempted:false};state=s;
   confirm.onchange=()=>{yes.disabled=!confirm.checked||s.attempted;};no.onclick=()=>{if(!s.busy)clear();};d.addEventListener('cancel',e=>{e.preventDefault();if(!s.busy)clear();});
-  d.append(make('h2','案件をゴミ箱へ移動'),make('p',c.inquiry_number+' / '+(c.event_name||'イベント名未設定')),make('p','案件ID: '+c.id),make('p','通常一覧から除外し、記録は保持します。完全削除は行いません。'),reason,label,status,yes,no);document.body.append(d);d.showModal();
+  d.append(make('h2','案件をゴミ箱へ移動'),make('p',c.inquiry_number+' / '+(c.case_name||c.event_name||caseTitle(c))+' / '+(c.customer_name||'顧客名未提供')),make('p','案件ID: '+c.id),make('p','通常一覧から除外し、記録は保持します。完全削除は行いません。'),reason,label,status,yes,no);document.body.append(d);d.showModal();
   s.guard=setInterval(()=>{if(state===s&&!current(s))clear();},500);
   yes.onclick=async()=>{
    if(!current(s)||s.busy||s.attempted||!confirm.checked)return;
