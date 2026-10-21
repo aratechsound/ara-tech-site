@@ -72,7 +72,7 @@ export function createOrderDocuments({host,mountFallback,previewScope,isCurrent,
     const update=value=>{
      if(!safe()||value?.case_id!==caseId)return;monitorView=value;
      summary.textContent=privateText((value.error?'変更見積の確認未完了':value.label||'保存済み検査結果')+(value.checked_at?' / 最終確認 '+value.checked_at:'')+(value.index_truncated?' / 検査範囲未完了':''));
-     choices.replaceChildren(button(value.partial?'未確認の原本検査を続ける':'変更見積を再確認',async()=>{try{await monitor.check(caseId,{force:true,resume:value.partial===true});}catch{if(safe())summary.textContent='再確認は未完了です。保存済み状態を保持します。';}}));
+     choices.replaceChildren(el('p','保存済みメール索引を対象に確認します。Gmail同期は実行しません。','hint'),button(value.partial?'未確認の原本検査を続ける':'変更見積を再確認',async()=>{try{await monitor.check(caseId,{force:true,resume:value.partial===true});}catch{if(safe())summary.textContent='再確認は未完了です。保存済み状態を保持します。';}}));
      if(!value.candidates)return;
      const candidates=value.candidates.filter(c=>c.decision?.event_kind!=='excluded');
      for(const c of candidates)choices.append(button('候補を確認: '+c.evidence.quote.filename,()=>select(c)));

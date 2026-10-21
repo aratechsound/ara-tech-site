@@ -7,7 +7,7 @@ export function createMailDiscovery({read,getSession,isCurrent,onIndexed}){
     const host=document.getElementById('mail-discovery');if(!host)return;
     const s=states.get(id);host.replaceChildren();if(!s)return;
     const node=document.createElement('div');node.className='hint';node.setAttribute('role','status');
-    node.textContent=s.busy?'Gmailの最新状態を確認中…':s.error?'確認未完了 / '+s.error:s.enabled===false?'Gmail自動確認は未有効です。保存済み情報を表示しています。':s.complete?'最新確認済み '+new Date(s.last_completed_at).toLocaleString('ja-JP'):'確認未完了 / 未取得範囲があります。次回表示時に再照合します。';
+    node.textContent=s.busy?'保存済みメール情報を読取り中…':s.error?'読取り未完了 / '+s.error:'保存済み情報を表示しています。Gmailの最新確認はこの閲覧では実行していません。'+(s.last_completed_at&&Number.isFinite(Date.parse(s.last_completed_at))?' 最終同期記録 '+new Date(s.last_completed_at).toLocaleString('ja-JP'):' 同期記録未確認');
     host.append(node);
     const candidates=[...new Map((s.candidates||[]).map(c=>[c.gmail_thread_id,c])).values()];
     if(candidates.length){
@@ -35,6 +35,7 @@ export function createMailDiscovery({read,getSession,isCurrent,onIndexed}){
     }
   }
   async function write(body){
+    if(body.action!=='case_discovery_decide')throw Error('discovery_action_refused');
     const session=await getSession();if(!session?.access_token)throw Error('login_required');
     const active=new AbortController();controller=active;const timer=setTimeout(()=>active.abort(),55000);
     try{
@@ -47,17 +48,8 @@ export function createMailDiscovery({read,getSession,isCurrent,onIndexed}){
     const s={busy:true};states.set(id,s);mount(id);
     try{
       Object.assign(s,await read('/data/mail-discovery/'+id));
-      if(s.enabled!==true)return;
-      // Continue persisted pages automatically. The existing rate gate bounds
-      // work; a partial response or 429 stays visibly incomplete.
-      for(let page=0;page<25&&isCurrent(id);page++){
-        const result=await write({action:'case_discovery_sync',inquiry_id:id});Object.assign(s,result);
-        await onIndexed(id);
-        if(result.last_error){s.error='Gmail取得に失敗しました。新着なしとは判定していません。';break;}
-        if(result.has_more===false)break;
-      }
-      Object.assign(s,await read('/data/mail-discovery/'+id));
-    }catch{s.error='Gmailの最新確認を完了できませんでした。保存済みメールを表示しています。';}
+      // Saved metadata and candidates only. No sync, paging or onIndexed side effects.
+    }catch{s.error='保存済みのメール探索情報を読取れませんでした。Gmail同期は実行していません。';}
     finally{s.busy=false;if(isCurrent(id))mount(id);}
   }
   return {mount,check,cancel(){controller?.abort();controller=null;states.clear();}};

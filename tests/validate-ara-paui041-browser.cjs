@@ -4,7 +4,7 @@ const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'..'),C='11111111-1111-4111-8111-111111111111',D='22222222-2222-4222-8222-222222222222';
 (async()=>{
  const server=http.createServer((req,res)=>{const file=path.join(root,new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))return res.writeHead(403).end();try{res.setHeader('content-type',file.endsWith('.mjs')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));}catch{res.writeHead(404).end();}});
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await chromium.launch({headless:true});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await chromium.launch({headless:true,...(process.env.PAUI079_CHROMIUM?{executablePath:process.env.PAUI079_CHROMIUM}:{})});
  try{
   const page=await browser.newPage({timezoneId:'Asia/Tokyo',viewport:{width:1440,height:900}}),errors=[],writes=[];let pages=0,fail=false;
   page.on('pageerror',e=>errors.push(e.message));
@@ -13,7 +13,7 @@ const root=path.resolve(__dirname,'..'),C='11111111-1111-4111-8111-111111111111'
   await page.route('**/api/pa-workspace-read?**',async r=>{
    const p=new URL(r.request().url()).searchParams.get('path');let result=[];
    if(p==='/data/cases')result={cases:[{id:C,event_name:'Fixture case',status:'new',case_type:'PA_EVENT'},{id:D,event_name:'Other case',status:'new',case_type:'PA_EVENT'}],progress:[]};
-   else if(p.startsWith('/data/mail-discovery/'))result={enabled:true,complete:pages>=3,last_completed_at:'2026-10-15T00:00:00Z',candidates:[{gmail_thread_id:'ambiguous',gmail_message_id:'candidate',subject:'<img src=x onerror=alert(1)>',occurred_at:'2026-10-14T00:00:00Z',fingerprint:'a'.repeat(64)}]};
+   else if(p.startsWith('/data/mail-discovery/')){if(fail)return r.fulfill({status:503,json:{ok:false}});result={enabled:true,complete:pages>=3,last_completed_at:'2026-10-15T00:00:00Z',candidates:[{gmail_thread_id:'ambiguous',gmail_message_id:'candidate',subject:'<img src=x onerror=alert(1)>',occurred_at:'2026-10-14T00:00:00Z',fingerprint:'a'.repeat(64)}]};}
    else if(p.startsWith('/data/mail/'))result=[row('old','2026-10-14T08:52:52Z'),...(pages>=3?[row('new','2026-10-14T11:57:08Z')]:[])];
    else if(p.startsWith('/data/commercial/'))result={estimates:[],offers:[],documents:[],billings:[]};
    else if(p.startsWith('/data/materials/'))result={cards:[],photos:[]};
@@ -21,12 +21,12 @@ const root=path.resolve(__dirname,'..'),C='11111111-1111-4111-8111-111111111111'
   });
   await page.route('**/api/pa-gmail',async r=>{const body=r.request().postDataJSON();assert.equal(r.request().method(),'POST');assert.equal(r.request().headers().authorization,'Bearer fixture-only');writes.push(body);if(fail)return r.fulfill({status:503,contentType:'application/json',body:'{"ok":false}'});pages++;return r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:{complete:pages>=3,has_more:pages<3,last_completed_at:'2026-10-15T00:00:00Z'}})});});
   await page.goto('http://127.0.0.1:'+server.address().port+'/pa-admin.html');await page.locator('[data-case="'+C+'"]').click();assert.equal(writes.length,0,'Overview must not initiate mail writes');
-  await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#mail-discovery').getByText(/最新確認済み/).waitFor();
-  assert.equal(writes.length,3);assert(writes.every(w=>w.action==='case_discovery_sync'&&w.inquiry_id===C));assert.deepEqual(await page.locator('.mail-list > [data-message]').evaluateAll(n=>n.map(x=>x.dataset.message)),['new','old']);
-  await page.locator('#mail-discovery summary').click();assert.equal(await page.locator('#mail-discovery img').count(),0);assert((await page.locator('#mail-discovery').innerText()).includes('<img src=x onerror=alert(1)>'));assert.equal(writes.length,3,'Candidate render never auto-approves');
-  await page.locator('[data-discovery-link="ambiguous"]').click();assert.equal(writes.length,3,'Opening confirmation is inert');await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.equal(writes.length,3,'Cancel is inert');
-  await page.locator('#mail-discovery summary').click();await page.locator('[data-discovery-link="ambiguous"]').click();await page.getByRole('button',{name:'確定して関連付ける',exact:true}).click();await page.locator('#mail-discovery').getByText(/最新確認済み/).waitFor();assert.equal(writes.length,4);assert.deepEqual(writes.at(-1),{action:'case_discovery_decide',inquiry_id:C,gmail_thread_id:'ambiguous',fingerprint:'a'.repeat(64),decision:'link'});
-  fail=true;await page.locator('[data-case="'+D+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#mail-discovery').getByText(/確認未完了/).waitFor();assert.equal(writes.length,5);assert.equal(writes.at(-1).inquiry_id,D);assert(!writes.some(w=>/send|mark|inbox_sync|manual_link/.test(w.action)));assert.deepEqual(errors,[]);
-  console.log('PASS PAUI-041 browser: overview writes=0; auto pages=3; same-case index refresh/newest-first; candidate XSS inert/no auto-approval; API failure stays incomplete; normal Owner Bearer; no business action');
+  await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#mail-discovery').getByText(/Gmailの最新確認はこの閲覧では実行していません/).waitFor();
+  assert.equal(writes.length,0);assert.equal(pages,0,'No automatic discovery pages');assert.deepEqual(await page.locator('.mail-list > [data-message]').evaluateAll(n=>n.map(x=>x.dataset.message)),['old']);
+  await page.locator('#mail-discovery summary').click();assert.equal(await page.locator('#mail-discovery img').count(),0);assert((await page.locator('#mail-discovery').innerText()).includes('<img src=x onerror=alert(1)>'));assert.equal(writes.length,0,'Candidate render never auto-approves');
+  await page.locator('[data-discovery-link="ambiguous"]').click();assert.equal(writes.length,0,'Opening confirmation is inert');await page.getByRole('button',{name:'キャンセル',exact:true}).click();assert.equal(writes.length,0,'Cancel is inert');
+  await page.locator('#mail-discovery summary').click();await page.locator('[data-discovery-link="ambiguous"]').click();await page.getByRole('button',{name:'確定して関連付ける',exact:true}).click();await page.locator('#mail-discovery').getByText(/Gmailの最新確認はこの閲覧では実行していません/).waitFor();assert.equal(writes.length,1);assert.deepEqual(writes.at(-1),{action:'case_discovery_decide',inquiry_id:C,gmail_thread_id:'ambiguous',fingerprint:'a'.repeat(64),decision:'link'});
+  fail=true;await page.locator('[data-case="'+D+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await page.locator('#mail-discovery').getByText(/読取り未完了/).waitFor();assert.equal(writes.length,1);assert.equal(writes.filter(w=>w.action==='case_discovery_sync').length,0);assert(!writes.some(w=>/send|mark|inbox_sync|manual_link/.test(w.action)));assert.deepEqual(errors,[]);
+  console.log('PASS PAUI-041 browser: overview writes=0; auto pages=0; saved mailbox GET display; candidate XSS inert/no auto-approval; API failure stays incomplete; normal Owner Bearer; no business action');
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
