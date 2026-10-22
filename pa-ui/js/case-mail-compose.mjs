@@ -15,10 +15,10 @@ export function createCaseMailRequest(getSession,onAuthFailure=()=>{}){return as
 };}
 async function attachment(file,kind='normal'){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return {...(kind!=='normal'?{document_kind:kind}:{}),filename:file.name,mime_type:file.type||'application/octet-stream',data:window.btoa(binary).replace(/\+/gu,'-').replace(/\//gu,'_').replace(/=+$/u,'')};}
 const errors={invalid_origin:'このPreviewの送信準備はOrigin制限で停止しています。設定を迂回しません。',case_mail_recipient_unverified:'宛先の形式、案件記録、メール原本を確認できません。自分自身・自動通知用の宛先には送信できません。',invalid_reply_cc:'CCの形式・件数・Toとの重複を確認してください。',case_mail_stale:'案件または原本が更新されました。プレビューを作り直してください。',reply_operation_blocked:'送信済みまたは結果不明の操作です。同じ操作を再送できません。',case_mail_unavailable:'送信準備を確認できません。送信せず停止しています。'};
-export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=>[],readFile,onSent=async()=>{},isAuthenticated=()=>true}){
- let state=null;
+export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=>[],readFile,onSent=async()=>{},onStatus=()=>{},isAuthenticated=()=>true}){
+ let state=null,clearVersion=0;
  const current=s=>state===s&&isAuthenticated()&&getCase()?.id===s.caseId;
- function clear(){const s=state;state=null;if(!s)return;clearInterval(s.guard);s.gallery?.dispose();s.dialog.remove();s.files=[];s.preview=null;s.payload=null;}
+ function clear(){clearVersion++;const s=state;state=null;if(!s)return;clearInterval(s.guard);s.gallery?.dispose();s.dialog.remove();s.files=[];s.preview=null;s.payload=null;}
  async function beforeLeave(){if(!state)return true;if(state.busy){state.status.textContent='処理中です。結果の確認をお待ちください。';return false;}if(state.dirty&&!window.confirm('下書きを破棄して移動しますか？'))return false;clear();return true;}
  async function open(kind='new',message=null){
   if(!await beforeLeave())return;const c=getCase();if(!c||!isAuthenticated())return;
@@ -72,7 +72,15 @@ export function createCaseMailComposer({request,getCase,getMessages,getFiles=()=
     const send=btn('最終確認してGmail送信',async()=>{
      if(!confirm.checked||p.recipient_confirmation_needed&&!recipientConfirm.checked||s.busy||s.attempted||!current(s)||s.preview!==p||s.version!==version||Date.parse(p.expires_at)<=Date.now())return;
      s.attempted=true;s.busy=true;send.disabled=true;prepare.disabled=true;for(const x of [source,to,cc,subject,body,files,existing])x.disabled=true;for(const x of fileList.querySelectorAll('select'))x.disabled=true;s.status.textContent='送信結果を確認中…';
-     try{const result=await request('send',{...s.payload,operation_id:p.operation_id,confirmation_token:p.confirmation_token,owner_confirmed:true,unverified_recipients_confirmed:p.recipient_confirmation_needed&&recipientConfirm.checked});if(!current(s))return;showOperation(result.operation);s.dirty=false;s.status.textContent=result.history_sync==='COMPLETE'?'送信済み。履歴を更新しました。':'送信済み／履歴同期未完了。再送しないでください。';try{await onSent(c.id,result);}catch{if(current(s))s.status.textContent='送信済み／画面履歴更新は未確認。再送しないでください。';}}
+     try{const result=await request('send',{...s.payload,operation_id:p.operation_id,confirmation_token:p.confirmation_token,owner_confirmed:true,unverified_recipients_confirmed:p.recipient_confirmation_needed&&recipientConfirm.checked});if(!current(s))return;
+      if(result.operation?.operation_id!==p.operation_id||result.operation.inquiry_id!==c.id)throw Error('invalid_confirmation');
+      showOperation(result.operation);if(result.operation.state!=='SENT'){s.status.textContent='送信成功は未確認です。再送せず保存済み送信結果を照合してください。';return;}
+      s.dirty=false;clear();const completedVersion=clearVersion;
+      const notify=(text,warning=false)=>{if(clearVersion===completedVersion&&isAuthenticated())try{onStatus(c.id,{text,warning});}catch{}};
+      const historyWarning='Gmail送信済み／履歴未更新。再送不要です。保存済み送信結果の照合が必要です。';
+      notify(result.history_sync==='COMPLETE'?'Gmail送信済み':historyWarning,result.history_sync!=='COMPLETE');
+      try{await onSent(c.id,result);}catch{notify(historyWarning,true);}
+     }
      catch{if(current(s)){s.status.textContent='結果未確認。自動再送しません。保存済み状態を確認します。';try{showOperation((await request('status',{inquiry_id:c.id,operation_id:p.operation_id},true)).operation);}catch{operation.textContent='UNKNOWN / 保存済み状態も未確認です。再送禁止。';}}}finally{if(current(s))s.busy=false;}
     });send.disabled=true;const enabled=()=>{send.disabled=!confirm.checked||p.recipient_confirmation_needed&&!recipientConfirm.checked||s.attempted;};confirm.onchange=recipientConfirm.onchange=enabled;previewHost.append(send);s.status.textContent='プレビュー確認済み。まだ送信していません。';
    }catch(error){if(current(s))s.status.textContent=errors[error.message]||'送信前プレビューを確認できません。送信していません。';}finally{if(current(s)){s.busy=false;prepare.disabled=s.attempted;}}
