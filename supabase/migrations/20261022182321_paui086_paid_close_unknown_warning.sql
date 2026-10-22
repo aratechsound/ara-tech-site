@@ -3,7 +3,7 @@ set local statement_timeout='15s';
 do $paui086_guard$
 begin
  if encode(sha256(convert_to(replace(pg_get_functiondef('public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure),chr(13)||chr(10),chr(10)),'UTF8')),'hex') <> 'ca5fa61683d5c405e1da3ad531c66580987214ef53b2a6b5efb9e99ccd690a24'
- or (select proacl::text from pg_proc where oid='public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure) <> '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}' then
+ or (select proacl::text from pg_proc where oid='public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure) is distinct from '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}' then
   raise exception 'PAUI086_preimage_or_acl_mismatch';
  end if;
 end $paui086_guard$;
@@ -318,7 +318,7 @@ $function$
 do $paui086_post$
 begin
  if encode(sha256(convert_to(replace(pg_get_functiondef('public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure),chr(13)||chr(10),chr(10)),'UTF8')),'hex') <> '0fe6fc8aef99710def93077b6ad7352084a06268aed24887b9e41fe762a71d7b'
- or (select proacl::text from pg_proc where oid='public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure) <> '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}' then
+ or (select proacl::text from pg_proc where oid='public.update_pa_case_progress(uuid,jsonb,text)'::regprocedure) is distinct from '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}' then
   raise exception 'PAUI086_postimage_or_acl_mismatch';
  end if;
 end $paui086_post$;
