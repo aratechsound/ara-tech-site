@@ -19,8 +19,11 @@ export function paClosePolicy(a){
   const paid=nums.reduce((sum,n)=>sum+n,0);
   if(nums.every(Number.isSafeInteger)&&b.amount_minor!=null&&s.state.final_settlement_minor!=null&&Number.isSafeInteger(Number(b.amount_minor))&&paid===Number(b.amount_minor)&&paid===Number(s.state.final_settlement_minor)&&s.state.fulfillment_state==='confirmed'&&s.state.settlement_state==='confirmed'&&(b.invoice_policy!=='separate_pdf'||b.invoice_delivery_state==='sent'))billing=b;
  }
- const canPaid=ordered&&!unresolved&&(s.billings.length?!!billing:!s.payments.length&&!s.adjustments.length);
- return {canOrdinary:!protectedBusiness,canPaid,billing,paidRoute:s.billings.length?'commercial':'owner_attestation',reason:protectedBusiness?'受注・正式確認・請求・入金または未処理の商務記録を保護しています。通常の終了では処理できません。':''};
+ // Historical delivery UNKNOWN is evidence to retain, not an unpaid balance.
+ const deliveryUnknown=s.outbox.some(j=>j.state==='unknown'||j.delivery_state==='unknown_after_provider_start');
+ const paidUnresolved=!!s.state.unresolved_changes||s.outbox.some(j=>['queued','processing'].includes(j.state)||j.state==='failed'&&j.delivery_state!=='unknown_after_provider_start')||s.change_orders.some(o=>!['agreed','withdrawn'].includes(o.state));
+ const canPaid=ordered&&!paidUnresolved&&(s.billings.length?!!billing:!s.payments.length&&!s.adjustments.length);
+ return {canOrdinary:!protectedBusiness,canPaid,billing,paidRoute:s.billings.length?'commercial':'owner_attestation',warning:deliveryUnknown?'過去のメール配送結果にUNKNOWNがあります。配送記録は未確定のまま保持し、再送しません。実入金の確認とは別に照合してください。':'',reason:protectedBusiness?'受注・正式確認・請求・入金または未処理の商務記録を保護しています。通常の終了では処理できません。':''};
 }
 
 export async function readPaCloseAuthority(client,auth,snapshot,commercialRequest){
@@ -77,6 +80,7 @@ export function createPaCaseCompletion({getCase,isAuthenticated,read,save,onSave
   try{
    const a=await read(c);if(!current(s))return;const policy=paClosePolicy(a);
    status.textContent=policy.reason||'未受注の案件です。終了理由を選び、対象を確認してください。';
+   if(policy.warning){const warning=make('p',policy.warning);warning.className='notice';warning.setAttribute('role','note');body.append(warning);}
    const select=make('select');select.setAttribute('aria-label','終了方法');
    for(const [value,[label]]of Object.entries(closeChoices)){const o=new Option(label,value);o.disabled=!policy.canOrdinary;select.append(o);}
    const paid=new Option('入金確認済みで完了','owner_payment_completed');paid.disabled=!policy.canPaid;select.append(paid);
