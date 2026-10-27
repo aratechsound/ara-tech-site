@@ -1,0 +1,68 @@
+{
+  "task_id": "PAUI-087",
+  "production_base": "01d93b0834e6077c5b2d5e7ca6231c8a0a8957a5",
+  "schema_apply": false,
+  "gmail_send": false,
+  "holds_preserved": [
+    "PAUI-079",
+    "PAUI-080"
+  ],
+  "product_paths": [
+    "api/_pa-gmail.cjs"
+  ],
+  "test_reason": "PAUI-083 already closes matching durable SENT operations; verify detached composer, case-scoped outcome and no send control while retaining duplicate and UNKNOWN checks.",
+  "files": {
+    "api/_pa-gmail.cjs": {
+      "before_sha256": "1d8a1a9f1d8defaa133acd9264bb9f9e1c759e8c7a1f1f20955d64fd616c3440",
+      "after_sha256": "28a18b9a655d2df824a42c3206797a1a1772c7b719bf08f8238d7ac4084c932a"
+    },
+    "tests/helpers/assert-case-mail-sent.cjs": {
+      "before_sha256": null,
+      "after_sha256": "f7dbf0e064bb8dded4e4dfae13d68d7ecec9f4b50c529e98b08b469bc7369d66"
+    },
+    "tests/validate-ara-candidate-recovery-browser.cjs": {
+      "before_sha256": "d175ec32ee1c17a9012308424e2bfbab6ec4ad1de9c1bda3c3dde780e1dcb475",
+      "after_sha256": "8008054311d61fe3f8eafd9ccd57908600a0e5ceb2449a00db12360210ed514a"
+    },
+    "tests/validate-ara-case-workflows-browser.cjs": {
+      "before_sha256": "76fcc20af5e577da5b1be53104cf6363f927f39e5d0885a5578dae9b3a10b4cf",
+      "after_sha256": "fd4b408105c50617f75115f8822974c20b95b343d7780e9b268ebeef28f85d39"
+    },
+    "tests/validate-ara-direct-intake-069.cjs": {
+      "before_sha256": "776cf16d760fc74b6d4162d87b07f58edc90438355f66e38495939c1c79c5c78",
+      "after_sha256": "ac3b1fa036d4af2e30822e490623975a4c3a7755c7b3d48784ed3228d5111e47"
+    },
+    "tests/validate-ara-general-inquiry-068-browser.cjs": {
+      "before_sha256": "81e09b5820e6836b58c605b2bbcc6586cd157cda9b534058f8c3902078092240",
+      "after_sha256": "68a4ee9ee6d7628f81b3f83fa57dff937d5ff2853e9b3e39313ef889341257e8"
+    },
+    "tests/validate-ara-invoice-ui-064-browser.cjs": {
+      "before_sha256": "fe89350d3e0c7fb3de28bda1fc9427db1381decb0e96f687b00ab37d46ddc3b8",
+      "after_sha256": "0952820a76f9740fa1c45160d10e826f522a8e75883f4285e773cb584cf4f51e"
+    },
+    "tests/validate-ara-paui087-gmail-drafts.cjs": {
+      "before_sha256": null,
+      "after_sha256": "56d7bd98f37d85d1785708ed73508c1cf3107b7ad098a08a03ab686dcf4d3e59"
+    },
+    "tests/validate-ara-reply-documents-browser.cjs": {
+      "before_sha256": "d783d7254b9e896bb3443f40b41c8fe8d2fb68d0aee2a3ea37cf688983459dc9",
+      "after_sha256": "4939bb14e9a17562738c1b1645c1880857f2f6e57853a954ca7a6a5722eb5bc3"
+    },
+    "tests/validate-paui087.cjs": {
+      "before_sha256": null,
+      "after_sha256": "268ee9c63381d322f9cb82193a01bba16ba23f82127c93cd79a176b4bcc7fded"
+    },
+    "tests/validate-ara-paui-integration.cjs": {
+      "before_sha256": "dd8afbee5f48fb0323281925ef9dd11acb7343ecd14bb710a796b16df0c2967c",
+      "after_sha256": "151c921c51fa2642a9ff85cec6acfc8fc19b866a46175ef719a5f4db86832103"
+    },
+    "tests/validate-ara-paui038-excerpts.cjs": {
+      "before_sha256": "d7016af42a4b40076c3e21c1a74eb885fbf9c3b989f7a4a43732d427209086cb",
+      "after_sha256": "f30aa74dc42ef15efcaa020a2dbf3a0f68a58591e7c7d2f3a369447a9b44fc09"
+    },
+    "tests/validate-ara-paui036-static.cjs": {
+      "before_sha256": "8f44f566c875fead91fc9b52a6b2d5a953281249df68749f57388fe0be5542f5",
+      "after_sha256": "115e84e85e7659d5e05b1e57b1977aab53da8c1799579323c54919a77e568e28"
+    }
+  }
+}
