@@ -9,13 +9,13 @@ const blob=b=>crypto.createHash('sha1').update(Buffer.from('blob '+b.length+'\0'
 // PAUI-079/080 candidates remain byte-exact to that deployed baseline.
 const manifestPath='docs/PAUI-087-reviewed-scope.json';
 const bytes=fs.readFileSync(path.join(root,manifestPath));
-assert.equal(sha(bytes),'9387611f197fcf1a5ba055566e87782454c26fa492e150d1d45db54cbb1be0f2','PAUI-087 reviewed scope manifest drift');
+assert.equal(sha(bytes),'27a068e41e31e2b663869742c5c4bb59b9becf2946026f6bd4cb82dd09ff11d0','PAUI-087 reviewed scope manifest drift');
 const scope=JSON.parse(bytes);
 assert.equal(scope.task_id,'PAUI-087');assert.equal(scope.production_base,base);
 assert.equal(scope.schema_apply,false);assert.equal(scope.gmail_send,false);
 assert.deepEqual(scope.holds_preserved,['PAUI-079','PAUI-080']);
 assert.deepEqual(scope.product_paths,['api/_pa-gmail.cjs']);
-const exactPaths=['api/_pa-gmail.cjs','tests/helpers/assert-case-mail-sent.cjs','tests/validate-ara-candidate-recovery-browser.cjs','tests/validate-ara-case-workflows-browser.cjs','tests/validate-ara-direct-intake-069.cjs','tests/validate-ara-general-inquiry-068-browser.cjs','tests/validate-ara-invoice-ui-064-browser.cjs','tests/validate-ara-paui087-gmail-drafts.cjs','tests/validate-ara-reply-documents-browser.cjs','tests/validate-paui087.cjs'];
+const exactPaths=['api/_pa-gmail.cjs','tests/helpers/assert-case-mail-sent.cjs','tests/validate-ara-candidate-recovery-browser.cjs','tests/validate-ara-case-workflows-browser.cjs','tests/validate-ara-direct-intake-069.cjs','tests/validate-ara-general-inquiry-068-browser.cjs','tests/validate-ara-invoice-ui-064-browser.cjs','tests/validate-ara-paui087-gmail-drafts.cjs','tests/validate-ara-reply-documents-browser.cjs','tests/validate-paui087.cjs','tests/validate-ara-paui-integration.cjs','tests/validate-ara-paui038-excerpts.cjs'];
 assert.deepEqual(Object.keys(scope.files).sort(),exactPaths.sort());
 const baseline=new Map(git('ls-tree','-r','-z',base).toString('utf8').split('\0').filter(Boolean).map(entry=>{const [meta,p]=entry.split('\t'),[mode,type,id]=meta.split(' ');assert.equal(type,'blob');return [p,{mode,id}];}));
 for(const [p,pin]of Object.entries(scope.files)){
