@@ -59,6 +59,10 @@
     "tests/validate-ara-paui038-excerpts.cjs": {
       "before_sha256": "d7016af42a4b40076c3e21c1a74eb885fbf9c3b989f7a4a43732d427209086cb",
       "after_sha256": "f30aa74dc42ef15efcaa020a2dbf3a0f68a58591e7c7d2f3a369447a9b44fc09"
+    },
+    "tests/validate-ara-paui036-static.cjs": {
+      "before_sha256": "8f44f566c875fead91fc9b52a6b2d5a953281249df68749f57388fe0be5542f5",
+      "after_sha256": "115e84e85e7659d5e05b1e57b1977aab53da8c1799579323c54919a77e568e28"
     }
   }
 }
