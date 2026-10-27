@@ -410,7 +410,12 @@ const replySourceHash = (source) => crypto.createHash("sha256").update(JSON.stri
 const indexThread = async ({ inquiry, inquiryId, threadId, managedMetadata }, fetchImpl) => {
     const thread = await gmailThread(threadId, fetchImpl);
     const bounded = !isPaCase(inquiry) || ["gmail_owner_confirmed", "general_public_form"].includes(inquiry.first_form_data?.import_source);
-    const messages = (thread.messages || []).map(normalizeMessage).filter((message) => {
+    // Drafts have the official From address, but have never been sent.
+    // Filter the Gmail-owned label before direction inference and DB indexing.
+    // Do not mutate Gmail originals or infer successful delivery from From.
+    const messages = (thread.messages || []).filter(raw =>
+        !Array.isArray(raw?.labelIds) || !raw.labelIds.includes("DRAFT")
+    ).map(normalizeMessage).filter((message) => {
         if (!validGmailId(message.id) || message.thread_id !== threadId) return false;
         if (!bounded) return true;
         try { guardReplySource(inquiry, message); return true; } catch { return false; }
