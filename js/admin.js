@@ -1086,7 +1086,7 @@ if (!isSupabaseConfigured) {
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             assertTimeEvidence();
             const publicImageSourceUrl = imageSourceUrl(
-                (!file && reviewImageChanged ? reviewImageUrl : imageSourceUrlInput.value.trim())
+                (!file && reviewImageChanged && reviewImageUrl ? reviewImageUrl : imageSourceUrlInput.value.trim())
                 || reviewImageUrl || (!file && editingPost?.public_image_source_url) || ''
             );
             const imageConfirmation = pendingCandidate

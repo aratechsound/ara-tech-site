@@ -28,7 +28,7 @@
     },
     "js/admin.js": {
       "before_sha256": "e7e1fb64ce25db713725bfc905faa00288d75eb4c56f203935e3b803d54fc1c5",
-      "after_sha256": "d3ee61eef0b5fa29bb9ee45dbd7e3490a9f248ffee296c99abe6fc2d6cbb03de"
+      "after_sha256": "cedd3a23714e92fbffe24646e65bc295a9fbc3c47eebe00cd913a58a6f11c5a1"
     },
     "js/work-image-upload.mjs": {
       "before_sha256": null,
