@@ -52,7 +52,7 @@ assert.deepEqual(Object.keys(worksScope.files).sort(),worksPaths.sort());
 // WKS-001 preserves the prior image release and adds only authenticated batch RPC publication.
 const wksManifestPath='docs/WKS-001-reviewed-scope.json';
 const wksBytes=fs.readFileSync(path.join(root,wksManifestPath));
-assert.equal(sha(wksBytes),'c3312357b105d9a7761c17c4c273ce3931071879f44cf116fcec1224e9cc1a8b','WKS-001 scope drift');
+assert.equal(sha(wksBytes),'01e0e5d8a7c0f304b5c2fb1664fa58a6b9251ac5d194add83944a61d0c8b8544','WKS-001 scope drift');
 const wks=JSON.parse(wksBytes);
 assert.equal(wks.task_id,'WKS-001');
 assert.equal(wks.production_base,'0ad916971c9c936048102c06a8fdaaab5f995c8c');

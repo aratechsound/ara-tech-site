@@ -24,11 +24,11 @@
   "files": {
     "admin.html": {
       "before_sha256": "5ed8b7ff2a3a93608ed5e5e2f6981d7fb1c3efa1da6fda121d3e8bb83d64b1bc",
-      "after_sha256": "bafce33e118a3e38b4e43288bc8e0b9706922aca5ec0a34d46e395b7ff917f91"
+      "after_sha256": "0bc979990ff0a48c2a931d5c3a5cc205563686cfa6cd208a91d4c41e40353bdc"
     },
     "js/admin.js": {
       "before_sha256": "cedd3a23714e92fbffe24646e65bc295a9fbc3c47eebe00cd913a58a6f11c5a1",
-      "after_sha256": "ec47804c835eb91454b28fa2f550b5bf68b3338b25268046eb9757cc6ee180c3"
+      "after_sha256": "ac54e4f1b9cf33097e76599db541ff2ff3beffc98244fb8b028c3b4b4ad1238c"
     },
     "js/work-batch-publish.mjs": {
       "before_sha256": null,

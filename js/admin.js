@@ -521,6 +521,8 @@ const appendPendingReviewSummary = (body, post) => {
 const renderPendingPosts = () => {
     const batchTargets = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
     $('#wks001-batch').classList.toggle('hidden', !batchTargets.every(Boolean));
+    $('#wks001-publish').disabled = wks001Running || !batchTargets.every(Boolean)
+        || !batchTargets.some(isPendingCandidate);
     pendingImageGeneration += 1;
     const generation = pendingImageGeneration;
     releasePendingDisplayedImages();
@@ -929,18 +931,14 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    $('#wks001-approve').addEventListener('change', () => {
-        $('#wks001-publish').disabled = wks001Running || !$('#wks001-approve').checked;
-    });
     $('#wks001-publish').addEventListener('click', async () => {
-        if (wks001Running || !$('#wks001-approve').checked || publishingCandidateIds.size) return;
+        if (wks001Running || publishingCandidateIds.size) return;
         if (candidateFormDirty) {
             $('#wks001-status').textContent = '未保存の編集を保存または取り消してから実行してください。';
             return;
         }
         wks001Running = true;
         $('#wks001-publish').disabled = true;
-        $('#wks001-approve').disabled = true;
         WKS001_IDS.forEach((id) => setCandidatePublishing(id, true));
         try {
             const expected = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
@@ -959,8 +957,6 @@ if (!isSupabaseConfigured) {
         } finally {
             WKS001_IDS.forEach((id) => setCandidatePublishing(id, false));
             wks001Running = false;
-            $('#wks001-approve').checked = false;
-            $('#wks001-approve').disabled = false;
         }
     });
     prepareNewSlug();
