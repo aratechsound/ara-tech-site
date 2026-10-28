@@ -49,8 +49,26 @@ assert.deepEqual(worksScope.product_paths,['admin.html','js/admin.js','js/work-i
 assert.equal(worksScope.schema_apply,false);assert.equal(worksScope.gmail_send,false);assert.equal(worksScope.gmail_sync,false);
 const worksPaths=['admin.html','js/admin.js','js/work-image-upload.mjs','tests/validate-ara-20261029-work-image-upload.cjs'];
 assert.deepEqual(Object.keys(worksScope.files).sort(),worksPaths.sort());
+// WKS-001 preserves the prior image release and adds only authenticated batch RPC publication.
+const wksManifestPath='docs/WKS-001-reviewed-scope.json';
+const wksBytes=fs.readFileSync(path.join(root,wksManifestPath));
+assert.equal(sha(wksBytes),'c3312357b105d9a7761c17c4c273ce3931071879f44cf116fcec1224e9cc1a8b','WKS-001 scope drift');
+const wks=JSON.parse(wksBytes);
+assert.equal(wks.task_id,'WKS-001');
+assert.equal(wks.production_base,'0ad916971c9c936048102c06a8fdaaab5f995c8c');
+assert.deepEqual(wks.target_work_ids,[89,90,91,92,93,94,95,96,97,98]);
+assert.deepEqual(wks.product_paths,['admin.html','js/admin.js','js/work-batch-publish.mjs']);
+assert.deepEqual(Object.keys(wks.files).sort(),['admin.html','js/admin.js','js/work-batch-publish.mjs','tests/validate-ara-wks001-api-publish.cjs'].sort());
+assert.equal(wks.schema_apply,false);assert.equal(wks.gmail_send,false);assert.equal(wks.gmail_sync,false);
+for(const [p,pin]of Object.entries(wks.files)){
+ assert.equal(sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' WKS-001 postimage drift');
+ if(pin.before_sha256!==null)assert.equal(sha(git('show',wks.production_base+':'+p)),pin.before_sha256,p+' WKS-001 predecessor drift');
+ else assert.equal(git('ls-tree',wks.production_base,'--',p).length,0,p+' unexpected WKS-001 predecessor');
+ exemptions.add(p);
+}
+exemptions.add(wksManifestPath);
 for(const [p,pin]of Object.entries(worksScope.files)){
- assert.equal(sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' reviewed WORKS postimage changed');
+ assert.equal(wks.files[p]?.before_sha256 ?? sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' reviewed WORKS postimage changed');
  if(pin.before_sha256!==null)assert.equal(sha(git('show',worksScope.production_base+':'+p)),pin.before_sha256,p+' WORKS predecessor drift');
  else assert.equal(git('ls-tree',worksScope.production_base,'--',p).length,0,p+' unexpected WORKS predecessor');
  exemptions.add(p);

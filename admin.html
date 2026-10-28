@@ -163,6 +163,13 @@
                 <p class="eyebrow">PUBLICATION QUEUE</p>
                 <h2 id="pending-title">公開待ち <span id="pending-count" class="status status--pending">0件</span></h2>
                 <p class="intro">Codexが公式情報を確認した未公開候補です。内容を保存・プレビューし、最終確認後に「公開する」を実行してください。</p>
+                <div id="wks001-batch" class="card hidden">
+                    <h3>11月・12月の確認済み10件を一括公開</h3>
+                    <p>WKS-001：ID 89〜98のみが対象です。登録済み画像と最新内容を確認し、管理者の承認を記録してAPIで順次公開します。公開済みの案件は再実行しません。</p>
+                    <label class="checkbox"><input id="wks001-approve" type="checkbox">対象10件の内容と登録済み画像を確認し、開催予定としての公開を承認します。</label>
+                    <button id="wks001-publish" class="button" type="button" disabled>確認した10件をAPIで一括公開</button>
+                    <p id="wks001-status" role="status" aria-live="polite"></p>
+                </div>
                 <div id="pending-posts" class="pending-posts" aria-live="polite"></div>
             </section>
 

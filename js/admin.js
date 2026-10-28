@@ -7,6 +7,7 @@ import {
 } from './work-taxonomy.mjs';
 import { resolveImageConfirmation } from './image-confirmation.mjs';
 import { imageSourceUrl, validateFlyerFile } from './work-image-upload.mjs';
+import { WKS001_IDS, publishWks001, verifyWks001StorageImage } from './work-batch-publish.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -87,6 +88,7 @@ let candidateFormDirty = false;
 let pendingImageGeneration = 0;
 const pendingDisplayedImages = new Map();
 const publishingCandidateIds = new Set();
+let wks001Running = false;
 
 const PENDING_STATUS = 'publication_pending_approval';
 const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
@@ -517,6 +519,8 @@ const appendPendingReviewSummary = (body, post) => {
 };
 
 const renderPendingPosts = () => {
+    const batchTargets = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
+    $('#wks001-batch').classList.toggle('hidden', !batchTargets.every(Boolean));
     pendingImageGeneration += 1;
     const generation = pendingImageGeneration;
     releasePendingDisplayedImages();
@@ -925,6 +929,40 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    $('#wks001-approve').addEventListener('change', () => {
+        $('#wks001-publish').disabled = wks001Running || !$('#wks001-approve').checked;
+    });
+    $('#wks001-publish').addEventListener('click', async () => {
+        if (wks001Running || !$('#wks001-approve').checked || publishingCandidateIds.size) return;
+        if (candidateFormDirty) {
+            $('#wks001-status').textContent = '未保存の編集を保存または取り消してから実行してください。';
+            return;
+        }
+        wks001Running = true;
+        $('#wks001-publish').disabled = true;
+        $('#wks001-approve').disabled = true;
+        WKS001_IDS.forEach((id) => setCandidatePublishing(id, true));
+        try {
+            const expected = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
+            const results = await publishWks001({ client: supabase, expected,
+                verifyImage: (post) => verifyWks001StorageImage(post, fileUrl),
+                onProgress: (items) => {
+                    $('#wks001-status').textContent = items.map((item) =>
+                        `ID ${item.id}：${['published', 'already_published'].includes(item.status) ? '公開済み' : '保留（' + item.message + '）'}`).join(' ／ ');
+                }
+            });
+            const count = results.filter((item) => ['published', 'already_published'].includes(item.status)).length;
+            $('#wks001-status').textContent += ` — 公開読戻し ${count}/10件。`;
+            await loadPosts();
+        } catch (error) {
+            $('#wks001-status').textContent = error.message || '管理者API処理を開始できません。';
+        } finally {
+            WKS001_IDS.forEach((id) => setCandidatePublishing(id, false));
+            wks001Running = false;
+            $('#wks001-approve').checked = false;
+            $('#wks001-approve').disabled = false;
+        }
+    });
     prepareNewSlug();
     restoreSession();
 
