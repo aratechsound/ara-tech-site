@@ -36,6 +36,26 @@ const replacement=`    // Drafts have the official From address, but have never 
 assert.equal(before.split(old).length,2);
 assert.equal(fs.readFileSync(path.join(root,'api/_pa-gmail.cjs'),'utf8'),before.replace(old,replacement),'product delta exceeds the supplied DRAFT filter');
 const exemptions=new Set([...exactPaths,manifestPath,'tests/validate-ara-download-release-boundary.cjs']);
+// WORKS-202611: the Owner separately authorized this exact image-only release.
+// Preserve the PAUI-087 proof above and all other historical source pins.
+const worksManifestPath='docs/WORKS-202611-IMAGE-FIX-reviewed-scope.json';
+const worksManifestBytes=fs.readFileSync(path.join(root,worksManifestPath));
+assert.equal(sha(worksManifestBytes),'0fc1ab38d4f274d05bbe7a1eef835ff927ff924b0855718b404b4c0096449276','WORKS reviewed scope manifest drift');
+const worksScope=JSON.parse(worksManifestBytes);
+assert.equal(worksScope.task_id,'WORKS-202611-IMAGE-FIX');
+assert.equal(worksScope.production_base,'15cafac6bfa1919770f786359f770e43c0ec737d');
+assert.deepEqual(worksScope.target_work_ids,[89,90,91,92,93,94,95,96,97,98]);
+assert.deepEqual(worksScope.product_paths,['admin.html','js/admin.js','js/work-image-upload.mjs']);
+assert.equal(worksScope.schema_apply,false);assert.equal(worksScope.gmail_send,false);assert.equal(worksScope.gmail_sync,false);
+const worksPaths=['admin.html','js/admin.js','js/work-image-upload.mjs','tests/validate-ara-20261029-work-image-upload.cjs'];
+assert.deepEqual(Object.keys(worksScope.files).sort(),worksPaths.sort());
+for(const [p,pin]of Object.entries(worksScope.files)){
+ assert.equal(sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' reviewed WORKS postimage changed');
+ if(pin.before_sha256!==null)assert.equal(sha(git('show',worksScope.production_base+':'+p)),pin.before_sha256,p+' WORKS predecessor drift');
+ else assert.equal(git('ls-tree',worksScope.production_base,'--',p).length,0,p+' unexpected WORKS predecessor');
+ exemptions.add(p);
+}
+exemptions.add(worksManifestPath);
 let preserved=0;
 for(const [p,entry]of baseline){
  assert(fs.existsSync(path.join(root,p)),p+' baseline file deleted');

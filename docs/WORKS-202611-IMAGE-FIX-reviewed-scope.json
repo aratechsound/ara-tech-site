@@ -1,0 +1,42 @@
+{
+  "task_id": "WORKS-202611-IMAGE-FIX",
+  "production_base": "15cafac6bfa1919770f786359f770e43c0ec737d",
+  "target_work_ids": [
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98
+  ],
+  "product_paths": [
+    "admin.html",
+    "js/admin.js",
+    "js/work-image-upload.mjs"
+  ],
+  "schema_apply": false,
+  "gmail_send": false,
+  "gmail_sync": false,
+  "files": {
+    "admin.html": {
+      "before_sha256": "90e6a3fb7444c4b6114343da8f352495d1db52aa69965b623b9a4a73dc7255d1",
+      "after_sha256": "ec3586049c480674233df084271ba98b6a503e6d7b085686d78f472938b656db"
+    },
+    "js/admin.js": {
+      "before_sha256": "e7e1fb64ce25db713725bfc905faa00288d75eb4c56f203935e3b803d54fc1c5",
+      "after_sha256": "dde2cebf0c1ffe715ec0e203d8f0e004cc8fb2154a00f6422d8931c7008b6578"
+    },
+    "js/work-image-upload.mjs": {
+      "before_sha256": null,
+      "after_sha256": "f61fd4ed814f86dd12339267052b37d63a4241f0eaefdae128dd639596c78923"
+    },
+    "tests/validate-ara-20261029-work-image-upload.cjs": {
+      "before_sha256": null,
+      "after_sha256": "cdc2ef30e2ea842aee8719c15c8754051de00432b6f9988ced0de0a24f3d3c1a"
+    }
+  }
+}
