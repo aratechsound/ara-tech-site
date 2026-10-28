@@ -36,6 +36,44 @@ const replacement=`    // Drafts have the official From address, but have never 
 assert.equal(before.split(old).length,2);
 assert.equal(fs.readFileSync(path.join(root,'api/_pa-gmail.cjs'),'utf8'),before.replace(old,replacement),'product delta exceeds the supplied DRAFT filter');
 const exemptions=new Set([...exactPaths,manifestPath,'tests/validate-ara-download-release-boundary.cjs']);
+// WORKS-202611: the Owner separately authorized this exact image-only release.
+// Preserve the PAUI-087 proof above and all other historical source pins.
+const worksManifestPath='docs/WORKS-202611-IMAGE-FIX-reviewed-scope.json';
+const worksManifestBytes=fs.readFileSync(path.join(root,worksManifestPath));
+assert.equal(sha(worksManifestBytes),'3285dc24d1dbddb03b79598b1279f6c18ac085c6083de1febddadb195c66ca82','WORKS reviewed scope manifest drift');
+const worksScope=JSON.parse(worksManifestBytes);
+assert.equal(worksScope.task_id,'WORKS-202611-IMAGE-FIX');
+assert.equal(worksScope.production_base,'15cafac6bfa1919770f786359f770e43c0ec737d');
+assert.deepEqual(worksScope.target_work_ids,[89,90,91,92,93,94,95,96,97,98]);
+assert.deepEqual(worksScope.product_paths,['admin.html','js/admin.js','js/work-image-upload.mjs']);
+assert.equal(worksScope.schema_apply,false);assert.equal(worksScope.gmail_send,false);assert.equal(worksScope.gmail_sync,false);
+const worksPaths=['admin.html','js/admin.js','js/work-image-upload.mjs','tests/validate-ara-20261029-work-image-upload.cjs'];
+assert.deepEqual(Object.keys(worksScope.files).sort(),worksPaths.sort());
+// WKS-001 preserves the prior image release and adds only authenticated batch RPC publication.
+const wksManifestPath='docs/WKS-001-reviewed-scope.json';
+const wksBytes=fs.readFileSync(path.join(root,wksManifestPath));
+assert.equal(sha(wksBytes),'01e0e5d8a7c0f304b5c2fb1664fa58a6b9251ac5d194add83944a61d0c8b8544','WKS-001 scope drift');
+const wks=JSON.parse(wksBytes);
+assert.equal(wks.task_id,'WKS-001');
+assert.equal(wks.production_base,'0ad916971c9c936048102c06a8fdaaab5f995c8c');
+assert.deepEqual(wks.target_work_ids,[89,90,91,92,93,94,95,96,97,98]);
+assert.deepEqual(wks.product_paths,['admin.html','js/admin.js','js/work-batch-publish.mjs']);
+assert.deepEqual(Object.keys(wks.files).sort(),['admin.html','js/admin.js','js/work-batch-publish.mjs','tests/validate-ara-wks001-api-publish.cjs'].sort());
+assert.equal(wks.schema_apply,false);assert.equal(wks.gmail_send,false);assert.equal(wks.gmail_sync,false);
+for(const [p,pin]of Object.entries(wks.files)){
+ assert.equal(sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' WKS-001 postimage drift');
+ if(pin.before_sha256!==null)assert.equal(sha(git('show',wks.production_base+':'+p)),pin.before_sha256,p+' WKS-001 predecessor drift');
+ else assert.equal(git('ls-tree',wks.production_base,'--',p).length,0,p+' unexpected WKS-001 predecessor');
+ exemptions.add(p);
+}
+exemptions.add(wksManifestPath);
+for(const [p,pin]of Object.entries(worksScope.files)){
+ assert.equal(wks.files[p]?.before_sha256 ?? sha(fs.readFileSync(path.join(root,p))),pin.after_sha256,p+' reviewed WORKS postimage changed');
+ if(pin.before_sha256!==null)assert.equal(sha(git('show',worksScope.production_base+':'+p)),pin.before_sha256,p+' WORKS predecessor drift');
+ else assert.equal(git('ls-tree',worksScope.production_base,'--',p).length,0,p+' unexpected WORKS predecessor');
+ exemptions.add(p);
+}
+exemptions.add(worksManifestPath);
 let preserved=0;
 for(const [p,entry]of baseline){
  assert(fs.existsSync(path.join(root,p)),p+' baseline file deleted');

@@ -6,6 +6,8 @@ import {
     normalizeServiceTypes
 } from './work-taxonomy.mjs';
 import { resolveImageConfirmation } from './image-confirmation.mjs';
+import { imageSourceUrl, validateFlyerFile } from './work-image-upload.mjs';
+import { WKS001_IDS, publishWks001, verifyWks001StorageImage } from './work-batch-publish.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -54,6 +56,7 @@ const timeEvidenceConfirmedInput = $('#post-time-evidence-confirmed');
 const seoTitleInput = $('#post-seo-title');
 const metaDescriptionInput = $('#post-meta-description');
 const reviewImageUrlInput = $('#post-review-image-url');
+const imageSourceUrlInput = $('#post-image-source-url');
 const reviewImageMethodInput = $('#post-review-image-method');
 const reviewImagePreview = $('#review-image-preview');
 const imageUsageStatusInput = $('#post-image-usage-status');
@@ -85,6 +88,7 @@ let candidateFormDirty = false;
 let pendingImageGeneration = 0;
 const pendingDisplayedImages = new Map();
 const publishingCandidateIds = new Set();
+let wks001Running = false;
 
 const PENDING_STATUS = 'publication_pending_approval';
 const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
@@ -352,12 +356,10 @@ const setReviewImagePreview = (source) => {
 
 const uploadFlyer = async (file) => {
     if (!file) return null;
-    if (file.size > 10 * 1024 * 1024) throw new Error('画像は10MB以下にしてください。');
-    const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const safeExtension = ['png', 'jpg', 'jpeg', 'webp'].includes(extension) ? extension : 'jpg';
+    const safeExtension = await validateFlyerFile(file);
     const filename = `${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
     const path = `flyers/${filename}`;
-    const { error } = await supabase.storage.from(WORKS_BUCKET).upload(path, file, { cacheControl: '31536000', upsert: false });
+    const { error } = await supabase.storage.from(WORKS_BUCKET).upload(path, file, { cacheControl: '31536000', contentType: file.type, upsert: false });
     if (error) throw error;
     return path;
 };
@@ -443,6 +445,7 @@ const copyFromPost = (id) => {
     seoTitleInput.value = '';
     metaDescriptionInput.value = '';
     reviewImageUrlInput.value = '';
+    imageSourceUrlInput.value = '';
     reviewImageMethodInput.value = '';
     imageUsageStatusInput.value = 'unknown';
     usePublicImageInput.checked = false;
@@ -479,6 +482,8 @@ const hydratePendingImage = async ({ post, image, imageState, publish, generatio
         const objectUrl = URL.createObjectURL(displayed.file);
         pendingDisplayedImages.set(post.id, { ...displayed, objectUrl, candidateHash: post.candidate_hash });
         image.src = objectUrl;
+        image.classList.remove('hidden');
+        image.nextElementSibling.classList.add('hidden');
         image.alt = post.flyer_alt || `${post.title}の確認用フライヤー`;
         imageState.textContent = post.image_usage_status === 'not_permitted'
             ? '表示画像：確認済み ｜ 公開設定：画像なし'
@@ -487,7 +492,10 @@ const hydratePendingImage = async ({ post, image, imageState, publish, generatio
         publish.disabled = false;
     } catch (error) {
         if (generation !== pendingImageGeneration) return;
-        image.src = 'img/cta-bg.jpg';
+        image.removeAttribute('src');
+        image.classList.add('hidden');
+        image.nextElementSibling.textContent = '画像を確認できません';
+        image.nextElementSibling.classList.remove('hidden');
         image.alt = 'フライヤーを確認できません';
         imageState.textContent = `画像確認エラー：${error.message}`;
         publish.dataset.imageReady = 'false';
@@ -511,6 +519,10 @@ const appendPendingReviewSummary = (body, post) => {
 };
 
 const renderPendingPosts = () => {
+    const batchTargets = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
+    $('#wks001-batch').classList.toggle('hidden', !batchTargets.every(Boolean));
+    $('#wks001-publish').disabled = wks001Running || !batchTargets.every(Boolean)
+        || !batchTargets.some(isPendingCandidate);
     pendingImageGeneration += 1;
     const generation = pendingImageGeneration;
     releasePendingDisplayedImages();
@@ -527,8 +539,13 @@ const renderPendingPosts = () => {
         row.className = 'pending-row';
         const image = document.createElement('img');
         const hasImageCandidate = Boolean(post.review_image_url || post.flyer_path);
-        image.src = 'img/cta-bg.jpg';
+        image.classList.add('hidden');
         image.alt = hasImageCandidate ? 'フライヤーを安全に確認しています' : '確認用画像なし';
+        const imageContainer = document.createElement('div');
+        const imagePlaceholder = document.createElement('div');
+        imagePlaceholder.className = 'pending-image-placeholder';
+        imagePlaceholder.textContent = hasImageCandidate ? '画像を確認中' : '画像なし';
+        imageContainer.append(image, imagePlaceholder);
         const body = document.createElement('div');
         const title = document.createElement('h3');
         title.textContent = post.title;
@@ -574,7 +591,7 @@ const renderPendingPosts = () => {
         publish.disabled = hasImageCandidate;
         publish.addEventListener('click', () => publishPendingCandidate(post.id));
         actions.append(preview, edit, publish);
-        row.append(image, body, actions);
+        row.append(imageContainer, body, actions);
         pendingList.append(row);
         if (hasImageCandidate) hydratePendingImage({ post, image, imageState, publish, generation });
     });
@@ -694,6 +711,7 @@ const beginEdit = (id) => {
     seoTitleInput.value = editingPost.seo_title || '';
     metaDescriptionInput.value = editingPost.meta_description || '';
     reviewImageUrlInput.value = editingPost.review_image_url || '';
+    imageSourceUrlInput.value = editingPost.public_image_source_url || editingPost.review_image_url || '';
     reviewImageMethodInput.value = editingPost.review_image_acquisition_method || '';
     imageUsageStatusInput.value = editingPost.image_usage_status || 'unknown';
     usePublicImageInput.checked = editingPost.use_image_on_public_page !== false;
@@ -787,11 +805,29 @@ const prepareCandidateImageForPublication = async (post) => {
     if (!displayed || displayed.candidateHash !== post.candidate_hash) {
         throw new Error('一覧で確認したフライヤーの状態が古くなっています。最新の一覧を再確認してください。');
     }
-    if (post.use_image_on_public_page && post.flyer_path) {
-        if (post.public_image_sha256 !== displayed.sha256 || displayed.origin !== 'storage') {
+    if (displayed.origin === 'storage') {
+        if (!post.flyer_path || post.public_image_sha256 !== displayed.sha256) {
             throw new Error('一覧のフライヤーとStorage画像が一致しません。公開を停止しました。');
         }
-        return post;
+        if (post.use_image_on_public_page && post.image_usage_status === 'confirmed') return post;
+        // Uploads invalidate image approval. The final publish action confirms
+        // the exact displayed Storage bytes without uploading another copy.
+        const { data, error } = await supabase.from('work_posts').update({
+            image_usage_status: 'confirmed',
+            use_image_on_public_page: true
+        })
+            .eq('id', post.id)
+            .eq('candidate_hash', post.candidate_hash)
+            .eq('publication_review_status', PENDING_STATUS)
+            .eq('is_published', false)
+            .select('*')
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('候補が更新されています。最新内容を再確認してください。');
+        return data;
+    }
+    if (post.use_image_on_public_page && post.flyer_path) {
+        throw new Error('一覧のフライヤーとStorage画像が一致しません。公開を停止しました。');
     }
 
     setMessage(postStatus, '一覧で確認したフライヤーをARA-TECH側Storageへ保存しています。');
@@ -813,9 +849,7 @@ const prepareCandidateImageForPublication = async (post) => {
             .maybeSingle();
         if (error) throw error;
         if (!data) throw new Error('候補が更新されています。最新内容を再確認してください。');
-        if (post.flyer_path && post.flyer_path !== uploadedPath) {
-            await supabase.storage.from(WORKS_BUCKET).remove([post.flyer_path]);
-        }
+        // Retain previous Storage objects; other records may still reference them.
         return data;
     } catch (error) {
         await supabase.storage.from(WORKS_BUCKET).remove([uploadedPath]);
@@ -897,6 +931,34 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    $('#wks001-publish').addEventListener('click', async () => {
+        if (wks001Running || publishingCandidateIds.size) return;
+        if (candidateFormDirty) {
+            $('#wks001-status').textContent = '未保存の編集を保存または取り消してから実行してください。';
+            return;
+        }
+        wks001Running = true;
+        $('#wks001-publish').disabled = true;
+        WKS001_IDS.forEach((id) => setCandidatePublishing(id, true));
+        try {
+            const expected = WKS001_IDS.map((id) => posts.find((post) => post.id === id));
+            const results = await publishWks001({ client: supabase, expected,
+                verifyImage: (post) => verifyWks001StorageImage(post, fileUrl),
+                onProgress: (items) => {
+                    $('#wks001-status').textContent = items.map((item) =>
+                        `ID ${item.id}：${['published', 'already_published'].includes(item.status) ? '公開済み' : '保留（' + item.message + '）'}`).join(' ／ ');
+                }
+            });
+            const count = results.filter((item) => ['published', 'already_published'].includes(item.status)).length;
+            $('#wks001-status').textContent += ` — 公開読戻し ${count}/10件。`;
+            await loadPosts();
+        } catch (error) {
+            $('#wks001-status').textContent = error.message || '管理者API処理を開始できません。';
+        } finally {
+            WKS001_IDS.forEach((id) => setCandidatePublishing(id, false));
+            wks001Running = false;
+        }
+    });
     prepareNewSlug();
     restoreSession();
 
@@ -1057,7 +1119,10 @@ if (!isSupabaseConfigured) {
             const artistTargetSelected = artistPaSelected || serviceTypes.includes('local_touring_pa_support');
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             assertTimeEvidence();
-            const publicImageSourceUrl = file ? null : reviewImageUrl || editingPost?.public_image_source_url || null;
+            const publicImageSourceUrl = imageSourceUrl(
+                (!file && reviewImageChanged && reviewImageUrl ? reviewImageUrl : imageSourceUrlInput.value.trim())
+                || reviewImageUrl || (!file && editingPost?.public_image_source_url) || ''
+            );
             const imageConfirmation = pendingCandidate
                 ? {
                     image_usage_status: pendingImageOmitted ? 'not_permitted' : pendingUsesStoredImage ? 'confirmed' : 'unknown',
@@ -1094,7 +1159,9 @@ if (!isSupabaseConfigured) {
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
                 flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
-                review_image_url: reviewImageUrl || null,
+                // Local uploads are reviewed through Storage, not a CDN or a
+                // source-page URL. Provenance remains in public_image_source_url.
+                review_image_url: file ? null : reviewImageUrl || null,
                 review_image_acquisition_method: reviewImageMethodInput.value.trim() || null,
                 image_usage_status: imageConfirmation.image_usage_status,
                 use_image_on_public_page: imageConfirmation.use_image_on_public_page,
@@ -1110,7 +1177,7 @@ if (!isSupabaseConfigured) {
                 ? await supabase.from('work_posts').update(payload).eq('id', editingPost.id).select('id, slug').single()
                 : await supabase.from('work_posts').insert(payload).select('id, slug').single();
             if (result.error) throw result.error;
-            if (file && editingPost?.flyer_path) await supabase.storage.from(WORKS_BUCKET).remove([editingPost.flyer_path]);
+            // Replacements use a new object path and never delete an existing flyer.
             const publication = getPublicationState(payload);
             const savedUrl = workUrl(result.data.slug);
             await loadPosts();

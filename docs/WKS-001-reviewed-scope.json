@@ -1,0 +1,42 @@
+{
+  "task_id": "WKS-001",
+  "production_base": "0ad916971c9c936048102c06a8fdaaab5f995c8c",
+  "target_work_ids": [
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98
+  ],
+  "product_paths": [
+    "admin.html",
+    "js/admin.js",
+    "js/work-batch-publish.mjs"
+  ],
+  "schema_apply": false,
+  "gmail_send": false,
+  "gmail_sync": false,
+  "files": {
+    "admin.html": {
+      "before_sha256": "5ed8b7ff2a3a93608ed5e5e2f6981d7fb1c3efa1da6fda121d3e8bb83d64b1bc",
+      "after_sha256": "0bc979990ff0a48c2a931d5c3a5cc205563686cfa6cd208a91d4c41e40353bdc"
+    },
+    "js/admin.js": {
+      "before_sha256": "cedd3a23714e92fbffe24646e65bc295a9fbc3c47eebe00cd913a58a6f11c5a1",
+      "after_sha256": "ac54e4f1b9cf33097e76599db541ff2ff3beffc98244fb8b028c3b4b4ad1238c"
+    },
+    "js/work-batch-publish.mjs": {
+      "before_sha256": null,
+      "after_sha256": "06676e032cd906535abddc6cadab29a2d4a6b85999c06e679ebbad5061296fe7"
+    },
+    "tests/validate-ara-wks001-api-publish.cjs": {
+      "before_sha256": null,
+      "after_sha256": "ff5186234149f5f1f14f47acf9f2e46d96e7f2621310f640d169a74883d3220d"
+    }
+  }
+}
