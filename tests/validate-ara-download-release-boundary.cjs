@@ -40,7 +40,7 @@ const exemptions=new Set([...exactPaths,manifestPath,'tests/validate-ara-downloa
 // Preserve the PAUI-087 proof above and all other historical source pins.
 const worksManifestPath='docs/WORKS-202611-IMAGE-FIX-reviewed-scope.json';
 const worksManifestBytes=fs.readFileSync(path.join(root,worksManifestPath));
-assert.equal(sha(worksManifestBytes),'0fc1ab38d4f274d05bbe7a1eef835ff927ff924b0855718b404b4c0096449276','WORKS reviewed scope manifest drift');
+assert.equal(sha(worksManifestBytes),'a4ba4a8834d42dc7819d94efb78c53ff3c74451434f0c431393ed4aeb03e00f8','WORKS reviewed scope manifest drift');
 const worksScope=JSON.parse(worksManifestBytes);
 assert.equal(worksScope.task_id,'WORKS-202611-IMAGE-FIX');
 assert.equal(worksScope.production_base,'15cafac6bfa1919770f786359f770e43c0ec737d');

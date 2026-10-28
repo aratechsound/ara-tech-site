@@ -55,6 +55,7 @@ const timeEvidenceConfirmedInput = $('#post-time-evidence-confirmed');
 const seoTitleInput = $('#post-seo-title');
 const metaDescriptionInput = $('#post-meta-description');
 const reviewImageUrlInput = $('#post-review-image-url');
+const imageSourceUrlInput = $('#post-image-source-url');
 const reviewImageMethodInput = $('#post-review-image-method');
 const reviewImagePreview = $('#review-image-preview');
 const imageUsageStatusInput = $('#post-image-usage-status');
@@ -442,6 +443,7 @@ const copyFromPost = (id) => {
     seoTitleInput.value = '';
     metaDescriptionInput.value = '';
     reviewImageUrlInput.value = '';
+    imageSourceUrlInput.value = '';
     reviewImageMethodInput.value = '';
     imageUsageStatusInput.value = 'unknown';
     usePublicImageInput.checked = false;
@@ -703,6 +705,7 @@ const beginEdit = (id) => {
     seoTitleInput.value = editingPost.seo_title || '';
     metaDescriptionInput.value = editingPost.meta_description || '';
     reviewImageUrlInput.value = editingPost.review_image_url || '';
+    imageSourceUrlInput.value = editingPost.public_image_source_url || editingPost.review_image_url || '';
     reviewImageMethodInput.value = editingPost.review_image_acquisition_method || '';
     imageUsageStatusInput.value = editingPost.image_usage_status || 'unknown';
     usePublicImageInput.checked = editingPost.use_image_on_public_page !== false;
@@ -796,11 +799,29 @@ const prepareCandidateImageForPublication = async (post) => {
     if (!displayed || displayed.candidateHash !== post.candidate_hash) {
         throw new Error('一覧で確認したフライヤーの状態が古くなっています。最新の一覧を再確認してください。');
     }
-    if (post.use_image_on_public_page && post.flyer_path) {
-        if (post.public_image_sha256 !== displayed.sha256 || displayed.origin !== 'storage') {
+    if (displayed.origin === 'storage') {
+        if (!post.flyer_path || post.public_image_sha256 !== displayed.sha256) {
             throw new Error('一覧のフライヤーとStorage画像が一致しません。公開を停止しました。');
         }
-        return post;
+        if (post.use_image_on_public_page && post.image_usage_status === 'confirmed') return post;
+        // Uploads invalidate image approval. The final publish action confirms
+        // the exact displayed Storage bytes without uploading another copy.
+        const { data, error } = await supabase.from('work_posts').update({
+            image_usage_status: 'confirmed',
+            use_image_on_public_page: true
+        })
+            .eq('id', post.id)
+            .eq('candidate_hash', post.candidate_hash)
+            .eq('publication_review_status', PENDING_STATUS)
+            .eq('is_published', false)
+            .select('*')
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('候補が更新されています。最新内容を再確認してください。');
+        return data;
+    }
+    if (post.use_image_on_public_page && post.flyer_path) {
+        throw new Error('一覧のフライヤーとStorage画像が一致しません。公開を停止しました。');
     }
 
     setMessage(postStatus, '一覧で確認したフライヤーをARA-TECH側Storageへ保存しています。');
@@ -1064,7 +1085,10 @@ if (!isSupabaseConfigured) {
             const artistTargetSelected = artistPaSelected || serviceTypes.includes('local_touring_pa_support');
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             assertTimeEvidence();
-            const publicImageSourceUrl = imageSourceUrl(reviewImageUrl || (!file && editingPost?.public_image_source_url) || '');
+            const publicImageSourceUrl = imageSourceUrl(
+                (!file && reviewImageChanged ? reviewImageUrl : imageSourceUrlInput.value.trim())
+                || reviewImageUrl || (!file && editingPost?.public_image_source_url) || ''
+            );
             const imageConfirmation = pendingCandidate
                 ? {
                     image_usage_status: pendingImageOmitted ? 'not_permitted' : pendingUsesStoredImage ? 'confirmed' : 'unknown',
@@ -1101,7 +1125,9 @@ if (!isSupabaseConfigured) {
                 venue: $('#post-venue').value.trim() || null,
                 description: $('#post-description').value.trim() || null, flyer_path: flyerPath,
                 flyer_alt: flyerAltInput.value.trim() || (flyerPath || reviewImageUrl ? `${title}のフライヤー` : null),
-                review_image_url: reviewImageUrl || null,
+                // Local uploads are reviewed through Storage, not a CDN or a
+                // source-page URL. Provenance remains in public_image_source_url.
+                review_image_url: file ? null : reviewImageUrl || null,
                 review_image_acquisition_method: reviewImageMethodInput.value.trim() || null,
                 image_usage_status: imageConfirmation.image_usage_status,
                 use_image_on_public_page: imageConfirmation.use_image_on_public_page,
