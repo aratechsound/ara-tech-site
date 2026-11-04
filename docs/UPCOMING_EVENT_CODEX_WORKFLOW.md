@@ -108,4 +108,3 @@ OPEN / START、SEO、候補ハッシュ、承認ハッシュ、確認用画像UR
 ## WKS-004 Owner修正：既存セッション優先
 
 正式な標準は既存WORKS管理者セッションの確認・再利用。有効ならログインを省略し、未認証・期限切れのときだけadmin.htmlを開いてOwner本人のログインを待つ。非同期セッション復元を待ってから判定する。復元後に本人・管理者権限を確認し、同じ作業を継続する。Supabase Dashboard GitHub OAuthはサイトAuthの代わりにならない。PowerShellパスワード入力と新たなDPAPI認証保存を標準から外す。ブラウザtoken抽出・認証偽装は禁止。既存clientによる正規APIからpublish_work_candidateを優先し、画像・hash・actor/time・監査を維持する。既存セッションがあるのに正規API実行面がない場合は、追加ログインを求めず両者を区別してHOLD理由を記録する。公開/OKボタン自動操作や新規認証基盤で代用しない。
-
