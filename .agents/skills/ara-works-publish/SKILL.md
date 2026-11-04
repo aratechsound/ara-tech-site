@@ -5,7 +5,7 @@ description: Register, resume and formally publish ARA-TECH WORKS events using a
 
 # ARA-TECH WORKS publication
 
-Read [the operational contract](../../../../docs/UPCOMING_EVENT_CODEX_WORKFLOW.md) and [API and evidence reference](references/api-and-evidence.md). Explicit invocation: `$ara-works-publish`. Automatic selection is enabled; instructions never grant authentication or publication authority.
+Read [the operational contract](../../../docs/UPCOMING_EVENT_CODEX_WORKFLOW.md) and [API and evidence reference](references/api-and-evidence.md). Explicit invocation: `$ara-works-publish`. Automatic selection is enabled; instructions never grant authentication or publication authority.
 
 ## Scope and authorization
 
