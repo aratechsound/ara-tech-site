@@ -1,0 +1,6 @@
+interface:
+  display_name: "ARA WORKS Publish"
+  short_description: "ARA-TECH WORKS登録・認証済みAPI公開・画像検証・結果Return"
+  default_prompt: "Use $ara-works-publish to register or resume the specified ARA-TECH event, publish within Owner authorization, verify Production and return the measured result."
+policy:
+  allow_implicit_invocation: true
