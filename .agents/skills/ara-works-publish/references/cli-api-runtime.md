@@ -20,3 +20,7 @@ Run skill/CLI safety checks without credentials:
     node --test .agents/skills/ara-works-publish/scripts/publish-reviewed.test.mjs .agents/skills/ara-works-publish/scripts/works-publish-cli.test.mjs
 
 Mocks, DPAPI roundtrip and skill discovery do not establish Production publication PASS.
+
+## In-session shared publication panel
+
+The existing admin.html now mounts #reviewed-api-publication after authenticated data loading. Its per-candidate action displays ID, full event identity, current candidate hash and verified stored image. The Owner activates that action once; it calls the existing shared publishReviewed helper with the current Supabase client. getUser, work_admins/RLS, fresh row/hash, image approval and byte validation run before the existing RPC. No token leaves the session. No OK dialog, upload, INSERT or direct publication-field update is involved. On UNKNOWN, read the row before any new instruction; do not automatically resubmit. This is a common candidate implementation, not a widened WKS001_IDS list. Code deployment and test PASS do not establish operational success; record the real publication/readback/display outcome separately.
