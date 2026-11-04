@@ -15,3 +15,6 @@ ARA-TECHの公演登録・開催予定追加・WORKS正式公開・既存候補�
 - 公開後は詳細ページ、画像、title、canonical、OGP、Event構造化データ、sitemap、公式リンク、モバイル表示を確認する。
 - AraOS / ARA AI Company OSには変更を加えない。
 - 成果と公開のPASS/HOLD、Bridge保存、クラウド読戻し、許可された元会話へのブラウザReturn、正式ACKを独立判定する。公開HOLDでも安全に実施可能なReturnは同じ実行ターンで行う。
+
+## WORKS API公開ランタイム
+既存の認証済み管理者APIによる公演公開は .agents/skills/ara-works-publish/scripts/works-publish-cli.mjs を優先する。本人ログイン/権限/画像/候補ハッシュを検証し、直接SQLやブラウザ自動クリックで代替しない。
