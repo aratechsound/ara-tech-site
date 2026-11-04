@@ -29,6 +29,9 @@ jobs:
           ARA_CI_WHITESPACE: git diff --check
         run: bash tests/ci/run-security-checks.sh
 
+      - name: Validate WORKS skill and authenticated CLI behavior
+        run: node --test .agents/skills/ara-works-publish/scripts/publish-reviewed.test.mjs .agents/skills/ara-works-publish/scripts/works-publish-cli.test.mjs
+
       - name: Save local fixture and validator evidence
         if: always()
         uses: actions/upload-artifact@v4
