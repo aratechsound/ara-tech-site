@@ -103,3 +103,9 @@ OPEN / START、SEO、候補ハッシュ、承認ハッシュ、確認用画像UR
 最新候補が変更されていればRPC前にHOLD。公開済みは再公開しない。RPC結果不明なら同じDB行を読戻し、自動再送しない。画像承認actor/timeと公開承認actor/time、hash、監査を維持する。
 
 ローカル正本・サニタイズ済みBridge要約・クラウド読戻しを別々に保存する。送信先を明示承認されたブラウザReturnは、完全URL/Project/Conversation ID/会話内容、空の入力欄、生成完了、操作競合なしを確認して一度だけ送信する。新規ユーザーメッセージと返信マーカー・生成完了、利用可能な独立会話読戻しを照合する。独立読戻しが古い場合は画面受領PASSと厳密なBROWSER_RETURN HOLDを分ける。正式ACKは独立証拠がなければUNVERIFIED。公開失敗だけを理由に独立したReturnを省略しない。新規Return基盤は作らない。
+
+
+## WKS-004 Owner修正：既存セッション優先
+
+正式な標準は既存WORKS管理者セッションの確認・再利用。有効ならログインを省略し、未認証・期限切れのときだけadmin.htmlを開いてOwner本人のログインを待つ。非同期セッション復元を待ってから判定する。復元後に本人・管理者権限を確認し、同じ作業を継続する。Supabase Dashboard GitHub OAuthはサイトAuthの代わりにならない。PowerShellパスワード入力と新たなDPAPI認証保存を標準から外す。ブラウザtoken抽出・認証偽装は禁止。既存clientによる正規APIからpublish_work_candidateを優先し、画像・hash・actor/time・監査を維持する。既存セッションがあるのに正規API実行面がない場合は、追加ログインを求めず両者を区別してHOLD理由を記録する。公開/OKボタン自動操作や新規認証基盤で代用しない。
+

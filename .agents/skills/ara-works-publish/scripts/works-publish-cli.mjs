@@ -189,7 +189,10 @@ async function publish(cfg) {
 }
 async function main() {
   const cfg=await configuration();
-  if(cmd==='login') return await login(cfg);
+  if(cmd==='login') {
+    if(!args.includes('--explicit-local-login')) throw new Error('password_login_not_standard_use_existing_site_session');
+    return await login(cfg);
+  }
   if(cmd==='logout'){await rm(TOKEN_PATH,{force:true});output({result:'LOGGED_OUT'});return;}
   if(cmd==='status'){const s=await getSession(cfg);const u=await userContext(cfg,s);output({result:'AUTHORIZED',user:u.email,admin:true});return;}
   if(cmd==='inspect') return await inspect(cfg);

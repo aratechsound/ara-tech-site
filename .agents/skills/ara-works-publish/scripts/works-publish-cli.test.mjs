@@ -34,6 +34,7 @@ test('WebP signature check',()=>{const b=Buffer.alloc(32);b.write('RIFF',0);b.wr
 test('unsupported content type rejected',()=>{const b=Buffer.alloc(32);assert.equal(imageSignature(b,'text/html'),false);});
 test('invalid candidate hash fails before credential access',()=>{const r=run('publish','--id','99','--hash','bad','--owner-ref','approved');assert.equal(r.result,'HOLD');assert.equal(r.reason,'invalid_review_pin');});
 test('missing one-time login prevents any publish RPC',()=>{const r=run('publish','--id','99','--hash',sha,'--owner-ref','approved');assert.equal(r.result,'HOLD');assert.equal(r.reason,'one_time_login_required');});
+test('password login is not a standard route and never prompts without explicit opt-in',()=>{const r=run('login','--email','admin@example.com');assert.equal(r.result,'HOLD');assert.equal(r.reason,'password_login_not_standard_use_existing_site_session');});
 
 function runtime(options={}){
  let calls=0,reads=0,row=structuredClone(base);

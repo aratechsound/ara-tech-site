@@ -17,4 +17,4 @@ ARA-TECHの公演登録・開催予定追加・WORKS正式公開・既存候補�
 - 成果と公開のPASS/HOLD、Bridge保存、クラウド読戻し、許可された元会話へのブラウザReturn、正式ACKを独立判定する。公開HOLDでも安全に実施可能なReturnは同じ実行ターンで行う。
 
 ## WORKS API公開ランタイム
-既存の認証済み管理者APIによる公演公開は .agents/skills/ara-works-publish/scripts/works-publish-cli.mjs を優先する。本人ログイン/権限/画像/候補ハッシュを検証し、直接SQLやブラウザ自動クリックで代替しない。
+まず既存WORKSサイトの管理者セッションを確認し、有効ならログインを省略する。未認証・期限切れの場合だけ正式なadmin.htmlログイン画面を開いてOwner本人の操作を待ち、本人・work_admins権限を再確認して同じ作業を継続する。Supabase DashboardのGitHub OAuthとサイトのSupabase Authを混同しない。既存セッション内の正規APIからpublish_work_candidateを優先し、画像・候補ハッシュ・承認者/日時・監査を維持する。PowerShellパスワード入力・新たなDPAPIログイン保存を標準にしない。ブラウザtoken抽出、新規認証基盤、直接SQL、公開ボタン/OK自動クリックで代替しない。セッションは存在しても利用可能な正規API実行面がなければ、その不足を認証不足と区別して報告する。
