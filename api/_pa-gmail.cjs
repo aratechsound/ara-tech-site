@@ -777,7 +777,9 @@ const allowedReplyCc = (source, recipient) => uniqueAddresses([
         source?.from_address, source?.reply_to,
         ...(Array.isArray(source?.to_addresses) ? source.to_addresses : []),
         ...(Array.isArray(source?.cc_addresses) ? source.cc_addresses : [])
-    ].map(safeAddress).filter((address) => EMAIL.test(address)
+    // A quoted whole addr-spec can survive a malformed incoming To header.
+    // Do not promote quote-bearing values into outbound CC recipients.
+    ].map(safeAddress).filter((address) => EMAIL.test(address) && !address.includes('"')
         && !sameAddress(address, recipient) && !sameAddress(address, OFFICIAL_EMAIL)
         && !/(?:^|[+._-])(?:no-?reply|notifications?)(?:[+._-]|@)|@(?:[^@.]+\.)?formspree\.io$/iu.test(address)));
 // Read-only Composer initialization: same source/recipient guards as preview,
