@@ -409,11 +409,19 @@ const replySourceHash = (source) => crypto.createHash("sha256").update(JSON.stri
 const indexThread = async ({ inquiry, inquiryId, threadId, managedMetadata }, fetchImpl) => {
     const thread = await gmailThread(threadId, fetchImpl);
     const bounded = !isPaCase(inquiry) || ["gmail_owner_confirmed", "general_public_form"].includes(inquiry.first_form_data?.import_source);
-    const messages = (thread.messages || []).map(normalizeMessage).filter((message) => {
+    const messages = (thread.messages || []).filter(raw => !(raw.labelIds || []).some(id => ['DRAFT', 'SPAM', 'TRASH'].includes(id))).map(normalizeMessage).filter((message) => {
         if (!validGmailId(message.id) || message.thread_id !== threadId) return false;
         if (!bounded) return true;
         try { guardReplySource(inquiry, message); return true; } catch { return false; }
     });
+    // Check global ownership before an upsert can overwrite another case.
+    for (let offset = 0; offset < messages.length; offset += 100) {
+        const ids = new Map(messages.slice(offset, offset + 100).map(message => [message.id, message.thread_id]));
+        const rows = await selectRows('pa_gmail_message_index', new URLSearchParams({
+            gmail_message_id: `in.(${[...ids.keys()].join(',')})`, select: 'gmail_message_id,gmail_thread_id,inquiry_id', limit: '101'
+        }), fetchImpl);
+        if (!Array.isArray(rows) || rows.some(row => !ids.has(row.gmail_message_id) || row.inquiry_id !== inquiryId || row.gmail_thread_id !== ids.get(row.gmail_message_id))) throw new Error('mail_link_conflict');
+    }
     for (let index = 0; index < messages.length; index += 1) {
         let message = messages[index];
         const source = message.direction === "inbound" ? "gmail_received" : managedMetadata?.has(message.id) ? "pa_case_manager" : "gmail_direct";
@@ -455,6 +463,10 @@ const recordSync = async ({ inquiryId, actorId, links, messages }, fetchImpl) =>
         gmail_thread_ids: links.map((link) => link.gmail_thread_id),
         message_count: messages.length,
         attention_state: attention
+    }, fetchImpl);
+    await supabaseRequest('/rest/v1/rpc/paui041_record_linked_sync', {
+        method: 'POST', body: JSON.stringify({ p_case: inquiryId, p_actor: actorId,
+            p_threads: links.map(link => link.gmail_thread_id), p_messages: messages.map(message => message.id) })
     }, fetchImpl);
     return { attention, synced_at: new Date().toISOString() };
 };

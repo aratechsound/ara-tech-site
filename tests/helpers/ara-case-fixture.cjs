@@ -13,6 +13,7 @@ async function createFixture() {
  await db.exec(fs.readFileSync(path.join(root,'tests/fixtures/pa-est-007r1-postgres-prelude.sql'),'utf8'));
  await db.exec(`create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('sub',auth.uid()) $$; select set_config('request.jwt.claim.sub','${actor}',false);`);
  for(const m of migrations) { try { await db.exec(fs.readFileSync(path.join(root,'supabase/migrations',m),'utf8')); } catch(e) { throw Error(`migration ${m}: ${e.message}`); } }
+ await db.exec(fs.readFileSync(path.join(root,'supabase/migrations/20261106090000_paui088_linked_mail_sync.sql'),'utf8'));
  const state={mailbox:'aratechsound@gmail.com',failPage:false,pageCount:0,sendCount:0,network:[],messages:new Map(),pages:[[]],threadMessages:new Map()};
  Object.assign(process.env,{SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',GMAIL_CLIENT_ID:'fixture-id',GMAIL_CLIENT_SECRET:'fixture-secret',GMAIL_REFRESH_TOKEN:'fixture-refresh',GMAIL_SENDER_ADDRESS:'aratechsound@gmail.com',GMAIL_REPLY_TO:'aratechsound@gmail.com',GMAIL_NOTIFICATION_ADDRESS:'aratechsound@gmail.com',RATE_LIMIT_HASH_SECRET:'fixture-rate-secret',ALLOWED_ORIGINS:'http://127.0.0.1:8871,https://ara-tech.cc'});
  async function fetchImpl(target, options={}) {
@@ -30,7 +31,7 @@ async function createFixture() {
   if(u.origin!=='https://fixture.invalid') throw Error('Live network forbidden');
   if(u.pathname==='/auth/v1/user') return options.headers.authorization==='Bearer fixture-admin'?json({id:actor,email:'owner@example.invalid'}):json({},401);
   const input=options.body?JSON.parse(options.body):null;
-  if(u.pathname.includes('/rpc/')) {const name=ident(u.pathname.split('/').at(-1));const keys=Object.keys(input).map(ident);try {if(name==='consume_rate_limit')return json((await db.query(`select * from public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')})`,Object.values(input))).rows);const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')}) result`,Object.values(input));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}}
+  if(u.pathname.includes('/rpc/')) {const name=ident(u.pathname.split('/').at(-1));const keys=Object.keys(input).map(ident);try {if(name==='consume_rate_limit')return json((await db.query(`select * from public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')})`,Object.values(input).map(v=>v&&typeof v==='object'?JSON.stringify(v):v))).rows);const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')}) result`,Object.values(input).map(v=>v&&typeof v==='object'?JSON.stringify(v):v));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}}
   const table=ident(u.pathname.split('/').at(-1)), values=[],where=[];
   for(const [key,value] of u.searchParams){
    if(['select','limit','order','on_conflict'].includes(key))continue;

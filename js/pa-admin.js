@@ -4171,7 +4171,8 @@ const showDashboard = async (user) => {
     await loadCases();
     unlinkedMailUI ||= setupUnlinkedMail({ callApi: callGmailApi, loadCases, openCase, getCases: () => cases, downloadAttachment:async payload=>{const file=await downloadGmailAttachmentStream(payload);const url=URL.createObjectURL(file.blob);const a=document.createElement('a');a.href=url;a.download=file.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);} });
     await unlinkedMailUI.refresh(false);
-    await unlinkedMailUI.refresh(true);
+    // Opening a case must not start an unrelated mailbox-wide data sync.
+    // Global sync remains available through its explicit inbox button.
     await openRequestedCase();
 };
 
