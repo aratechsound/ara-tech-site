@@ -45,6 +45,7 @@ printf 'head=%s\ntree=%s\nhistory_count=%s\n' "$source_head" "$source_tree" "$so
 docker build --file tests/ci/Dockerfile --tag "$image" .
 # Downloads finish before tests. No external network or host secret is inherited.
 docker run --name "$container" --network none --init --ipc=private --shm-size=1g \
+  --sysctl net.ipv4.ip_local_reserved_ports=55437,55439,55442,55443,55444 \
   --env "ARA_CI_DEDICATED=${ARA_CI_DEDICATED:-node tests/validate-ara-20260724-010.cjs}" \
   --env "ARA_CI_VALIDATORS=${ARA_CI_VALIDATORS:-tests/validate-ara-*.cjs}" \
   --env "ARA_CI_SYNTAX=${ARA_CI_SYNTAX:-node --check}" \
