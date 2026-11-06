@@ -46,14 +46,14 @@ grant usage on schema auth to anon,authenticated,service_role;
 from re import findall
 fixture=(root/'tests/helpers/ara-case-fixture.cjs').read_text(encoding='utf8')
 migrations=findall(r"'([^']+\.sql)'",fixture.split('const migrations = ')[1].split(';')[0])
-common_migrations=['20261005145900_ara_classification_archive_guard.sql','20261005150000_ara_case_common_mail.sql','20261005160000_ara_case_r2_intake_coverage.sql']
+common_migrations=['20261005145900_ara_classification_archive_guard.sql','20261005150000_ara_case_common_mail.sql','20261005160000_ara_case_r2_intake_coverage.sql','20261106090000_paui088_linked_mail_sync.sql']
 pa_migrations=[m for m in migrations if m not in common_migrations]+['20260914170000_pa_est_007r1_production_e2e.sql','20260914213000_pa_est_007r3_delivery_recovery.sql','20260915093000_pa_est_010r1_safe_confirmation_reissue.sql']
 migrations=pa_migrations+([] if legacy else common_migrations)
 def validate_migration_plan(plan,pa_order,legacy_mode):
  if len(plan)!=len(set(plan)):raise RuntimeError('HOLD: duplicate fixture migration')
  if [m for m in plan if m not in common_migrations]!=pa_order:raise RuntimeError('HOLD: PA fixture migration order changed')
  if [m for m in plan if m in common_migrations]!=([] if legacy_mode else common_migrations):raise RuntimeError('HOLD: COMMON fixture migration order/count changed')
- if not legacy_mode and plan[-3:]!=common_migrations:raise RuntimeError('HOLD: COMMON fixture migrations must follow PA dependencies')
+ if not legacy_mode and plan[-len(common_migrations):]!=common_migrations:raise RuntimeError('HOLD: COMMON fixture migrations must follow PA dependencies')
 validate_migration_plan(migrations,pa_migrations,legacy)
 check=run(psql,"select case when count(*)=0 then 'PAM033_FRESH_EMPTY_FIXTURE' else 'PAM033_EXISTING_FIXTURE_HOLD' end from information_schema.tables where table_schema in ('public','auth');")
 results=[]

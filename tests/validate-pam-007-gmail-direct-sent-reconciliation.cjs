@@ -38,9 +38,10 @@ const directMessage = {
         if (url.includes("/rest/v1/pa_inquiry_audit?") && options.method !== "POST") return json([]);
         if (url.includes("/threads/thread_123?format=full")) return json({ messages: [directMessage] });
         if (url.includes("/rest/v1/pa_gmail_message_index?") && options.method === "POST") { indexWrites.push(JSON.parse(options.body)); return json([]); }
+        if (url.includes("/rpc/paui041_record_linked_sync")) return json(null);
         if (url.includes("/rest/v1/pa_case_mail_attention")) return json([]);
         if (url.includes("/rest/v1/pa_inquiry_audit") && options.method === "POST") { auditWrites += 1; return json([]); }
-        if (url.includes("/rest/v1/pa_gmail_message_index?")) return json(url.includes("other_case_message") ? [] : [{ gmail_message_id: "direct_sent_001" }]);
+        if (url.includes("/rest/v1/pa_gmail_message_index?")) return json(url.includes("other_case_message") ? [] : [{ gmail_message_id: "direct_sent_001", gmail_thread_id: "thread_123", inquiry_id: inquiryId }]);
         throw new Error(`unexpected fixture URL: ${url}`);
     };
 

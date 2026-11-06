@@ -46,6 +46,11 @@ function replyFixture({inquiry=OWNER,messages=[yRaw(),kRaw()], mutate}={}) {
     }
     if(method==='GET'&&u.pathname.endsWith('/pa_email_deliveries'))return json([]);
     if(method==='GET'&&u.pathname.endsWith('/pa_inquiry_audit'))return json([]);
+    if(method==='POST'&&u.pathname.endsWith('/rpc/paui041_record_linked_sync')) {
+      const data=JSON.parse(opts.body);assert.equal(data.p_case,inquiry.id);assert.equal(data.p_actor,ACTOR);
+      assert(data.p_threads.every(id=>state.links.some(link=>link.gmail_thread_id===id)));
+      return json(null);
+    }
     if(method==='POST'&&u.pathname.endsWith('/messages/send')) {state.sends.push(JSON.parse(opts.body));return json({id:'fake-sent',threadId:T});}
     if(method==='POST'&&['/pa_inquiry_audit','/pa_case_mail_attention','/pa_gmail_message_index'].some(p=>u.pathname.endsWith(p))) {const data=JSON.parse(opts.body);state.writes.push({table:u.pathname.split('/').at(-1),data});return json([data]);}
     throw Error('UNEXPECTED_FAKE_BOUNDARY '+method+' '+u.pathname);

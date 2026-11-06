@@ -1,5 +1,5 @@
 const { OFFICIAL_EMAIL, supabaseRequest, getInquiry, isUuid } = require('./_pa-mail.cjs');
-const { gmailJson, gmailMessage, getGlobalThreadLink, normalizeMessage, validGmailId } = require('./_pa-gmail.cjs');
+const { gmailJson, gmailMessage, getGlobalThreadLink, normalizeMessage, validGmailId, syncCase } = require('./_pa-gmail.cjs');
 const { CASE_TYPES } = require('./_ara-case.cjs');
 const rpc = async (name, input, fetchImpl) => { try { return await supabaseRequest(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(input) }, fetchImpl); } catch (error) { if (error.message === 'supabase_400' || error.message === 'supabase_409') { const wrapped=new Error(error.safeDatabaseReason || 'mail_operation_conflict');wrapped.databaseCode=error.databaseCode;wrapped.phase=name;throw wrapped; } throw error; } };
 const assertBusinessMailbox = async (fetchImpl = fetch) => {
@@ -32,6 +32,7 @@ const syncUnlinkedMail = async ({ actorId, now = new Date() }, fetchImpl = fetch
  if (page) params.set('pageToken', page);
  const result = await gmailJson(`/messages?${params}`, {}, fetchImpl);
  const rows = [];
+ const linkedCases = new Map();
  for (const entry of result.messages || []) {
   if (!validGmailId(entry.id)) throw new Error('gmail_page_invalid');
   const raw = await gmailMessage(entry.id, fetchImpl);
@@ -39,7 +40,19 @@ const syncUnlinkedMail = async ({ actorId, now = new Date() }, fetchImpl = fetch
   if (!validGmailId(mail.id) || !validGmailId(mail.thread_id)) throw new Error('gmail_page_invalid');
   if ((raw.labelIds || []).some(id => ['DRAFT', 'SENT', 'SPAM', 'TRASH'].includes(id)) || mail.direction !== 'inbound') continue;
   // Global lookup deliberately includes archived cases.
-  if (await getGlobalThreadLink(mail.thread_id, fetchImpl)) continue;
+  const linked = await getGlobalThreadLink(mail.thread_id, fetchImpl);
+  if (linked) {
+   // A linked thread is absent from the unlinked inbox, not from synchronization.
+   // Reuse the case path and require success before advancing global coverage.
+   // Deleted cases remain suppressed; never restore them or create a new case.
+   if (!linkedCases.has(linked.inquiry_id)) {
+    try { linkedCases.set(linked.inquiry_id, await syncCase({ inquiryId: linked.inquiry_id, actorId }, fetchImpl)); }
+    catch (error) { if (error.message === 'inquiry_not_found') linkedCases.set(linked.inquiry_id, null); else throw error; }
+   }
+   const synced = linkedCases.get(linked.inquiry_id);
+   if (synced && !synced.messages.some(message => message.id === mail.id && message.thread_id === mail.thread_id)) throw new Error('mail_link_conflict');
+   continue;
+  }
   rows.push({ gmail_message_id: mail.id, gmail_thread_id: mail.thread_id, from_address: mail.from_address,
    subject: mail.subject.slice(0,500), snippet: String(raw.snippet || mail.body_text || '').slice(0,500),
    received_at: mail.occurred_at, has_attachments: mail.attachments.length > 0 });
