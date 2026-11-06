@@ -1,4 +1,4 @@
-const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyContext, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail, reviewUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { mailboxProfile } = require("./_pa-gmail.cjs");
@@ -20,6 +20,7 @@ const ACTION_POLICY = Object.freeze({
     manual_link: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
     portal_documents: "PA_GMAIL_ATTACHMENT_GET",
+    reply_context: "PA_GMAIL_REPLY_PREVIEW",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
     send_reply: "PA_GMAIL_SEND_REPLY",
     reconcile_estimate_submission: "PA_GMAIL_RECONCILE_ESTIMATE"
@@ -96,6 +97,11 @@ module.exports = async (request, response) => {
         }
         if (input.action === "portal_documents") {
             return sendJson(response, 200, { ok: true, result: await portalDocuments({ inquiryId: input.inquiry_id }) });
+        }
+        if (input.action === "reply_context") {
+            const context = await replyContext({ inquiryId: input.inquiry_id,
+                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id });
+            return sendJson(response, 200, { ok: true, context });
         }
         if (input.action === "reply_preview") {
             const preview = await replyPreview({

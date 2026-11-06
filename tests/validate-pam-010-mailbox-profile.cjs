@@ -85,7 +85,8 @@ async function browserConfig(body, ok){
     checks.push({name:'profile helper zero DB',db_calls:0,gmail_get:1,result:'PASS'});
     const source=fs.readFileSync(path.join(__dirname,'../api/pa-gmail.js'),'utf8');
     const policies=[...source.slice(source.indexOf('const ACTION_POLICY'),source.indexOf('const parseBody')).matchAll(/\s+(\w+): "(PA_[A-Z_]+)"/g)];
-    assert.equal(policies.length,12);
+    assert.equal(policies.length,13);
+    assert.equal(policies.find(([,action])=>action==='reply_context')[2],'PA_GMAIL_REPLY_PREVIEW');
     for(const [,action,policy] of policies){
         scenario={};calls=[];const r=response();await handler({method:'POST',headers:{origin:'https://ara-tech.cc',authorization:'Bearer fixture-admin'},body:{action}},r);
         assert.equal(r.code,429,action);assert.equal(calls.filter(c=>c.path==='/rest/v1/rpc/consume_rate_limit').length,1);assert.equal(calls.filter(c=>c.host==='gmail.googleapis.com').length,0);

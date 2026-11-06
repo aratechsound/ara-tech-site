@@ -25,6 +25,10 @@ let gmailReplyPreviewBinding = null;
 let gmailReplyAttachments = [];
 let gmailReplyMode = "normal";
 let gmailReplySource = null;
+let gmailReplyContext = null, gmailReplyRevision = 0, commercialComposerOperation = null;
+const getCommercialDraftContext = () => null;
+const clearMessage = element => { element.textContent = ''; };
+
 const GMAIL_OFFICIAL_ADDRESS = "aratechsound@gmail.com";
 const currentGmailTimeline = [
   { id: "inbound-a", thread_id: "thread-a", direction: "inbound", source: "gmail_received", from_address: "from-a@example.invalid", reply_to: "reply-a@example.invalid", subject: "RE: Target subject", occurred_at: "2026-09-08T01:00:00Z", body_text: "Synthetic inbound A", attachments: [] },
@@ -57,9 +61,11 @@ const callGmailApi = async (request) => {
 };
 ${extract("invalidateGmailReplyPreview")}
 ${extract("isEstimateSubmissionMode")}
+${extract("isCommercialComposerMode")}
 ${extract("gmailReplyRecipientForMessage")}
 ${extract("gmailReplySubjectForMessage")}
 ${extract("setGmailReplyMode")}
+${["gmailReplyMessageKey","isCurrentGmailReplyMessage","isGmailReplyContextCurrent","resetGmailReplyComposer","bindGmailReplyMessage","sameGmailReplyAttachments"].map(extract).join("\n")}
 ${extract("openGmailReply")}
 ${extract("renderGmailReplyAttachments")}
 ${extract("renderEmailHistory")}
@@ -74,11 +80,11 @@ const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta n
 <body><main class="admin-shell"><section class="subsection"><div class="action-panel"><h4>最近のやり取り</h4><div id="gmail-timeline" class="mail-history"></div></div>
 <div id="gmail-reply-panel" class="action-panel hidden"><h4 id="gmail-reply-title">Gmailで返信</h4><p id="gmail-reply-mode-note" class="small-note"></p>
 <div class="field"><label for="gmail-reply-recipient">To</label><input id="gmail-reply-recipient" type="email" readonly></div>
-<div class="field"><label for="gmail-reply-subject">件名</label><input id="gmail-reply-subject" readonly></div>
+<input id="gmail-reply-cc"><input id="gmail-commercial-amount"><input id="gmail-commercial-due"><div class="field"><label for="gmail-reply-subject">件名</label><input id="gmail-reply-subject" readonly></div>
 <div class="field"><label for="gmail-reply-body">本文</label><textarea id="gmail-reply-body" class="email-body"></textarea></div>
 <input id="gmail-reply-attachments-input" type="file" multiple><ul id="gmail-reply-attachments"></ul>
 <button id="preview-gmail-reply" class="button button--secondary" type="button">プレビュー</button><button id="send-gmail-reply" class="button" type="button" disabled>最終確認後にGmail送信</button>
-<div id="gmail-reply-preview" class="mail-preview hidden"><span id="gmail-reply-preview-recipient"></span><span id="gmail-reply-preview-subject"></span><div id="gmail-reply-preview-body"></div><iframe id="gmail-reply-preview-frame" hidden></iframe></div>
+<div id="gmail-reply-preview" class="mail-preview hidden"><span id="gmail-reply-preview-recipient"></span><span id="gmail-reply-preview-cc"></span><ul id="gmail-reply-preview-attachments"></ul><span id="gmail-reply-preview-subject"></span><div id="gmail-reply-preview-body"></div><iframe id="gmail-reply-preview-frame" hidden></iframe></div>
 <p id="gmail-reply-message" class="alert hidden"></p></div></section></main><script>${script}</script></body></html>`;
 
 (async () => {
@@ -92,14 +98,15 @@ const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta n
     const browser = await chromium.launch(launchOptions);
     try {
         const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+        const errors=[];page.on("pageerror",e=>errors.push(String(e)));
         await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "load" });
         const articles = page.locator("#gmail-timeline article");
         assert.equal(await articles.count(), 3);
-        assert.equal(await articles.nth(0).getByRole("button", { name: "このメールに返信", exact: true }).count(), 1);
-        assert.equal(await articles.nth(1).getByRole("button", { name: "このメールに返信", exact: true }).count(), 0);
-        assert.equal(await articles.nth(2).getByRole("button", { name: "このメールに返信", exact: true }).count(), 1);
+        assert.equal(await articles.filter({hasText:"Synthetic inbound A"}).getByRole("button", { name: "このメールに返信", exact: true }).count(), 1);
+        assert.equal(await articles.filter({hasText:"Synthetic sent"}).getByRole("button", { name: "このメールに返信", exact: true }).count(), 0);
+        assert.equal(await articles.filter({hasText:"Synthetic inbound B"}).getByRole("button", { name: "このメールに返信", exact: true }).count(), 1);
 
-        await articles.nth(0).getByRole("button", { name: "このメールに返信", exact: true }).click();
+        await articles.filter({hasText:"Synthetic inbound A"}).getByRole("button", { name: "このメールに返信", exact: true }).click();
         assert.equal(await page.locator("#gmail-reply-recipient").inputValue(), "reply-a@example.invalid");
         assert.equal(await page.locator("#gmail-reply-subject").inputValue(), "RE: Target subject");
         assert.equal(await page.locator("#gmail-reply-body").inputValue(), "");
@@ -116,7 +123,7 @@ const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta n
         })), { message: "inbound-a", thread: "thread-a", caseId: "case-synthetic" });
 
         page.once("dialog", (dialog) => dialog.dismiss());
-        await articles.nth(2).getByRole("button", { name: "このメールに返信", exact: true }).click();
+        await articles.filter({hasText:"Synthetic inbound B"}).getByRole("button", { name: "このメールに返信", exact: true }).click();
         assert.equal(await page.locator("#gmail-reply-body").inputValue(), "Synthetic reply body");
         assert.equal(await page.locator("#gmail-reply-recipient").inputValue(), "reply-a@example.invalid");
 
@@ -126,6 +133,7 @@ const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta n
         assert(metrics.scrollWidth <= 390, `horizontal overflow: ${metrics.scrollWidth}`);
         assert.equal(await page.locator("#gmail-timeline").textContent().then((text) => text.includes("Synthetic inbound A")), true);
         assert.equal(await page.locator("#send-gmail-reply").isEnabled(), true);
+        assert.deepEqual(errors,[]);
         console.log("PA inbound direct reply browser validation: PASS; desktop + 390px; preview only; send not pressed");
     } finally {
         await browser.close();
