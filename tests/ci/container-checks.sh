@@ -29,6 +29,23 @@ ln -s /opt/ara-ci/node_modules node_modules
 git cat-file -e cac44214dba8f273377ab66fc95b2aad7e4fc38d^{commit}
 { cat /etc/os-release; node --version; pnpm --version; postgres --version; postgrest --version; git rev-parse HEAD HEAD^{tree}; git write-tree; } > /workspace/outputs/RUNTIME.txt
 [[ $(wc -l < /proc/net/route) -eq 1 ]]
+# Fixture listeners sit inside Linux's ephemeral range. Reserve them in this
+# network namespace before psql connects, so TIME_WAIT clients cannot take them.
+python3 - <<'PY'
+import json
+from pathlib import Path
+raw = Path('/proc/sys/net/ipv4/ip_local_reserved_ports').read_text().strip()
+reserved = set()
+for part in raw.split(','):
+    if not part:
+        continue
+    endpoints = [int(value) for value in part.split('-')]
+    reserved.update(range(endpoints[0], endpoints[-1] + 1))
+expected = {55437, 55439, 55442, 55443, 55444}
+assert expected <= reserved, 'CI fixture ports are not reserved from ephemeral allocation'
+Path('/workspace/outputs/FIXTURE_RESERVED_PORTS.json').write_text(json.dumps({'ports': sorted(expected), 'kernel_value': raw, 'verified': True}) + '\n')
+print('FIXTURE_RESERVED_PORTS=PASS')
+PY
 chown postgres:postgres /tmp/ara-ci-fixture
 runuser -u postgres -- initdb -D /tmp/ara-ci-fixture/pg-data -U fixture_admin -A trust --encoding=UTF8 --locale=C
 runuser -u postgres -- pg_ctl -D /tmp/ara-ci-fixture/pg-data -l /tmp/ara-ci-fixture/postgres.log -o '-h 127.0.0.1 -p 55437' -w start
