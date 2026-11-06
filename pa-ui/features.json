@@ -302,27 +302,27 @@
     "id": "PAUI-C-004",
     "name": "通常返信・CC・件名",
     "place": "メール・やり取り",
-    "status": "現時点で無効",
-    "scope": "読取専用のため更新・送信・発行・共有・削除等は無効。元機能sourceを保持。",
+    "status": "新UIから利用可能",
+    "scope": "選択した受信メールの同一スレッドに返信。本文・CC・添付の編集後、プレビューと最終確認が必要。",
     "target": "conversation",
-    "source": "api/_pa-gmail.cjs:826",
+    "source": "pa-ui/js/reply-composer.mjs; api/_pa-gmail.cjs",
     "api": "/api/pa-gmail reply_preview/send_reply / pa_gmail_message_index; pa_gmail_thread_links; pa_email_deliveries",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
   },
   {
     "id": "PAUI-C-005",
     "name": "返信添付追加・削除",
     "place": "メール・やり取り",
-    "status": "現時点で無効",
-    "scope": "読取専用のため更新・送信・発行・共有・削除等は無効。元機能sourceを保持。",
+    "status": "新UIから利用可能",
+    "scope": "選択した受信メールの同一スレッドに返信。本文・CC・添付の編集後、プレビューと最終確認が必要。",
     "target": "conversation",
-    "source": "js/pa-admin.js:605",
+    "source": "pa-ui/js/reply-composer.mjs; api/_pa-gmail.cjs",
     "api": "/api/pa-gmail reply_preview/send_reply / delivery/index; Gmail attachment metadata",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
   },
   {
     "id": "PAUI-C-006",

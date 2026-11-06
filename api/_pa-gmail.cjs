@@ -773,6 +773,27 @@ const resolveReplySource = async ({ inquiry, inquiryId, replySourceMessageId, re
     await guardMessageAttributions({ inquiryId, messages: explicit ? [source] : messages }, fetchImpl);
     return { explicit, link, source };
 };
+const allowedReplyCc = (source, recipient) => uniqueAddresses([
+        source?.from_address, source?.reply_to,
+        ...(Array.isArray(source?.to_addresses) ? source.to_addresses : []),
+        ...(Array.isArray(source?.cc_addresses) ? source.cc_addresses : [])
+    ].map(safeAddress).filter((address) => EMAIL.test(address)
+        && !sameAddress(address, recipient) && !sameAddress(address, OFFICIAL_EMAIL)
+        && !/(?:^|[+._-])(?:no-?reply|notifications?)(?:[+._-]|@)|@(?:[^@.]+\.)?formspree\.io$/iu.test(address)));
+// Read-only Composer initialization: same source/recipient guards as preview,
+// without body, confirmation token, indexing, attention, audit or Gmail writes.
+const replyContext = async ({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
+    if (!replySourceMessageId || !replySourceThreadId) throw new Error("invalid_reply_source");
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
+    if (inquiry.id !== inquiryId) throw new Error("invalid_reply_source");
+    const { link, source } = await resolveReplySource({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
+    const recipient = guardReplySource(inquiry, source);
+    const cc = allowedReplyCc(source, recipient);
+    return { inquiry_id: inquiryId, gmail_thread_id: link.gmail_thread_id, reply_source_message_id: source.id,
+        reply_source_explicit: true, reply_source_authority_hash: replySourceHash(source),
+        from_address: source.from_address, reply_to: source.reply_to, recipient,
+        subject: replySubject(source.subject), cc_addresses: cc, allowed_cc: cc };
+};
 const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     if (inquiry.id !== inquiryId) throw new Error("invalid_reply_source");
@@ -782,13 +803,7 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     // its original recipient, still in the same Gmail thread; a customer reply
     // takes precedence once one exists.
     const recipient = guardReplySource(inquiry, source);
-    const allowedCc = uniqueAddresses([
-        latest?.from_address, latest?.reply_to,
-        ...(Array.isArray(latest?.to_addresses) ? latest.to_addresses : []),
-        ...(Array.isArray(latest?.cc_addresses) ? latest.cc_addresses : [])
-    ].map(safeAddress).filter((address) => EMAIL.test(address)
-        && !sameAddress(address, recipient) && !sameAddress(address, OFFICIAL_EMAIL)
-        && !/(?:^|[+._-])(?:no-?reply|notifications?)(?:[+._-]|@)|@(?:[^@.]+\.)?formspree\.io$/iu.test(address)));
+    const allowedCc = allowedReplyCc(latest, recipient);
     const requestedCc = ccAddresses === undefined || ccAddresses === null
         ? allowedCc
         : uniqueAddresses((Array.isArray(ccAddresses) ? ccAddresses : String(ccAddresses).split(",")).map(safeAddress).filter(Boolean));
@@ -1009,5 +1024,5 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
