@@ -480,14 +480,20 @@ const detectCandidatesFailIsolated = ({ inquiryId, actorId, messages }, fetchImp
     .then((result) => ({ status: "complete", ...result }))
     .catch(() => ({ status: "unavailable" }));
 
-const syncCase = async ({ inquiryId, actorId }, fetchImpl = fetch) => {
+const syncCase = async ({ inquiryId, actorId, linkedOnly = false }, fetchImpl = fetch) => {
     const inquiry = await getInquiry(inquiryId, fetchImpl);
-    const resolved = await resolveThread(inquiry, fetchImpl);
+    // Automatic desk refresh only imports already-approved links. It never
+    // discovers/binds other threads or starts mailbox-wide intake.
+    if (linkedOnly && inquiry.id !== inquiryId) throw new Error('mail_link_conflict');
+    const existing = linkedOnly ? await getLinks(inquiryId, fetchImpl) : null;
+    if (existing && (existing.length > 30 || existing.some(link => link.inquiry_id !== inquiryId))) throw new Error('mail_link_conflict');
+    const resolved = existing ? { links: existing, primary: existing.find(link => link.conversation_role === 'primary_conversation') || null, candidates: [] }
+        : await resolveThread(inquiry, fetchImpl);
     if (!resolved.links.length) return { linked: false, ambiguous: resolved.candidates.length > 1, candidates: resolved.candidates, messages: [] };
     const managedMetadata = await managedReplyMetadata(inquiryId, fetchImpl);
     const indexed = await Promise.all(resolved.links.map((link) => indexThread({ inquiry, inquiryId, threadId: link.gmail_thread_id, managedMetadata }, fetchImpl)));
     const messages = [...new Map(indexed.flatMap((result) => result.messages).map((message) => [message.id, message])).values()];
-    const portalCandidateDetection = isPaCase(inquiry)
+    const portalCandidateDetection = !linkedOnly && isPaCase(inquiry)
         ? await detectCandidatesFailIsolated({ inquiryId, actorId, messages }, fetchImpl)
         : { status: "not_applicable" };
     const summary = await recordSync({ inquiryId, actorId, links: resolved.links, messages }, fetchImpl);

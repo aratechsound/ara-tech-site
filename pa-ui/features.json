@@ -264,7 +264,7 @@
     "name": "案件Gmail同期・受信送信履歴索引",
     "place": "メール・やり取り",
     "status": "新UIから利用可能",
-    "scope": "保存済み索引を参照。「最新メールを取得」で関連付け済みスレッドをGmailから読取更新。DBへの同期保存は行わない。",
+    "scope": "やり取りを開くと選択案件の関連付け済みスレッドを自動同期。多重実行を防ぎ、最終成功日時と失敗状態を表示。全受信箱同期は行わない。",
     "target": "conversation",
     "source": "api/_pa-gmail.cjs:424",
     "api": "/api/pa-gmail sync / pa_gmail_thread_links; pa_gmail_message_index; pa_inquiry_audit",
