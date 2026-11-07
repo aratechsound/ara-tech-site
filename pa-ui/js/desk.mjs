@@ -356,7 +356,12 @@ replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(at
     const [messages,links]=await Promise.all([api('/data/mail/'+id,{track:replyRequests}),api('/data/case/'+id+'/links',{track:replyRequests})]);
     if(session?.user?.id!==owner)throw Error('login_required');return {messages,links};
   },
-  applySent:(id,value)=>{if(id!==selected)return;mailViewEpoch++;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();}
+  applySent:(id,value,receipt)=>{if(id!==selected)return;mailViewEpoch++;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();
+    requestAnimationFrame(()=>{if(id!==selected||tab!=='conversation'||replyState.get().phase!=='sent'||replyState.get().receipt?.messageId!==receipt.messageId)return;
+      $('reply-composer-host')?.querySelector('[data-reply-notice]')?.scrollIntoView({block:'start'});
+      central.querySelector('[data-message="'+receipt.messageId+'"]')?.scrollIntoView({block:'nearest'});
+    });
+  }
 });
 replyComposer=createReplyComposer({state:replyState,readHistory:async id=>{
   if(id!==selected)throw Error('case_changed');

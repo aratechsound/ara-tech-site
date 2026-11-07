@@ -4,7 +4,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const {chromium}=require('playwright'),{createFixture}=require('../helpers/ara-case-fixture.cjs');
 const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 (async()=>{
- const f=await createFixture(),{syncCase,replyContext,replyPreview,sendReply}=require('../../api/_pa-gmail.cjs');
+ const f=await createFixture(),{syncCase,replyContext,replyPreview,sendReply,normalizeMessage}=require('../../api/_pa-gmail.cjs');
  await f.db.query("insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status) values($1,'PA-FIXTURE-A','Fixture A','customer@example.invalid','AV_INSTALL','new_inquiry'),($2,'PA-FIXTURE-B','Fixture B','other@example.invalid','AV_INSTALL','new_inquiry')",[A,B]);
  await f.db.query("insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,'thread_1','manual','primary_conversation')",[A]);
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
@@ -46,6 +46,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    else if(parts[2]==='case'){const id=parts[3];if(parts[4]==='links')result=(await f.db.query('select * from pa_gmail_thread_links where inquiry_id=$1',[id])).rows;else if(parts[4]==='mail-sync')result=await metadata(id);else if(parts[4]==='attention')result=(await f.db.query('select * from pa_case_mail_attention where inquiry_id=$1',[id])).rows;}
    else if(parts[2]==='mail'){if(failRead&&latestSent&&parts[3]===A)return json({ok:false,code:'fixture_read_failed'},503);result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;if(duplicateRead&&result[0])result.push({...result[0]});}
    else if(parts[2]==='mail-live')result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
+   else if(parts[2]==='mail-body'){const m=normalizeMessage(f.state.messages.get(parts[4]));result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_html:m.body_html||'',body_state:'ready',attachments:[]};}
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};
    else if(parts[2]==='sent-estimates')result={messages:[],unknown:[]};
    else if(parts[2]==='commercial')result={estimates:[],offers:[],billings:[]};else if(parts[2]==='materials')result={cards:[],photos:[]};return json({ok:true,result});
@@ -66,6 +67,9 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await page.locator('[data-reply-files]').setInputFiles({name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('abc')});await page.waitForFunction(()=>document.querySelector('[data-reply-files-list]').textContent.includes('fixture.txt'));await approve(page);
    duplicateRead=true;const before=sendCount();await page.locator('[data-reply-send]').dblclick();await page.locator('.reply-composer').waitFor({state:'hidden'});assert.equal(sendCount(),before+1);assert.equal(await page.locator('[data-reply-notice-text]').innerText(),'送信しました');assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
    assert.equal(await page.locator('.mail-list article').first().getAttribute('data-message'),latestSent);assert.equal(await page.locator('[data-reply-body]').inputValue(),'');assert.equal(await page.locator('[data-reply-files-list]').innerText(),'');assert.equal(await page.locator('[data-reply-frame]').getAttribute('srcdoc'),null);
+   await page.waitForLoadState('networkidle');await page.waitForFunction(id=>{const row=document.querySelector('[data-message="'+id+'"]')?.getBoundingClientRect(),notice=document.querySelector('[data-reply-notice]')?.getBoundingClientRect();return row&&notice&&row.top>=0&&row.top<innerHeight&&notice.top>=0&&notice.bottom<=innerHeight;},latestSent);
+   assert((await page.locator('[data-message="'+latestSent+'"]').innerText()).includes('Unsent draft '+viewport.width),'sent body rendered through regular read projection');
+   if(process.env.PAUI091_EVIDENCE_DIR){fs.mkdirSync(process.env.PAUI091_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.PAUI091_EVIDENCE_DIR,'MOCK_SEND_'+viewport.width+'.png')});}
    await page.locator('[data-reply-message="source"]').click();assert.equal(await page.locator('[data-reply-body]').inputValue(),'');assert.equal(await page.locator('[data-reply-preview-box]').isHidden(),true);await page.locator('[data-reply-close]').click();duplicateRead=false;
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),viewport.width);assert.deepEqual(page.errors,[]);checks.push({viewport,normal_auto_close:true,immediate_sorted_unique_sent:true,submitted_draft_cleared:true,unsent_draft_retained:true});await page.close();
   }
