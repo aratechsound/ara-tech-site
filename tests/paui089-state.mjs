@@ -8,7 +8,7 @@ const memory=()=>{const m=new Map();return {getItem:k=>m.get(k),setItem:(k,v)=>m
 const context=p=>({inquiry_id:p.inquiry_id,gmail_thread_id:p.reply_source_thread_id,reply_source_message_id:p.reply_source_message_id,reply_source_explicit:true,reply_source_authority_hash:'source-'+p.reply_source_message_id,recipient:'customer@example.invalid',subject:'Re: Fixture',cc_addresses:[],allowed_cc:[]});
 function fixture({storage=memory(),transport}={}){let time=1000;const calls=[];const response=p=>p.action==='reply_context'?{context:context(p)}:p.action==='reply_preview'?{preview:{...context(p),cc_addresses:p.cc_addresses,body:p.body,mode:p.mode,html:'<p>ARA-TECH</p>',attachments:p.attachments.map(a=>({...a,size:3})),confirmation_token:'fixture-only',expires_at:new Date(time+60000).toISOString()}}:{result:{gmail_message_id:'sent-fixture',gmail_thread_id:p.reply_source_thread_id}};
  const request=async(p,valid)=>{calls.push(structuredClone(p));assert(valid());return transport?transport(p,valid,response):response(p);};
- const state=createReplyState({request,attempts:createAttemptStore(storage),now:()=>time});state.setCase(A);
+ const state=createReplyState({request,attempts:createAttemptStore(storage),readSent:async r=>({links:[{inquiry_id:r.caseId,gmail_thread_id:r.threadId}],messages:[{inquiry_id:r.caseId,gmail_message_id:r.messageId,gmail_thread_id:r.threadId,direction:'outbound',sent_at:'2026-11-07T00:00:00Z'}]}),now:()=>time});state.setCase(A);
  return {state,calls,storage,tick:()=>{time+=61000;state.expire();}};
 }
 async function ready(f){await f.state.open(row());f.state.edit('body','Unsent local fixture');await f.state.preview();assert.equal(f.state.get().phase,'ready');f.state.confirm(true);}
