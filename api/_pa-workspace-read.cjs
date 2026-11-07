@@ -351,6 +351,13 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         if(u.pathname==='/data/cases'){
           const [cases,progress]=await Promise.all([allRows('pa_inquiries',{select:'*',deleted_at:'is.null',order:'id.asc'},token),allRows('pa_case_progress',{select:'*',order:'inquiry_id.asc'},token)]);
           result={cases,progress};
+        }else if(segments.length===4&&segments[1]==='case'&&segments[3]==='mail-sync'){
+          const id=assertId(segments[2]);await readableCase(id,token);
+          const found=await rows('paui041_mail_sync_state',{inquiry_id:'eq.'+id,select:'inquiry_id,state',limit:2},token);
+          if(found.length>1||found.some(r=>r.inquiry_id!==id))throw new ReadError('case_binding_mismatch',403);
+          const saved=found[0]?.state?.linked_sync,complete=saved?.complete===true&&saved.scope==='existing_linked_threads'&&Number.isFinite(Date.parse(saved.checked_at));
+          if(saved&&(!Array.isArray(saved.thread_ids)||saved.thread_ids.some(t=>!MAIL_ID.test(t))||!Number.isInteger(saved.message_count)||saved.message_count<0))throw new ReadError('invalid_read_response',503);
+          result={inquiry_id:id,scope:'existing_linked_threads',complete,last_success_at:complete?saved.checked_at:null,thread_ids:saved?.thread_ids||[],message_count:saved?.message_count||0};
         }else if(u.pathname==='/data/attention')result=await allRows('pa_case_mail_attention',{select:'*',order:'inquiry_id.asc'},token);
         else if(segments.length===3&&segments[1]==='mail')result=await mail(assertId(segments[2]),token);
         else if(segments.length===3&&segments[1]==='mail-live')result=await liveMail(assertId(segments[2]),token);

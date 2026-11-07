@@ -74,7 +74,8 @@ module.exports = async (request, response) => {
             messageId: input.gmail_message_id, action: input.decision, caseId: input.inquiry_id,
             customerName: input.customer_name, customerEmail: input.customer_email, caseType: input.case_type }) });
         if (input.action === "sync") {
-            const result = await syncCase({ inquiryId: input.inquiry_id, actorId: user.id });
+            if (input.linked_only !== undefined && typeof input.linked_only !== 'boolean') throw new Error('invalid_input');
+            const result = await syncCase({ inquiryId: input.inquiry_id, actorId: user.id, linkedOnly: input.linked_only === true });
             return sendJson(response, 200, { ok: true, result });
         }
         if (input.action === "manual_link") {
