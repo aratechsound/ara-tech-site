@@ -19,7 +19,7 @@ export function createThreadLink({read,write,open,current,refresh,candidates=()=
         const v=await read('/data/mail-thread-preview/'+c.id+'/'+encodeURIComponent(id));if(!valid()||request!==requestId)return;
         if(v.gmail_thread_id!==id||!Array.isArray(v.messages)||v.messages.some(m=>m.inquiry_id!==c.id||m.gmail_thread_id!==id))throw Error('invalid_preview');
         preview.innerHTML=`<section class="group"><h3>${v.already_linked?'関連付け済み':'関連付け前の確認'}</h3><p>案件 ${escape(c.name)} / スレッド ${escape(id)}</p>
-          ${v.already_linked?'<p>重複登録はしません。「最新メールを取得」でこのスレッドも読み取ります。</p>':''}
+          ${v.already_linked?'<p>重複登録はしません。「取込せず原本を確認」でこのスレッドも読み取ります。</p>':''}
           <p>対象 ${v.messages.length}件 / 保存済み索引 ${Number(v.target_indexed_count)}件 / 不足 ${v.target_missing_ids.length}件</p>
           <div class="rows">${v.messages.map(m=>`<article class="record"><strong>${escape(m.subject)}</strong><time>${escape(date(m.occurred_at))}</time><p>${escape(m.direction==='inbound'?'受信':'送信')} / ${escape(m.from_address)} → ${escape((m.to_addresses||[]).join(', '))}</p><p>${escape(m.snippet)}</p></article>`).join('')}</div>
           ${v.already_linked?'<button id="thread-read-latest" class="action">最新メールを取得</button>':`<p>関連付け1件の登録に続き、この案件の全${v.sync_thread_ids.length}スレッド・現在${v.sync_message_count}メールを同期します。既存メール索引と索引更新日時の再記録、新着確認状態1件、関連付け・同期の操作記録各1件、資料候補検出（${v.sync_attachment_count}添付が入力）を伴います。配送照合による受付通知等のリンク再記録や候補照合の更新件数は、この確認では確定できません。契約・見積・請求やGmailの送信・削除・既読は変更しません。</p>
