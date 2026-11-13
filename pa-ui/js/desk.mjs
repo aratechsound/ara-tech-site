@@ -172,11 +172,16 @@ function formEntry(inquiry, entry) {
     ['概要', form.event_overview || inquiry.request_summary],
     ['質問・相談', form.questions]
   ];
+  const canFollowUp = !passiveMail && !isClosedCase(inquiry) &&
+    ['new', 'new_inquiry', 'follow_up_pending'].includes(inquiry.status);
+  const followUp = canFollowUp
+    ? `<div class="inlinebtns"><a class="action blue intake-reply" href="${escape(legacyUrl(inquiry.id))}&amp;compose=follow-up" target="_blank" rel="noopener noreferrer">お客様に返信 ↗</a></div>`
+    : '';
   return `<article class="mail-row no-attachments" data-timeline-kind="form"><div class="mail-text">
     <div class="mail-heading"><strong>お問い合わせ受付</strong><time>${escape(timelineDate(entry.at))}</time></div>
     <p class="mail-address">申込者 ${escape(inquiry.contact_name || inquiry.customer_name || '未取得')} / ${escape(inquiry.email || '未取得')}<br>受付先 ARA-TECH</p>
     <dl class="timeline-form">${fields.filter(([, value]) => value).map(([name, value]) =>
-      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl></div></article>`;
+      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl>${followUp}</div></article>`;
 }
 
 function deliveryEntry(entry) {

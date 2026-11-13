@@ -11,6 +11,8 @@
 .timeline-form div{display:grid;grid-template-columns:5em minmax(0,1fr);gap:8px;padding:3px 0}
 .timeline-form dt{color:#9bb6cb}
 .timeline-form dd{margin:0}
+.intake-reply{text-decoration:none}
+.intake-reply:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .timeline-attempts{margin:0 10px 8px;color:#9bb6cb;overflow-wrap:anywhere}
 .timeline-attempts summary{cursor:pointer}
 .mail-attachments{padding:8px;min-width:0;border-left:1px solid var(--border);background:#0e1b28;display:flex;flex-direction:column;gap:6px}

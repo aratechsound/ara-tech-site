@@ -24,7 +24,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const protectedBefore=(await f.db.query('select to_jsonb(i) row from pa_inquiries i order by id')).rows;
  const linksBefore=(await f.db.query('select to_jsonb(l) row from pa_gmail_thread_links l order by id')).rows;
  const metadata=async id=>{const row=(await f.db.query('select state from paui041_mail_sync_state where inquiry_id=$1',[id])).rows[0],s=row?.state?.linked_sync;return {inquiry_id:id,scope:'existing_linked_threads',complete:Boolean(s?.complete),last_success_at:s?.checked_at||null,thread_ids:s?.thread_ids||[],message_count:s?.message_count||0};};
- const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/legacy-forbidden';`;
+ const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);`;
  const server=http.createServer(async(req,res)=>{try{
   const u=new URL(req.url,'http://localhost'),json=(v,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(v));};
   if(u.pathname==='/pa-ui/js/integration.mjs'){res.writeHead(200,{'content-type':'text/javascript'});return res.end(integration);}
@@ -109,6 +109,10 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await page.locator('[data-tab="conversation"]').click();
    await page.getByText('受付確認メール・送信済み', {exact:false}).first().waitFor();
    await page.getByText('お問い合わせ受付',{exact:true}).waitFor();
+   const followUp = page.locator('[data-timeline-kind="form"]').getByRole('link', {name:'お客様に返信 ↗'});
+   assert.equal(await followUp.getAttribute('href'),'/pa-admin-legacy.html?case='+B+'&compose=follow-up');
+   assert.equal(await followUp.getAttribute('target'),'_blank');
+   assert.equal(await page.locator('[data-timeline-kind="delivery"] .intake-reply').count(),0);
    await page.getByText('内部通知・送信済み',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・配送結果未確定',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・送信失敗',{exact:false}).first().waitFor();
@@ -124,6 +128,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);
    await page.locator('[data-case="'+A+'"]').click();
    await page.locator('[data-tab="conversation"]').click();
+   assert.equal(await page.locator('.intake-reply').count(),0);
    await page.locator('[data-message="'+latestSent+'"]').waitFor();
    await page.locator('[data-reply-message="source"]').click();
    assert.equal(await page.locator('[data-reply-body]').inputValue(),'');
