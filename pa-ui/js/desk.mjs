@@ -8,6 +8,7 @@ import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
 import {createReplyState,createAttemptStore} from './reply-state.mjs';
 import {createReplyComposer} from './reply-composer.mjs';
+import {createIntakeComposer,followUpType} from './intake-composer.mjs';
 import {createCaseMailSync} from './case-mail-sync.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
 import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
@@ -161,6 +162,14 @@ function deliveryAttempts(deliveries) {
     </p>`).join('')}</details>`;
 }
 
+function canStartFollowUp(inquiry) {
+  return Boolean(!passiveMail && inquiry?.submission_source==='public_form' &&
+    inquiry.email?.trim() && !isClosedCase(inquiry) &&
+    ['new','new_inquiry','follow_up_pending'].includes(inquiry.status) &&
+    detail.deliveries?.state==='ready' &&
+    !detail.deliveries.value.some(row=>row.message_type===followUpType));
+}
+
 function formEntry(inquiry, entry) {
   const form = inquiry.first_form_data || {};
   const fields = [
@@ -172,16 +181,55 @@ function formEntry(inquiry, entry) {
     ['概要', form.event_overview || inquiry.request_summary],
     ['質問・相談', form.questions]
   ];
-  const canFollowUp = !passiveMail && !isClosedCase(inquiry) &&
-    ['new', 'new_inquiry', 'follow_up_pending'].includes(inquiry.status);
-  const followUp = canFollowUp
-    ? `<div class="inlinebtns"><a class="action blue intake-reply" href="${escape(legacyUrl(inquiry.id))}&amp;compose=follow-up" target="_blank" rel="noopener noreferrer">お客様に返信 ↗</a></div>`
+  const followUp = canStartFollowUp(inquiry) && !detail.intakeComposer
+    ? '<div class="inlinebtns"><button type="button" class="action blue" data-intake-reply>お客様に返信</button></div>'
     : '';
   return `<article class="mail-row no-attachments" data-timeline-kind="form"><div class="mail-text">
     <div class="mail-heading"><strong>お問い合わせ受付</strong><time>${escape(timelineDate(entry.at))}</time></div>
     <p class="mail-address">申込者 ${escape(inquiry.contact_name || inquiry.customer_name || '未取得')} / ${escape(inquiry.email || '未取得')}<br>受付先 ARA-TECH</p>
     <dl class="timeline-form">${fields.filter(([, value]) => value).map(([name, value]) =>
-      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl>${followUp}</div></article>`;
+      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl>${followUp}<div id="intake-composer-host"></div></div></article>`;
+}
+
+function openIntakeComposer() {
+  const inquiry = current();
+  if (!canStartFollowUp(inquiry) || detail.intakeComposer) return;
+  const epoch = selectionEpoch;
+  const isCurrent = () => epoch===selectionEpoch && selected===inquiry.id;
+  const form = createIntakeComposer({inquiry, close:()=>{
+    delete detail.intakeComposer;
+    render();
+    central.querySelector('[data-intake-reply]')?.focus();
+  }, send:async ({recipient,subject,body})=>{
+    const key = inquiry.id;
+    intakeAttempts.begin(key,inquiry.id);
+    try {
+      const result = await authenticatedMailRequest({
+        action:'send_content_hearing', inquiry_id:inquiry.id, expected_recipient:recipient, subject, body
+      }, ()=>isCurrent() && tab==='conversation', {endpoint:'/api/pa-mail', timeout:65000});
+      if (result.delivery?.message_type!==followUpType ||
+          result.delivery.recipient?.trim()!==recipient || result.delivery.subject!==subject) {
+        throw Error('follow_up_delivery_mismatch');
+      }
+      intakeAttempts.finish(key,result.delivery.status==='sent' ? 'sent' : 'unknown');
+      if (isCurrent()) {
+        if (result.case_state?.result_status==='waiting_customer_reply') {
+          cases = cases.map(row=>row.id===inquiry.id ? {...row,status:'waiting_customer_reply'} : row);
+          renderList();
+        }
+        await loadSurface('deliveries','/data/case/'+inquiry.id+'/deliveries',epoch);
+      }
+      return result;
+    } catch (error) {
+      if (error.message==='follow_up_recipient_changed') intakeAttempts.release(key);
+      else intakeAttempts.finish(key,'unknown');
+      throw error;
+    }
+  }});
+  detail.intakeComposer = form;
+  render();
+  form.scrollIntoView({block:'nearest'});
+  form.elements.body.focus({preventScroll:true});
 }
 
 function deliveryEntry(entry) {
@@ -281,6 +329,7 @@ function renderGallery(){
 }
 function openLegacy(){if(current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
 function render(){
+  const intakeFocus = detail.intakeComposer?.contains(document.activeElement) ? document.activeElement : null;
   resetPrivacy();disposePreviews();renderHeader();renderInspector();
   const c=current();if(!c){central.innerHTML='<div class="empty-state">案件を選択すると、保存済みの実案件情報を表示します。</div>';return;}
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
@@ -288,7 +337,11 @@ function render(){
   central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
   if(tab==='documents')renderGallery();
   if(tab==='estimate'&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
-  if(tab==='conversation'){renderMailPreviews();replyComposer.mount($('reply-composer-host'));}
+  if(tab==='conversation'){
+    renderMailPreviews();replyComposer.mount($('reply-composer-host'));
+    if (detail.intakeComposer) $('intake-composer-host')?.append(detail.intakeComposer);
+    intakeFocus?.focus({preventScroll:true});
+  }
   if(tab==='estimate'&&detail.sentEstimates?.state==='ready'){
     const id=selected,epoch=selectionEpoch,items=detail.sentEstimates.value.messages.flatMap(mailAttachments);
     gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api('/data/sent-estimate-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
@@ -376,6 +429,7 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
+  if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
   if(reply&&!reply.disabled&&!passiveMail){
     const rows=replyableMessages(),row=reply.dataset.replyMessage?rows.find(r=>r.gmail_message_id===reply.dataset.replyMessage):rows[0];
@@ -409,7 +463,7 @@ threadLink=createThreadLink({read:api,open:openInfo,candidates:()=>getRows('mail
     const data=await response.json();if(!response.ok||data.ok!==true)throw new ReadFailure(data.code||'write_outcome_unknown',response.status);return data.result;
   }});
 // The regular authenticated reply API is the only write transport here.
-async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=25000}={}){
+async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=25000,endpoint='/api/pa-gmail'}={}){
   if(passiveMail)throw Error('mail_readonly');
   const owner=session?.user?.id;
   if(!owner||input.inquiry_id!==selected||!isCurrent())throw Error('login_required');
@@ -421,16 +475,17 @@ async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=
   const controller=new AbortController();track.add(controller);
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
-    const response=await fetch('/api/pa-gmail',{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+fresh.access_token,'Content-Type':'application/json'},body:JSON.stringify(input),signal:controller.signal});
+    const response=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+fresh.access_token,'Content-Type':'application/json'},body:JSON.stringify(input),signal:controller.signal});
     const data=await response.json();
     if(requiresReauthentication(data.code,response.status))signOut(false);
-    if(!response.ok||data.ok!==true)throw Error(data.code||'reply_request_failed');
+    if(!response.ok||data.ok!==true&&!(endpoint==='/api/pa-mail'&&data.delivery))throw Error(data.code||'reply_request_failed');
     return data;
   }finally{clearTimeout(timer);track.delete(controller);}
 }
 const replyRequest=(input,isCurrent)=>authenticatedMailRequest(input,isCurrent,{track:replyRequests,timeout:input.action==='send_reply'?65000:25000});
 let attemptStorage;
 try{attemptStorage=sessionStorage;}catch{attemptStorage={getItem(){throw Error('send_lock_unavailable');},setItem(){throw Error('send_lock_unavailable');}};}
+const intakeAttempts=createAttemptStore(attemptStorage,'paui-intake-follow-up-attempts-v1');
 replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(attemptStorage),changed:renderMailSyncStatus,
   readSent:async receipt=>{
     const id=receipt.caseId,owner=session?.user?.id;if(!owner)throw Error('login_required');
