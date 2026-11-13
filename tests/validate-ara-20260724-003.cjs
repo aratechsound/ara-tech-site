@@ -78,7 +78,7 @@ assert.match(adminJs, /supabase\.rpc\("update_pa_case_progress"/);
 assert.match(adminJs, /supabase\.rpc\("confirm_pa_payment_and_close"/);
 assert.match(
     adminJs,
-    /const openCase = async \(id\) =>[\s\S]*?currentProgress = progressResult\.data;[\s\S]*?renderOverview\(\);\s*populateProgressManagement\(\);/
+    /const openCase = async \(id, \{ composeFollowUp = false \} = \{\}\) =>[\s\S]*?currentProgress = progressResult\.data;[\s\S]*?renderOverview\(\);\s*populateProgressManagement\(\);/
 );
 assert.match(adminJs, /paymentForm\.addEventListener\("submit"/);
 assert.match(adminJs, /preparePaymentConfirmation\(\)/);
