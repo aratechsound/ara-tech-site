@@ -2577,7 +2577,7 @@ const renderScheduleState = () => {
         : "日程未確定";
 };
 
-const openCase = async (id) => {
+const openCase = async (id, { composeFollowUp = false } = {}) => {
     const selection = ++caseSelectionSerial;
     currentCase = null;
     currentProgress = null;
@@ -2691,8 +2691,18 @@ const openCase = async (id) => {
     );
     const pageUrl = new URL(window.location.href);
     pageUrl.searchParams.set("case", currentCase.id);
+    pageUrl.searchParams.delete("compose");
     history.replaceState(null, "", pageUrl);
     detailCard.classList.remove("hidden");
+    if (composeFollowUp) {
+        if (!contentHearingSection.classList.contains("hidden")) {
+            contentHearingSection.scrollIntoView({ block: "start" });
+            $("#content-hearing-body").focus({ preventScroll: true });
+        } else {
+            detailCard.scrollIntoView({ block: "start" });
+        }
+        return;
+    }
     detailCard.scrollIntoView({ behavior: "smooth", block: "start" });
     await syncGmail({ automatic: true });
 };
@@ -4143,7 +4153,8 @@ const sendResultEmail = async () => {
 const openRequestedCase = async () => {
     if (requestedCaseHandled) return;
     requestedCaseHandled = true;
-    const inquiryId = new URL(window.location.href).searchParams.get("case") || "";
+    const params = new URL(window.location.href).searchParams;
+    const inquiryId = params.get("case") || "";
     const requested = resolveRequestedCase({
         requestedCaseId: inquiryId,
         activeCaseIds: cases.map((item) => item.id),
@@ -4160,7 +4171,7 @@ const openRequestedCase = async () => {
         clearMessage(listStatus);
         return;
     }
-    await openCase(requested.id);
+    await openCase(requested.id, { composeFollowUp: params.get("compose") === "follow-up" });
 };
 
 const showDashboard = async (user) => {
