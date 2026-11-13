@@ -4153,8 +4153,8 @@ const sendResultEmail = async () => {
 const openRequestedCase = async () => {
     if (requestedCaseHandled) return;
     requestedCaseHandled = true;
-    const params = new URL(window.location.href).searchParams;
-    const inquiryId = params.get("case") || "";
+    const url = new URL(window.location.href);
+    const inquiryId = url.searchParams.get("case") || "";
     const requested = resolveRequestedCase({
         requestedCaseId: inquiryId,
         activeCaseIds: cases.map((item) => item.id),
@@ -4171,7 +4171,7 @@ const openRequestedCase = async () => {
         clearMessage(listStatus);
         return;
     }
-    await openCase(requested.id, { composeFollowUp: params.get("compose") === "follow-up" });
+    await openCase(requested.id, { composeFollowUp: url.searchParams.get("compose") === "follow-up" });
 };
 
 const showDashboard = async (user) => {
