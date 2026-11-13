@@ -13,7 +13,7 @@ const BASIC = Object.freeze({
   tokens: ['pa_schedule_tokens','id,issued_at,expires_at,revoked_at,answered_at','issued_at.desc'],
   responses: ['pa_schedule_responses','*',null],
   audit: ['pa_inquiry_audit','occurred_at,action,details','occurred_at.desc'],
-  deliveries: ['pa_email_deliveries','id,message_type,subject,status,requested_at,sent_at,failed_at,error_summary,is_retry,attempt_number','requested_at.desc'],
+  deliveries: ['pa_email_deliveries','id,inquiry_id,message_type,recipient,subject,body,status,requested_at,sent_at,failed_at,gmail_message_id,gmail_thread_id,error_summary,is_retry,attempt_number,retry_of','requested_at.desc,id.asc'],
   payments: ['pa_payment_records','*','confirmed_at.desc'],
   links: ['pa_gmail_thread_links','*',null],
   attention: ['pa_case_mail_attention','*',null]
@@ -404,6 +404,11 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
         else if(segments.length===4&&segments[1]==='case'&&BASIC[segments[3]]){
           const id=assertId(segments[2]),[table,select,order]=BASIC[segments[3]];
           await readableCase(id,token);result=await allRows(table,{select,inquiry_id:'eq.'+id,order},token);
+          if(segments[3]==='deliveries'){
+            if(result.some(row=>row.inquiry_id!==id))throw new ReadError('case_binding_mismatch',403);
+            // Other templates can contain private action URLs. Their subject and delivery status suffice here.
+            result=result.map(({body,...row})=>({...row,body:['customer_receipt','internal_new_inquiry'].includes(row.message_type)?body:undefined}));
+          }
         }else if(segments.length===3&&segments[1]==='commercial'){result=await commercial(assertId(segments[2]),token);
         }else if(segments.length===3&&segments[1]==='materials')result=await materials(assertId(segments[2]),token);
         else if(segments.length===5&&segments[1]==='material'){

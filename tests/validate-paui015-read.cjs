@@ -11,6 +11,10 @@ async function mocked(url,opts){
  if(table==='work_admins')return json(mode==='not-admin'?[]:[{user_id:C}]);
  if(table==='pa_inquiries')return json(q.searchParams.get('id')&&q.searchParams.get('id')!=='eq.'+C?[]:[{id:C}]);
  if(table==='pa_case_progress'||table==='pa_case_mail_attention')return json([]);
+ if(table==='pa_email_deliveries')return json([
+  {id:'receipt',inquiry_id:mode==='foreign-delivery'?A:C,message_type:'customer_receipt',body:'受付内容',gmail_message_id:'sent1',recipient:'fixture@example.invalid'},
+  {id:'schedule',inquiry_id:C,message_type:'schedule_request',body:'https://example.invalid/?token=fixture-secret'}
+ ]);
  if(table==='pa_gmail_thread_links')return json([{inquiry_id:C,gmail_thread_id:'thread1'}]);
  if(table==='pa_gmail_message_index')return json([{inquiry_id:mode==='foreign-case'?A:C,gmail_thread_id:mode==='foreign-thread'?'thread2':'thread1',gmail_message_id:'message1',body_text:mode==='no-body'?'':'保存済み本文',attachment_metadata:[{id:'attach1',filename:'日本語.pdf',mime_type:'application/pdf',size:bytes.length}]}]);
  if(table==='pa_portals')return mode==='portal-acl'?json({},403):json([{id:P,case_id:mode==='foreign-portal'?A:C}]);
@@ -31,6 +35,16 @@ async function mocked(url,opts){
   await check('Expired auth and revoked administrator fail closed',async()=>{mode='expired';assert.equal((await send('/data/cases')).status,401);mode='not-admin';const r=await send('/data/cases');assert.equal(r.status,403);assert.equal((await r.json()).code,'admin_required');});
   await check('Same-origin and route allowlist enforced',async()=>{assert.equal((await send('/data/cases',{headers:{'sec-fetch-site':'cross-site'}})).status,403);assert.equal((await send('/data/cases',{headers:{origin:'https://outside.invalid'}})).status,403);assert.equal((await send('/rest/v1/rpc/send')).status,403);});
   await check('Cases use existing tables and Owner JWT',async()=>{assert.equal((await send('/data/cases')).status,200);});
+  await check('Delivery projection binds case and keeps private action links out',async()=>{
+   const response=await send('/data/case/'+C+'/deliveries');
+   assert.equal(response.status,200);
+   const {result}=await response.json();
+   assert.equal(result[0].body,'受付内容');
+   assert.equal(result[0].gmail_message_id,'sent1');
+   assert.equal(result[1].body,undefined);
+   mode='foreign-delivery';
+   assert.equal((await send('/data/case/'+C+'/deliveries')).status,403);
+  });
   await check('Foreign case refused before document read',async()=>{assert.equal((await send('/data/document/'+A+'/'+D)).status,403);});
   await check('Case to mail to thread attribution',async()=>{assert.equal((await send('/data/mail/'+C)).status,200);mode='foreign-case';assert.equal((await send('/data/mail/'+C)).status,403);mode='foreign-thread';assert.equal((await send('/data/mail/'+C)).status,403);});
   await check('Saved body works; missing body is 503',async()=>{assert.equal((await send('/data/mail-body/'+C+'/message1')).status,200);mode='no-body';assert.equal((await send('/data/mail-body/'+C+'/message1')).status,503);});
