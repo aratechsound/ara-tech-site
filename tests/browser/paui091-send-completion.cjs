@@ -7,6 +7,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const f=await createFixture(),{syncCase,replyContext,replyPreview,sendReply,normalizeMessage}=require('../../api/_pa-gmail.cjs');
  await f.db.query("insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status) values($1,'PA-FIXTURE-A','Fixture A','customer@example.invalid','AV_INSTALL','new_inquiry'),($2,'PA-FIXTURE-B','Fixture B','other@example.invalid','AV_INSTALL','new_inquiry')",[A,B]);
  await f.db.query("insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,'thread_1','manual','primary_conversation')",[A]);
+ await f.db.query("update pa_inquiries set submission_source='public_form', submission_key=id, venue='Fixture Park', request_summary='PA timeline fixture' where id=$1",[B]);
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
  const posts=[],provider=[],checks=[];
@@ -43,9 +44,21 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const route=u.searchParams.get('path'),parts=route.split('/');let result=[];
    if(route==='/data/cases')result={cases:(await f.db.query('select * from pa_inquiries order by id')).rows,progress:[]};
    else if(route==='/data/attention')result=(await f.db.query('select * from pa_case_mail_attention')).rows;
+   else if(parts[2]==='case'&&parts[4]==='deliveries'&&parts[3]===B){
+    const receipt={inquiry_id:B,recipient:'other@example.invalid',subject:'Fixture receipt',body:'Fixture body',status:'sent',sent_at:'2026-11-13T01:58:51Z'};
+    result=[
+      {...receipt,id:'receipt',message_type:'customer_receipt',gmail_message_id:'receipt'},
+      {...receipt,id:'internal',message_type:'internal_new_inquiry',gmail_message_id:'internal'},
+      {...receipt,id:'unknown',message_type:'schedule_request',status:'sending',gmail_message_id:null},
+      {...receipt,id:'failed',message_type:'schedule_request',status:'failed',gmail_message_id:null}
+    ];
+   }
    else if(parts[2]==='case'){const id=parts[3];if(parts[4]==='links')result=(await f.db.query('select * from pa_gmail_thread_links where inquiry_id=$1',[id])).rows;else if(parts[4]==='mail-sync')result=await metadata(id);else if(parts[4]==='attention')result=(await f.db.query('select * from pa_case_mail_attention where inquiry_id=$1',[id])).rows;}
    else if(parts[2]==='mail'){if(failRead&&latestSent&&parts[3]===A)return json({ok:false,code:'fixture_read_failed'},503);result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;if(duplicateRead&&result[0])result.push({...result[0]});}
-   else if(parts[2]==='mail-live')result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
+   else if(parts[2]==='mail-live'){
+    if(parts[3]===B)return json({ok:false,code:'fixture_gmail_unavailable'},503);
+    result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
+   }
    else if(parts[2]==='mail-body'){const m=normalizeMessage(f.state.messages.get(parts[4]));result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_html:m.body_html||'',body_state:'ready',attachments:[]};}
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};
    else if(parts[2]==='sent-estimates')result={messages:[],unknown:[]};
@@ -87,7 +100,36 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const page=await pageAt({width:1440,height:1000});holdSync=true;releaseSync=null;await page.locator('[data-action="mail-sync"]').click();await waitForRelease('sync');await draft(page,'Send during old auto sync');await approve(page);await page.locator('[data-reply-send]').click();await page.getByText('送信済みです。履歴を確認中…',{exact:true}).first().waitFor();assert.equal(await page.locator('.reply-composer').isVisible(),true);holdSync=false;releaseSync();await page.getByText('送信しました',{exact:true}).waitFor();assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);assert.deepEqual(page.errors,[]);checks.push({old_auto_sync_flight_waited:true,no_stale_overwrite:true});await page.close();
   }
   {
-   const page=await pageAt({width:390,height:844});await draft(page,'Send while switching cases');await approve(page);holdSend=true;releaseSend=null;await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.locator('[data-case="'+B+'"]').click();await page.locator('[data-tab="conversation"]').click();holdSend=false;releaseSend();await page.waitForTimeout(100);assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),0);assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab="conversation"]').click();await page.locator('[data-message="'+latestSent+'"]').waitFor();await page.locator('[data-reply-message="source"]').click();assert.equal(await page.locator('[data-reply-body]').inputValue(),'');assert.deepEqual(page.errors,[]);checks.push({case_switch_late_send_isolated:true,mobile:true});await page.close();
+   const page=await pageAt({width:390,height:844});
+   await draft(page,'Send while switching cases');await approve(page);
+   holdSend=true;releaseSend=null;
+   await page.locator('[data-reply-send]').click();await waitForRelease('send');
+   await page.locator('[data-case="'+B+'"]').press('Enter');
+   await page.locator('[data-case="'+B+'"][aria-pressed="true"]').waitFor();
+   await page.locator('[data-tab="conversation"]').click();
+   await page.getByText('受付確認メール・送信済み', {exact:false}).first().waitFor();
+   await page.getByText('お問い合わせ受付',{exact:true}).waitFor();
+   await page.getByText('内部通知・送信済み',{exact:false}).first().waitFor();
+   await page.getByText('業務案内・配送・配送結果未確定',{exact:false}).first().waitFor();
+   await page.getByText('業務案内・配送・送信失敗',{exact:false}).first().waitFor();
+   await page.locator('[data-customer-mail-empty]').waitFor();
+   assert.equal(await page.locator('[data-reply-message]').count(),0);
+   await page.getByRole('button',{name:'取込せず原本を確認'}).click();
+   await page.getByText('Gmail取得失敗 / 最新は未確認',{exact:true}).waitFor();
+   assert.equal(await page.getByText('お問い合わせ受付',{exact:true}).isVisible(),true);
+   await page.locator('[data-timeline-kind="delivery"] .mail-heading').filter({hasText:'受付確認メール・送信済み'}).waitFor();
+   holdSend=false;releaseSend();
+   assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),0);
+   assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);
+   await page.locator('[data-case="'+A+'"]').click();
+   await page.locator('[data-tab="conversation"]').click();
+   await page.locator('[data-message="'+latestSent+'"]').waitFor();
+   await page.locator('[data-reply-message="source"]').click();
+   assert.equal(await page.locator('[data-reply-body]').inputValue(),'');
+   assert.deepEqual(page.errors,[]);
+   checks.push({case_switch_late_send_isolated:true,mobile:true,form_delivery_timeline:true,gmail_read_failure_preserves_timeline:true});
+   await page.close();
   }
   {
    const page=await pageAt({width:390,height:844});await draft(page,'Lost send response');await approve(page);loseReply=true;const before=sendCount();await page.locator('[data-reply-send]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-status]').textContent.includes('UNKNOWN'));assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);await page.locator('[data-reply-history]').click();assert.equal(sendCount(),before+1);loseReply=false;await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Do not resend after reload');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({unknown_stays_open:true,unknown_reload_no_resend:true});await page.close();
