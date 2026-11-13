@@ -87,6 +87,13 @@ const paMailHandler = async (request, response) => {
         let delivery;
         let caseState = null;
         if (input.action === "send_content_hearing") {
+            if (Object.hasOwn(input, "expected_recipient") &&
+                (inquiry.submission_source !== "public_form" ||
+                    typeof input.expected_recipient !== "string" ||
+                    !input.expected_recipient ||
+                    input.expected_recipient !== String(inquiry.email || "").trim())) {
+                throw new Error("follow_up_recipient_changed");
+            }
             const outcome = await sendContentHearingAndFinalize({
                 inquiry,
                 subject: input.subject,
@@ -165,6 +172,7 @@ const paMailHandler = async (request, response) => {
             "invalid_delivery",
             "invalid_operation",
             "content_hearing_not_allowed",
+            "follow_up_recipient_changed",
             "content_hearing_delivery_not_sent",
             "content_hearing_transition_failed",
             "invalid_content_hearing_message",

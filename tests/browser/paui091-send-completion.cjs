@@ -10,7 +10,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  await f.db.query("update pa_inquiries set submission_source='public_form', submission_key=id, venue='Fixture Park', request_summary='PA timeline fixture' where id=$1",[B]);
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
- const posts=[],provider=[],checks=[];
+ const posts=[],intakePosts=[],provider=[],checks=[];
  const transport=async(url,opts={})=>{
   const u=new URL(url);provider.push({host:u.host,path:u.pathname,method:opts.method||'GET'});
   if(u.host==='gmail.googleapis.com'&&u.pathname.endsWith('/messages/send')){
@@ -28,6 +28,14 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const server=http.createServer(async(req,res)=>{try{
   const u=new URL(req.url,'http://localhost'),json=(v,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(v));};
   if(u.pathname==='/pa-ui/js/integration.mjs'){res.writeHead(200,{'content-type':'text/javascript'});return res.end(integration);}
+  if(u.pathname==='/api/pa-mail'){
+   let raw='';for await(const chunk of req)raw+=chunk;
+   const payload=JSON.parse(raw);
+   assert.equal(req.headers.authorization,'Bearer fixture-only');
+   intakePosts.push(payload);
+   return json({ok:true,delivery:{message_type:'content_hearing_follow_up',status:'sent',
+    recipient:payload.expected_recipient,subject:payload.subject},case_state:{result_status:'waiting_customer_reply'}});
+  }
   if(u.pathname==='/api/pa-gmail'){
    let raw='';for await(const c of req)raw+=c;const p=JSON.parse(raw);posts.push(p);assert.equal(req.headers.authorization,'Bearer fixture-only');assert.equal(p.inquiry_id,A,'only fixture A can issue a mail request');
    const args={inquiryId:p.inquiry_id,actorId:f.actor,replySourceMessageId:p.reply_source_message_id,replySourceThreadId:p.reply_source_thread_id};
@@ -109,10 +117,29 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await page.locator('[data-tab="conversation"]').click();
    await page.getByText('受付確認メール・送信済み', {exact:false}).first().waitFor();
    await page.getByText('お問い合わせ受付',{exact:true}).waitFor();
-   const followUp = page.locator('[data-timeline-kind="form"]').getByRole('link', {name:'お客様に返信 ↗'});
-   assert.equal(await followUp.getAttribute('href'),'/pa-admin-legacy.html?case='+B+'&compose=follow-up');
-   assert.equal(await followUp.getAttribute('target'),'_blank');
-   assert.equal(await page.locator('[data-timeline-kind="delivery"] .intake-reply').count(),0);
+   const followUp = page.locator('[data-timeline-kind="form"]').getByRole('button', {name:'お客様に返信'});
+   const beforeOpen = page.url();
+   const beforePosts = posts.length;
+   await followUp.click();
+   const form = page.getByRole('form', {name:'お問い合わせへの返信'});
+   assert.equal(await form.getByLabel('宛先',{exact:true}).inputValue(),'other@example.invalid');
+   await form.getByLabel('本文',{exact:true}).fill('Fixture follow-up body');
+   await form.getByRole('button',{name:'プレビュー'}).click();
+   await form.getByText('Fixture follow-up body',{exact:true}).waitFor();
+   assert.equal(await form.getByRole('button',{name:'確認した内容で送信する'}).isDisabled(),true);
+   await form.getByLabel('本文',{exact:true}).fill('Edited fixture follow-up');
+   assert.equal(await form.getByRole('heading',{name:'送信前プレビュー'}).isHidden(),true);
+   assert.equal(page.url(),beforeOpen);
+   assert.equal(posts.length,beforePosts);
+   assert.equal(intakePosts.length,0);
+   await form.getByRole('button',{name:'プレビュー'}).click();
+   await form.getByRole('checkbox').check();
+   await form.getByRole('button',{name:'確認した内容で送信する'}).click();
+   await form.getByText('送信しました。',{exact:true}).waitFor();
+   assert.equal(intakePosts.length,1);
+   assert.deepEqual(intakePosts[0],{action:'send_content_hearing',inquiry_id:B,
+    expected_recipient:'other@example.invalid',subject:'お問い合わせについて｜PA-FIXTURE-B',body:'Edited fixture follow-up'});
+   assert.equal(await page.locator('[data-timeline-kind="delivery"] [data-intake-reply]').count(),0);
    await page.getByText('内部通知・送信済み',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・配送結果未確定',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・送信失敗',{exact:false}).first().waitFor();
@@ -128,7 +155,8 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);
    await page.locator('[data-case="'+A+'"]').click();
    await page.locator('[data-tab="conversation"]').click();
-   assert.equal(await page.locator('.intake-reply').count(),0);
+   assert.equal(await page.locator('[data-intake-reply]').count(),0);
+   assert.equal(await page.getByRole('form',{name:'お問い合わせへの返信'}).count(),0);
    await page.locator('[data-message="'+latestSent+'"]').waitFor();
    await page.locator('[data-reply-message="source"]').click();
    assert.equal(await page.locator('[data-reply-body]').inputValue(),'');

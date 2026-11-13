@@ -112,17 +112,6 @@ const assertCurrent = (h, message, explicit = false) => {
     assert.equal(state.cc, message.cc_addresses.join(', '));
 };
 (async () => {
-    await test('intake follow-up opens the requested case and focuses the form without a mail request', async () => {
-        const h = harness();
-        let focused = false;
-        h.$('#content-hearing-body').focus = () => { focused = true; };
-        h.box.window.location.href += '?case=case-B&compose=follow-up';
-        await h.api.openCase(B.id, { composeFollowUp: true });
-        assert.equal(h.box.currentCase.id, B.id);
-        assert.equal(focused, true);
-        assert.equal(h.events.requests.length, 0);
-        assert.equal(new URL(h.box.window.location.href).searchParams.has('compose'), false);
-    });
     for (const [from, to, first, second] of [[A,B,a,b],[B,A,b,a]]) await test(`${from.id} -> ${to.id}: real openCase + normal entry has zero previous fields`, async () => {
         const h = harness(); await h.api.openCase(from.id); h.api.openGmailReply(first);
         h.$('#gmail-reply-body').value = 'OLD BODY'; h.box.gmailReplyMode = 'invoice';
@@ -242,7 +231,7 @@ const assertCurrent = (h, message, explicit = false) => {
         h.api.applyGmailSyncResult({ linked: false, messages: [] });
         assert.equal(h.state().recipient, ''); assert.equal(h.state().subject, ''); assert.equal(h.state().context, null); assert.equal(h.state().sendDisabled, true);
     });
-    assert.equal(count, 16);
+    assert.equal(count, 15);
     console.log(JSON.stringify({ task: 'MAIL-REPLY-001', passed: count, actualEMAIL_SENT: 0, fakeProviderSend: 0,
         fixtureNetwork: 'forbidden', scenarios: 'A→B/B→A/same-case other-thread/same-thread/reload/list/selection-loading/preview and sync races/modes/source binding' }));
 })().catch(e => { console.error(e.stack); process.exitCode = 1; }).finally(() => clearTimeout(completionGuard));

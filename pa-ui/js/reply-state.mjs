@@ -6,13 +6,14 @@ export const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.d
 
 // Only hashes, case/message/thread IDs, outcomes and timestamps survive a reload. No body,
 // recipient, attachment bytes, Auth token or confirmation_token is stored.
-export function createAttemptStore(storage){
-  function read(){const rows=JSON.parse(storage.getItem(keyFor)||'[]');if(!Array.isArray(rows)||rows.some(r=>typeof r.key!=='string'||!r.key||typeof r.caseId!=='string'||!r.caseId||!['pending','sent','unknown'].includes(r.status)||r.receipt&&(r.receipt.caseId!==r.caseId||!validMailId(r.receipt.messageId)||!validMailId(r.receipt.threadId))))throw Error('send_lock_unavailable');return rows;}
-  function write(rows){storage.setItem(keyFor,JSON.stringify(rows));}
+export function createAttemptStore(storage, storageKey=keyFor){
+  function read(){const rows=JSON.parse(storage.getItem(storageKey)||'[]');if(!Array.isArray(rows)||rows.some(r=>typeof r.key!=='string'||!r.key||typeof r.caseId!=='string'||!r.caseId||!['pending','sent','unknown'].includes(r.status)||r.receipt&&(r.receipt.caseId!==r.caseId||!validMailId(r.receipt.messageId)||!validMailId(r.receipt.threadId))))throw Error('send_lock_unavailable');return rows;}
+  function write(rows){storage.setItem(storageKey,JSON.stringify(rows));}
   return {
     blocked:id=>read().some(r=>r.caseId===id&&['pending','unknown'].includes(r.status)),
     has:key=>read().some(r=>r.key===key),
     begin(key,caseId){const rows=read();if(rows.some(r=>r.key===key||r.caseId===caseId&&r.status!=='sent'))throw Error('send_already_attempted');rows.push({key,caseId,status:'pending',at:new Date().toISOString()});write(rows);},
+    release(key){write(read().filter(r=>r.key!==key||r.status!=='pending'));},
     finish(key,status,receipt){const rows=read(),row=rows.find(r=>r.key===key);if(!row)throw Error('send_lock_unavailable');row.status=status;if(receipt){if(receipt.caseId!==row.caseId||!validMailId(receipt.messageId)||!validMailId(receipt.threadId))throw Error('invalid_reply_binding');row.receipt={caseId:row.caseId,messageId:receipt.messageId,threadId:receipt.threadId};row.verified=false;}write(rows);},
     receipts:caseId=>read().filter(r=>r.caseId===caseId&&r.status==='sent'&&r.receipt&&!r.verified).map(r=>({key:r.key,...r.receipt})),
     verify(key){const rows=read(),row=rows.find(r=>r.key===key);if(!row||row.status!=='sent')throw Error('send_lock_unavailable');row.verified=true;write(rows);}
