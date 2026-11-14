@@ -1,1 +1,1 @@
-export { publishReviewed, resolveExisting } from '../../../../js/work-reviewed-publish.mjs';
+export { publishReviewed, resolveExisting, restoreWorksAdministrator } from '../../../../js/work-reviewed-publish.mjs';
