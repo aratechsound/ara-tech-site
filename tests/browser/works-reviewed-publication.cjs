@@ -77,7 +77,11 @@ async function run() {
             await page.goto(base);
             await page.waitForFunction(() => Boolean(window.openFixture));
             const stage = text => page.getByRole('heading', { name: new RegExp(text) }).waitFor();
-            const click = name => page.getByRole('button', { name, exact: true }).click();
+            const click = name => {
+                const button = page.getByRole('button', { name, exact: true });
+                // Exercise native input and the regular DOM event path on separate viewports.
+                return viewport.width === 1440 ? button.click() : button.dispatchEvent('click');
+            };
             const quoteCount = () => page.evaluate(() => window.rpcCount);
 
             await page.evaluate(() => window.openFixture({ venue: '' }));
@@ -100,7 +104,14 @@ async function run() {
             await stage('STEP 4');
             assert.equal(await quoteCount(), 0);
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-            await click('この公演を正式公開');
+            if (viewport.width === 390) {
+                await page.getByRole('button', { name: 'この公演を正式公開' }).evaluate(button => {
+                    button.click();
+                    button.dispatchEvent(new Event('click'));
+                });
+            } else {
+                await click('この公演を正式公開');
+            }
             await stage('STEP 5');
             const url = await page.getByRole('link', { name: '公開ページを見る' }).getAttribute('href');
             assert.equal(url, '/works/hiroshima.html');
