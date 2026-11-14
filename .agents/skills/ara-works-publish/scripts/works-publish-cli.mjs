@@ -88,8 +88,8 @@ async function getWork(cfg,s,id) {
   return arr[0];
 }
 export function isPublished(p) {return p.is_published===true && p.publication_review_status===null && p.approved_hash===p.candidate_hash && Boolean(p.approved_at&&p.approved_by);}
-export function imageOmitted(p) {return p.use_image_on_public_page===false && p.image_usage_status==='not_permitted';}
-export function imageAllowed(p) { return p.use_image_on_public_page===true && p.image_usage_status==='confirmed' && Boolean(p.flyer_path&&p.image_publication_confirmed_at&&p.image_publication_confirmed_by)&&HEX64.test(p.public_image_sha256||''); }
+export function imageOmitted(p) {return p.use_image_on_public_page===false && p.image_usage_status==='not_permitted' && !p.image_owner_instruction_ref;}
+export function imageAllowed(p) { return p.use_image_on_public_page===true && (p.image_usage_status==='confirmed' || (p.image_usage_status==='unknown' && p.image_owner_instruction_ref?.trim())) && Boolean(p.flyer_path&&p.image_publication_confirmed_at&&p.image_publication_confirmed_by)&&HEX64.test(p.public_image_sha256||''); }
 export function imageSignature(bytes,contentType) {
   if(bytes.length<32) return false;
   const jpg=bytes[0]===255&&bytes[1]===216&&bytes[2]===255;
@@ -168,13 +168,13 @@ export async function publishWithRuntime({id,expected,owner,authorize,readWork,v
   const image=imageOmitted(before)?{sha256:null,decoded:true,omitted:true}:await verifyImage(before);
   if(!image.omitted && (image.decoded!==true || image.sha256!==before.public_image_sha256)) throw new Error('image_sha256_mismatch');
   const latest=await readWork(id);
-  const unchanged=['flyer_path','public_image_sha256','public_image_source_url','image_usage_status','use_image_on_public_page'].every(k=>latest[k]===before[k]);
+  const unchanged=['flyer_path','public_image_sha256','public_image_source_url','image_usage_status','use_image_on_public_page','image_owner_instruction_ref'].every(k=>latest[k]===before[k]);
   if(latest.candidate_hash!==expected||!unchanged||!(imageAllowed(latest)||imageOmitted(latest))||latest.is_published||latest.publication_review_status!=='publication_pending_approval') throw new Error('candidate_changed_after_image_verification');
   let callResult='UNKNOWN';
   try { const data=await callRpc({p_work_id:id,p_candidate_hash:expected}); const item=Array.isArray(data)?data[0]:data;callResult=item?.result||'UNKNOWN'; } catch { /* read back; never retry */ }
   let after;
   try { after=await readWork(id); } catch { return {result:'HOLD',workId:id,reason:'post_rpc_readback_failed',rpcResult:callResult,rpcAttempts:1}; }
-  const sameImage=['flyer_path','public_image_sha256','public_image_source_url','image_usage_status','use_image_on_public_page'].every(k=>after[k]===latest[k]);
+  const sameImage=['flyer_path','public_image_sha256','public_image_source_url','image_usage_status','use_image_on_public_page','image_owner_instruction_ref'].every(k=>after[k]===latest[k]);
   if(isPublished(after)&&after.approved_by===user.id&&sameImage&&(image.omitted||after.public_image_sha256===image.sha256)) return {result:'PUBLISHED',workId:id,slug:after.slug,approvedAt:after.approved_at,ownerRef:owner,imageSha256:image.sha256,dbReadback:'PASS',rpcResult:callResult};
   return {result:'HOLD',workId:id,reason:'publication_not_confirmed',rpcResult:callResult,rpcAttempts:1,isPublished:after.is_published,reviewStatus:after.publication_review_status};
 }

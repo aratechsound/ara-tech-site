@@ -27,7 +27,7 @@ assert.match(read('js/work-reviewed-publish.mjs'), /p_candidate_hash:latest\.can
 assert.match(adminJs, /public_image_source_url: displayed\.origin === 'review'/u);
 assert.match(adminJs, /public_image_sha256: publicImageSha256/u);
 assert.match(adminJs, /pendingImageOmitted \? 'not_permitted'/u);
-assert.match(adminJs, /image_usage_status: 'confirmed'/u);
+assert.match(adminJs, /image_usage_status: rights/u);
 assert.match(adminJs, /if \(uploadedFlyerPath\) await supabase\.storage\.from\(WORKS_BUCKET\)\.remove/u);
 assert.match(adminJs, /一覧のフライヤーとStorage画像が一致しません/u);
 assert.match(read('js/work-publish-panel.mjs'), /公開内容確認/u);

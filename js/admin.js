@@ -8,7 +8,7 @@ import {
 import { resolveImageConfirmation } from './image-confirmation.mjs';
 import { imageSourceUrl, validateFlyerFile } from './work-image-upload.mjs';
 import { createReviewedPublishPanel } from './work-publish-panel.mjs';
-import { restoreWorksAdministrator } from './work-reviewed-publish.mjs';
+import { readWorksAdministrator, restoreWorksAdministrator } from './work-reviewed-publish.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -28,6 +28,10 @@ const flyerPreview = $('#flyer-preview');
 const cancelEdit = $('#cancel-edit');
 const formTitle = $('#form-title');
 const saveButton = $('#save-post');
+const savePublishedFlyerButton = $('#save-published-flyer');
+const publishedFlyerEvidence = $('#published-flyer-evidence');
+const imageOwnerRefInput = $('#post-image-owner-ref');
+const imageExpectedShaInput = $('#post-image-expected-sha');
 const templateSelect = $('#post-template');
 const titleHistory = $('#title-history');
 const operationArtistsHistory = $('#operation-artists-history');
@@ -92,6 +96,9 @@ const pendingImageUrls = new Set();
 const PENDING_STATUS = 'publication_pending_approval';
 const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
+const canAddPublishedFlyer = (post) => post?.is_published === true
+    && post.publication_review_status == null
+    && post.use_image_on_public_page === false && Object.hasOwn(post, 'image_owner_instruction_ref');
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
 const toCloseTimeInput = (value) => String(value || '').match(/^(?:[01]\d|2\d):[0-5]\d/u)?.[0] || '';
@@ -291,6 +298,10 @@ const updatePublicationControls = () => {
     omitPublicImageInput.disabled = !pendingForm;
     candidateContext.classList.toggle('hidden', !candidate);
     candidateActions.classList.toggle('hidden', !candidate);
+    const publishedFlyer = canAddPublishedFlyer(editingPost);
+    savePublishedFlyerButton.classList.toggle('hidden', !publishedFlyer);
+    const supportsOwnerRef = Object.hasOwn(editingPost || posts[0] || {}, 'image_owner_instruction_ref');
+    publishedFlyerEvidence.classList.toggle('hidden', !(publishedFlyer || (pendingForm && supportsOwnerRef)));
     if (pendingForm) {
         lifecycleStatusInput.value = 'upcoming';
     }
@@ -364,6 +375,67 @@ const uploadFlyer = async (file) => {
 const fileSha256 = async (file) => {
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const updatePublishedFlyer = async (post, imageFields, newPath = null) => {
+    const { data, error } = await supabase.from('work_posts').update(imageFields)
+        .eq('id', post.id).eq('is_published', true).eq('use_image_on_public_page', false)
+        .is('publication_review_status', null).eq('updated_at', post.updated_at)
+        .select('id,slug,is_published,updated_at,flyer_path,public_image_sha256,public_image_source_url,image_usage_status,use_image_on_public_page,image_owner_instruction_ref,image_publication_confirmed_by')
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+        // A successful response with zero matched rows confirms this upload was never attached.
+        if (newPath) await supabase.storage.from(WORKS_BUCKET).remove([newPath]);
+        throw new Error('掲載状態が変わりました。最新の投稿を読み直してください。');
+    }
+    return data;
+};
+
+const addPublishedFlyer = async (post, file, { sourceUrl, alt, instructionRef, expectedSha, rights }) => {
+    if (!canAddPublishedFlyer(post) || !post.updated_at) throw new Error('公開済みで掲載画像のない投稿を開いてください。');
+    if (!['unknown', 'confirmed'].includes(rights)) throw new Error('明示的な画像利用制限があります。');
+    if (!instructionRef || !sourceUrl || !/^[a-f0-9]{64}$/.test(expectedSha)) {
+        throw new Error('採用指示の参照・画像出典・SHA-256を入力してください。');
+    }
+    const actor = await readWorksAdministrator(supabase);
+    if (actor.status !== 'ready') throw new Error('WORKS管理者権限を確認できません。');
+    const sha256 = await fileSha256(file);
+    if (sha256 !== expectedSha) throw new Error('ファイルがOwner採用画像のSHA-256と一致しません。');
+    await validateFlyerFile(file);
+
+    let stored = post;
+    if (!post.flyer_path) {
+        const path = await uploadFlyer(file);
+        stored = await updatePublishedFlyer(post, {
+            flyer_path: path,
+            flyer_alt: alt,
+            public_image_source_url: sourceUrl,
+            public_image_sha256: sha256,
+            image_owner_instruction_ref: instructionRef
+        }, path);
+    }
+    if (stored.public_image_source_url !== sourceUrl || stored.public_image_sha256 !== sha256
+        || stored.image_owner_instruction_ref !== instructionRef) {
+        throw new Error('保存済み画像または採用指示が一致しません。');
+    }
+
+    const { data: savedBytes, error } = await supabase.storage.from(WORKS_BUCKET).download(stored.flyer_path);
+    if (error) throw error;
+    if (!savedBytes || await fileSha256(savedBytes) !== sha256) {
+        throw new Error('Storageの保存画像が選択画像と一致しません。');
+    }
+    const visible = await updatePublishedFlyer(stored, {
+        image_usage_status: rights,
+        use_image_on_public_page: true
+    });
+    if (visible.is_published !== true || visible.use_image_on_public_page !== true || visible.image_usage_status !== rights
+        || visible.flyer_path !== stored.flyer_path || visible.public_image_sha256 !== sha256
+        || visible.public_image_source_url !== sourceUrl || visible.image_owner_instruction_ref !== instructionRef
+        || visible.image_publication_confirmed_by !== actor.user.id) {
+        throw new Error('画像の掲載設定を確認できませんでした。最新の投稿を確認してください。');
+    }
+    return visible;
 };
 
 const fetchReviewImageFile = async (post) => {
@@ -444,6 +516,8 @@ const copyFromPost = (id) => {
     reviewImageUrlInput.value = '';
     imageSourceUrlInput.value = '';
     reviewImageMethodInput.value = '';
+    imageOwnerRefInput.value = '';
+    imageExpectedShaInput.value = '';
     imageUsageStatusInput.value = 'unknown';
     usePublicImageInput.checked = false;
     omitPublicImageInput.checked = false;
@@ -483,7 +557,7 @@ const hydratePendingImage = async ({ post, image, imageState, generation }) => {
         image.nextElementSibling.classList.add('hidden');
         image.alt = post.flyer_alt || `${post.title}の確認用フライヤー`;
         imageState.textContent = post.image_usage_status === 'not_permitted'
-            ? '表示画像：確認済み ｜ 公開設定：画像なし'
+            ? '表示画像：取得確認済み ｜ 第三者の利用制限あり'
             : `公開画像候補：確認済み（SHA-256 ${displayed.sha256.slice(0, 12)}…）`;
     } catch (error) {
         if (generation !== pendingImageGeneration) return;
@@ -543,7 +617,7 @@ const renderPendingPosts = () => {
         status.textContent = '公開待ち';
         title.append(status);
         const usageBadge = document.createElement('span');
-        const imageOmitted = post.image_usage_status === 'not_permitted';
+        const imageOmitted = post.image_usage_status === 'not_permitted' && !post.image_owner_instruction_ref;
         usageBadge.className = `status status--${imageOmitted ? 'not-permitted' : 'confirmed'}`;
         usageBadge.textContent = imageOmitted ? '画像なしで公開' : post.use_image_on_public_page ? '掲載画像あり' : hasImageCandidate ? '画像候補あり' : '画像なし';
         title.append(usageBadge);
@@ -676,6 +750,9 @@ const loadPosts = async () => {
 const beginEdit = (id) => {
     editingPost = posts.find((post) => post.id === id);
     if (!editingPost) return;
+    flyerInput.value = '';
+    imageOwnerRefInput.value = editingPost.image_owner_instruction_ref || '';
+    imageExpectedShaInput.value = editingPost.image_owner_instruction_ref ? editingPost.public_image_sha256 || '' : '';
     candidateFormDirty = false;
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
@@ -765,6 +842,7 @@ const previewPendingCandidate = async (id) => {
 
 const prepareCandidateImageForPublication = async (post, useImage, displayed) => {
     if (!useImage) {
+        if (post.image_owner_instruction_ref) throw new Error('Owner採用画像が指定されています。画像なしへの変更は停止しました。');
         if (post.use_image_on_public_page === false && post.image_usage_status === 'not_permitted') return post;
         const { data, error } = await supabase.from('work_posts').update({
             image_usage_status: 'not_permitted',
@@ -779,15 +857,23 @@ const prepareCandidateImageForPublication = async (post, useImage, displayed) =>
     if (!displayed || displayed.candidateHash !== post.candidate_hash) {
         throw new Error('一覧で確認したフライヤーの状態が古くなっています。最新の一覧を再確認してください。');
     }
+    const rights = post.image_usage_status || 'unknown';
+    if (rights === 'not_permitted') throw new Error('画像に利用禁止・制限が記録されています。');
+    if (post.image_owner_instruction_ref && (!post.public_image_source_url || post.public_image_sha256 !== displayed.sha256)) {
+        throw new Error('Owner採用画像のSHA-256と一致しません。');
+    }
+    if (rights !== 'confirmed' && !post.image_owner_instruction_ref) {
+        throw new Error('Ownerの採用指示または第三者許諾の確認記録が必要です。');
+    }
     if (displayed.origin === 'storage') {
         if (!post.flyer_path || post.public_image_sha256 !== displayed.sha256) {
             throw new Error('一覧のフライヤーとStorage画像が一致しません。公開を停止しました。');
         }
-        if (post.use_image_on_public_page && post.image_usage_status === 'confirmed') return post;
+        if (post.use_image_on_public_page && post.image_publication_confirmed_at && post.image_publication_confirmed_by) return post;
         // Uploads invalidate image approval. The final publish action confirms
         // the exact displayed Storage bytes without uploading another copy.
         const { data, error } = await supabase.from('work_posts').update({
-            image_usage_status: 'confirmed',
+            image_usage_status: rights,
             use_image_on_public_page: true
         })
             .eq('id', post.id)
@@ -806,29 +892,42 @@ const prepareCandidateImageForPublication = async (post, useImage, displayed) =>
 
     setMessage(postStatus, '一覧で確認したフライヤーをARA-TECH側Storageへ保存しています。');
     const uploadedPath = await uploadFlyer(displayed.file);
-    try {
-        const { data, error } = await supabase.from('work_posts').update({
-            flyer_path: uploadedPath,
-            flyer_alt: post.flyer_alt || `${post.title}のフライヤー`,
-            image_usage_status: 'confirmed',
-            use_image_on_public_page: true,
-            public_image_source_url: displayed.origin === 'review' ? post.review_image_url : post.public_image_source_url,
-            public_image_sha256: displayed.sha256
-        })
-            .eq('id', post.id)
-            .eq('candidate_hash', post.candidate_hash)
-            .eq('publication_review_status', PENDING_STATUS)
-            .eq('is_published', false)
-            .select('*')
-            .maybeSingle();
-        if (error) throw error;
-        if (!data) throw new Error('候補が更新されています。最新内容を再確認してください。');
-        // Retain previous Storage objects; other records may still reference them.
-        return data;
-    } catch (error) {
+    const { data, error } = await supabase.from('work_posts').update({
+        flyer_path: uploadedPath,
+        flyer_alt: post.flyer_alt || `${post.title}のフライヤー`,
+        use_image_on_public_page: false,
+        review_image_url: null,
+        public_image_source_url: displayed.origin === 'review' && !post.image_owner_instruction_ref
+            ? post.review_image_url : post.public_image_source_url,
+        public_image_sha256: displayed.sha256
+    })
+        .eq('id', post.id)
+        .eq('candidate_hash', post.candidate_hash)
+        .eq('publication_review_status', PENDING_STATUS)
+        .eq('is_published', false)
+        .select('*')
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) {
         await supabase.storage.from(WORKS_BUCKET).remove([uploadedPath]);
-        throw error;
+        throw new Error('候補が更新されています。最新内容を再確認してください。');
     }
+    // The database resets visibility on identity changes. Confirm the newly staged image
+    // against its new hash before making it eligible for formal publication.
+    const storedImage = await supabase.storage.from(WORKS_BUCKET).download(data.flyer_path);
+    if (storedImage.error || !storedImage.data || await fileSha256(storedImage.data) !== displayed.sha256) {
+        throw new Error('Storageの保存画像が選択画像と一致しません。');
+    }
+    const confirmation = await supabase.from('work_posts').update({
+        image_usage_status: rights,
+        use_image_on_public_page: true
+    }).eq('id', data.id).eq('candidate_hash', data.candidate_hash)
+        .eq('publication_review_status', PENDING_STATUS).eq('is_published', false)
+        .select('*').maybeSingle();
+    if (confirmation.error || !confirmation.data) {
+        throw new Error('画像を仮保存しました。一覧を読み直して同じ画像の手順を再開してください。');
+    }
+    return confirmation.data;
 };
 
 const checkPublicationCandidate = (post) => editingPost?.id === post.id && candidateFormDirty
@@ -923,13 +1022,46 @@ if (!isSupabaseConfigured) {
         if (file && (isPendingCandidate(editingPost) || isCreatingPendingCandidate())) omitPublicImageInput.checked = false;
         setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
     });
+    savePublishedFlyerButton.addEventListener('click', async () => {
+        const post = editingPost;
+        const file = flyerInput.files?.[0];
+        if (saveButton.disabled || savePublishedFlyerButton.disabled) return;
+        if (!canAddPublishedFlyer(post)) return;
+        if (!file) {
+            setMessage(postStatus, 'Ownerが採用した画像ファイルを選択してください。', 'error');
+            return;
+        }
+        saveButton.disabled = true;
+        savePublishedFlyerButton.disabled = true;
+        try {
+            const source = imageSourceUrl(imageSourceUrlInput.value.trim());
+            if (!source) throw new Error('画像の出典URLを入力してください。');
+            const alt = flyerAltInput.value.trim() || `${post.title}のフライヤー`;
+            const saved = await addPublishedFlyer(post, file, {
+                sourceUrl: source,
+                alt,
+                instructionRef: imageOwnerRefInput.value.trim(),
+                expectedSha: imageExpectedShaInput.value.trim().toLowerCase(),
+                rights: imageUsageStatusInput.value
+            });
+            await loadPosts();
+            if (editingPost === post) resetPostForm();
+            setMessage(postStatus, `画像を保存しました。公開URL：${workUrl(saved.slug)}`);
+        } catch (error) {
+            await loadPosts();
+            if (editingPost === post) beginEdit(post.id);
+            setMessage(postStatus, error.message || '画像を保存できませんでした。', 'error');
+        } finally {
+            saveButton.disabled = false;
+            savePublishedFlyerButton.disabled = false;
+        }
+    });
     reviewImageUrlInput.addEventListener('input', () => setReviewImagePreview(reviewImageUrlInput.value.trim()));
     imageUsageStatusInput.addEventListener('change', () => {
-        if (!isPendingCandidate(editingPost) && imageUsageStatusInput.value !== 'confirmed') usePublicImageInput.checked = false;
+        if (!isPendingCandidate(editingPost) && imageUsageStatusInput.value === 'not_permitted') usePublicImageInput.checked = false;
     });
     omitPublicImageInput.addEventListener('change', () => {
         if (isPendingCandidate(editingPost) || isCreatingPendingCandidate()) {
-            imageUsageStatusInput.value = omitPublicImageInput.checked ? 'not_permitted' : 'unknown';
             usePublicImageInput.checked = false;
         }
     });
@@ -976,6 +1108,7 @@ if (!isSupabaseConfigured) {
 
     postForm.addEventListener('submit', async (event) => {
         event.preventDefault();
+        if (saveButton.disabled || savePublishedFlyerButton.disabled) return;
         clearMessage(postStatus);
         const selectedFile = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
@@ -997,12 +1130,24 @@ if (!isSupabaseConfigured) {
                 return;
             }
         }
-        if (!pendingCandidate && usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed') {
-            setMessage(postStatus, '公開ページで画像を使用する場合は、画像利用確認状態を「利用確認済み」にしてください。', 'error');
+        const keepOwnerSelectedImage = Boolean(editingPost?.image_owner_instruction_ref && !selectedFile
+            && imageSourceUrlInput.value.trim() === (editingPost.public_image_source_url || ''));
+        if (!pendingCandidate && usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed'
+            && !(keepOwnerSelectedImage && imageUsageStatusInput.value === 'unknown')) {
+            setMessage(postStatus, '公開ページで画像を使用する場合は、第三者の転載許諾または既存のOwner採用画像の記録を確認してください。', 'error');
             return;
         }
-        if (pendingCandidate && selectedFile && imageUsageStatusInput.value !== 'confirmed') {
-            setMessage(postStatus, '画像を保存する前に、画像の転載許諾を確認し「利用確認済み」を選択してください。', 'error');
+        const ownerRef = pendingCandidate ? imageOwnerRefInput.value.trim() : '';
+        const expectedSha = imageExpectedShaInput.value.trim().toLowerCase();
+        if (ownerRef && (!Object.hasOwn(editingPost || posts[0] || {}, 'image_owner_instruction_ref')
+            || pendingImageOmitted || !/^[a-f0-9]{64}$/.test(expectedSha) || !imageSourceUrlInput.value.trim()
+            || (!selectedFile && !reviewImageUrl && !editingPost?.flyer_path))) {
+            setMessage(postStatus, '採用画像の出典・SHA-256とファイルまたは確認用URLを入力してください。採用済みの画像は省略できません。', 'error');
+            return;
+        }
+        if (pendingCandidate && selectedFile && (imageUsageStatusInput.value === 'not_permitted'
+            || (!ownerRef && imageUsageStatusInput.value !== 'confirmed'))) {
+            setMessage(postStatus, '画像の採用指示、第三者許諾、利用制限を確認してください。', 'error');
             return;
         }
         if (pendingImageOmitted && selectedFile) {
@@ -1042,6 +1187,9 @@ if (!isSupabaseConfigured) {
             let publicImageSha256 = editingPost?.public_image_sha256 || null;
             if (file) {
                 publicImageSha256 = await fileSha256(file);
+                if (ownerRef && publicImageSha256 !== expectedSha) throw new Error('ファイルがOwner採用画像と一致しません。');
+            } else if (ownerRef && editingPost?.flyer_path && !reviewImageUrl && editingPost.public_image_sha256 !== expectedSha) {
+                throw new Error('保存済み画像がOwner採用画像と一致しません。');
             }
             const normalizedSlug = normalizeSlug(slugInput.value || generatedSlug());
             if (!hasValidSlug(normalizedSlug)) throw new Error('公開URLは半角小文字・数字・ハイフンだけで入力してください。');
@@ -1068,13 +1216,13 @@ if (!isSupabaseConfigured) {
             const operationArtists = artistTargetSelected ? operationArtistsInput.value.trim() || null : null;
             assertTimeEvidence();
             const publicImageSourceUrl = imageSourceUrl(
-                (!file && reviewImageChanged && reviewImageUrl ? reviewImageUrl : imageSourceUrlInput.value.trim())
+                (!ownerRef && !file && reviewImageChanged && reviewImageUrl ? reviewImageUrl : imageSourceUrlInput.value.trim())
                 || reviewImageUrl || (!file && editingPost?.public_image_source_url) || ''
             );
             const imageConfirmation = pendingCandidate
                 ? {
-                    image_usage_status: pendingImageOmitted ? 'not_permitted' : pendingUsesStoredImage ? 'confirmed' : 'unknown',
-                    use_image_on_public_page: pendingUsesStoredImage
+                    image_usage_status: pendingImageOmitted ? 'not_permitted' : imageUsageStatusInput.value,
+                    use_image_on_public_page: pendingUsesStoredImage && !ownerRef
                 }
                 : resolveImageConfirmation({
                     previousPost: editingPost,
@@ -1114,7 +1262,9 @@ if (!isSupabaseConfigured) {
                 image_usage_status: imageConfirmation.image_usage_status,
                 use_image_on_public_page: imageConfirmation.use_image_on_public_page,
                 public_image_source_url: publicImageSourceUrl,
-                public_image_sha256: publicImageSha256,
+                public_image_sha256: ownerRef ? expectedSha : publicImageSha256,
+                ...(pendingCandidate && Object.hasOwn(editingPost || posts[0] || {}, 'image_owner_instruction_ref')
+                    ? { image_owner_instruction_ref: ownerRef || null } : {}),
                 seo_title: seoTitleInput.value.trim() || null,
                 meta_description: metaDescriptionInput.value.trim() || null,
                 publication_review_status: pendingCandidate ? PENDING_STATUS : editingPost?.publication_review_status || null,

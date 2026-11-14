@@ -24,22 +24,94 @@ const path = require('node:path');
     assert.match(admin, /imageSourceUrlInput\.value\.trim\(\)/u);
     assert.match(admin, /review_image_url: file \? null : reviewImageUrl \|\| null/u);
     const vm = require('node:vm');
-    const post = { id: 89, candidate_hash: 'a'.repeat(64), flyer_path: 'flyers/official.jpg', public_image_sha256: 'b'.repeat(64), image_usage_status: 'unknown', use_image_on_public_page: false };
+    const post = { id: 89, candidate_hash: 'a'.repeat(64), flyer_path: 'flyers/official.jpg', public_image_sha256: 'b'.repeat(64), image_usage_status: 'unknown', image_owner_instruction_ref: 'WKS-011 selection', public_image_source_url: 'https://example.org/event', use_image_on_public_page: false };
     const displayedImages = new Map([[89, { candidateHash: post.candidate_hash, origin: 'storage', sha256: post.public_image_sha256 }]]);
     const updates = [], conditions = [];
-    const chain = { eq(key, value) { conditions.push([key, value]); return this; }, select() { return this; }, async maybeSingle() { return { data: { ...post, image_usage_status: 'confirmed', use_image_on_public_page: true, candidate_hash: 'c'.repeat(64) }, error: null }; } };
+    const chain = { eq(key, value) { conditions.push([key, value]); return this; }, select() { return this; }, async maybeSingle() { return { data: { ...post, image_usage_status: 'unknown', use_image_on_public_page: true, candidate_hash: 'c'.repeat(64) }, error: null }; } };
     const context = vm.createContext({ pendingDisplayedImages: displayedImages, PENDING_STATUS: 'publication_pending_approval', supabase: { from(table) { assert.equal(table, 'work_posts'); return { update(value) { updates.push(value); return chain; } }; } }, uploadFlyer() { throw new Error('stored bytes must not be uploaded again'); } });
     vm.runInContext(admin.slice(admin.indexOf('const prepareCandidateImageForPublication'), admin.indexOf('const checkPublicationCandidate')) + '; globalThis.prepare = prepareCandidateImageForPublication;', context);
     const ready = await context.prepare(post, true, displayedImages.get(89));
     assert.equal(ready.candidate_hash, 'c'.repeat(64));
     assert.equal(ready.use_image_on_public_page, true);
-    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [{ image_usage_status: 'confirmed', use_image_on_public_page: true }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), [{ image_usage_status: 'unknown', use_image_on_public_page: true }]);
     assert.deepEqual(conditions, [['id',89],['candidate_hash',post.candidate_hash],['publication_review_status','publication_pending_approval'],['is_published',false]]);
     displayedImages.get(89).sha256 = 'd'.repeat(64);
-    await assert.rejects(context.prepare(post, true, displayedImages.get(89)), /Storage画像が一致しません/u);
+    await assert.rejects(context.prepare(post, true, displayedImages.get(89)), /採用画像のSHA-256/u);
+    await assert.rejects(context.prepare(post, false, null), /画像なしへの変更/u);
     assert.equal(updates.length, 1);
     displayedImages.get(89).candidateHash = 'e'.repeat(64);
     await assert.rejects(context.prepare(post, true, displayedImages.get(89)), /状態が古く/u);
     assert.equal(updates.length, 1);
+    const source = 'https://example.org/event';
+    const sha256 = 'f'.repeat(64);
+    const imageOnlyChanges = [];
+    const imagesRead = [];
+    let uploaded = 0;
+    let state = { id: 100, slug: 'hiroshima', event_date: '2026-11-15', is_published: true,
+        publication_review_status: null, use_image_on_public_page: false, flyer_path: '', updated_at: 'before', image_owner_instruction_ref: null, approved_hash: 'original' };
+    const imageContext = vm.createContext({
+        WORKS_BUCKET: 'work-flyers',
+        fileSha256: async (file) => file.sha256 || sha256,
+        readWorksAdministrator: async () => ({ status: 'ready', user: { id: 'admin' } }),
+        validateFlyerFile: async () => {},
+        uploadFlyer: async () => { uploaded++; return 'flyers/new.webp'; },
+        supabase: {
+            from(table) {
+                assert.equal(table, 'work_posts');
+                return { update(value) {
+                    const filters = {};
+                    return {
+                        eq(key, expected) { filters[key] = expected; return this; },
+                        is(key, expected) { filters[key] = expected; return this; },
+                        select() { return this; },
+                        async maybeSingle() {
+                            if (Object.entries(filters).some(([key, expected]) => state[key] !== expected)) return { data: null };
+                            assert.deepEqual(Object.keys(filters).sort(), ['id', 'is_published', 'publication_review_status', 'updated_at', 'use_image_on_public_page']);
+                            imageOnlyChanges.push(JSON.parse(JSON.stringify(value)));
+                            state = { ...state, ...value, updated_at: String(imageOnlyChanges.length) };
+                            if ('flyer_path' in value) state.image_usage_status = 'unknown';
+                            if (value.use_image_on_public_page) state.image_publication_confirmed_by = 'admin';
+                            return { data: { ...state } };
+                        }
+                    };
+                } };
+            },
+            storage: { from(bucket) {
+                assert.equal(bucket, 'work-flyers');
+                return { async download(key) {
+                    imagesRead.push(key);
+                    return { data: new Blob(['readback']) };
+                } };
+            } }
+        }
+    });
+    vm.runInContext(
+        admin.slice(admin.indexOf('const canAddPublishedFlyer'), admin.indexOf('const isCreatingPendingCandidate'))
+        + admin.slice(admin.indexOf('const updatePublishedFlyer'), admin.indexOf('const fetchReviewImageFile'))
+        + '; globalThis.add = addPublishedFlyer;', imageContext
+    );
+    const alt = '広島公演の公式フライヤー';
+    const evidence = { sourceUrl: source, alt, instructionRef: 'WKS-011 selection', expectedSha: sha256, rights: 'unknown' };
+    for (const otherSha of ['1', '2', '3']) {
+        await assert.rejects(imageContext.add(state, { sha256: otherSha.repeat(64) }, evidence), /SHA-256/u);
+    }
+    await assert.rejects(imageContext.add(state, {}, { ...evidence, rights: 'not_permitted' }), /明示的/u);
+    assert.equal(uploaded, 0);
+    const attached = await imageContext.add(state, {}, evidence);
+    assert.equal(uploaded, 1);
+    assert.deepEqual(imagesRead, ['flyers/new.webp']);
+    assert.deepEqual(imageOnlyChanges, [
+        { flyer_path: 'flyers/new.webp', flyer_alt: alt, public_image_source_url: source, public_image_sha256: sha256, image_owner_instruction_ref: 'WKS-011 selection' },
+        { image_usage_status: 'unknown', use_image_on_public_page: true }
+    ]);
+    assert.equal(attached.is_published, true);
+    assert.equal(attached.event_date, '2026-11-15');
+    assert.equal(attached.approved_hash, 'original');
+    await assert.rejects(imageContext.add(state, {}, evidence), /掲載画像のない/u);
+    state = { ...state, use_image_on_public_page: false };
+    await assert.rejects(imageContext.add(state, {}, { ...evidence, sourceUrl: 'https://example.org/different' }), /一致しません/u);
+    await assert.rejects(imageContext.add({ ...state, updated_at: 'stale' }, {}, evidence), /状態が変わりました/u);
+    await imageContext.add(state, {}, evidence);
+    assert.equal(uploaded, 1, 'retry must reuse the already stored image');
     console.log('WORKS local image validation, provenance, neutral placeholders and existing-object preservation passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -292,20 +292,26 @@ const buildDescription = (event, assignmentLabel) => {
 const normalizeImage = (image = {}, title = '') => {
     const status = IMAGE_STATUSES.includes(image.status) ? image.status : 'no_image_available';
     const successful = status === 'direct_success' || status === 'structure_analysis_success';
-    const usagePermission = ['confirmed', 'not_confirmed', 'unknown'].includes(image.usage_permission)
+    const usagePermission = ['confirmed', 'not_confirmed', 'unknown', 'not_permitted'].includes(image.usage_permission)
         ? image.usage_permission : 'not_confirmed';
     const sourceUrl = isHttpsUrl(image.source_url) ? clean(image.source_url) : null;
     const localPath = clean(image.local_path) || null;
-    const publicationAllowed = successful && usagePermission === 'confirmed' && Boolean(sourceUrl && localPath);
+    const ownerRef = clean(image.owner_instruction_ref).slice(0, 200);
+    const sha256 = clean(image.sha256).toLowerCase();
+    const ownerSelected = Boolean(ownerRef && /^[a-f0-9]{64}$/.test(sha256));
+    const publicationAllowed = successful && Boolean(sourceUrl && localPath)
+        && usagePermission !== 'not_permitted' && (ownerRef ? ownerSelected : usagePermission === 'confirmed');
     return {
         status,
         acquisition_method: clean(image.acquisition_method) || (successful ? 'unspecified' : 'none'),
         source_url: sourceUrl,
         local_path: localPath,
         usage_permission: usagePermission,
+        ...(ownerRef ? { owner_instruction_ref: ownerRef, sha256 } : {}),
         publication_allowed: publicationAllowed,
         alt: clean(image.alt) || `${title}のフライヤー`,
-        note: publicationAllowed ? '利用確認済み。公開前レビュー対象。' : '公開ペイロードには画像を含めません。'
+        note: publicationAllowed ? '掲載候補。公開前に同一画像を検証します。'
+            : ownerRef ? '採用画像の掲載条件を満たしていません。' : '公開用画像の指定はありません。'
     };
 };
 
@@ -453,7 +459,8 @@ export const renderReview = (candidate) => {
     const event = candidate.event;
     const sources = candidate.official_information.sources
         .map((source) => `- ${source.label}: ${source.url}`).join('\n') || '- なし';
-    const imagePath = candidate.image.publication_allowed ? candidate.image.local_path : '画像なしで公開予定';
+    const imagePath = candidate.image.publication_allowed ? candidate.image.local_path
+        : candidate.image.owner_instruction_ref ? '採用画像の掲載保留' : '公開用画像の指定なし';
     return `# 公開予定内容\n\n`
         + `状態: \`${candidate.status}\`\n`
         + `候補ハッシュ: \`${candidate.candidate_hash}\`\n\n`
@@ -570,6 +577,9 @@ export const exportPublication = (candidate, approval, { now = new Date() } = {}
     if (candidate.candidate_hash !== currentHash) throw new Error('Candidate hash does not match its content.');
     if (candidate.status !== 'PUBLICATION_PENDING_APPROVAL') throw new Error('Candidate is not pending approval.');
     if (candidate.blockers?.length) throw new Error('Candidate still has blockers.');
+    if (candidate.image.owner_instruction_ref && !candidate.image.publication_allowed) {
+        throw new Error('The Owner-selected image must remain in scope. Resolve its image blocker before exporting.');
+    }
     if (approval?.status !== 'APPROVED' || approval.candidate_hash !== currentHash) {
         throw new Error('A matching approval receipt is required.');
     }
@@ -587,7 +597,11 @@ export const exportPublication = (candidate, approval, { now = new Date() } = {}
             source_url: candidate.image.source_url,
             acquisition_method: candidate.image.acquisition_method,
             alt: candidate.image.alt,
-            usage_permission: candidate.image.usage_permission
+            usage_permission: candidate.image.usage_permission,
+            ...(candidate.image.owner_instruction_ref ? {
+                owner_instruction_ref: candidate.image.owner_instruction_ref,
+                sha256: candidate.image.sha256
+            } : {})
         } : null,
         payload: {
             ...candidate.database_payload,
