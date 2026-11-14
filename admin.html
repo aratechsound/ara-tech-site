@@ -215,7 +215,8 @@
                         <div class="form-field form-field--full"><label for="post-description">紹介文 <span class="help">任意・空欄でも投稿できます</span></label><textarea id="post-description" maxlength="1000" placeholder="現場について補足したいときだけ入力してください。"></textarea></div>
                         <div class="form-field form-field--full image-review-box"><label for="post-review-image-url">管理画面の確認用画像URL・出典URL <span class="help">画像ファイルを選ぶ場合は、その画像の公式掲載ページ・元投稿URLを記録できます。保存後はStorageの同一画像を確認します。ファイルを選ばない場合は取得可能な画像URLを入力してください。</span></label><input id="post-review-image-url" type="url" maxlength="2000" inputmode="url" placeholder="https://公式サイト/.../flyer.jpg"><label for="post-review-image-method">画像取得方法・利用判断の根拠</label><input id="post-review-image-method" type="text" maxlength="120" placeholder="例：公式投稿を確認・Owner掲載承認（第三者許諾の証明とは別）"><img id="review-image-preview" class="hidden" alt="管理画面で確認するフライヤー"></div>
                         <div class="form-field form-field--full"><label for="post-image-source-url">画像の出典URL <span class="help">公式掲載ページ・元投稿URLを保持します。公開画像はARA-TECHのStorageから配信します。</span></label><input id="post-image-source-url" type="url" maxlength="2000" inputmode="url"></div>
-                        <div id="image-usage-status-field" class="form-field"><label for="post-image-usage-status">画像利用確認状態</label><select id="post-image-usage-status"><option value="unknown">未確認</option><option value="confirmed">利用確認済み</option><option value="not_permitted">利用しない／利用不可</option></select></div>
+                        <div id="image-usage-status-field" class="form-field"><label for="post-image-usage-status">第三者の転載許諾</label><select id="post-image-usage-status"><option value="unknown">未確認</option><option value="confirmed">許諾確認済み</option><option value="not_permitted">利用禁止・制限あり</option></select></div>
+                        <div id="published-flyer-evidence" class="form-field form-field--full hidden"><label for="post-image-owner-ref">Ownerの採用指示の参照</label><input id="post-image-owner-ref" maxlength="200" type="text"><label for="post-image-expected-sha">採用画像のSHA-256</label><input id="post-image-expected-sha" maxlength="64" type="text" spellcheck="false" autocomplete="off"></div>
                         <div id="standard-public-image-choice" class="form-field image-publication-choice"><label class="checkbox" for="post-use-public-image"><input id="post-use-public-image" type="checkbox">公開ページで画像を使用する</label><span class="help">通常投稿の画像掲載設定です。</span></div>
                         <div id="pending-image-omit-choice" class="form-field image-publication-choice image-omit-choice hidden"><label class="checkbox" for="post-omit-public-image"><input id="post-omit-public-image" type="checkbox">画像を掲載しない</label><span class="help">画像なしで候補を保存します。画像の掲載は公開手順の画像確認で選べます。</span></div>
                         <div class="form-field form-field--full"><label for="post-flyer">公開用フライヤー画像 <span class="help">任意・PNG/JPG/WebP・10MBまで。公式の当該公演画像を確認し、Ownerの掲載判断で選択します。掲載承認は第三者の著作権許諾を証明するものではありません。</span></label><input id="post-flyer" type="file" accept="image/png,image/jpeg,image/webp"><img id="flyer-preview" class="preview hidden" alt="選択した公開用フライヤーのプレビュー"></div>
@@ -225,7 +226,7 @@
                         <div id="publication-mode-field" class="form-field"><label for="post-publication-mode">公開方法 <span class="help">開催日とは別に選択します</span></label><select id="post-publication-mode"><option value="draft" selected>下書きとして保存</option><option value="pending">公開待ち候補として保存</option><option value="now">今すぐ公開</option><option value="scheduled">日時を指定して予約投稿</option></select><span class="help">Codexが調査した候補は「公開待ち候補として保存」を選び、代表確認前は公開しません。</span></div>
                         <div id="publish-at-field" class="form-field hidden"><label for="post-publish-at">公開日時 <span class="help">予約投稿では必須・日本時間</span></label><input id="post-publish-at" type="datetime-local"><span class="help">この時刻まではWORKSページに表示されません。</span></div>
                     </div>
-                    <div class="actions"><button id="save-post" class="button" type="submit">下書き保存</button><button id="cancel-edit" class="button button--secondary hidden" type="button">編集をやめる</button><p id="post-status" class="alert hidden" aria-live="polite"></p></div>
+                    <div class="actions"><button id="save-post" class="button" type="submit">下書き保存</button><button id="save-published-flyer" class="button button--secondary hidden" type="button">画像だけ追加</button><button id="cancel-edit" class="button button--secondary hidden" type="button">編集をやめる</button><p id="post-status" class="alert hidden" aria-live="polite"></p></div>
                     <div id="candidate-actions" class="actions candidate-actions hidden"><button id="preview-candidate" class="button button--secondary" type="button">プレビュー</button><button id="publish-candidate" class="button" type="button">公開手順を開く</button><button id="reject-candidate" class="button button--danger" type="button">見送る</button></div>
                 </form>
             </div>
@@ -242,6 +243,6 @@
         <div class="preview-frame-shell"><iframe id="preview-frame" class="preview-frame" title="公開予定ページのプレビュー" sandbox="allow-same-origin"></iframe></div>
     </dialog>
     <script src="js/work-lifecycle.js?v=ara-20260823-001"></script>
-    <script type="module" src="js/admin.js?v=ara-20261105-wks005"></script>
+    <script type="module" src="js/admin.js?v=ara-wks011"></script>
 </body>
 </html>

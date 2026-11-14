@@ -70,10 +70,18 @@ export function createReviewedPublishPanel({ client, bucket, container, reload, 
             if (imageError) add('画像確認エラー', imageError);
             if (displayed) {
                 add('確認画像のSHA-256', displayed.sha256);
-                if (post.review_image_url || post.public_image_source_url) add('画像出典', post.review_image_url || post.public_image_source_url);
-                container.append(button('転載許諾を確認済み・画像ありで進む', () => { imageChoice = true; next(); }, true));
+                if (post.public_image_source_url || post.review_image_url) add('画像出典', post.public_image_source_url || post.review_image_url);
+                add('第三者の転載許諾', ({
+                    confirmed: '許諾確認済み', not_permitted: '利用禁止・制限あり'
+                })[post.image_usage_status] || '未確認');
+                if (post.image_owner_instruction_ref) add('Owner採用指示', post.image_owner_instruction_ref);
+                if (post.image_usage_status === 'confirmed' || (post.image_owner_instruction_ref && post.image_usage_status === 'unknown')) {
+                    container.append(button('選定画像を掲載して進む', () => { imageChoice = true; next(); }, true));
+                }
             }
-            container.append(button('画像なしで進む', () => { imageChoice = false; next(); }, true));
+            if (!post.image_owner_instruction_ref) {
+                container.append(button('画像なしで進む', () => { imageChoice = false; next(); }, true));
+            }
         }
         if (step === 2 || step === 3) {
             add('掲載文章', post.description);
@@ -131,13 +139,17 @@ export function createReviewedPublishPanel({ client, bucket, container, reload, 
         try {
             const image = await readReviewImage(post);
             if (generation !== renderingGeneration || post !== current || step !== 1 || busy) return;
+            if (post.image_owner_instruction_ref && post.public_image_sha256 !== image.sha256) {
+                throw new Error('Owner採用画像のSHA-256と一致しません。');
+            }
             displayed = image;
             imageError = undefined;
             if (imageUrl) URL.revokeObjectURL(imageUrl);
             imageUrl = URL.createObjectURL(image.file);
+            if (post.image_owner_instruction_ref && ['unknown', 'confirmed'].includes(post.image_usage_status)) imageChoice = true;
         } catch (cause) {
             if (generation !== renderingGeneration || post !== current || step !== 1 || busy) return;
-            displayed = undefined;
+            displayed = imageChoice = undefined;
             if (imageUrl) URL.revokeObjectURL(imageUrl);
             imageUrl = undefined;
             imageError = cause.message;

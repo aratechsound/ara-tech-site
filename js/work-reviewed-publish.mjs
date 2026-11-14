@@ -1,11 +1,13 @@
 const pending = 'publication_pending_approval';
 const formal = p => p.is_published === true && p.publication_review_status === null
     && p.approved_hash === p.candidate_hash && Boolean(p.approved_at && p.approved_by);
-const imageReady = p => p.image_usage_status === 'confirmed' && p.use_image_on_public_page === true
+const imageReady = p => (p.image_usage_status === 'confirmed'
+    || (p.image_usage_status === 'unknown' && Boolean(p.image_owner_instruction_ref?.trim())))
+    && p.use_image_on_public_page === true
     && Boolean(p.flyer_path && p.public_image_source_url && p.image_publication_confirmed_at && p.image_publication_confirmed_by)
     && /^[a-f0-9]{64}$/.test(p.public_image_sha256 || '');
 const sameImage = (a,b) => ['use_image_on_public_page','image_usage_status','flyer_path',
-    'public_image_source_url','public_image_sha256'].every(k=>a[k]===b[k]);
+    'public_image_source_url','public_image_sha256','image_owner_instruction_ref'].every(k=>a[k]===b[k]);
 const normalized = s => String(s || '').normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
 
 export function missingPublicationFields(post) {
@@ -73,7 +75,7 @@ export async function publishReviewed({client, pin, authorization:a, verifyImage
             if(!imageReady(post)) throw new Error('image_approval_missing');
             const image = await verifyImage(post);
             if(image?.decoded !== true || image.sha256 !== post.public_image_sha256) throw new Error('image_verification_failed');
-        } else if (post.use_image_on_public_page !== false) {
+        } else if (post.use_image_on_public_page !== false || post.image_owner_instruction_ref) {
             throw new Error('image_decision_missing');
         }
         const latest = await read();
