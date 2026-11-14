@@ -28,6 +28,7 @@ const flyerPreview = $('#flyer-preview');
 const cancelEdit = $('#cancel-edit');
 const formTitle = $('#form-title');
 const saveButton = $('#save-post');
+const savePublishedFlyerButton = $('#save-published-flyer');
 const templateSelect = $('#post-template');
 const titleHistory = $('#title-history');
 const operationArtistsHistory = $('#operation-artists-history');
@@ -92,6 +93,9 @@ const pendingImageUrls = new Set();
 const PENDING_STATUS = 'publication_pending_approval';
 const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
 const isPendingCandidate = (post) => post?.publication_review_status === PENDING_STATUS && !post.is_published;
+const canAddPublishedFlyer = (post) => post?.is_published === true
+    && post.publication_review_status == null
+    && post.use_image_on_public_page === false;
 const isCreatingPendingCandidate = () => !editingPost && publicationMode.value === 'pending';
 const toTimeInput = (value) => String(value || '').match(/^\d{2}:\d{2}/u)?.[0] || '';
 const toCloseTimeInput = (value) => String(value || '').match(/^(?:[01]\d|2\d):[0-5]\d/u)?.[0] || '';
@@ -291,6 +295,7 @@ const updatePublicationControls = () => {
     omitPublicImageInput.disabled = !pendingForm;
     candidateContext.classList.toggle('hidden', !candidate);
     candidateActions.classList.toggle('hidden', !candidate);
+    savePublishedFlyerButton.classList.toggle('hidden', !canAddPublishedFlyer(editingPost));
     if (pendingForm) {
         lifecycleStatusInput.value = 'upcoming';
     }
@@ -364,6 +369,59 @@ const uploadFlyer = async (file) => {
 const fileSha256 = async (file) => {
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const updatePublishedFlyer = async (post, imageFields, newPath = null) => {
+    const { data, error } = await supabase.from('work_posts').update(imageFields)
+        .eq('id', post.id).eq('is_published', true).eq('use_image_on_public_page', false)
+        .is('publication_review_status', null).eq('updated_at', post.updated_at)
+        .select('id,slug,is_published,updated_at,flyer_path,public_image_sha256,public_image_source_url,image_usage_status,use_image_on_public_page')
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+        // A successful response with zero matched rows confirms this upload was never attached.
+        if (newPath) await supabase.storage.from(WORKS_BUCKET).remove([newPath]);
+        throw new Error('掲載状態が変わりました。最新の投稿を読み直してください。');
+    }
+    return data;
+};
+
+const addPublishedFlyer = async (post, file, sourceUrl, alt) => {
+    if (!canAddPublishedFlyer(post) || !post.updated_at) throw new Error('公開済みで掲載画像のない投稿を開いてください。');
+    const sha256 = await fileSha256(file);
+    await validateFlyerFile(file);
+
+    let stored = post;
+    if (!post.flyer_path) {
+        const path = await uploadFlyer(file);
+        // The DB clears image confirmation when its identity changes.
+        stored = await updatePublishedFlyer(post, {
+            flyer_path: path,
+            flyer_alt: alt,
+            review_image_url: null,
+            public_image_source_url: sourceUrl,
+            public_image_sha256: sha256
+        }, path);
+    }
+    if (!stored.flyer_path || stored.public_image_source_url !== sourceUrl || stored.public_image_sha256 !== sha256) {
+        throw new Error('保存済み画像と選択画像が一致しません。別の画像を上書きせず、最新の投稿を確認してください。');
+    }
+
+    const { data: savedBytes, error } = await supabase.storage.from(WORKS_BUCKET).download(stored.flyer_path);
+    if (error) throw error;
+    if (!savedBytes || await fileSha256(savedBytes) !== sha256) {
+        throw new Error('Storageの保存画像が選択画像と一致しません。');
+    }
+    const visible = await updatePublishedFlyer(stored, {
+        image_usage_status: 'confirmed',
+        use_image_on_public_page: true
+    });
+    if (visible.is_published !== true || visible.use_image_on_public_page !== true || visible.image_usage_status !== 'confirmed'
+        || visible.flyer_path !== stored.flyer_path || visible.public_image_sha256 !== sha256
+        || visible.public_image_source_url !== sourceUrl) {
+        throw new Error('画像の掲載設定を確認できませんでした。最新の投稿を確認してください。');
+    }
+    return visible;
 };
 
 const fetchReviewImageFile = async (post) => {
@@ -676,6 +734,7 @@ const loadPosts = async () => {
 const beginEdit = (id) => {
     editingPost = posts.find((post) => post.id === id);
     if (!editingPost) return;
+    flyerInput.value = '';
     candidateFormDirty = false;
     $('#post-title').value = editingPost.title;
     $('#post-date').value = editingPost.event_date || '';
@@ -923,6 +982,34 @@ if (!isSupabaseConfigured) {
         if (file && (isPendingCandidate(editingPost) || isCreatingPendingCandidate())) omitPublicImageInput.checked = false;
         setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
     });
+    savePublishedFlyerButton.addEventListener('click', async () => {
+        const post = editingPost;
+        const file = flyerInput.files?.[0];
+        if (saveButton.disabled || savePublishedFlyerButton.disabled) return;
+        if (!canAddPublishedFlyer(post)) return;
+        if (!file || imageUsageStatusInput.value !== 'confirmed') {
+            setMessage(postStatus, '画像を選択し、転載許諾を確認して「利用確認済み」を選択してください。', 'error');
+            return;
+        }
+        saveButton.disabled = true;
+        savePublishedFlyerButton.disabled = true;
+        try {
+            const source = imageSourceUrl(imageSourceUrlInput.value.trim());
+            if (!source) throw new Error('画像の出典URLを入力してください。');
+            const alt = flyerAltInput.value.trim() || `${post.title}のフライヤー`;
+            const saved = await addPublishedFlyer(post, file, source, alt);
+            await loadPosts();
+            if (editingPost === post) resetPostForm();
+            setMessage(postStatus, `画像を保存しました。公開URL：${workUrl(saved.slug)}`);
+        } catch (error) {
+            await loadPosts();
+            if (editingPost === post) beginEdit(post.id);
+            setMessage(postStatus, error.message || '画像を保存できませんでした。', 'error');
+        } finally {
+            saveButton.disabled = false;
+            savePublishedFlyerButton.disabled = false;
+        }
+    });
     reviewImageUrlInput.addEventListener('input', () => setReviewImagePreview(reviewImageUrlInput.value.trim()));
     imageUsageStatusInput.addEventListener('change', () => {
         if (!isPendingCandidate(editingPost) && imageUsageStatusInput.value !== 'confirmed') usePublicImageInput.checked = false;
@@ -976,6 +1063,7 @@ if (!isSupabaseConfigured) {
 
     postForm.addEventListener('submit', async (event) => {
         event.preventDefault();
+        if (savePublishedFlyerButton.disabled) return;
         clearMessage(postStatus);
         const selectedFile = flyerInput.files?.[0];
         const title = $('#post-title').value.trim();
