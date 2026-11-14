@@ -218,7 +218,7 @@ export function createReviewedPublishPanel({ client, bucket, container, reload, 
             render(true);
         }
         if (step === 4) {
-            try { await reload(); }
+            try { await reload(post.id); }
             catch {
                 error = '公開済みです。一覧の再読み込みに失敗しました。';
                 render();

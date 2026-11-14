@@ -891,8 +891,8 @@ if (!isSupabaseConfigured) {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     publicationPanel = createReviewedPublishPanel({
         client: supabase, bucket: WORKS_BUCKET, container: $('#reviewed-api-publication'),
-        reload: async () => {
-            if (isPendingCandidate(editingPost)) resetPostForm();
+        reload: async (publishedId) => {
+            if (editingPost?.id === publishedId && !candidateFormDirty) resetPostForm();
             await loadPosts();
         },
         prepareImage: prepareCandidateImageForPublication,
