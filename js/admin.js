@@ -7,7 +7,8 @@ import {
 } from './work-taxonomy.mjs';
 import { resolveImageConfirmation } from './image-confirmation.mjs';
 import { imageSourceUrl, validateFlyerFile } from './work-image-upload.mjs';
-import { renderReviewedPublishPanel } from './work-publish-panel.mjs';
+import { createReviewedPublishPanel } from './work-publish-panel.mjs';
+import { restoreWorksAdministrator } from './work-reviewed-publish.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -60,7 +61,6 @@ const imageSourceUrlInput = $('#post-image-source-url');
 const reviewImageMethodInput = $('#post-review-image-method');
 const reviewImagePreview = $('#review-image-preview');
 const imageUsageStatusInput = $('#post-image-usage-status');
-const imageUsageStatusField = $('#image-usage-status-field');
 const usePublicImageInput = $('#post-use-public-image');
 const omitPublicImageInput = $('#post-omit-public-image');
 const standardPublicImageChoice = $('#standard-public-image-choice');
@@ -86,8 +86,8 @@ let editingPost = null;
 let slugWasEdited = false;
 let candidateFormDirty = false;
 let pendingImageGeneration = 0;
-const pendingDisplayedImages = new Map();
-const publishingCandidateIds = new Set();
+let publicationPanel;
+const pendingImageUrls = new Set();
 
 const PENDING_STATUS = 'publication_pending_approval';
 const INTERNAL_ANALYTICS_STORAGE_KEY = 'ara_tech_internal_analytics';
@@ -286,11 +286,9 @@ const updatePublicationControls = () => {
     publicationModeField.classList.toggle('hidden', candidate);
     publicationMode.disabled = candidate;
     lifecycleStatusInput.disabled = pendingForm;
-    imageUsageStatusInput.disabled = pendingForm;
-    imageUsageStatusField.classList.toggle('hidden', pendingForm);
     standardPublicImageChoice.classList.toggle('hidden', pendingForm);
-    pendingImageOmitChoice.classList.toggle('hidden', !candidate);
-    omitPublicImageInput.disabled = !candidate;
+    pendingImageOmitChoice.classList.toggle('hidden', !pendingForm);
+    omitPublicImageInput.disabled = !pendingForm;
     candidateContext.classList.toggle('hidden', !candidate);
     candidateActions.classList.toggle('hidden', !candidate);
     if (pendingForm) {
@@ -470,16 +468,16 @@ const imageUsageLabel = (value) => ({
 }[value] || { label: '画像利用未確認', className: 'unknown' });
 
 const releasePendingDisplayedImages = () => {
-    pendingDisplayedImages.forEach((entry) => URL.revokeObjectURL(entry.objectUrl));
-    pendingDisplayedImages.clear();
+    pendingImageUrls.forEach((url) => URL.revokeObjectURL(url));
+    pendingImageUrls.clear();
 };
 
-const hydratePendingImage = async ({ post, image, imageState, publish, generation }) => {
+const hydratePendingImage = async ({ post, image, imageState, generation }) => {
     try {
         const displayed = await fetchReviewImageFile(post);
         if (generation !== pendingImageGeneration || !isPendingCandidate(posts.find((item) => item.id === post.id))) return;
         const objectUrl = URL.createObjectURL(displayed.file);
-        pendingDisplayedImages.set(post.id, { ...displayed, objectUrl, candidateHash: post.candidate_hash });
+        pendingImageUrls.add(objectUrl);
         image.src = objectUrl;
         image.classList.remove('hidden');
         image.nextElementSibling.classList.add('hidden');
@@ -487,8 +485,6 @@ const hydratePendingImage = async ({ post, image, imageState, publish, generatio
         imageState.textContent = post.image_usage_status === 'not_permitted'
             ? '表示画像：確認済み ｜ 公開設定：画像なし'
             : `公開画像候補：確認済み（SHA-256 ${displayed.sha256.slice(0, 12)}…）`;
-        publish.dataset.imageReady = 'true';
-        publish.disabled = false;
     } catch (error) {
         if (generation !== pendingImageGeneration) return;
         image.removeAttribute('src');
@@ -497,8 +493,6 @@ const hydratePendingImage = async ({ post, image, imageState, publish, generatio
         image.nextElementSibling.classList.remove('hidden');
         image.alt = 'フライヤーを確認できません';
         imageState.textContent = `画像確認エラー：${error.message}`;
-        publish.dataset.imageReady = 'false';
-        publish.disabled = true;
     }
 };
 
@@ -551,7 +545,7 @@ const renderPendingPosts = () => {
         const usageBadge = document.createElement('span');
         const imageOmitted = post.image_usage_status === 'not_permitted';
         usageBadge.className = `status status--${imageOmitted ? 'not-permitted' : 'confirmed'}`;
-        usageBadge.textContent = imageOmitted ? '画像なしで公開' : hasImageCandidate ? 'フライヤー込みで公開' : '画像なし';
+        usageBadge.textContent = imageOmitted ? '画像なしで公開' : post.use_image_on_public_page ? '掲載画像あり' : hasImageCandidate ? '画像候補あり' : '画像なし';
         title.append(usageBadge);
         const performer = document.createElement('p');
         performer.className = 'pending-meta';
@@ -580,15 +574,12 @@ const renderPendingPosts = () => {
         edit.className = 'button button--secondary'; edit.type = 'button'; edit.textContent = '編集';
         edit.addEventListener('click', () => beginEdit(post.id));
         const publish = document.createElement('button');
-        publish.className = 'button'; publish.type = 'button'; publish.textContent = '公開する';
-        publish.dataset.publishWorkId = String(post.id);
-        publish.dataset.imageReady = String(!hasImageCandidate);
-        publish.disabled = hasImageCandidate;
+        publish.className = 'button'; publish.type = 'button'; publish.textContent = '公開手順を開く';
         publish.addEventListener('click', () => publishPendingCandidate(post.id));
         actions.append(preview, edit, publish);
         row.append(imageContainer, body, actions);
         pendingList.append(row);
-        if (hasImageCandidate) hydratePendingImage({ post, image, imageState, publish, generation });
+        if (hasImageCandidate) hydratePendingImage({ post, image, imageState, generation });
     });
 };
 
@@ -677,7 +668,6 @@ const loadPosts = async () => {
     const { data, error } = await supabase.from('work_posts').select('*').order('event_date', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
     if (error) { setMessage(postStatus, '投稿一覧を読み込めませんでした。設定を確認してください。', 'error'); return; }
     posts = data || [];
-    await renderReviewedPublishPanel({client:supabase,bucket:WORKS_BUCKET,posts,container:$('#reviewed-api-publication'),reload:loadPosts});
     populateHistories();
     renderPendingPosts();
     renderPosts();
@@ -773,31 +763,19 @@ const previewPendingCandidate = async (id) => {
     }
 };
 
-const publishResultMessage = (result) => ({
-    candidate_changed: '候補が編集されています。最新内容を再読み込みしてから、もう一度確認してください。',
-    validation_failed: '必須項目が不足しています。内容を編集・保存してから公開してください。',
-    event_date_past: '開催日が過去になっています。終了済み実績として扱うか確認してください。',
-    image_not_approved: '公開画像を使用するには、画像利用確認済み・公開画像ありの両方が必要です。',
-    invalid_state: 'この候補は現在公開できない状態です。',
-    not_authorized: '公開権限を確認できません。再ログインしてください。',
-    not_found: '公開待ち候補が見つかりません。'
-}[result] || '公開処理を完了できませんでした。');
-
-const setCandidatePublishing = (id, publishing) => {
-    if (publishing) publishingCandidateIds.add(id);
-    else publishingCandidateIds.delete(id);
-    document.querySelectorAll(`[data-publish-work-id="${id}"]`).forEach((button) => {
-        button.disabled = publishing || button.dataset.imageReady !== 'true';
-    });
-    if (editingPost?.id === id) publishCandidateButton.disabled = publishing;
-};
-
-const prepareCandidateImageForPublication = async (post) => {
-    const imageOmitted = post.image_usage_status === 'not_permitted';
-    const hasImageCandidate = Boolean(post.review_image_url || post.flyer_path);
-    if (imageOmitted || !hasImageCandidate) return post;
-
-    const displayed = pendingDisplayedImages.get(post.id);
+const prepareCandidateImageForPublication = async (post, useImage, displayed) => {
+    if (!useImage) {
+        if (post.use_image_on_public_page === false && post.image_usage_status === 'not_permitted') return post;
+        const { data, error } = await supabase.from('work_posts').update({
+            image_usage_status: 'not_permitted',
+            use_image_on_public_page: false
+        }).eq('id', post.id).eq('candidate_hash', post.candidate_hash)
+            .eq('publication_review_status', PENDING_STATUS).eq('is_published', false)
+            .select('*').maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('候補が更新されています。最新内容を再確認してください。');
+        return data;
+    }
     if (!displayed || displayed.candidateHash !== post.candidate_hash) {
         throw new Error('一覧で確認したフライヤーの状態が古くなっています。最新の一覧を再確認してください。');
     }
@@ -853,39 +831,12 @@ const prepareCandidateImageForPublication = async (post) => {
     }
 };
 
-const publishPendingCandidate = async (id) => {
+const checkPublicationCandidate = (post) => editingPost?.id === post.id && candidateFormDirty
+    ? '未保存の変更があります。先に編集内容を保存してください。' : '';
+
+const publishPendingCandidate = (id) => {
     const post = posts.find((item) => item.id === id);
-    if (!isPendingCandidate(post) || publishingCandidateIds.has(id)) return;
-    if (editingPost?.id === id && candidateFormDirty) {
-        setMessage(postStatus, '未保存の変更があります。先に保存・プレビューしてから公開してください。', 'error');
-        return;
-    }
-    const hasPublishedImage = post.image_usage_status !== 'not_permitted' && Boolean(post.review_image_url || post.flyer_path);
-    const confirmation = `「${post.title}」の公演情報・掲載文章・SEO・${hasPublishedImage ? '一覧に表示されたフライヤー' : '画像なし設定'}を最終承認し、開催予定として公開します。よろしいですか？`;
-    if (!window.confirm(confirmation)) return;
-    clearMessage(postStatus);
-    setCandidatePublishing(id, true);
-    try {
-        const publishablePost = await prepareCandidateImageForPublication(post);
-        const { data, error } = await supabase.rpc('publish_work_candidate', {
-            p_work_id: publishablePost.id,
-            p_candidate_hash: publishablePost.candidate_hash
-        });
-        if (error) throw error;
-        const result = Array.isArray(data) ? data[0] : data;
-        if (result?.result !== 'published') {
-            await loadPosts();
-            throw new Error(publishResultMessage(result?.result));
-        }
-        resetPostForm();
-        await loadPosts();
-        setMessage(postStatus, `公開しました：${workUrl(result.public_slug)}`);
-    } catch (error) {
-        await loadPosts();
-        setMessage(postStatus, error.message || '公開できませんでした。', 'error');
-    } finally {
-        setCandidatePublishing(id, false);
-    }
+    if (isPendingCandidate(post)) publicationPanel.open(post);
 };
 
 const rejectPendingCandidate = async (id) => {
@@ -914,10 +865,21 @@ const showDashboard = async (user) => {
 };
 
 const restoreSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return;
-    if (await isAdmin(session.user)) await showDashboard(session.user);
-    else await supabase.auth.signOut();
+    try {
+        const restored = await restoreWorksAdministrator(supabase);
+        if (restored.status === 'ready') {
+            await showDashboard(restored.user);
+            return;
+        }
+        if (restored.status === 'admin_membership_missing') {
+            setMessage(loginStatus, 'このアカウントには管理権限がありません。', 'error');
+        } else if (!['session_absent', 'authenticated_actor_missing'].includes(restored.status)) {
+            setMessage(loginStatus, 'セッションまたはWORKS管理者権限を確認できませんでした。', 'error');
+        }
+    } catch {
+        setMessage(loginStatus, 'セッション確認に失敗しました。ページを再読み込みしてください。', 'error');
+    }
+    loginPanel.classList.remove('hidden');
 };
 
 if (!isSupabaseConfigured) {
@@ -927,6 +889,20 @@ if (!isSupabaseConfigured) {
     loginPanel.classList.add('hidden');
 } else {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    publicationPanel = createReviewedPublishPanel({
+        client: supabase, bucket: WORKS_BUCKET, container: $('#reviewed-api-publication'),
+        reload: async (publishedId) => {
+            if (editingPost?.id === publishedId && !candidateFormDirty) resetPostForm();
+            await loadPosts();
+        },
+        prepareImage: prepareCandidateImageForPublication,
+        readReviewImage: async (post) => {
+            const image = await fetchReviewImageFile(post);
+            await validateFlyerFile(image.file);
+            return { ...image, candidateHash: post.candidate_hash };
+        },
+        canProceed: checkPublicationCandidate, workUrl
+    });
     prepareNewSlug();
     restoreSession();
 
@@ -944,7 +920,7 @@ if (!isSupabaseConfigured) {
 
     flyerInput.addEventListener('change', () => {
         const file = flyerInput.files?.[0];
-        if (file && isPendingCandidate(editingPost)) omitPublicImageInput.checked = false;
+        if (file && (isPendingCandidate(editingPost) || isCreatingPendingCandidate())) omitPublicImageInput.checked = false;
         setPreview(file ? URL.createObjectURL(file) : editingPost ? fileUrl(editingPost.flyer_path) : '');
     });
     reviewImageUrlInput.addEventListener('input', () => setReviewImagePreview(reviewImageUrlInput.value.trim()));
@@ -952,7 +928,7 @@ if (!isSupabaseConfigured) {
         if (!isPendingCandidate(editingPost) && imageUsageStatusInput.value !== 'confirmed') usePublicImageInput.checked = false;
     });
     omitPublicImageInput.addEventListener('change', () => {
-        if (isPendingCandidate(editingPost)) {
+        if (isPendingCandidate(editingPost) || isCreatingPendingCandidate()) {
             imageUsageStatusInput.value = omitPublicImageInput.checked ? 'not_permitted' : 'unknown';
             usePublicImageInput.checked = false;
         }
@@ -1023,6 +999,10 @@ if (!isSupabaseConfigured) {
         }
         if (!pendingCandidate && usePublicImageInput.checked && imageUsageStatusInput.value !== 'confirmed') {
             setMessage(postStatus, '公開ページで画像を使用する場合は、画像利用確認状態を「利用確認済み」にしてください。', 'error');
+            return;
+        }
+        if (pendingCandidate && selectedFile && imageUsageStatusInput.value !== 'confirmed') {
+            setMessage(postStatus, '画像を保存する前に、画像の転載許諾を確認し「利用確認済み」を選択してください。', 'error');
             return;
         }
         if (pendingImageOmitted && selectedFile) {

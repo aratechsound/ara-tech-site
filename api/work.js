@@ -330,7 +330,7 @@ const renderWorkPage = (post, {
     const previewImageNote = preview && reviewImageUrl && !publicWorkHasFlyer
         ? post.image_usage_status === 'not_permitted'
             ? '管理画面の確認用画像です。現在は「画像を掲載しない」設定です。'
-            : '公開待ち一覧で確認中の画像です。「公開する」で公開ページに掲載されます。'
+            : '公開待ちの確認用画像です。公開手順で画像の掲載を選択します。'
         : '';
     const detailMedia = workHasFlyer
         ? `<figure class="detail-flyer${previewImageNote ? ' detail-flyer--review' : ''}"><img src="${escapeHtml(displayImageUrl)}"${displayImageSrcset ? ` srcset="${escapeHtml(displayImageSrcset)}" sizes="${escapeHtml(displayImageSizes)}"` : ''} alt="${escapeHtml(post.flyer_alt || `${post.title}のフライヤー`)}"${displayImageDimensionAttributes} fetchpriority="high" loading="eager" decoding="async">${previewImageNote ? `<figcaption class="preview-image-note">${previewImageNote}</figcaption>` : ''}</figure>`

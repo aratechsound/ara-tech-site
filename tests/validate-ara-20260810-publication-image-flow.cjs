@@ -14,23 +14,23 @@ const imageApi = require('../api/work-review-image.js');
 assert.match(adminHtml, /id="review-image-preview"/u);
 assert.match(adminHtml, /id="post-omit-public-image"/u);
 assert.match(adminHtml, /画像を掲載しない/u);
-assert.match(adminHtml, /公開待ちのフライヤーは通常「公開する」だけで掲載されます/u);
+assert.match(adminHtml, /画像なしで候補を保存します/u);
 assert.doesNotMatch(adminHtml, /このフライヤーを公開ページに掲載する/u);
 assert.match(adminJs, /fetch\('\/api\/work-review-image'/u);
 assert.match(adminJs, /candidate_hash: post\.candidate_hash/u);
-assert.match(adminJs, /pendingDisplayedImages/u);
+assert.match(adminJs, /pendingImageUrls/u);
 assert.match(adminJs, /URL\.createObjectURL\(displayed\.file\)/u);
 assert.match(adminJs, /一覧で確認したフライヤーをARA-TECH側Storageへ保存しています/u);
 assert.match(adminJs, /await uploadFlyer\(displayed\.file\)/u);
 assert.match(adminJs, /\.eq\('candidate_hash', post\.candidate_hash\)/u);
-assert.match(adminJs, /p_candidate_hash: publishablePost\.candidate_hash/u);
+assert.match(read('js/work-reviewed-publish.mjs'), /p_candidate_hash:latest\.candidate_hash/u);
 assert.match(adminJs, /public_image_source_url: displayed\.origin === 'review'/u);
 assert.match(adminJs, /public_image_sha256: publicImageSha256/u);
 assert.match(adminJs, /pendingImageOmitted \? 'not_permitted'/u);
 assert.match(adminJs, /image_usage_status: 'confirmed'/u);
 assert.match(adminJs, /if \(uploadedFlyerPath\) await supabase\.storage\.from\(WORKS_BUCKET\)\.remove/u);
 assert.match(adminJs, /一覧のフライヤーとStorage画像が一致しません/u);
-assert.match(adminJs, /公演情報・掲載文章・SEO/u);
+assert.match(read('js/work-publish-panel.mjs'), /公開内容確認/u);
 assert.match(adminJs, /候補SHA-256/u);
 
 assert.match(migration, /create table if not exists public\.work_candidate_image_audit/u);
@@ -148,7 +148,7 @@ const publicResolver = async () => [{ address: '93.184.216.34', family: 4 }];
         /image_type_invalid/u
     );
 
-    console.log('ARA-20260810 one-click pending flyer publication, exact displayed bytes, Storage import, audit, and fail-closed validation passed');
+    console.log('ARA-20260810 reviewed pending flyer publication, exact displayed bytes, Storage import, audit, and fail-closed validation passed');
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

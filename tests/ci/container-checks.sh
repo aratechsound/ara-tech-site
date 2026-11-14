@@ -75,3 +75,4 @@ printf 'postgresql=ready\npostgrest4=ready\nhttp_fixture2=ready\nnetwork=none\n'
 bash tests/ci/test-git-checkout.sh > /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 cat /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 node tests/ci/validate-security-checks.cjs
+node tests/browser/works-reviewed-publication.cjs
