@@ -47,8 +47,8 @@ export function createReviewedPublishPanel({ client, bucket, container, reload, 
             node.type = 'button';
             node.className = secondary ? 'button button--secondary' : 'button';
             node.disabled = busy;
-            node.addEventListener('click', event => {
-                if (event.isTrusted && !busy) action();
+            node.addEventListener('click', () => {
+                if (!node.disabled && !busy && container.contains(node)) action();
             });
             return node;
         };
@@ -198,7 +198,7 @@ export function createReviewedPublishPanel({ client, bucket, container, reload, 
                 client, pin: post,
                 authorization: {
                     workId: post.id, candidateHash: post.candidate_hash, actorId: actor.user.id,
-                    instructionRef: 'WORKS管理画面の認証済み管理者による対象候補の正式公開操作',
+                    instructionRef: 'WORKS管理画面の対象候補を指定した正式公開操作',
                     publish: true, image: imageChoice === true
                 },
                 verifyImage: candidate => verifyStoredPublicationImage(client, bucket, candidate)

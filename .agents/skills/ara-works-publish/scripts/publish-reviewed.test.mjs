@@ -62,7 +62,9 @@ test('session restore waits before asking the existing client for identity and R
 test('Cloud and PC route by observed capabilities and assess browser Return independently', () => {
     const yes = { status: 'verified', evidence: 'observed' };
     assert.equal(assessWorksRuntime({ host: 'Cloud', adminSession: yes, authenticatedApi: yes }).publicationRoute, 'authenticated_api');
-    assert.equal(assessWorksRuntime({ host: 'PC', adminSession: yes, adminPanel: yes }).publicationRoute, 'owner_panel');
+    assert.equal(assessWorksRuntime({ host: 'PC', adminSession: yes, adminPanel: yes }).publicationRoute, 'handoff');
+    assert.equal(assessWorksRuntime({ pcBrowser: yes, adminSession: yes, adminPanel: yes, authenticatedApi: yes }).publicationRoute, 'authenticated_browser_panel');
+    assert.equal(assessWorksRuntime({ pcBrowser: yes, adminPanel: yes, authenticatedApi: yes }).publicationRoute, 'handoff');
     const route = assessWorksRuntime({ host: 'PC', productionRead: yes, browserReturn: yes });
     assert.equal(route.publicationRoute, 'handoff');
     assert.equal(route.browserReturn, true);

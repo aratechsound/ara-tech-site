@@ -3,6 +3,7 @@ const verified = probe => probe?.status === 'verified' && Boolean(probe.evidence
 
 export function assessWorksRuntime(probes) {
     const authenticated = verified(probes.adminSession);
+    const browserPanel = verified(probes.pcBrowser) && verified(probes.adminPanel);
     const canExecute = verified(probes.authenticatedApi);
     return {
         github: verified(probes.github),
@@ -11,8 +12,8 @@ export function assessWorksRuntime(probes) {
         pcBrowser: verified(probes.pcBrowser),
         adminSession: authenticated,
         authenticatedApi: canExecute,
-        publicationRoute: authenticated && canExecute ? 'authenticated_api'
-            : authenticated && verified(probes.adminPanel) ? 'owner_panel'
+        publicationRoute: authenticated && browserPanel ? 'authenticated_browser_panel'
+            : authenticated && canExecute ? 'authenticated_api'
             : 'handoff',
         browserReturn: verified(probes.browserReturn)
     };
