@@ -284,14 +284,22 @@ const openRecovery = async (context, state, trigger) => {
     }
 };
 
-const api = async (context, action, input = {}, binary = false) => {
+const caseAccess = async (context) => {
+    const caseId = context.case?.id;
+    const isCurrent = () => caseId && context.getCurrentCase()?.id === caseId && !context.signal?.aborted;
+    if (!isCurrent()) throw Error("case_changed");
     const token = await context.getAccessToken();
-    if (!token || context.getCurrentCase()?.id !== activeCaseId) throw Error("case_changed");
+    if (!token || !isCurrent()) throw Error("case_changed");
+    return { caseId, token };
+};
+const api = async (context, action, input = {}, binary = false) => {
+    const { caseId, token } = await caseAccess(context);
     const response = await fetch("/api/pa-mail?surface=commercial", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action, case_id: activeCaseId, ...input }),
-        cache: "no-store"
+        body: JSON.stringify({ ...input, action, case_id: caseId }),
+        cache: "no-store",
+        signal: context.signal
     });
     if (binary && response.ok) return response.blob();
     const payload = await response.json();
@@ -299,9 +307,8 @@ const api = async (context, action, input = {}, binary = false) => {
     return payload.result;
 };
 const contractApi = async (context, action, input = {}, binary = false) => {
-    const token = await context.getAccessToken();
-    if (!token || context.getCurrentCase()?.id !== activeCaseId) throw Error("case_changed");
-    const response = await fetch("/api/pa-contract", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action, case_id: activeCaseId, ...input }), cache: "no-store" });
+    const { caseId, token } = await caseAccess(context);
+    const response = await fetch("/api/pa-contract", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...input, action, case_id: caseId }), cache: "no-store", signal: context.signal });
     if (binary && response.ok) return response.blob();
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw Error(payload.code || "contract_request_failed");
@@ -310,13 +317,29 @@ const contractApi = async (context, action, input = {}, binary = false) => {
 const saveBlob = (blob, filename) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error); reader.onload = () => { const link = document.createElement("a"); link.href = String(reader.result); link.download = filename; link.click(); resolve(); }; reader.readAsDataURL(blob); });
 
 const openConfirmationPreview = async (context, issuedConfirmation = null, replacementConfirmation = null, confirmationMode = "LEGACY") => {
-    if (confirmationPreviewOpening || !context?.getCurrentCase()?.id) return false;
+    if (confirmationPreviewOpening || !context?.case?.id
+        || context.case.id !== context.getCurrentCase()?.id || context.signal?.aborted) return false;
     confirmationPreviewOpening = true;
     const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
     const replacementMode = !issuedMode && Boolean(replacementConfirmation?.offer_id && replacementConfirmation?.version);
     const directMode = !issuedMode && !replacementMode && confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE;
     const caseId = context.getCurrentCase().id;
     const dialog = element("dialog", "pa-confirmation-preview-dialog");
+    const privacy = context.privacy;
+    const textValue = value => privacy ? privacy.text(value || "") : value;
+    const amount = estimate => (privacy?.money || money)(estimate.amount_minor, estimate.currency);
+    const createRevealButton = () => {
+        const reveal = element("button", "button button--secondary button--small", "金額・原本を表示");
+        reveal.type = "button"; reveal.dataset.moneyToggle = "true"; reveal.setAttribute("aria-pressed", "false");
+        return reveal;
+    };
+    const privateFrames = new Set();
+    const setFrame = (frame, prop, value) => {
+        if (privacy) {
+            privateFrames.add(frame);
+            privacy.frame(frame, prop, value);
+        } else frame[prop] = value;
+    };
     dialog.setAttribute("aria-labelledby", "pa-confirmation-preview-title");
     const header = element("header", "pa-confirmation-preview__header"), heading = element("div", ""), headerActions = element("div", "actions actions--compact");
     const title = element("h2", "", "顧客へ実際に届く内容"); title.id = "pa-confirmation-preview-title";
@@ -330,13 +353,20 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                 : directMode ? "見積書原本と正式受注確認URLを同じメールで提示します。お客様にはページ上で条件への同意と正式依頼をお願いします。まだ発行・送信していません。" : "まだ正式受注確認は発行・送信されていません。")
     );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
+    const revealButton = privacy ? createRevealButton() : null;
+    if (revealButton) headerActions.append(revealButton);
     headerActions.append(refreshButton, closeButton); header.append(heading, headerActions);
     const body = element("div", "pa-confirmation-preview__body"), status = element("p", "pa-confirmation-preview__loading", "Production authorityを読み込んでいます…");
     status.setAttribute("role", "status"); body.append(status); dialog.append(header, body); document.body.append(dialog); dialog.showModal();
     const objectUrls = new Set(); let preview = null, operationId = null, loadEpoch = 0, busy = false;
-    const revokeUrls = () => { for (const url of objectUrls) URL.revokeObjectURL(url); objectUrls.clear(); };
+    const revokeUrls = () => {
+        for (const frame of privateFrames) privacy.releaseFrame(frame);
+        privateFrames.clear();
+        for (const url of objectUrls) URL.revokeObjectURL(url);
+        objectUrls.clear();
+    };
     const blobUrl = (blob) => { const url = URL.createObjectURL(blob); objectUrls.add(url); return url; };
-    const pair = (root, label, value) => { root.append(element("dt", "", label), element("dd", "", value || "—")); };
+    const pair = (root, label, value) => { root.append(element("dt", "", label), element("dd", "", textValue(value) || "—")); };
     const section = (titleText) => { const node = element("section", "pa-confirmation-preview__section"); node.append(element("h3", "", titleText)); return node; };
     const honorific = (value) => /様\s*$/u.test(String(value || "")) ? String(value) : `${String(value || "")} 様`;
     const japaneseDate = (value) => {
@@ -353,15 +383,19 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                     ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい専用URLと送信待ちメールを原子的に準備します。この操作では案内メールを送信しません。`
                     : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
         );
-        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", money(model.estimate.amount_minor, model.estimate.currency)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
+        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", amount(model.estimate)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
+        if (privacy) wrap.append(createRevealButton());
         const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode || directMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
         actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
         let settled = false;
-        const fail = (error) => { if (settled) return; settled = true; final.remove(); reject(error); };
+        const cancelOnCaseChange = () => { if (final.open) final.close("back"); };
+        const dispose = () => { context.signal?.removeEventListener("abort", cancelOnCaseChange); final.remove(); };
+        const fail = (error) => { if (settled) return; settled = true; dispose(); reject(error); };
         final.addEventListener("cancel", (event) => { event.preventDefault(); final.close("back"); });
-        final.addEventListener("close", () => { if (settled) return; settled = true; const accepted = final.returnValue === "confirm"; final.remove(); resolve(accepted); }, { once: true });
+        final.addEventListener("close", () => { if (settled) return; settled = true; const accepted = final.returnValue === "confirm"; dispose(); resolve(accepted); }, { once: true });
         try {
             final.showModal();
+            context.signal?.addEventListener("abort", cancelOnCaseChange, { once: true });
             requestAnimationFrame(() => {
                 try {
                     const bounds = final.getBoundingClientRect(), style = getComputedStyle(final);
@@ -384,19 +418,19 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
         if (epoch !== loadEpoch || !dialog.open) return;
         const estimateUrl = blobUrl(estimateBlob), receiptUrl = blobUrl(receiptBlob); body.replaceChildren();
         const overview = section("送信先・案件・対象見積"), facts = element("dl", "pa-confirmation-preview__facts");
-        pair(facts, "顧客", honorific(model.recipient.customer_name)); pair(facts, "組織", model.recipient.organization); pair(facts, "To", model.recipient.to); pair(facts, "Gmail thread", model.recipient.gmail_thread_id); pair(facts, "CC", model.recipient.cc.join(", ") || "なし"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "開催日時", `${japaneseDate(model.customer_snapshot.case.event_date)} ${model.customer_snapshot.case.event_time || ""}`.trim()); pair(facts, "会場", model.customer_snapshot.case.venue); pair(facts, "対象業務", model.service_summary); pair(facts, "対象見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", `${money(model.estimate.amount_minor, model.estimate.currency)}（税込）`); pair(facts, "original filename", model.estimate.original_filename); pair(facts, "原本SHA-256", model.estimate.sha256); pair(facts, "支払期限", japaneseDate(model.customer_snapshot.terms.payment_due_date)); overview.append(facts);
-        const estimateFrame = element("iframe", "pa-confirmation-preview__pdf"); estimateFrame.title = "Productionにbindされた正規見積PDF"; estimateFrame.src = `${estimateUrl}#toolbar=1&navpanes=0&view=FitH`; overview.append(element("h4", "", "正規見積PDFを確認"), estimateFrame);
+        pair(facts, "顧客", honorific(model.recipient.customer_name)); pair(facts, "組織", model.recipient.organization); pair(facts, "To", model.recipient.to); pair(facts, "Gmail thread", model.recipient.gmail_thread_id); pair(facts, "CC", model.recipient.cc.join(", ") || "なし"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "開催日時", `${japaneseDate(model.customer_snapshot.case.event_date)} ${model.customer_snapshot.case.event_time || ""}`.trim()); pair(facts, "会場", model.customer_snapshot.case.venue); pair(facts, "対象業務", model.service_summary); pair(facts, "対象見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", `${amount(model.estimate)}（税込）`); pair(facts, "original filename", model.estimate.original_filename); pair(facts, "原本SHA-256", model.estimate.sha256); pair(facts, "支払期限", japaneseDate(model.customer_snapshot.terms.payment_due_date)); overview.append(facts);
+        const estimateFrame = element("iframe", "pa-confirmation-preview__pdf"); estimateFrame.title = "正規見積PDF"; setFrame(estimateFrame, "src", `${estimateUrl}#toolbar=1&navpanes=0&view=FitH`); overview.append(element("h4", "", "正規見積PDFを確認"), estimateFrame);
         const terms = section("キャンセル条件・支払期限"), termsGrid = element("div", "pa-confirmation-preview__two-column"), cancellation = element("article", ""), payment = element("article", "");
-        cancellation.append(element("h4", "", "キャンセル・変更条件"), element("pre", "", model.customer_snapshot.terms.cancellation_terms)); payment.append(element("h4", "", "支払期限"), element("strong", "pa-confirmation-preview__due", japaneseDate(model.customer_snapshot.terms.payment_due_date)), element("p", "", model.customer_snapshot.terms.payment_consult_terms)); termsGrid.append(cancellation, payment); terms.append(termsGrid);
+        cancellation.append(element("h4", "", "キャンセル・変更条件"), element("pre", "", textValue(model.customer_snapshot.terms.cancellation_terms))); payment.append(element("h4", "", "支払期限"), element("strong", "pa-confirmation-preview__due", japaneseDate(model.customer_snapshot.terms.payment_due_date)), element("p", "", textValue(model.customer_snapshot.terms.payment_consult_terms))); termsGrid.append(cancellation, payment); terms.append(termsGrid);
         const customer = section("顧客が開く正式受注確認ページ"); customer.append(element("p", "pa-confirmation-preview__note", `Customer Web UI ${model.versions.customer}を同じrendererで表示しています。${issuedMode ? "専用URLは発行済みですが、この画面には表示しません。" : "secret URLは未生成です。"}`));
-        const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; customerFrame.src = "/pa-contract.html?mode=admin-pre-issue"; customer.append(customerFrame);
+        const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; setFrame(customerFrame, "src", "/pa-contract.html?mode=admin-pre-issue"); customer.append(customerFrame);
         const onMessage = (event) => { if (event.origin === location.origin && event.source === customerFrame.contentWindow && event.data?.type === "pa-contract-preview-ready") customerFrame.contentWindow.postMessage({ type: "pa-contract-preview-model", snapshot: model.customer_snapshot }, location.origin); };
         window.addEventListener("message", onMessage); dialog.addEventListener("close", () => window.removeEventListener("message", onMessage), { once: true });
         const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject); email.append(emailFacts);
         const emailColumns = element("div", "pa-confirmation-preview__two-column"), htmlWrap = element("article", ""), textWrap = element("article", ""), emailFrame = element("iframe", "pa-confirmation-preview__email");
-        emailFrame.title = "発行案内メールHTML本文"; emailFrame.srcdoc = model.email.html; htmlWrap.append(element("h4", "", "HTML本文"), emailFrame); textWrap.append(element("h4", "", "plain text本文"), element("pre", "pa-confirmation-preview__mail-text", model.email.body)); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
+        emailFrame.title = "発行案内メールHTML本文"; emailFrame.setAttribute("sandbox", ""); setFrame(emailFrame, "srcdoc", model.email.html); htmlWrap.append(element("h4", "", "HTML本文"), emailFrame); textWrap.append(element("h4", "", "plain text本文"), element("pre", "pa-confirmation-preview__mail-text", textValue(model.email.body))); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
         const receipt = section("承認後に生成される正式受注確認書"); receipt.append(element("p", "pa-confirmation-preview__note", `${model.versions.receipt}／Page 1・2 + Page 3以降は現在の正規見積原本。確認者・成立日時はお客様承認時に自動記録されます。`));
-        const receiptFrame = element("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; receiptFrame.src = `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`; receipt.append(receiptFrame);
+        const receiptFrame = element("iframe", "pa-confirmation-preview__pdf pa-confirmation-preview__pdf--receipt"); receiptFrame.title = "V4.1正式受注確認書の送信前プレビュー"; setFrame(receiptFrame, "src", `${receiptUrl}#toolbar=1&navpanes=0&view=FitH`); receipt.append(receiptFrame);
         const gate = section("Owner最終確認"); gate.classList.add("pa-confirmation-preview__gate");
         const identity = element("p", "pa-confirmation-preview__fingerprint", `内容確認ID：${model.fingerprint_short}`), checkLabel = element("label", "pa-confirmation-preview__check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkLabel.append(checkbox, element("span", "", "上記の内容を確認しました。"));
         const actionLabel = directMode ? "正式受注確認として送信" : issuedMode ? "正式受注確認を送る" : replacementMode ? "旧確認を失効して新しい確認を準備（送信しない）" : "この内容で正式受注確認を発行する（送信しない）";
@@ -436,19 +470,87 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
     };
     async function load() {
         const epoch = ++loadEpoch; preview = null; operationId = null; revokeUrls(); body.replaceChildren(status); status.className = "pa-confirmation-preview__loading"; status.textContent = "Production authorityを読み込んでいます…"; refreshButton.disabled = true;
+        if (revealButton) { revealButton.disabled = true; privacy.reset(); }
         try {
             const model = await api(context, issuedMode ? "confirmation_send_preview" : "confirmation_preview",
                 issuedMode ? { offer_id: issuedConfirmation.offer_id } : replacementMode ? { replace_offer_id: replacementConfirmation.offer_id } : { confirmation_mode: confirmationMode });
             if (epoch !== loadEpoch || !dialog.open || context.getCurrentCase()?.id !== caseId) return;
             preview = model; await renderPreview(model, epoch);
         }
-        catch (error) { if (epoch !== loadEpoch || !dialog.open) return; status.className = "pa-confirmation-preview__error"; status.textContent = `送信前プレビューを作成できません：${error.message}`; }
-        finally { if (epoch === loadEpoch) refreshButton.disabled = false; }
+        catch (error) { if (epoch !== loadEpoch || !dialog.open) return; preview = null; status.className = "pa-confirmation-preview__error"; status.textContent = `送信前プレビューを作成できません：${error.message}`; }
+        finally {
+            if (epoch === loadEpoch) {
+                refreshButton.disabled = false;
+                if (revealButton) revealButton.disabled = !preview;
+            }
+        }
     }
-    dialog.addEventListener("close", () => { loadEpoch += 1; revokeUrls(); confirmationPreviewOpening = false; dialog.remove(); }, { once: true }); await load(); return true;
+    const closeOnCaseChange = () => { if (dialog.open) dialog.close(); };
+    context.signal?.addEventListener("abort", closeOnCaseChange, { once: true });
+    dialog.addEventListener("close", () => {
+        context.signal?.removeEventListener("abort", closeOnCaseChange);
+        loadEpoch += 1; revokeUrls(); confirmationPreviewOpening = false; dialog.remove();
+    }, { once: true });
+    await load();
+    return true;
 };
 
 export const openConfirmationPreviewForCurrentCase = () => openConfirmationPreview(activeWorkspaceContext);
+
+export async function renderDeskConfirmationActions(root, context) {
+    const status = element("p", "hint", "正式受注確認の状態を取得中…");
+    status.setAttribute("role", "status");
+    root.replaceChildren(status);
+    try {
+        const data = await api(context, "snapshot");
+        if (context.signal.aborted) return;
+        if (data.state?.inquiry_id !== context.case.id) throw Error("case_changed");
+        const { accepted, active, delivery } = selectConfirmationContext(data);
+        const current = data.estimates.find(estimate => estimate.id === data.state.current_estimate_revision_id);
+        const unresolved = data.confirmation_preflight?.delivery_outcome_unresolved;
+        status.textContent = confirmationDisplayState({ accepted, active, delivery }).label;
+        if (accepted) return;
+        if (["closed", "cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
+            status.textContent = "終了・保留中の案件では正式受注確認を操作できません。";
+            return;
+        }
+        if (typeof unresolved !== "boolean") {
+            status.textContent = "正式受注確認の操作可否を取得できません。状態を再取得してください。";
+            return;
+        }
+        if (unresolved) {
+            status.textContent = "送信結果を照合してから、正式受注確認を準備してください。";
+            return;
+        }
+        if (!current) {
+            status.textContent = "正規見積が未登録です。";
+            return;
+        }
+        const actions = element("div", "inlinebtns");
+        const action = (label, run) => actions.append(button(label, run, "action blue"));
+        if (!active) {
+            if (current.delivery?.state === "sent") {
+                action("正式受注確認を発行準備", () => openConfirmationPreview(context));
+            } else {
+                action("正式受注確認として送信", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE));
+            }
+        } else if (active.estimate_revision_id === current.id) {
+            if (delivery?.state === "queued") {
+                action("正式受注確認を送る", () => openConfirmationPreview(context, {
+                    offer_id: active.id, outbox_id: delivery.id, version: active.version
+                }));
+            }
+            if (!data.production_e2e_test) {
+                action("この確認を失効して再発行準備", () => openConfirmationPreview(context, null, {
+                    offer_id: active.id, version: active.version
+                }));
+            }
+        }
+        if (actions.childElementCount) root.append(actions);
+    } catch {
+        if (!context.signal.aborted) status.textContent = "正式受注確認の状態を取得できません。状態を再取得してください。";
+    }
+}
 
 let deliveryRecoveryOpening = false;
 const openProductionE2eDeliveryRecovery = async (context, active, current, job, trigger) => {
@@ -583,15 +685,15 @@ const launchEstimateEntry = async (context, entry) => {
 
 const materialBlob = async (context, item) => {
     const capability = item.open_capability || { kind: "commercial_document", document_id: item.id };
+    if (item.case_id !== context.case?.id) throw Error("case_changed");
     if (capability.kind === "commercial_document") return api(context, "document", { document_id: capability.document_id }, true);
-    const token = await context.getAccessToken();
-    if (!token || context.getCurrentCase()?.id !== activeCaseId || item.case_id !== activeCaseId) throw Error("case_changed");
+    const { caseId, token } = await caseAccess(context);
     const portal = capability.kind === "portal_asset";
     const response = await fetch(portal ? "/api/pa-portal" : "/api/pa-gmail", {
         method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, cache: "no-store",
         body: JSON.stringify(portal
-            ? { action: "download", inquiry_id: activeCaseId, asset_id: capability.asset_id, asset_kind: capability.asset_kind }
-            : { action: "attachment_download", inquiry_id: activeCaseId, gmail_message_id: capability.gmail_message_id, gmail_attachment_id: capability.gmail_attachment_id })
+            ? { action: "download", inquiry_id: caseId, asset_id: capability.asset_id, asset_kind: capability.asset_kind }
+            : { action: "attachment_download", inquiry_id: caseId, gmail_message_id: capability.gmail_message_id, gmail_attachment_id: capability.gmail_attachment_id })
     });
     if (!response.ok) throw Error("material_unavailable");
     return response.blob();

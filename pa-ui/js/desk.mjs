@@ -1,6 +1,6 @@
 import {workspaceAuth, readUrl, legacyUrl} from './integration.mjs';
 import {requiresReauthentication} from './auth-session.mjs';
-import {privateText,privateMoney,resetPrivacy} from './pa-workspace-privacy.mjs';
+import {privateText,privateMoney,privateFrame,releasePrivateFrame,resetPrivacy} from './pa-workspace-privacy.mjs';
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
@@ -66,7 +66,7 @@ const bodyView=createMailBodyView({request:(id,row)=>api(row.read_route==='live'
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){replyState?.setCase(null);threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.confirmation?.controller.abort();replyState?.setCase(null);threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -341,10 +341,56 @@ function renderTimelineMail(entry, isNew) {
   return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 function estimate(){
+  const c=current();
+  const canOperateConfirmation=!passiveMail&&c?.case_type==='PA_EVENT'
+    &&!isClosedCase(c)&&c.status!=='on_hold'&&!c.progress?.is_on_hold;
+  const confirmationControl=canOperateConfirmation?button('正式受注の操作','commercial-confirmation','quiet'):'';
+  const confirmationHost=canOperateConfirmation?'<div id="commercial-confirmation-host"></div>':'';
   return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2>`+readBlock('commercial','商務・原本',s=>{
     const estimates=s.estimates||[],offers=s.offers||[];
     return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">保存済み見積なし</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${rowsHtml(offers,{title:o=>'版 '+o.version+' / '+(o.state||'unknown'),body:o=>'有効期限 '+date(o.expires_at)+(o.confirmed_at?' / 同意 '+date(o.confirmed_at):''),time:o=>o.issued_at})}</div>`;
-  })+`<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div>`+`<div class="inlinebtns" style="margin-top:12px">${button('見積登録・送信','issue-estimate','quiet',true)}${button('正式受注発行','issue-contract','quiet',true)}${button('再送・失効','resend','quiet',true)}</div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  })+`<div class="inlinebtns" style="margin-top:12px">${button('見積登録・送信','issue-estimate','quiet',true)}${confirmationControl}${button('再送・失効','resend','quiet',true)}</div>${confirmationHost}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+}
+async function openDeskConfirmation(){
+  const c=current(),epoch=selectionEpoch,owner=session?.user?.id;
+  const host=$('commercial-confirmation-host');
+  if(!host||!owner||detail.confirmation?.loading)return;
+  const controller=new AbortController();
+  const previous=detail.confirmation;
+  previous?.controller.abort();
+  const panel=previous?.panel||document.createElement('section');
+  panel.className='group';
+  panel.setAttribute('aria-label','正式受注の操作');
+  panel.textContent='正式受注確認の状態を取得中…';
+  const operation={controller,panel,loading:true};
+  detail.confirmation=operation;
+  host.append(panel);
+  const stillCurrent=()=>!controller.signal.aborted&&epoch===selectionEpoch&&selected===c.id
+    &&tab==='estimate'&&session?.user?.id===owner;
+  try{
+    const {renderDeskConfirmationActions}=await import('/js/pa-commercial-admin.js?v=paui095-desk-confirmation');
+    if(!stillCurrent())return;
+    await renderDeskConfirmationActions(panel,{
+      case:c, signal:controller.signal, getCurrentCase:()=>stillCurrent()?current():null,
+      privacy:{money:privateMoney,text:privateText,frame:privateFrame,releaseFrame:releasePrivateFrame,reset:resetPrivacy},
+      getAccessToken:async()=>{
+        if(!stillCurrent())return null;
+        let fresh;
+        try{fresh=await workspaceAuth.restore();}
+        catch{if(stillCurrent())signOut(false);return null;}
+        if(!stillCurrent())return null;
+        if(fresh?.user?.id!==owner){signOut(false);return null;}
+        session=fresh;
+        return fresh.access_token;
+      },
+      refreshCommercial:async()=>{
+        if(!stillCurrent())return;
+        await openDeskConfirmation();
+        if(epoch===selectionEpoch)await loadSurface('commercial','/data/commercial/'+c.id,epoch);
+      }
+    });
+  }catch{if(stillCurrent())panel.textContent='正式受注の操作を開けませんでした。もう一度お試しください。';}
+  finally{operation.loading=false;}
 }
 function invoice(){
   return moneyBar()+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div><div class="inlinebtns" style="margin-top:12px">${button('請求発行・入金更新','billing-write','quiet',true)}${button('案件完了','close-case','quiet',true)}</div>`;
@@ -400,6 +446,7 @@ function render(){
   const c=current();if(!c){central.innerHTML='<div class="empty-state">案件を選択すると、保存済みの実案件情報を表示します。</div>';return;}
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
+  if(tab==='estimate'&&detail.confirmation) $('commercial-confirmation-host')?.append(detail.confirmation.panel);
   central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
   if(tab==='documents')renderGallery();
   if(tab==='estimate'&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
@@ -456,7 +503,9 @@ async function refresh(){
 }
 function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
-  const changed=tab!==name;resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
+  const changed=tab!==name;
+  if(changed&&detail.confirmation){detail.confirmation.controller.abort();delete detail.confirmation;}
+  resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
   if(name==='conversation'&&changed)void syncSelectedMail();
   if(name==='conversation'&&!detail.mailCandidates)discoverMail();
   document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
@@ -506,7 +555,7 @@ document.addEventListener('click',e=>{
   const c=e.target.closest('[data-case]');if(c){selectCase(c.dataset.case);return;}
   const t=e.target.closest('[data-tab]');if(t){setTab(t.dataset.tab);return;}
   const feature=e.target.closest('[data-feature]');if(feature){featureJump(feature.dataset.feature);return;}
-  const a=e.target.closest('[data-action]');if(a&&!a.disabled){if(a.dataset.action==='mail-sync'){void syncSelectedMail();return;}if(a.dataset.action==='mail-live'){checkLiveMail();return;}if(a.dataset.action==='mail-link'){threadLink.show();return;}setTab(a.dataset.action);return;}
+  const a=e.target.closest('[data-action]');if(a&&!a.disabled){if(a.dataset.action==='mail-sync'){void syncSelectedMail();return;}if(a.dataset.action==='mail-live'){checkLiveMail();return;}if(a.dataset.action==='mail-link'){threadLink.show();return;}if(a.dataset.action==='commercial-confirmation'){void openDeskConfirmation();return;}setTab(a.dataset.action);return;}
   const top=e.target.closest('[data-top]');if(top)setTab(top.dataset.top==='files'?'documents':top.dataset.top==='inbox'?'conversation':'overview');
 });
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
