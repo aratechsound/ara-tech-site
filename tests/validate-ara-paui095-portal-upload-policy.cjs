@@ -91,9 +91,12 @@ const object = (prefix, suffix) => prefix + '/123e4567-e89b-42d3-a456-4266141740
         assert.deepEqual(await selectObjects('authenticated', actor), publicFlyer);
         await db.query('select * from restore_pa_case($1,$2)', [first.id, actor]);
         assert.deepEqual(await selectObjects('authenticated', actor), expected);
+        await db.query('delete from work_admins where user_id=$1', [actor]);
+        assert.deepEqual(await selectObjects('authenticated', actor), publicFlyer);
+        await db.query('insert into work_admins(user_id) values($1)', [actor]);
         await db.exec(operation('paui095-portal-upload-read-rollback.sql'));
         assert.deepEqual(await selectObjects('authenticated', actor), publicFlyer);
-        console.log('PASS isolated RLS: owner and organizer-upload originals readable only for active bound records and work admin; anon, non-admin, archived, orphan, cross-portal and wrong hash denied; writes denied; exact policy rollback');
+        console.log('PASS isolated RLS: owner and organizer-upload originals readable only for active bound records and work admin; anon, revoked, non-admin, archived, orphan, cross-portal and wrong hash denied; writes denied; exact policy rollback');
     } finally {
         await db.close();
     }
