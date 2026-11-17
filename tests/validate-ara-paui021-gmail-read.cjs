@@ -16,7 +16,11 @@ async function fetchImpl(url,options){calls.push({url,options});const q=new URL(
  else if(table==='work_admins')data=mode==='no-admin'?[]:[{user_id:C}];
  else if(table==='pa_inquiries')data=q.searchParams.get('id')==='eq.'+C?[{id:C}]:[];
  else if(table==='pa_gmail_thread_links')data=[{inquiry_id:mode==='ambiguous'&&q.searchParams.has('gmail_thread_id')?OTHER:C,gmail_thread_id:'thread1'}];
- else if(table==='pa_gmail_message_index')data=mode==='unindexed'?[]:[{inquiry_id:mode==='index-conflict'?OTHER:C,gmail_message_id:'mail1',gmail_thread_id:'thread1',snippet:'抜粋のみ',attachment_metadata:mode==='no-attachments'?[]:mode==='duplicate-part'?[attachment,{...attachment,id:'other-token'}]:[attachment]}];
+ else if(table==='pa_gmail_message_index'){
+  const row={inquiry_id:mode==='index-conflict'?OTHER:C,gmail_message_id:'mail1',gmail_thread_id:'thread1',snippet:'抜粋のみ',attachment_metadata:mode==='no-attachments'?[]:mode==='duplicate-part'?[attachment,{...attachment,id:'other-token'}]:[attachment]};
+  data=mode==='unindexed'?[]:mode==='duplicate-message'?[row,{...row,inquiry_id:OTHER}]:[row];
+  if(mode==='busy-case'&&q.searchParams.has('inquiry_id'))data.push(...Array.from({length:36},(_,i)=>({...row,gmail_message_id:'unrelated'+i})));
+ }
  else if(table==='pa_portals')data=[{id:PORTAL,case_id:C}];
  else if(table==='pa_portal_document_cards')data=[{id:CARD,portal_id:PORTAL,current_version_id:ASSET}];
  else if(table==='pa_portal_document_versions'||table==='pa_portal_photo_items'){
@@ -39,6 +43,29 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
  await check('Ambiguous thread denied before Provider',async before=>{mode='ambiguous';assert.equal((await read('/data/mail-body/'+C+'/mail1')).statusCode,403);assert.equal(providerCalls,before);});
  await check('Fresh message/thread mismatch denied',async()=>{mode='provider-thread';assert.equal((await read('/data/mail-body/'+C+'/mail1')).statusCode,403);});
  await check('Opaque attachment ID and Japanese filename retained',async()=>{const r=await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D');assert.equal(r.statusCode,200);assert(r.body.equals(bytes));});
+ await check('Single body and attachment do not fetch the case mail list',async()=>{
+  mode='busy-case';
+  for(const [route,select] of [['/data/mail-body/'+C+'/mail1','*'],['/data/mail-attachment/'+C+'/mail1/attachment%2B%3D','gmail_message_id,inquiry_id,gmail_thread_id,attachment_metadata']]){
+   const start=calls.length;
+   assert.equal((await read(route)).statusCode,200);
+   const requests=calls.slice(start).map(c=>new URL(c.url));
+   const indexed=requests.filter(q=>q.pathname.endsWith('/pa_gmail_message_index'));
+   assert.equal(indexed.length,1);
+   assert.equal(indexed[0].searchParams.get('gmail_message_id'),'eq.mail1');
+   assert.equal(indexed[0].searchParams.get('select'),select);
+   assert.equal(indexed[0].searchParams.get('limit'),'2');
+   const threadReads=requests.filter(q=>q.pathname.endsWith('/pa_gmail_thread_links'));
+   assert.equal(threadReads.length,1);
+   assert.equal(threadReads[0].searchParams.get('gmail_thread_id'),'eq.thread1');
+  }
+ });
+ await check('Duplicate or foreign exact message is denied before Gmail',async before=>{
+  const path='/data/mail-body/'+C+'/mail1';
+  for(const testMode of ['duplicate-message','index-conflict','unindexed']){
+   mode=testMode;assert.equal((await read(path)).statusCode,403);
+  }
+  assert.equal(providerCalls,before);
+ });
  await check('Portal originals use the saved MIME part after attachment ID rotation',async()=>{
   for(const kind of ['version','photo']){
    const r=await read('/data/material/'+C+'/'+kind+'/'+ASSET);
