@@ -862,7 +862,8 @@ const mailTypeLabels = {
 const mailStatusLabels = {
     sending: "送信処理中",
     sent: "送信済み",
-    failed: "送信失敗"
+    failed: "送信失敗",
+    unknown: "配送結果未確定"
 };
 
 const newestDelivery = (type) =>
@@ -2332,6 +2333,22 @@ const renderResponse = () => {
     appendDetail("規約バージョン", currentResponse.terms_version);
 };
 
+const scheduleFailureConfirmed = delivery =>
+    /^(?:gmail_not_configured|gmail_oauth_(?:[0-9]{3}|invalid)|mail_before_dispatch_failed|gmail_send_(?:400|401|403|404|413|422|429))$/u.test(delivery.error_summary);
+
+const mailDeliveryStatus = delivery => {
+    if (delivery.message_type === "schedule_request" && (
+        delivery.status === "sending" || (delivery.status === "failed" && !scheduleFailureConfirmed(delivery))
+    )) return mailStatusLabels.unknown;
+    return mailStatusLabels[delivery.status] || delivery.status;
+};
+
+const canRetryMail = delivery => delivery?.status === "failed" && (
+    delivery.message_type !== "schedule_request" || (
+        newestDelivery("schedule_request")?.id === delivery.id && scheduleFailureConfirmed(delivery)
+    )
+);
+
 const retryButton = (delivery) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2362,10 +2379,10 @@ const renderAutomaticMailStatus = () => {
         title.textContent = label;
         const status = document.createElement("p");
         status.textContent = delivery
-            ? `${mailStatusLabels[delivery.status] || delivery.status}${delivery.sent_at ? ` ／ ${formatDateTime(delivery.sent_at)}` : ""}`
+            ? `${mailDeliveryStatus(delivery)}${delivery.sent_at ? ` ／ ${formatDateTime(delivery.sent_at)}` : ""}`
             : "送信記録なし（既存案件）";
         card.append(title, status);
-        if (delivery?.status === "failed") card.append(retryButton(delivery));
+        if (canRetryMail(delivery)) card.append(retryButton(delivery));
         automaticMailStatus.append(card);
     });
 };
@@ -2477,20 +2494,20 @@ const renderEmailHistory = () => {
         const item = document.createElement("div");
         item.className = `mail-history__item mail-history__item--${delivery.status}`;
         const title = document.createElement("strong");
-        title.textContent = `${mailTypeLabels[delivery.message_type] || delivery.message_type} ／ ${mailStatusLabels[delivery.status] || delivery.status}`;
+        title.textContent = `${mailTypeLabels[delivery.message_type] || delivery.message_type} ／ ${mailDeliveryStatus(delivery)}`;
         const subject = document.createElement("span");
         subject.textContent = delivery.subject;
         const meta = document.createElement("span");
         const when = delivery.sent_at || delivery.failed_at || delivery.requested_at;
         meta.textContent = `${formatDateTime(when)} ／ Gmail送信履歴${delivery.gmail_message_id ? "（Gmail同期でthreadを取得できます）" : ""}`;
         item.append(title, subject, meta);
-        if (delivery.status === "failed") item.append(retryButton(delivery));
+        if (canRetryMail(delivery)) item.append(retryButton(delivery));
         emailHistory.append(item);
     });
 
     const latestSchedule = newestDelivery("schedule_request");
     $("#email-send-state").textContent = latestSchedule
-        ? `${mailStatusLabels[latestSchedule.status] || latestSchedule.status}${latestSchedule.sent_at ? `：${formatDateTime(latestSchedule.sent_at)}` : ""}`
+        ? `${mailDeliveryStatus(latestSchedule)}${latestSchedule.sent_at ? `：${formatDateTime(latestSchedule.sent_at)}` : ""}`
         : "未送信";
 };
 
@@ -2529,7 +2546,7 @@ const renderAudit = (entries) => {
     auditList.replaceChildren();
     const mailEntries = currentDeliveries.filter(isInternalDelivery).map((delivery) => ({
         occurred_at: delivery.sent_at || delivery.failed_at || delivery.requested_at,
-        label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${mailStatusLabels[delivery.status] || delivery.status}${delivery.is_retry ? "（再送）" : ""}`
+        label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${mailDeliveryStatus(delivery)}${delivery.is_retry ? "（再送）" : ""}`
     }));
     const combined = [
         ...entries.map((entry) => {
@@ -3048,6 +3065,7 @@ const buildEmail = (url) => {
     $("#email-body").value = body;
     $("#email-schedule-url").value = url;
     emailOperationKey = crypto.randomUUID();
+    $("#send-email").disabled = mailActionInProgress;
     clearMessage($("#email-message"));
     emailSection.classList.remove("hidden");
 };
@@ -3131,6 +3149,7 @@ const revokeToken = async () => {
 };
 
 const mailErrorMessage = (code) => {
+    if (code === "mail_outcome_unknown") return "配送結果を確定できません。送信済み履歴とGmailを確認してください。";
     if (code === "gmail_not_configured" || String(code).startsWith("gmail_oauth_")) {
         return "Gmail接続設定を確認してください。案件データは保持され、送信失敗として記録されます。";
     }
@@ -3145,7 +3164,7 @@ const mailErrorMessage = (code) => {
 
 const setMailButtonsDisabled = (disabled) => {
     $("#send-content-hearing").disabled = disabled;
-    $("#send-email").disabled = disabled;
+    $("#send-email").disabled = disabled || !emailOperationKey;
     $("#send-result-email").disabled = disabled;
     $("#prepare-result-confirmed").disabled = disabled;
     $("#prepare-result-unavailable").disabled = disabled;
@@ -3893,7 +3912,10 @@ const sendEmail = async () => {
         setMessage($("#email-message"), "宛先、件名、本文、専用URLを確認してください。", "error");
         return;
     }
-    const confirmationKey = JSON.stringify([currentCase.id, currentCase.email, subject, body, scheduleUrl]);
+    const selectedCaseId = currentCase.id;
+    const selection = caseSelectionSerial;
+    const stillSelected = () => selection === caseSelectionSerial && currentCase?.id === selectedCaseId;
+    const confirmationKey = JSON.stringify([selectedCaseId, currentCase.email, subject, body, scheduleUrl]);
     const sendButton = $("#send-email");
     if (sendButton.dataset.confirmationKey !== confirmationKey) {
         sendButton.dataset.confirmationKey = confirmationKey;
@@ -3914,24 +3936,34 @@ const sendEmail = async () => {
     try {
         const result = await callMailApi({
             action: "send_schedule",
-            inquiry_id: currentCase.id,
+            inquiry_id: selectedCaseId,
             subject,
             body,
             schedule_url: scheduleUrl,
             operation_key: emailOperationKey
         });
+        if (!stillSelected()) return;
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent") {
             setMessage($("#email-message"), "Gmailから送信しました。送信日時とGmailメッセージIDを案件へ記録しました。", "success");
         } else {
-            setMessage($("#email-message"), mailErrorMessage(result.delivery.error_summary), "error");
+            if (["unknown", "sending"].includes(result.delivery.status)) emailOperationKey = "";
+            const code = result.delivery.status === "sending" ? "mail_outcome_unknown" : result.delivery.error_summary;
+            setMessage($("#email-message"), mailErrorMessage(code), "error");
         }
     } catch (error) {
-        setMessage($("#email-message"), mailErrorMessage(error.message), "error");
-        $("#email-send-state").textContent = "送信失敗";
+        if (!stillSelected()) return;
+        if (["schedule_token_not_available", "invalid_schedule_url", "invalid_schedule_message", "schedule_not_allowed", "not_authorized"].includes(error.message)) {
+            setMessage($("#email-message"), mailErrorMessage(error.message), "error");
+            $("#email-send-state").textContent = "送信を停止しました";
+        } else {
+            emailOperationKey = "";
+            setMessage($("#email-message"), mailErrorMessage("mail_outcome_unknown"), "error");
+            $("#email-send-state").textContent = "配送結果未確定";
+        }
     } finally {
         mailActionInProgress = false;
-        resetSendEmailConfirmation();
+        if (stillSelected()) resetSendEmailConfirmation();
         setMailButtonsDisabled(false);
     }
 };
@@ -3939,7 +3971,7 @@ const sendEmail = async () => {
 const retryEmail = async (deliveryId) => {
     if (!currentCase || mailActionInProgress) return;
     const delivery = currentDeliveries.find((item) => item.id === deliveryId);
-    if (!delivery || delivery.status !== "failed") return;
+    if (!canRetryMail(delivery)) return;
     if (!window.confirm(`${mailTypeLabels[delivery.message_type] || "メール"}を同じ宛先・件名・本文で再送しますか？`)) return;
 
     mailActionInProgress = true;
