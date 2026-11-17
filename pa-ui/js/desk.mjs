@@ -79,7 +79,7 @@ const caseCalendar=createCaseCalendar({displayText:privateText,onSelect:async id
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();caseBasicsEditor.close();caseCalendar.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);htmlView.close();caseBasicsEditor.close();caseCalendar.close();closeInfo();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -694,7 +694,10 @@ function setTab(name){
   if(name==='conversation'&&!detail.mailCandidates)discoverMail();
   document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
 }
-function openDrawer(){resetPrivacy();$('drawer-wrap').classList.add('open');$('feature-search').value='';renderFeatures();$('drawer-close').focus();}
+function openDrawer(){
+  resetPrivacy();$('feature-search').value='';renderFeatures();
+  $('drawer-wrap').showModal();
+}
 function renderFeatures(){
   const q=$('feature-search').value.toLocaleLowerCase('ja'),place=$('feature-place').value,status=$('feature-status').value;
   const shown=features.filter(f=>(!q||(f.id+' '+f.name+' '+f.scope).toLocaleLowerCase('ja').includes(q))&&(!place||f.place===place)&&(!status||f.status===status));
@@ -704,7 +707,7 @@ function renderFeatures(){
 function featureJump(id){
   const f=features.find(x=>x.id===id);
   if(!f)return;
-  $('drawer-wrap').classList.remove('open');
+  $('drawer-wrap').close();
   if(current())setTab(f.target||'overview');
   if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){
     const row=replyableMessages()[0];
@@ -716,8 +719,12 @@ function featureJump(id){
     :`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
   openInfo(f.id+' '+f.name,entry+`<p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);
 }
-function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){manualIntake.close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function openInfo(title,html){
+  resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;
+  if(!$('modal-wrap').open)$('modal-wrap').showModal();
+  $('modal-close-top').focus();
+}
+function signOut(callAuth=true){manualIntake.close();$('drawer-wrap').close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -787,14 +794,14 @@ $('new-case').onclick=()=>{
   });
 };
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
-document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});
+document.addEventListener('click',e=>{if(e.target.closest('#more-features')){closeInfo();openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
-$('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('features-trigger').focus();};
-function closeInfo(){threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();}
+$('drawer-close').onclick=()=>$('drawer-wrap').close();
+function closeInfo(){threadLink?.reset();$('modal-wrap').close();resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{manualIntake.close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
-threadLink=createThreadLink({read:api,open:openInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
+$('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeInfo();});
+window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+threadLink=createThreadLink({read:api,open:openInfo,close:closeInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async input=>{
     if(!session||input.action!=='manual_link'||input.inquiry_id!==selected)throw new ReadFailure('login_required',401);
