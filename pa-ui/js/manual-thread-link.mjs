@@ -2,7 +2,7 @@ import {escape} from './model.mjs';
 
 // Owner explicitly chooses a thread and approves the legacy manual_link action.
 // Reads/searches never call sync. An uncertain POST is never retried here.
-export function createThreadLink({read,write,open,current,refresh,candidates=()=>null}) {
+export function createThreadLink({read,write,open,close,current,refresh,candidates=()=>null}) {
   let generation=0;const attempted=new Set();
   const date=v=>Number.isFinite(Date.parse(v))?new Date(v).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}):'日時未取得';
   function show(){
@@ -26,7 +26,7 @@ export function createThreadLink({read,write,open,current,refresh,candidates=()=
             ${v.preflight_complete?'':'<p role="alert">同期範囲の取得が不完全です。関連付けは実行できません。</p>'}
             <label><input type="checkbox" id="thread-owner-approved"> このスレッドの案件帰属と、上記のDB更新・副作用を確認し承認する</label>
             <button id="thread-link-confirm" class="action" disabled>関連付けて同期（DB更新）</button>`}</section>`;
-        if(v.already_linked){document.getElementById('thread-read-latest').onclick=async()=>{if(valid()){++generation;document.getElementById('modal-wrap').classList.remove('open');await refresh();}};return;}
+        if(v.already_linked){document.getElementById('thread-read-latest').onclick=async()=>{if(valid()){close();await refresh();}};return;}
         const confirm=document.getElementById('thread-link-confirm'),approved=document.getElementById('thread-owner-approved');
         const key=c.id+'/'+id;
         if(attempted.has(key))results.textContent='このセッションで保存操作を試行済みです。再実行せず、正規記録を確認してください。';
