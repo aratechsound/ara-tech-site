@@ -1,6 +1,6 @@
 export const followUpType = 'content_hearing_follow_up';
 
-export function createIntakeComposer({inquiry, send, close}) {
+export function createIntakeComposer({inquiry, requestPreview, send, close}) {
   const form = document.createElement('form');
   form.className = 'reply-composer';
   form.setAttribute('aria-label', 'お問い合わせへの返信');
@@ -11,8 +11,8 @@ export function createIntakeComposer({inquiry, send, close}) {
     <label>本文<textarea name="body" rows="8" maxlength="20000" required></textarea></label>
     <div class="inlinebtns"><button type="button" class="action blue" data-intake-preview>プレビュー</button></div>
     <section class="reply-preview" data-intake-review hidden>
-      <h3>送信前プレビュー</h3><p data-intake-address></p><pre class="intake-preview-text"></pre>
-      <p class="hint">正式署名は送信時に付与されます。</p>
+      <h3>送信前プレビュー</h3><p data-intake-address></p>
+      <iframe title="お問い合わせへの返信プレビュー" sandbox="" referrerpolicy="no-referrer"></iframe>
       <label class="reply-confirm"><input type="checkbox" name="confirmed">宛先・件名・本文を確認しました</label>
       <button type="submit" class="action blue" disabled>確認した内容で送信する</button>
     </section><p role="status" hidden></p>`;
@@ -25,13 +25,17 @@ export function createIntakeComposer({inquiry, send, close}) {
   subject.value = ('お問い合わせについて｜' + inquiry.inquiry_number).slice(0, 240);
   const name = inquiry.contact_name || inquiry.customer_name;
   body.value = name ? name + ' 様\n\n' : '';
+  const frame = review.querySelector('iframe');
   let snapshot;
+  let revision = 0;
   const message = text => {
     status.textContent = text;
     status.hidden = !text;
   };
   const invalidate = () => {
+    revision++;
     snapshot = null;
+    frame.removeAttribute('srcdoc');
     review.hidden = true;
     confirmed.checked = false;
     submit.disabled = true;
@@ -39,15 +43,27 @@ export function createIntakeComposer({inquiry, send, close}) {
   };
   subject.oninput = body.oninput = invalidate;
   form.querySelector('[data-intake-close]').onclick = close;
-  preview.onclick = () => {
+  preview.onclick = async () => {
     invalidate();
     if (!form.reportValidity() || !subject.value.trim() || !body.value.trim()) {
       message('件名と本文を入力してください。');
       return;
     }
-    snapshot = {recipient:recipient.value, subject:subject.value.trim(), body:body.value.trim()};
+    const draft = {recipient:recipient.value, subject:subject.value.trim(), body:body.value.trim()};
+    const requestRevision = revision;
+    message('プレビューを取得しています…');
+    try {
+      const result = await requestPreview(draft);
+      if (revision !== requestRevision || !form.isConnected) return;
+      if (typeof result.html !== 'string' || !result.html) throw Error('preview_unavailable');
+      frame.srcdoc = result.html;
+      snapshot = draft;
+    } catch {
+      if (revision === requestRevision) message('プレビューを表示できません。宛先と内容を確認してください。');
+      return;
+    }
+    message('');
     form.querySelector('[data-intake-address]').textContent = snapshot.recipient + ' ／ ' + snapshot.subject;
-    form.querySelector('.intake-preview-text').textContent = snapshot.body;
     review.hidden = false;
     confirmed.focus();
   };
