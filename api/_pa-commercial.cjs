@@ -552,10 +552,26 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       ...(replySource ? { replySourceMessageId: replySource.message_id, replySourceThreadId: replySource.thread_id } : {})
     }, fetchImpl);
   }
-  const composerPreview = (input, actor) => mailPreview({
-    caseId: uuid(input.case_id), actor, body: text(input.body, 20000),
-    ccAddresses: Array.isArray(input.cc_addresses) ? input.cc_addresses : [], replySource: input.reply_source || null
+  const pdfAttachment = (filename, bytes) => ({
+    filename: text(filename, 500), mime_type: 'application/pdf', data: bytes.toString('base64url')
   });
+  const composerPreview = async (input, actor) => {
+    const attachments = [];
+    if (input.filename !== undefined || input.content_base64 !== undefined || input.sha256 !== undefined) {
+      const bytes = Buffer.from(text(input.content_base64, 8000000), 'base64');
+      await pdf.validatePdf(bytes, text(input.sha256, 64));
+      attachments.push(pdfAttachment(input.filename, bytes));
+    }
+    return mailPreview({
+      caseId: uuid(input.case_id), actor, body: text(input.body, 20000), attachments,
+      ccAddresses: Array.isArray(input.cc_addresses) ? input.cc_addresses : [], replySource: input.reply_source || null
+    });
+  };
+  const verifyComposerPreview = (input, actor, preview, attachment) => {
+    if (input.preview_token !== undefined) gmail.verifyReplyPreview({
+      confirmationToken: input.preview_token, preview, actorId: actor.id, attachments: [attachment]
+    });
+  };
   const replyBinding = (preview) => ({
     thread_id: preview.gmail_thread_id,
     confirmation_token: preview.confirmation_token,
@@ -803,11 +819,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const bytes = Buffer.from(text(input.content_base64, 8000000), 'base64');
     await pdf.validatePdf(bytes, text(input.sha256, 64));
     const body = text(input.body, 20000);
-    const attachment = {
-      filename: text(input.filename, 500),
-      mime_type: 'application/pdf',
-      data: bytes.toString('base64url')
-    };
+    const attachment = pdfAttachment(input.filename, bytes);
     const operationId = uuid(input.operation_id);
     if (preparationMode === DIRECT_CONFIRM_WITH_ESTIMATE) {
       const existingJob = await one('pa_commercial_outbox', { operation_id: 'eq.' + operationId, select: 'id' });
@@ -826,6 +838,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const priorJob = await one('pa_commercial_outbox', { operation_id: 'eq.' + operationId, select: '*'});
     if (priorJob) {
       const priorPreview = await mailPreview({ caseId: input.case_id, actor, body, attachments: [attachment], replySource: input.reply_source || null, ccAddresses: input.cc_addresses || [] });
+      verifyComposerPreview(input, actor, priorPreview, attachment);
       const priorEstimate = await one('pa_estimate_revisions', { id: 'eq.' + priorJob.aggregate_id, select: '*' });
       const priorDocument = priorEstimate ? await one('pa_commercial_documents', { id: 'eq.' + priorEstimate.document_id, select: 'id,original_filename,sha256' }) : null;
       if (priorJob.job_kind !== 'estimate' || !priorEstimate || !priorDocument || priorDocument.id !== input.document_id
@@ -849,6 +862,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       preview = { recipient: source.to_addresses?.[0], subject: text(input.subject, 998), body, gmail_thread_id: source.gmail_thread_id, confirmation_token: 'sent-recovery-no-send' };
     } else {
       preview = await mailPreview({ caseId: input.case_id, actor, body, attachments: [attachment], replySource: input.reply_source || null, ccAddresses: input.cc_addresses || [] });
+      verifyComposerPreview(input, actor, preview, attachment);
     }
     return rpc('pa_v5_issue_estimate', {
       p_actor: actor.id, p_case: uuid(input.case_id),
@@ -1044,11 +1058,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
     let preview = { recipient: null, subject: null, body: null, gmail_thread_id: null, confirmation_token: null };
     if (separate) {
+      const attachment = pdfAttachment(input.filename, bytes);
       preview = await mailPreview({
         caseId: input.case_id, actor, body: text(input.body, 20000),
-        attachments: [{ filename: text(input.filename, 500), mime_type: 'application/pdf', data: bytes.toString('base64url') }],
+        attachments: [attachment],
         replySource: input.reply_source || null, ccAddresses: input.cc_addresses || []
       });
+      verifyComposerPreview(input, actor, preview, attachment);
     }
     return rpc('pa_v5_create_billing', {
       p_actor: actor.id, p_case: uuid(input.case_id), p_expected_revision: integer(input.expected_revision),
@@ -1249,6 +1265,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,provider_message_id'
     });
     if (!staged) throw Error('outbox_not_found');
+    if (input.case_id !== undefined && uuid(input.case_id) !== staged.inquiry_id) throw Error('outbox_not_found');
     if (staged.job_kind === 'confirmation' && !internal.legacyRecoveryAuthorization && staged.state !== 'sent') {
       const caseId = uuid(input.case_id);
       const offerId = uuid(input.offer_id);

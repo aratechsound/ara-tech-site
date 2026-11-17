@@ -348,11 +348,11 @@ function estimate(c){
   return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2>`+readBlock('commercial','商務・原本',s=>{
     const estimates=s.estimates||[],offers=s.offers||[];
     return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">保存済み見積なし</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${rowsHtml(offers,{title:o=>'版 '+o.version+' / '+(o.state||'unknown'),body:o=>'有効期限 '+date(o.expires_at)+(o.confirmed_at?' / 同意 '+date(o.confirmed_at):''),time:o=>o.issued_at})}</div>`;
-  })+`<div class="inlinebtns" style="margin-top:12px">${button('見積登録・送信','issue-estimate','quiet',true)}${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  })+`<div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
 async function openDeskCommercial(){
   const c=current(),epoch=selectionEpoch,owner=session?.user?.id;
-  const activeTab=tab,label=activeTab==='invoice'?'請求・入金の操作':'正式受注の操作';
+  const activeTab=tab,label=activeTab==='invoice'?'請求・入金の操作':'見積・正式受注の操作';
   const host=$('commercial-actions-host');
   if(!host||!owner||detail.commercialPanel?.loading)return;
   const controller=new AbortController();
@@ -368,7 +368,7 @@ async function openDeskCommercial(){
   const stillCurrent=()=>!controller.signal.aborted&&epoch===selectionEpoch&&selected===c.id
     &&tab===activeTab&&session?.user?.id===owner;
   try{
-    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-desk-billing');
+    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-desk-pdf-mail');
     if(!stillCurrent())return;
     const renderActions=activeTab==='invoice'?renderDeskBillingActions:renderDeskConfirmationActions;
     await renderActions(panel,{
