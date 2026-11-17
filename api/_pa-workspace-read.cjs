@@ -407,7 +407,8 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           if(segments[3]==='deliveries'){
             if(result.some(row=>row.inquiry_id!==id))throw new ReadError('case_binding_mismatch',403);
             // Other templates can contain private action URLs. Their subject and delivery status suffice here.
-            result=result.map(({body,...row})=>({...row,body:['customer_receipt','internal_new_inquiry'].includes(row.message_type)?body:undefined}));
+            result=result.map(({body,...row})=>({...row,body:['customer_receipt','internal_new_inquiry'].includes(row.message_type)||
+              row.message_type==='content_hearing_follow_up'&&row.status==='sent'?body:undefined}));
           }
         }else if(segments.length===3&&segments[1]==='commercial'){result=await commercial(assertId(segments[2]),token);
         }else if(segments.length===3&&segments[1]==='materials')result=await materials(assertId(segments[2]),token);

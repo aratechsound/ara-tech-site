@@ -11,6 +11,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
  const posts=[],intakePosts=[],provider=[],checks=[];
+ let followUpDelivery, failFollowUpRead=false, unknownFollowUp=false;
  const transport=async(url,opts={})=>{
   const u=new URL(url);provider.push({host:u.host,path:u.pathname,method:opts.method||'GET'});
   if(u.host==='gmail.googleapis.com'&&u.pathname.endsWith('/messages/send')){
@@ -38,8 +39,11 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
     return json({ok:true,html:require('../../api/_pa-mail.cjs').buildCustomerHtml(payload.body)});
    }
    intakePosts.push(payload);
-   return json({ok:true,delivery:{message_type:'content_hearing_follow_up',status:'sent',
-    recipient:payload.expected_recipient,subject:payload.subject},case_state:{result_status:'waiting_customer_reply'}});
+   if(unknownFollowUp)return json({ok:false,code:'send_outcome_unknown'},502);
+   followUpDelivery={id:'follow-up',inquiry_id:B,gmail_message_id:'follow_up_mail',
+    message_type:'content_hearing_follow_up',status:'sent',sent_at:'2026-11-14T01:00:00Z',
+    recipient:payload.expected_recipient,subject:payload.subject,body:payload.body};
+   return json({ok:true,delivery:followUpDelivery,case_state:{result_status:'waiting_customer_reply'}});
   }
   if(u.pathname==='/api/pa-gmail'){
    let raw='';for await(const c of req)raw+=c;const p=JSON.parse(raw);posts.push(p);assert.equal(req.headers.authorization,'Bearer fixture-only');assert.equal(p.inquiry_id,A,'only fixture A can issue a mail request');
@@ -58,6 +62,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    if(route==='/data/cases')result={cases:(await f.db.query('select * from pa_inquiries order by id')).rows,progress:[]};
    else if(route==='/data/attention')result=(await f.db.query('select * from pa_case_mail_attention')).rows;
    else if(parts[2]==='case'&&parts[4]==='deliveries'&&parts[3]===B){
+    if(followUpDelivery&&failFollowUpRead)return json({ok:false,code:'fixture_read_failed'},503);
     const receipt={inquiry_id:B,recipient:'other@example.invalid',subject:'Fixture receipt',body:'Fixture body',status:'sent',sent_at:'2026-11-13T01:58:51Z'};
     result=[
       {...receipt,id:'receipt',message_type:'customer_receipt',gmail_message_id:'receipt'},
@@ -65,6 +70,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
       {...receipt,id:'unknown',message_type:'schedule_request',status:'sending',gmail_message_id:null},
       {...receipt,id:'failed',message_type:'schedule_request',status:'failed',gmail_message_id:null}
     ];
+    if(followUpDelivery)result.push(followUpDelivery);
    }
    else if(parts[2]==='case'){const id=parts[3];if(parts[4]==='links')result=(await f.db.query('select * from pa_gmail_thread_links where inquiry_id=$1',[id])).rows;else if(parts[4]==='mail-sync')result=await metadata(id);else if(parts[4]==='attention')result=(await f.db.query('select * from pa_case_mail_attention where inquiry_id=$1',[id])).rows;}
    else if(parts[2]==='mail'){if(failRead&&latestSent&&parts[3]===A)return json({ok:false,code:'fixture_read_failed'},503);result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;if(duplicateRead&&result[0])result.push({...result[0]});}
@@ -144,8 +150,19 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.equal(intakePosts.length,0);
    await form.getByRole('button',{name:'プレビュー'}).click();
    await form.getByRole('checkbox').check();
+   failFollowUpRead=true;
    await form.getByRole('button',{name:'確認した内容で送信する'}).click();
-   await form.getByText('送信しました。',{exact:true}).waitFor();
+   await form.waitFor({state:'hidden'});
+   await page.getByText('送信は完了しましたが、履歴表示を更新できませんでした。',{exact:false}).waitFor();
+   failFollowUpRead=false;
+   await page.getByRole('button',{name:'履歴を再取得'}).click();
+   const sentCard=page.locator('[data-delivery-id="follow-up"]');
+   await sentCard.getByText('Edited fixture follow-up',{exact:true}).waitFor();
+   await page.getByText('送信しました。',{exact:true}).waitFor();
+   await page.waitForFunction(()=>{
+    const box=document.querySelector('[data-delivery-id="follow-up"]')?.getBoundingClientRect();
+    return box && box.top>=0 && box.top<innerHeight;
+   });
    assert.equal(intakePosts.length,1);
    assert.deepEqual(intakePosts[0],{action:'send_content_hearing',inquiry_id:B,
     expected_recipient:'other@example.invalid',subject:'お問い合わせについて｜PA-FIXTURE-B',body:'Edited fixture follow-up'});
@@ -181,7 +198,32 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const page=await pageAt({width:1440,height:1000});await draft(page,'Reload while send response is held');await approve(page);holdSend=true;releaseSend=null;const before=sendCount();await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.reload();holdSend=false;releaseSend();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Never replay after interrupted send');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({send_in_flight_reload_lock_survives:true,no_automatic_resend:true});await page.close();
   }
   {
-   const before=posts.length,page=await pageAt({width:390,height:844},true);assert.equal(posts.length,before);await page.locator('[data-reply-message="source"]').click();assert.equal(posts.length,before);assert.equal(await page.locator('.reply-composer').isHidden(),true);checks.push({passive_production_verification_mode_no_posts:true});await page.close();
+   const before=posts.length,page=await pageAt({width:390,height:844},true);assert.equal(posts.length,before);await page.locator('[data-reply-message="source"]').click();assert.equal(posts.length,before);assert.equal(await page.locator('.reply-composer').isHidden(),true);checks.push({passive_production_verification_mode_no_posts:true});
+   await page.goto(base+'/?case='+B+'&tab=conversation&mail-view=readonly');
+   await page.locator('[data-delivery-id="follow-up"]').getByText('Edited fixture follow-up',{exact:true}).waitFor();
+   await page.reload();
+   await page.locator('[data-delivery-id="follow-up"]').getByText('Edited fixture follow-up',{exact:true}).waitFor();
+   assert.equal(await page.getByRole('form',{name:'お問い合わせへの返信'}).count(),0);
+   await page.close();
+  }
+  {
+   followUpDelivery=undefined;
+   unknownFollowUp=true;
+   const page=await pageAt({width:1440,height:1000});
+   await page.goto(base+'/?case='+B+'&tab=conversation');
+   await page.getByRole('button',{name:'お客様に返信',exact:true}).click();
+   const form=page.getByRole('form',{name:'お問い合わせへの返信'});
+   await form.getByLabel('本文',{exact:true}).fill('Unknown follow-up');
+   await form.getByRole('button',{name:'プレビュー',exact:true}).click();
+   await form.getByRole('checkbox').check();
+   await form.getByRole('button',{name:'確認した内容で送信する'}).click();
+   await form.getByText('送信結果を確認できません。配送記録を確認してください。',{exact:true}).waitFor();
+   assert.equal(await form.getByRole('button',{name:'確認した内容で送信する'}).isDisabled(),true);
+   await page.reload();
+   await page.getByRole('button',{name:'お客様に返信',exact:true}).click();
+   await page.getByText('送信は試行済みです。配送記録とGmail履歴を確認してください。').waitFor();
+   assert.equal(intakePosts.length,2);
+   await page.close();
   }
   assert.deepEqual((await f.db.query('select to_jsonb(i) row from pa_inquiries i order by id')).rows,protectedBefore);assert.deepEqual((await f.db.query('select to_jsonb(l) row from pa_gmail_thread_links l order by id')).rows,linksBefore);
   assert.equal((await f.db.query('select count(*)::int n from pa_gmail_message_index where inquiry_id=$1',[B])).rows[0].n,0);
