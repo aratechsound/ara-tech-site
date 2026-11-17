@@ -9,6 +9,7 @@ import {createThreadLink} from './manual-thread-link.mjs';
 import {createReplyState,createAttemptStore} from './reply-state.mjs';
 import {createReplyComposer} from './reply-composer.mjs';
 import {createIntakeComposer,followUpType} from './intake-composer.mjs';
+const intakeCompletions = new Map();
 import {createCaseMailSync} from './case-mail-sync.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
 import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
@@ -194,6 +195,17 @@ function formEntry(inquiry, entry) {
 function openIntakeComposer() {
   const inquiry = current();
   if (!canStartFollowUp(inquiry) || detail.intakeComposer) return;
+  try {
+    if (intakeAttempts.has(inquiry.id)) {
+      openInfo('初回フォローメール','<p>送信は試行済みです。配送記録とGmail履歴を確認してください。</p>');
+      return;
+    }
+  } catch {
+    openInfo('初回フォローメール','<p>送信の試行記録を確認できません。配送記録を確認してください。</p>');
+    return;
+  }
+  const caseDetail = detail;
+  const owner = session?.user?.id;
   const epoch = selectionEpoch;
   const isCurrent = () => epoch===selectionEpoch && selected===inquiry.id;
   const form = createIntakeComposer({inquiry, requestPreview:({recipient,subject,body})=>
@@ -209,19 +221,22 @@ function openIntakeComposer() {
     try {
       const result = await authenticatedMailRequest({
         action:'send_content_hearing', inquiry_id:inquiry.id, expected_recipient:recipient, subject, body
-      }, ()=>isCurrent() && tab==='conversation', {endpoint:'/api/pa-mail', timeout:65000});
+      }, ()=>isCurrent() && tab==='conversation', {endpoint:'/api/pa-mail', track:replyRequests, timeout:65000});
       if (result.delivery?.message_type!==followUpType ||
           result.delivery.recipient?.trim()!==recipient || result.delivery.subject!==subject) {
         throw Error('follow_up_delivery_mismatch');
       }
-      intakeAttempts.finish(key,result.delivery.status==='sent' ? 'sent' : 'unknown');
-      if (isCurrent()) {
-        if (result.case_state?.result_status==='waiting_customer_reply') {
-          cases = cases.map(row=>row.id===inquiry.id ? {...row,status:'waiting_customer_reply'} : row);
-          renderList();
-        }
-        await loadSurface('deliveries','/data/case/'+inquiry.id+'/deliveries',epoch);
+      if (result.ok!==true || result.delivery.status!=='sent' || !result.delivery.id ||
+          !result.delivery.gmail_message_id) throw Error('follow_up_delivery_unknown');
+      intakeAttempts.finish(key,'sent');
+      if (session?.user?.id!==owner) return result;
+      intakeCompletions.set(key,{delivery:result.delivery,phase:'pending'});
+      delete caseDetail.intakeComposer;
+      if (result.case_state?.result_status==='waiting_customer_reply') {
+        cases = cases.map(row=>row.id===key ? {...row,status:'waiting_customer_reply'} : row);
+        renderList();
       }
+      if (selected===key) void refreshIntakeDelivery(key);
       return result;
     } catch (error) {
       if (error.message==='follow_up_recipient_changed') intakeAttempts.release(key);
@@ -233,6 +248,50 @@ function openIntakeComposer() {
   render();
   form.scrollIntoView({block:'nearest'});
   form.elements.body.focus({preventScroll:true});
+}
+
+async function refreshIntakeDelivery(id) {
+  const completion = intakeCompletions.get(id);
+  if (!completion || selected!==id || completion.phase==='loading') return;
+  const epoch = selectionEpoch;
+  const {delivery} = completion;
+  completion.phase = 'loading';
+  render();
+  try {
+    if (caseLoad?.id===id) await caseLoad.promise;
+    if (epoch!==selectionEpoch) return;
+    const rows = await api('/data/case/'+id+'/deliveries');
+    if (epoch!==selectionEpoch) return;
+    if (!Array.isArray(rows) || !rows.some(row=>row.inquiry_id===id &&
+        row.id===delivery.id && row.gmail_message_id===delivery.gmail_message_id &&
+        row.message_type===followUpType && row.status==='sent' && row.body?.trim())) {
+      throw Error('delivery_readback_unverified');
+    }
+    detail.deliveries = {state:'ready',value:rows};
+    completion.phase = 'ready';
+  } catch {
+    // Keep the confirmed send separate from history availability.
+  } finally {
+    if (completion.phase==='loading') completion.phase = 'pending';
+    if (epoch===selectionEpoch) {
+      render();
+      if (tab==='conversation') {
+        const card = Array.from(central.querySelectorAll('[data-delivery-id],[data-message]')).find(row=>
+          row.dataset.deliveryId===delivery.id || row.dataset.message===delivery.gmail_message_id);
+        const notice = central.querySelector('[data-intake-notice]');
+        const target = card?.previousElementSibling===notice ? notice : card || notice;
+        target?.scrollIntoView({block:'start'});
+      }
+    }
+  }
+}
+
+function intakeCompletionNotice(id) {
+  const completion = intakeCompletions.get(id);
+  if (!completion) return '';
+  if (completion.phase==='ready') return '<div class="notice" role="status" data-intake-notice>送信しました。</div>';
+  if (completion.phase==='loading') return '<div class="notice" role="status" data-intake-notice>送信しました。履歴を確認中です…</div>';
+  return '<div class="notice" role="status" data-intake-notice>送信は完了しましたが、履歴表示を更新できませんでした。 <button type="button" class="lightbtn" data-intake-recheck>履歴を再取得</button></div>';
 }
 
 function deliveryEntry(entry) {
@@ -247,7 +306,7 @@ function deliveryEntry(entry) {
   const inner = label === '内部通知'
     ? `<details><summary>${heading}</summary>${content}</details>`
     : `<div class="mail-heading">${heading}</div>${content}`;
-  return `<article class="mail-row no-attachments sent" data-timeline-kind="delivery"><div class="mail-text">${inner}</div></article>`;
+  return `<article class="mail-row no-attachments sent" data-timeline-kind="delivery" data-delivery-id="${escape(row.id)}"><div class="mail-text">${inner}</div></article>`;
 }
 
 function renderConversationTimeline(inquiry) {
@@ -258,11 +317,14 @@ function renderConversationTimeline(inquiry) {
     ? (inbound.length ? '' : '<p class="hint" data-customer-mail-empty>確認できた顧客メールはありません。</p>')
     : readBlock('messages', 'メール索引', () => '');
   const deliveries = readBlock('deliveries', '配送記録', () => '');
-  return status + deliveries + '<div class="mail-list" aria-label="やり取りの時系列">' +
+  const completion = intakeCompletions.get(inquiry.id);
+  const notice = intakeCompletionNotice(inquiry.id);
+  return (completion?.phase==='ready' ? '' : notice) + status + deliveries + '<div class="mail-list" aria-label="やり取りの時系列">' +
     entries.map(entry => {
       if (entry.kind === 'form') return formEntry(inquiry, entry);
-      if (entry.kind === 'delivery') return deliveryEntry(entry);
-      return renderTimelineMail(entry, entry.message === newest);
+      const prefix = completion?.phase==='ready' && entry.deliveries.some(row=>row.id===completion.delivery.id) ? notice : '';
+      if (entry.kind === 'delivery') return prefix + deliveryEntry(entry);
+      return prefix + renderTimelineMail(entry, entry.message === newest);
     }).join('') + '</div>';
 }
 
@@ -273,9 +335,10 @@ function renderTimelineMail(entry, isNew) {
   const delivery = entry.deliveries[0];
   const label = delivery ? deliveryLabel(delivery) + '・' + deliveryOutcome(delivery)
     : inbound ? 'お客様からのメール' : dir === 'sent' ? 'ARA-TECHからの送信' : '方向未取得';
-  const body = savedExcerpt(r);
+  const followUpBody = entry.deliveries.find(row=>row.message_type===followUpType && row.status==='sent')?.body;
+  const body = followUpBody || savedExcerpt(r);
   const atts = mailAttachments(r);
-  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="mail-excerpt ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
+  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 function estimate(){
   return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2>`+readBlock('commercial','商務・原本',s=>{
@@ -432,6 +495,7 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
+  if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
   if(reply&&!reply.disabled&&!passiveMail){
