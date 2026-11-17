@@ -342,6 +342,27 @@ async function main() {
         assert.equal(sentEstimate.state, 'sent');
         await assert.rejects(pf.service.dispatch({case_id: pf.otherId, job_id: sentEstimate.id}, pf.actor), /outbox_not_found/u);
         assert.equal(pf.state.sendCount, 1);
+        const revisedPdf = Buffer.concat([pf.quote, Buffer.from('\n% Fixture revision 2\n')]);
+        const revisedFilename = '見積書 改訂第2版.pdf';
+        const sendRevision = await reviewPdf(false, revisedPdf, revisedFilename);
+        assert.equal(pf.state.sendCount, 1);
+        await sendRevision.click();
+        await page.getByRole('cell', { name: /^版 2 \/ /u }).waitFor();
+        await page.getByRole('cell', { name: /^版 1 \/ /u }).waitFor();
+        const revisedSnapshot = await pf.service.snapshot(pf.inquiryId);
+        const [original, revision] = [...revisedSnapshot.estimates].sort((a,b) => a.revision_number-b.revision_number);
+        assert.deepEqual([original.revision_number, revision.revision_number], [1, 2]);
+        assert.equal(revisedSnapshot.state.current_estimate_revision_id, revision.id);
+        assert.equal(original.delivery.state, 'sent');
+        assert.equal(revision.delivery.state, 'sent');
+        assert.equal(pf.state.sendCount, 2);
+        const originalDocument = await pf.service.document(pf.inquiryId, original.document_id);
+        const revisedDocument = await pf.service.document(pf.inquiryId, revision.document_id);
+        assert.equal(originalDocument.filename, '見積書 現行画面.pdf');
+        assert.equal(revisedDocument.filename, revisedFilename);
+        assert.deepEqual(originalDocument.bytes, pf.quote);
+        assert.deepEqual(revisedDocument.bytes, revisedPdf);
+        console.log('PASS CASE DESK estimate revision preserves both sent rows and both PDF originals');
         const fp = await pf.service.confirmationPreview({ case_id: pf.inquiryId }, pf.actor);
         const issued = await pf.service.issueConfirmation({
             case_id: pf.inquiryId, preview_fingerprint: fp.fingerprint, operation_id: crypto.randomUUID()
@@ -401,7 +422,7 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         if (browser) await browser.close();
