@@ -75,5 +75,6 @@ printf 'postgresql=ready\npostgrest4=ready\nhttp_fixture2=ready\nnetwork=none\n'
 bash tests/ci/test-git-checkout.sh > /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 cat /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 node tests/ci/validate-security-checks.cjs
+python3 tests/validate-paui095-schedule-postgres-race.py | tee /workspace/outputs/PAUI095_SCHEDULE_POSTGRES_RACE.log
 node tests/browser/works-reviewed-publication.cjs
 PA_EST_006_OUTPUT_DIR=/workspace/outputs/pa-est-006-preview node tests/browser/pa-est-006-preview.cjs
