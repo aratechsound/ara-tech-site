@@ -836,10 +836,14 @@ const render = async (context, data, epoch) => {
 
     const contractRoot = byId("pa-contract-v5-summary");
     contractRoot.replaceChildren();
+    const deliveryUnresolved = data.confirmation_preflight?.delivery_outcome_unresolved === true;
     const confirmationStatus = confirmationDisplayState({ accepted, active, delivery: activeDelivery });
     contractRoot.append(element("span", `pa-commercial__status pa-commercial__status--${confirmationStatus.tone}`, `現在：${confirmationStatus.label}`));
     appendLine(contractRoot, "対象", accepted ? `見積 第${accepted.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${accepted.version}` : active ? `見積 第${active.snapshot?.estimate_revision_number || "?"}版／正式受注確認 #${active.version}` : current ? `見積 第${current.revision_number}版` : "見積なし");
     if (accepted) appendLine(contractRoot, "成立", dateTime(accepted.confirmed_at));
+    if (!accepted && deliveryUnresolved) {
+        contractRoot.append(element("p", "pa-commercial__warning", "送信結果を照合してから、正式受注確認を準備してください。"));
+    }
     if (!accepted && !active && current && data.confirmation_preflight) {
         const preflight = data.confirmation_preflight;
         appendLine(contractRoot, "案件", preflight.event_name || "未設定");
@@ -855,7 +859,7 @@ const render = async (context, data, epoch) => {
         appendLine(contractRoot, "期限", dateTime(active.expires_at));
         const actions = element("div", "pa-commercial__compact-actions");
         actions.append(button("案内内容を確認", () => context.openFileSearch()));
-        if (!data.production_e2e_test && current && active.estimate_revision_id === current.id) {
+        if (!data.production_e2e_test && !deliveryUnresolved && current && active.estimate_revision_id === current.id) {
             actions.append(button("この確認を失効して再発行準備", () => openConfirmationPreview(context, null, {
                 offer_id: active.id,
                 version: active.version
@@ -890,7 +894,7 @@ const render = async (context, data, epoch) => {
         }));
         contractRoot.append(actions);
     }
-    if (!active && !accepted && current) {
+    if (!active && !accepted && !deliveryUnresolved && current) {
         contractRoot.append(button("正式受注確認を発行準備", () => openConfirmationPreview(context), "button button--small"));
         contractRoot.append(button("正式受注確認として送信", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE), "button button--small"));
     }
