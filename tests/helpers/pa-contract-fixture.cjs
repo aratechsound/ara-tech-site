@@ -16,6 +16,12 @@ async function createFixture(){
   update public.pa_inquiries set email='customer@example.invalid',customer_name='管理下テスト担当者',contact_name='管理下テスト担当者',organization_name='テスト実行委員会',event_name='龍姫湖まつり2026（検証用）',event_date='2026-10-18',event_time='10:00〜15:00',venue='管理下テスト会場',inquiry_number='PA-20260907-00001',request_summary='屋外イベントPA・設営・本番対応';
  update public.pa_gmail_message_index set to_addresses='["customer@example.invalid"]',cc_addresses='["venue@example.invalid"]',attachment_metadata='[{"id":"attachment_1","filename":"____.pdf","mime_type":"application/pdf"}]';`);
  await db.exec(read('20260907130000_pa_formal_contract.sql'));
+ // The contract fixture exercises linked-mail synchronization, independently of
+ // the mailbox-wide discovery function changed later in the same migration.
+ const linkedMailMigration=read('20261106090000_paui088_linked_mail_sync.sql');
+ const discoveryPatch=linkedMailMigration.indexOf('-- A link appearing between provider lookup and commit');
+ assert(discoveryPatch>0);
+ await db.exec(linkedMailMigration.slice(0,discoveryPatch));
  const original=await PDFDocument.create();const page=original.addPage([595,842]);page.drawText('CONTROLLED FIXTURE - FINAL ESTIMATE', {x:45,y:770,size:16});page.drawText('TOTAL JPY 110,000',{x:45,y:735,size:12});page.drawRectangle({x:45,y:620,width:505,height:60});
  const quote=Buffer.from(await original.save());
  const state={sendCount:0,transport:'ok',quote,corruptStored:false,missingStored:false,rateAllowed:true,network:[],receipts:[],lastRaw:null};
@@ -36,6 +42,14 @@ async function createFixture(){
   if(u.pathname==='/auth/v1/user')return options.headers.authorization==='Bearer fixture-admin'?json({id:actorId}):json({},401);
   assert.equal(u.pathname.split('/')[1],'rest');
   if(u.pathname.endsWith('/rpc/consume_rate_limit'))return json({allowed:state.rateAllowed,remaining:10,retry_after_seconds:600,limit:JSON.parse(options.body).p_limit});
+  if(u.pathname.endsWith('/rpc/paui041_record_linked_sync')){
+   const {p_case,p_actor,p_threads,p_messages}=JSON.parse(options.body);
+   try{
+    await db.query('select public.paui041_record_linked_sync($1,$2,$3::jsonb,$4::jsonb)',
+     [p_case,p_actor,JSON.stringify(p_threads),JSON.stringify(p_messages)]);
+    return json(null);
+   }catch(error){return json({message:error.message},400);}
+  }
   if(u.pathname.includes('/rpc/')){
    const name=u.pathname.split('/').at(-1);assert(/^pa_(?:contract|v5)_[a-z0-9_]+$/.test(name));const input=JSON.parse(options.body),keys=Object.keys(input);keys.forEach(k=>assert(/^p_[a-z0-9_]+$/.test(k)));
    try{const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k} => $${i+1}`).join(',')}) result`,Object.values(input));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}

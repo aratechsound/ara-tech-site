@@ -157,6 +157,30 @@ async function main() {
     await f.db.exec('begin;\n' + dry + '\nrollback;');
     assert.equal(await counts(f), beforeDry);
     evidence.MIGRATION_LOCAL_DRY_RUN = 'PASS_ROLLED_BACK';
+
+    // Continue the same accepted case through billing, payment and close.
+    const currentRevision = async () => Number((await f.db.query(
+      'select revision from pa_case_commercial_state where inquiry_id=$1', [f.inquiryId]
+    )).rows[0].revision);
+    const case_id = f.inquiryId;
+    await f.service.settle({case_id, expected_revision:await currentRevision(), operation_id:crypto.randomUUID(),
+      amount_minor:110000, unresolved_changes:false, evidence:{source:'synthetic event completed'}}, f.actor);
+    const billing = await f.service.createBilling({
+      case_id, expected_revision:await currentRevision(), operation_id:crypto.randomUUID(),
+      contract_id:sent.id, estimate_revision_id:estimate.id, amount_minor:110000,
+      invoice_policy:'no_separate_invoice', due_date:'2026-10-31',
+      due_basis:{status:'agreed',source:'synthetic agreement'}, agreement_evidence:{source:'synthetic agreement'}
+    }, f.actor);
+    assert.equal(billing.outbox_id, null);
+    const close = {case_id, billing_id:billing.id, expected_revision:await currentRevision(),
+      operation_id:crypto.randomUUID(), payment_date:'2026-10-23',
+      new_payment_minor:110000, payment_method:'bank_transfer', memo:'synthetic payment'};
+    const sendsBeforeClose = f.state.sendCount;
+    assert.equal((await f.service.close(close,f.actor)).state,'closed');
+    assert.equal((await f.service.close(close,f.actor)).already_committed,true);
+    assert.equal(f.state.sendCount,sendsBeforeClose);
+    assert.equal((await f.db.query('select count(*)::int n from pa_payment_records where billing_id=$1',[billing.id])).rows[0].n,1);
+    evidence.ACCEPTED_CASE_THROUGH_PAYMENT_AND_CLOSE = 'PASS_NO_SEPARATE_INVOICE';
   } finally { await f.db.close(); }
 
   for (const outcome of ['success', 'failure', 'ambiguous', 'post_send_failure', 'server_error']) {
