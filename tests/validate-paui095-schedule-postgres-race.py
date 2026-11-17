@@ -229,11 +229,57 @@ def replacement_race():
             owner_a.communicate()
 
 
+def reserve(case, secret, key):
+    url = "https://ara-tech.cc/pa-schedule-confirm.html?token=" + secret
+    payload = {"inquiry_id":str(case), "dedupe_key":key, "recipient":"fixture@example.invalid",
+               "subject":"Fixture", "body":url, "attempt_number":1, "is_retry":False}
+    return f"set role service_role; select id from public.pa_claim_schedule_invitation({lit(json.dumps(payload))}::jsonb);"
+
+
+def assert_refused(statement, reason):
+    try:
+        sql(statement)
+    except RuntimeError as error:
+        assert reason in str(error), str(error)
+    else:
+        raise AssertionError(f"Expected rejection: {reason}")
+
+
+def dispatch_race():
+    case, secret, issued = seed()
+    key = "schedule:" + str(uuid.uuid4())
+    same_token_new_key = reserve(case, secret, "schedule:" + str(uuid.uuid4()))
+    hold = open_session("schedule-dispatch-claim")
+    try:
+        send(hold, "begin;\n" + reserve(case, secret, key))
+        wait_for("schedule-dispatch-claim", "state='idle in transaction'")
+        revoke = command(case, issued["updated_at"], issued["token_id"], "revoke")
+        assert json.loads(scalar(revoke)) == {"state": "busy"}
+        assert_refused(same_token_new_key, "schedule_delivery_busy")
+        send(hold, "commit;")
+        claimed = finish(hold)[-1][0]
+        assert claimed
+        assert json.loads(scalar(revoke)) == {"state": "busy"}
+        assert_refused(same_token_new_key, "schedule_delivery_exists")
+        assert sql(reserve(case, secret, key)) == []
+        sql(f"update public.pa_email_deliveries set status='failed',failed_at=now() where id={lit(claimed)};")
+        assert json.loads(scalar(revoke))["state"] == "revoked"
+        assert_refused(same_token_new_key, "schedule_token_not_available")
+        print("PASS concurrent dispatch reservation: separate transactions cannot duplicate or revoke the reserved URL")
+    finally:
+        if hold.poll() is None:
+            hold.kill()
+            hold.communicate()
+
+
 if __name__ == "__main__":
     initialize()
     try:
         apply_schema()
         response_race()
         replacement_race()
+        sql("set role postgres; grant select,insert on public.pa_email_deliveries to service_role;")
+        sql("set role postgres;\n" + (ROOT / "supabase/operations/paui095-guard-schedule-dispatch.sql").read_text(encoding="utf-8"))
+        dispatch_race()
     finally:
         sql(f"drop database {DATABASE} with (force);", "postgres")

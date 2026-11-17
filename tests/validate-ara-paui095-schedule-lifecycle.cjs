@@ -1,6 +1,8 @@
 'use strict';
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { createFixture } = require('./helpers/ara-case-fixture.cjs');
 const { createScheduleDelivery, retryDelivery, submitScheduleResponseAndNotify } = require('../api/_pa-mail.cjs');
 const mailHandler = require('../api/pa-mail.js');
@@ -24,18 +26,23 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         try { return await action(); } finally { await db.exec('reset role'); }
     };
     const makeCase = async status => row(
-        "insert into pa_inquiries(customer_name,email,event_name,public_event_name,internal_memo,case_type,status) values ('Fixture','customer@example.invalid','Private fixture','Public fixture','DO_NOT_EXPOSE','PA_EVENT',$1) returning *",[status]
+        "insert into pa_inquiries(customer_name,email,event_name,public_event_name,internal_memo,event_date,venue,public_conditions,case_type,status) values ('Fixture','customer@example.invalid','Private fixture','Public fixture','DO_NOT_EXPOSE','2027-01-01','Fixture hall','Fixture terms','PA_EVENT',$1) returning *",[status]
     );
-    const issue = async (inquiry, expiry='1 day') => {
-        const token=crypto.randomBytes(32).toString('base64url');
-        const issued=await withRole('authenticated',()=>row(
-            'select * from issue_pa_schedule_token($1,$2,now()+$3::interval)',[inquiry.id,token,expiry]
+    const ownerCommand = async (inquiry, action, token=null) => {
+        const version = await row("select updated_at::text,(select id from pa_schedule_tokens where inquiry_id=$1 and revoked_at is null and answered_at is null) token_id from pa_inquiries where id=$1",[inquiry.id]);
+        const result = await withRole('authenticated',()=>row(
+            "select public.pa_manage_schedule_token_v2($1,$2,$3,$4,$5,case when $5::text is null then null else now()+interval '1 day' end) result",
+            [inquiry.id,version.updated_at,version.token_id,action,token]
         ));
+        return result.result;
+    };
+    const issue = async (inquiry) => {
+        const token=crypto.randomBytes(32).toString('base64url');
+        const issued=await ownerCommand(inquiry,'issue',token);
+        assert.equal(issued.state,'issued');
         return {token,id:issued.token_id};
     };
-    const revoke = inquiry => withRole('authenticated',()=>row(
-        'select revoke_pa_schedule_token($1) as revoked',[inquiry.id]
-    ));
+    const revoke = async inquiry => ({revoked:(await ownerCommand(inquiry,'revoke')).state==='revoked'});
     const lookup = token => withRole('anon',()=>row('select * from get_pa_schedule_case($1)',[token]));
     const readInquiry = inquiry => row('select * from pa_inquiries where id=$1',[inquiry.id]);
     const prepare = (inquiry, token, key=crypto.randomUUID(), extra='') => ({
@@ -59,12 +66,17 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         } finally { global.fetch=savedFetch; }
     };
     try {
+        await db.exec("grant execute on function public.issue_pa_schedule_token(uuid,text,timestamptz),public.revoke_pa_schedule_token(uuid) to anon,authenticated,service_role");
+        for (const file of ['paui095-guard-schedule-token.sql','paui095-guard-schedule-dispatch.sql']) {
+            await db.exec(fs.readFileSync(path.resolve(__dirname,'../supabase/operations',file),'utf8'));
+        }
         const fresh = await makeCase('new');
-        await assert.rejects(()=>issue(fresh),/schedule form is not allowed/);
+        assert.deepEqual(await ownerCommand(fresh,'issue',crypto.randomBytes(32).toString('base64url')),{state:'unavailable'});
         const target=await makeCase('schedule_coordination');
         const other=await makeCase('schedule_coordination');
         const expiring=await makeCase('schedule_coordination');
-        const expired=await issue(expiring,'1 microsecond');
+        const expired=await issue(expiring);
+        await db.query("update pa_schedule_tokens set issued_at=now()-interval '2 days',expires_at=now()-interval '1 day' where id=$1",[expired.id]);
         const previous=await issue(target);
         const now=await issue(target);
         const foreign=await issue(other);

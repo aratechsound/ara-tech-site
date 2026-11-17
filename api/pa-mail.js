@@ -180,7 +180,9 @@ const paMailHandler = async (request, response) => {
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (code === "schedule_token_not_available") return sendJson(response, 409, { ok: false, code });
+        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists"].includes(code)) {
+            return sendJson(response, 409, { ok: false, code });
+        }
         if (code === "mail_outcome_unknown") return sendJson(response, 409, { ok: false, code });
         if ([
             "invalid_input",

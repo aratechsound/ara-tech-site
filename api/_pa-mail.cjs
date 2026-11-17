@@ -385,7 +385,7 @@ const supabaseRequest = async (path, options = {}, fetchImpl = fetch) => {
         try {
             const detail = await response.json();
             error.databaseCode = /^[A-Z0-9]{5}$/.test(detail?.code || '') ? detail.code : null;
-            const allowed = ['submission_content_conflict','mail_page_conflict','mail_link_conflict','inquiry_archived','invalid_intake','invalid_notification','not_authorized','invalid_mail_cursor','pa_history_preserved'];
+            const allowed = ['schedule_delivery_busy','schedule_delivery_exists','schedule_token_not_available','retry_not_allowed','submission_content_conflict','mail_page_conflict','mail_link_conflict','inquiry_archived','invalid_intake','invalid_notification','not_authorized','invalid_mail_cursor','pa_history_preserved'];
             error.safeDatabaseReason = allowed.includes(detail?.message) ? detail.message : null;
         } catch {}
         throw error;
@@ -604,10 +604,11 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body, messageType, onDispatch }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType, beforeDispatch, onDispatch }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
     const raw = buildRawMessage({ to, subject, body, messageType, config });
+    if (beforeDispatch) await beforeDispatch();
     onDispatch?.();
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
@@ -634,11 +635,23 @@ const insertDelivery = async (delivery, fetchImpl = fetch) => {
         on_conflict: "dedupe_key,attempt_number",
         select: "*"
     });
-    const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
-        method: "POST",
-        prefer: "return=representation,resolution=ignore-duplicates",
-        body: JSON.stringify(delivery)
-    }, fetchImpl);
+    let rows;
+    try {
+        rows = delivery.message_type === "schedule_request"
+            ? await supabaseRequest("/rest/v1/rpc/pa_claim_schedule_invitation", {
+                method: "POST", body: JSON.stringify({ p_delivery: delivery })
+            }, fetchImpl)
+            : await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
+                method: "POST",
+                prefer: "return=representation,resolution=ignore-duplicates",
+                body: JSON.stringify(delivery)
+            }, fetchImpl);
+    } catch (error) {
+        if (delivery.message_type === "schedule_request" && error.safeDatabaseReason) {
+            throw new Error(error.safeDatabaseReason);
+        }
+        throw error;
+    }
     if (Array.isArray(rows) && rows[0]) return { row: rows[0], created: true };
 
     const lookup = new URLSearchParams({
@@ -686,12 +699,16 @@ const deliver = async (row, fetchImpl = fetch) => {
             subject: row.subject,
             body: row.body,
             messageType: row.message_type,
+            beforeDispatch: schedule ? () => requireOpenScheduleToken(
+                row.inquiry_id, scheduleUrlInMessage(row.body), fetchImpl
+            ) : undefined,
             onDispatch: () => { dispatched = true; }
         }, fetchImpl);
     } catch (error) {
         let code = safeErrorCode(error);
         const uncertain = schedule && dispatched && !scheduleSendRejected("gmail_send_" + error?.gmailHttpStatus);
         if (uncertain) code = "mail_outcome_unknown";
+        else if (schedule && !dispatched && error.message === "schedule_token_not_available") code = error.message;
         else if (schedule && !dispatched && code === "mail_delivery_failed") code = "mail_before_dispatch_failed";
         try {
             return await updateDelivery(row.id, {

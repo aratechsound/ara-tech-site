@@ -3165,6 +3165,8 @@ const mailErrorMessage = (code) => {
     if (String(code).startsWith("gmail_send_")) {
         return "Gmailから送信できませんでした。案件データは保持されています。接続状態を確認して再送してください。";
     }
+    if (code === "schedule_delivery_busy") return "この日程URLは別の操作で処理中です。配送履歴を確認してください。";
+    if (code === "schedule_delivery_exists") return "この日程URLの配送記録が既にあります。配送履歴を確認してください。";
     if (code === "schedule_token_not_available") return "この案件の有効な日程URLを確認できません。現在の発行状態と案内文を確認してください。";
     if (code === "invalid_schedule_url" || code === "invalid_schedule_message") return "案内メールの受付番号と日程URLを確認してください。";
     if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
@@ -3962,7 +3964,7 @@ const sendEmail = async () => {
         }
     } catch (error) {
         if (!stillSelected()) return;
-        if (["schedule_token_not_available", "invalid_schedule_url", "invalid_schedule_message", "schedule_not_allowed", "not_authorized"].includes(error.message)) {
+        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists", "invalid_schedule_url", "invalid_schedule_message", "schedule_not_allowed", "not_authorized"].includes(error.message)) {
             setMessage($("#email-message"), mailErrorMessage(error.message), "error");
             $("#email-send-state").textContent = "送信を停止しました";
         } else {
