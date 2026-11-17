@@ -30,7 +30,19 @@ async function createFixture() {
   if(u.origin!=='https://fixture.invalid') throw Error('Live network forbidden');
   if(u.pathname==='/auth/v1/user') return options.headers.authorization==='Bearer fixture-admin'?json({id:actor,email:'owner@example.invalid'}):json({},401);
   const input=options.body?JSON.parse(options.body):null;
-  if(u.pathname.includes('/rpc/')) {const name=ident(u.pathname.split('/').at(-1));const keys=Object.keys(input).map(ident);try {if(name==='consume_rate_limit')return json((await db.query(`select * from public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')})`,Object.values(input).map(v=>v&&typeof v==='object'?JSON.stringify(v):v))).rows);const r=await db.query(`select public.${name}(${keys.map((k,i)=>`${k}=>$${i+1}`).join(',')}) result`,Object.values(input).map(v=>v&&typeof v==='object'?JSON.stringify(v):v));return json(r.rows[0].result);}catch(e){return json({message:e.message},400);}}
+  if (u.pathname.includes('/rpc/')) {
+   const name = ident(u.pathname.split('/').at(-1));
+   const args = Object.keys(input).map((key, i) => `${ident(key)}=>$${i+1}`).join(',');
+   const params = Object.values(input).map(value => value && typeof value === 'object' ? JSON.stringify(value) : value);
+   const returnsRows = ['consume_rate_limit', 'finalize_pa_content_hearing_delivery'].includes(name);
+   try {
+    const call = `public.${name}(${args})`;
+    const { rows } = await db.query(returnsRows ? `select * from ${call}` : `select ${call} result`, params);
+    return json(returnsRows ? rows : rows[0].result);
+   } catch (error) {
+    return json({ message: error.message }, 400);
+   }
+  }
   const table=ident(u.pathname.split('/').at(-1)), values=[],where=[];
   for(const [key,value] of u.searchParams){
    if(['select','limit','order','on_conflict'].includes(key))continue;
@@ -40,16 +52,31 @@ async function createFixture() {
    else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}
    else if(value.startsWith('in.')){
     const match=/^in\.\(([A-Za-z0-9_-]{1,200}(?:,[A-Za-z0-9_-]{1,200}){0,99})\)$/.exec(value);
-    if(table!=='pa_gmail_message_index'||key!=='gmail_message_id'||(options.method||'GET')!=='GET'||!match)throw Error('Invalid fixture message ID filter');
+    const messageFilter = table === 'pa_gmail_message_index' && key === 'gmail_message_id';
+    const portalFilter = table === 'pa_portal_document_versions' && key === 'card_id';
+    if ((!messageFilter && !portalFilter) || (options.method || 'GET') !== 'GET' || !match) {
+     throw Error('Invalid fixture ID filter');
+    }
     const ids=match[1].split(',');
-    if(new Set(ids).size!==ids.length)throw Error('Invalid fixture message ID filter');
-    values.push(ids);where.push(`${key}=ANY($${values.length}::text[])`);
+    if (new Set(ids).size !== ids.length) throw Error('Invalid fixture ID filter');
+    if (portalFilter && ids.some(id => !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(id))) {
+     throw Error('Invalid fixture portal card ID');
+    }
+    values.push(ids);
+    where.push(`${key}=ANY($${values.length}::${portalFilter ? 'uuid' : 'text'}[])`);
    }else throw Error('Unexpected fixture filter '+key);
   }
   const suffix=where.length?' where '+where.join(' and '):'';
   try {
    if((options.method||'GET')==='GET') {const selected=u.searchParams.get('select')||'*';if(!/^[a-z0-9_*,]+$/.test(selected))throw Error('Invalid select');const order=u.searchParams.get('order')?.split(',').map(s=>{const [k,d]=s.split('.');ident(k);if(!['asc','desc'].includes(d))throw Error('order');return `${k} ${d}`;}).join(',');return json((await db.query(`select ${selected} from public.${table}${suffix}${order?' order by '+order:''} limit ${Number(u.searchParams.get('limit')||1000)}`,values)).rows.map(row=>Object.fromEntries(Object.entries(row).map(([k,v])=>[k,v instanceof Date ? (/(_date|_on)$/.test(k)?v.toISOString().slice(0,10):v.toISOString()):v]))));}
-   const keys=Object.keys(input).map(ident);const args=Object.values(input).map(v=>v&&typeof v==='object'&&!Array.isArray(v)?JSON.stringify(v):Array.isArray(v)?JSON.stringify(v):v);
+   const keys = Object.keys(input).map(ident);
+   const args = keys.map(key => {
+    const value = input[key];
+    if (table === 'pa_inquiries' && key === 'requested_services') return value;
+    if (table === 'pa_contract_receipts' && key === 'pdf' && typeof value === 'string'
+      && /^\\x(?:[0-9a-f]{2})+$/iu.test(value)) return Buffer.from(value.slice(2), 'hex');
+    return value && typeof value === 'object' ? JSON.stringify(value) : value;
+   });
    if(options.method==='PATCH')return json((await db.query(`update public.${table} set ${keys.map((k,i)=>`${k}=$${values.length+i+1}`).join(',')}${suffix} returning *`,[...values,...args])).rows);
    const conflict=u.searchParams.get('on_conflict');let extra='';
    if(conflict){conflict.split(',').forEach(ident);extra=` on conflict(${conflict}) `+(String(options.headers?.prefer||'').includes('merge-duplicates')?'do update set '+keys.map(k=>`${k}=excluded.${k}`).join(','):'do nothing');}
