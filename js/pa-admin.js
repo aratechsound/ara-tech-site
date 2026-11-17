@@ -4,6 +4,8 @@ import { renderContractPanel } from "./pa-contract-admin.js";
 import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=paui095-delivery-outcome";
 import { resolveRequestedCase, withoutRequestedCase } from "./pa-admin-selection.mjs?v=pa-est-009";
 
+import { openScheduleToken, scheduleTokenRequest, scheduleTokenSecret, scheduleTokenUrl } from "../pa-ui/js/schedule-token.mjs";
+
 import { isPaCase, caseTypeLabel, matchesCaseType, setupUnlinkedMail } from "./ara-case.mjs";
 
 import { ownerPaidCompletionStatus, caseEditorStatus, recordOwnerPaidCompletion } from "./pa-owner-paid-completion.mjs";
@@ -2269,6 +2271,7 @@ const renderFirstFormData = (item) => {
 };
 
 const renderTokenState = () => {
+    $("#issue-token").disabled = false;
     issuedRawToken = "";
     $("#issued-url").value = "";
     emailSection.classList.add("hidden");
@@ -2856,13 +2859,6 @@ const saveCase = async () => {
     setMessage(caseStatusMessage, "案件を保存しました。", "success");
 };
 
-const randomToken = () => {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-};
-
 const shortEventDate = (value) => {
     const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/u);
     return match ? `${Number(match[2])}月${Number(match[3])}日` : "開催予定日";
@@ -3070,6 +3066,38 @@ const buildEmail = (url) => {
     emailSection.classList.remove("hidden");
 };
 
+const changeScheduleToken = async (action, token = null, expiry = null) => {
+    const selectedCase = currentCase;
+    const selection = caseSelectionSerial;
+    const expectedToken = openScheduleToken(currentToken ? [currentToken] : [])?.id || null;
+    $("#issue-token").disabled = true;
+    $("#revoke-token").disabled = true;
+    issuedRawToken = "";
+    emailOperationKey = "";
+    $("#issued-url").value = "";
+    emailSection.classList.add("hidden");
+    let result;
+    try {
+        result = await scheduleTokenRequest(supabase, {
+            caseId: selectedCase.id, updatedAt: selectedCase.updated_at, expectedToken,
+            action, token, expiry
+        });
+    } catch {
+        // The request may have committed. Keep both controls locked until the next case read.
+    }
+    if (selection !== caseSelectionSerial || currentCase !== selectedCase) return null;
+    const confirmed = result?.state === (action === "issue" ? "issued" : "revoked")
+        && result.updated_at && result.case_status && (action === "issue" ? result.token_id : result.revoked_at);
+    if (!confirmed) {
+        setMessage($("#token-message"), "結果を確定できません。案件を開き直して現在のURL状態を確認してください。", "error");
+        return null;
+    }
+    selectedCase.updated_at = result.updated_at;
+    selectedCase.status = result.case_status;
+    $("#issue-token").disabled = false;
+    return result;
+};
+
 const issueToken = async () => {
     clearMessage($("#token-message"));
     if (!currentCase) {
@@ -3091,34 +3119,24 @@ const issueToken = async () => {
         return;
     }
 
-    $("#issue-token").disabled = true;
-    const rawToken = randomToken();
-    const { data, error } = await supabase.rpc("issue_pa_schedule_token", {
-        p_inquiry_id: currentCase.id,
-        p_token: rawToken,
-        p_expires_at: expiry
-    });
-    $("#issue-token").disabled = false;
-
-    if (error || !data?.length) {
-        setMessage($("#token-message"), `URLを発行できませんでした。${error?.message || ""}`, "error");
-        return;
-    }
+    if ($("#issue-token").disabled) return;
+    const rawToken = scheduleTokenSecret();
+    const data = await changeScheduleToken("issue", rawToken, expiry);
+    if (!data) return;
 
     issuedRawToken = rawToken;
     currentToken = {
-        id: data[0].token_id,
-        issued_at: data[0].issued_at,
-        expires_at: data[0].expires_at,
+        id: data.token_id,
+        issued_at: data.issued_at,
+        expires_at: data.expires_at,
         revoked_at: null,
         answered_at: null
     };
-    currentCase.second_form_issued_at = data[0].issued_at;
-    currentCase.response_deadline = data[0].expires_at;
-    currentCase.status = "second_form_issued";
-    const url = `https://ara-tech.cc/pa-schedule-confirm.html?token=${encodeURIComponent(rawToken)}`;
+    currentCase.second_form_issued_at = data.issued_at;
+    currentCase.response_deadline = data.expires_at;
+    const url = scheduleTokenUrl(rawToken);
     $("#issued-url").value = url;
-    $("#token-state").textContent = `発行済み。有効期限：${formatDateTime(data[0].expires_at)}`;
+    $("#token-state").textContent = `発行済み。有効期限：${formatDateTime(data.expires_at)}`;
     $("#revoke-token").disabled = false;
     buildEmail(url);
     renderOverview();
@@ -3127,21 +3145,12 @@ const issueToken = async () => {
 };
 
 const revokeToken = async () => {
-    if (!currentCase || !window.confirm("現在の日程確保フォームURLを無効にしますか？")) return;
+    if (!currentCase || !currentToken || $("#revoke-token").disabled
+        || !window.confirm("現在表示された日程確保フォームURLを無効にしますか？")) return;
     clearMessage($("#token-message"));
-    const { data, error } = await supabase.rpc("revoke_pa_schedule_token", {
-        p_inquiry_id: currentCase.id
-    });
-    if (error || !data) {
-        setMessage($("#token-message"), `URLを無効化できませんでした。${error?.message || ""}`, "error");
-        return;
-    }
-    currentToken = currentToken ? { ...currentToken, revoked_at: new Date().toISOString() } : null;
-    currentCase.status = "second_form_not_issued";
-    issuedRawToken = "";
-    emailOperationKey = "";
-    $("#issued-url").value = "";
-    emailSection.classList.add("hidden");
+    const result = await changeScheduleToken("revoke");
+    if (!result) return;
+    currentToken = { ...currentToken, revoked_at: result.revoked_at };
     renderTokenState();
     renderOverview();
     setMessage($("#token-message"), "現在のURLを無効化しました。", "success");
