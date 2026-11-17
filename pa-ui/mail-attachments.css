@@ -7,6 +7,10 @@
 .mail-text .mail-subject{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mail-heading{gap:6px}.mail-heading time{font-size:9px}
 .timeline-body,.timeline-form dd{white-space:pre-wrap;overflow-wrap:anywhere}
+.mail-html-dialog{width:min(680px,calc(100vw - 28px));max-height:calc(100dvh - 28px);padding:16px;background:#111;color:#eee;border:1px solid #555;border-radius:8px}
+.mail-html-dialog::backdrop{background:rgb(0 0 0 / .72)}
+.mail-html-dialog h3{margin:0 0 8px}.mail-html-dialog p{margin:8px 0}.mail-html-dialog button{margin:0 6px 8px 0}
+.mail-html-dialog iframe{width:100%;height:min(60dvh,520px);border:0;border-radius:4px;background:#fff}
 .timeline-form{margin:8px 0}
 .timeline-form div{display:grid;grid-template-columns:5em minmax(0,1fr);gap:8px;padding:3px 0}
 .timeline-form dt{color:#9bb6cb}

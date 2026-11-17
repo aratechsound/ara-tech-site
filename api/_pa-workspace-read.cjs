@@ -384,6 +384,20 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
             result={gmail_message_id:message.gmail_message_id,body_text:fresh.body_text,body_html:fresh.body_html,body_state:fresh.body_text||fresh.body_html?'ready':'empty',source:'gmail'};
           }
         }
+        else if(segments.length===4&&segments[1]==='mail-delivery-html'){
+          const id=assertId(segments[2]),deliveryId=assertId(segments[3]);
+          await readableCase(id,token);
+          const records=await rows('pa_email_deliveries',{
+            id:'eq.'+deliveryId,inquiry_id:'eq.'+id,status:'eq.sent',
+            select:'id,inquiry_id,message_type,status,body,error_summary',limit:2
+          },token);
+          const row=records[0];
+          if(records.length!==1||row.id!==deliveryId||row.inquiry_id!==id||row.status!=='sent'||row.error_summary||
+              !['customer_receipt','content_hearing_follow_up'].includes(row.message_type)||!row.body?.trim()){
+            throw new ReadError('delivery_html_unavailable',404);
+          }
+          result={inquiry_id:id,delivery_id:deliveryId,body_html:require('./_pa-mail.cjs').buildCustomerHtml(row.body),source:'delivery_template'};
+        }
         else if(segments.length===3&&segments[1]==='sent-estimates')result=await sentEstimates(assertId(segments[2]),token);
         else if(segments.length===5&&segments[1]==='sent-estimate-attachment'){
           const id=assertId(segments[2]);

@@ -3,6 +3,7 @@ import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,privateFrame,releasePrivateFrame,setPrivateAmount,readPrivateAmount,releasePrivateAmount,resetPrivacy} from './pa-workspace-privacy.mjs';
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
+import {createMailHtmlView} from './mail-html-view.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -62,11 +63,13 @@ function rowsHtml(rows,{title,body,time,kind}={}){
 }
 function fact(label,value){return `<div class="fact"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
-const bodyView=createMailBodyView({request:(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id)),isAuthenticated:()=>!!session});
+const requestMailBody=(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id));
+const bodyView=createMailBodyView({request:requestMailBody,isAuthenticated:()=>!!session});
+const htmlView=createMailHtmlView();
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -180,6 +183,36 @@ function conversation(c){
 
 function conversationEntries(inquiry) {
   return conversationTimeline(inquiry, getRows('messages') || [], getRows('deliveries') || []);
+}
+
+function openHistoryMailHtml(button) {
+  const inquiry=current(),epoch=selectionEpoch,owner=session?.user?.id;
+  if(!inquiry||tab!=='conversation'||!owner)return;
+  const card=button.closest('article');
+  const entry=conversationEntries(inquiry).find(row=>row.kind!=='form'&&(row.message
+    ? row.message.gmail_message_id===card?.dataset.message
+    : row.deliveries[0]?.id===card?.dataset.deliveryId));
+  if(!entry||customerInbound(entry))return;
+  const message=entry.message;
+  const delivery=entry.deliveries.find(deliveredHtml);
+  if(!message&&!delivery)return;
+  return htmlView.open({
+    isCurrent:()=>epoch===selectionEpoch&&selected===inquiry.id&&tab==='conversation'&&session?.user?.id===owner,
+    request:async()=>{
+      if(message){
+        const original=await requestMailBody(inquiry.id,message);
+        if(original.gmail_message_id!==message.gmail_message_id||(original.inquiry_id&&original.inquiry_id!==inquiry.id)){
+          throw Error('mail_binding_mismatch');
+        }
+        if(original.body_html||!delivery)return original;
+      }
+      const result=await api('/data/mail-delivery-html/'+inquiry.id+'/'+encodeURIComponent(delivery.id));
+      if(result.inquiry_id!==inquiry.id||result.delivery_id!==delivery.id||result.source!=='delivery_template'){
+        throw Error('mail_binding_mismatch');
+      }
+      return result;
+    }
+  });
 }
 
 function replyableMessages() {
@@ -329,6 +362,10 @@ function intakeCompletionNotice(id) {
   return '<div class="notice" role="status" data-intake-notice>送信は完了しましたが、履歴表示を更新できませんでした。 <button type="button" class="lightbtn" data-intake-recheck>履歴を再取得</button></div>';
 }
 
+const deliveredHtml = row => row.status==='sent'&&deliveryOutcome(row)==='送信済み'&&row.body&&
+  ['customer_receipt',followUpType].includes(row.message_type);
+const historyHtmlButton = '<button type="button" class="lightbtn body-read" data-history-mail-html>HTML本文を表示</button>';
+
 function deliveryEntry(entry) {
   const row = entry.deliveries[0];
   const label = deliveryLabel(row);
@@ -337,7 +374,7 @@ function deliveryEntry(entry) {
   const content = `<div class="mail-address">差出人 ARA-TECH<br>宛先 ${escape(row.recipient || '未取得')}</div>
     <strong class="mail-subject">${escape(row.subject || '件名未取得')}</strong>
     ${row.body ? '<p class="timeline-body">' + tx(row.body) + '</p>' : '<p class="hint">配送記録の件名と結果を表示</p>'}
-    <p class="hint">添付情報未取得</p>${deliveryAttempts(entry.deliveries)}`;
+    ${deliveredHtml(row)?historyHtmlButton:''}<p class="hint">添付情報未取得</p>${deliveryAttempts(entry.deliveries)}`;
   const inner = label === '内部通知'
     ? `<details><summary>${heading}</summary>${content}</details>`
     : `<div class="mail-heading">${heading}</div>${content}`;
@@ -373,7 +410,7 @@ function renderTimelineMail(entry, isNew) {
   const followUpBody = entry.deliveries.find(row=>row.message_type===followUpType && row.status==='sent')?.body;
   const body = followUpBody || savedExcerpt(r);
   const atts = mailAttachments(r);
-  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
+  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${dir==='sent'?historyHtmlButton:''}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 function commercialControls(c,label){
   if(passiveMail||c?.case_type!=='PA_EVENT'||isClosedCase(c)||c.status==='on_hold'||c.progress?.is_on_hold)return '';
@@ -562,6 +599,7 @@ async function refresh(){
 function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
   const changed=tab!==name;
+  if(changed)htmlView.close();
   if(changed&&detail.commercialPanel){detail.commercialPanel.controller.abort();delete detail.commercialPanel;}
   resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
   if(name==='conversation'&&changed)void syncSelectedMail();
@@ -604,6 +642,8 @@ $('login-form').addEventListener('submit',async e=>{
 document.addEventListener('click',e=>{
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
+  const historyHtml=e.target.closest('[data-history-mail-html]');
+  if(historyHtml){void openHistoryMailHtml(historyHtml);return;}
   const intakeLink=e.target.closest('[data-action="link-intake-follow-up"]');
   if(intakeLink){if(!intakeLink.disabled)void linkIntakeFollowUp();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
