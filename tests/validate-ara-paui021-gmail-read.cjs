@@ -2,18 +2,28 @@
 const assert=require('node:assert/strict');
 const {createReadHandler}=require('../api/_pa-workspace-read.cjs');
 const {normalizeMessage}=require('../api/_pa-gmail.cjs');
+const {canonicalAssetKey}=require('../api/_pa-portal-candidates.cjs');
+const {createHash}=require('node:crypto');
 const C='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-222222222222';
+const PORTAL='33333333-3333-4333-8333-333333333333',CARD='44444444-4444-4444-8444-444444444444',ASSET='55555555-5555-4555-8555-555555555555';
 const bytes=Buffer.from('%PDF-1.4\nfixture\n%%EOF'),token='Bearer '+'fixture-only-'.repeat(4);
-let mode='',calls=[],providerCalls=0;
+let mode='',calls=[],providerCalls=0,providerPart;
 const attachment={id:'attachment+=',part_id:'1',filename:'見積書 日本語.pdf',mime_type:'application/pdf',size:bytes.length};
 function raw(){return {id:'mail1',threadId:mode==='provider-thread'?'foreign':'thread1',labelIds:mode==='not-sent'?[]:['SENT'],internalDate:'1791500000000',payload:{headers:[{name:'From',value:'aratechsound@gmail.com'},{name:'To',value:'fixture@example.invalid'},{name:'Subject',value:'見積履歴'}],parts:[{mimeType:'text/plain',body:{data:Buffer.from(mode==='empty'?'':'新規本文\n> 引用').toString('base64url')}},{mimeType:'application/pdf',filename:'見積書 日本語.pdf',partId:'1',body:{attachmentId:'attachment+=',size:bytes.length}}]}};}
-const provider={normalize:normalizeMessage,message:async()=>{providerCalls++;if(mode==='provider-denied')throw Error('gmail_read_403');if(mode==='provider-missing')throw Error('gmail_read_404');return raw();},thread:async()=>{providerCalls++;return {id:'thread1',messages:[raw()]};},attachment:async()=>{providerCalls++;return {bytes:mode==='bad-file'?Buffer.from('bad'):bytes,mime:'application/pdf'};}};
+const provider={normalize:normalizeMessage,message:async()=>{providerCalls++;if(mode==='provider-denied')throw Error('gmail_read_403');if(mode==='provider-missing')throw Error('gmail_read_404');return raw();},thread:async()=>{providerCalls++;return {id:'thread1',messages:[raw()]};},attachment:async({partId})=>{providerCalls++;providerPart=partId;return {bytes:mode==='bad-file'?Buffer.from('bad'):bytes,mime:'application/pdf'};}};
 async function fetchImpl(url,options){calls.push({url,options});const q=new URL(url),table=q.pathname.split('/').at(-1);let data=[];
  if(q.pathname==='/auth/v1/user')data={id:C};
  else if(table==='work_admins')data=mode==='no-admin'?[]:[{user_id:C}];
  else if(table==='pa_inquiries')data=q.searchParams.get('id')==='eq.'+C?[{id:C}]:[];
  else if(table==='pa_gmail_thread_links')data=[{inquiry_id:mode==='ambiguous'&&q.searchParams.has('gmail_thread_id')?OTHER:C,gmail_thread_id:'thread1'}];
- else if(table==='pa_gmail_message_index')data=mode==='unindexed'?[]:[{inquiry_id:mode==='index-conflict'?OTHER:C,gmail_message_id:'mail1',gmail_thread_id:'thread1',snippet:'抜粋のみ',attachment_metadata:mode==='no-attachments'?[]:[attachment]}];
+ else if(table==='pa_gmail_message_index')data=mode==='unindexed'?[]:[{inquiry_id:mode==='index-conflict'?OTHER:C,gmail_message_id:'mail1',gmail_thread_id:'thread1',snippet:'抜粋のみ',attachment_metadata:mode==='no-attachments'?[]:mode==='duplicate-part'?[attachment,{...attachment,id:'other-token'}]:[attachment]}];
+ else if(table==='pa_portals')data=[{id:PORTAL,case_id:C}];
+ else if(table==='pa_portal_document_cards')data=[{id:CARD,portal_id:PORTAL,current_version_id:ASSET}];
+ else if(table==='pa_portal_document_versions'||table==='pa_portal_photo_items'){
+  const identity={source_provider:'gmail',gmail_part_id:'1',canonical_attachment_key:mode==='bad-key'?'invalid':canonicalAssetKey('mail1','1'),source_byte_size:bytes.length+(mode==='stored-size-mismatch'?1:0),source_content_sha256:mode==='bad-hash'?'0'.repeat(64):createHash('sha256').update(bytes).digest('hex')};
+  const source_ref={gmail_message_id:'mail1',gmail_attachment_id:mode==='legacy-current'?attachment.id:'stale-token'};
+  data=[{id:ASSET,card_id:CARD,portal_id:PORTAL,source_type:'gmail_attachment',mime_type:'application/pdf',source_ref,...(q.searchParams.get('select').includes('canonical_attachment_key')&&!mode.startsWith('legacy')?identity:{})}];
+ }
  return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});
 }
 const handler=createReadHandler({key:'sb_publishable_fixture',fetchImpl,provider});
@@ -29,6 +39,27 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
  await check('Ambiguous thread denied before Provider',async before=>{mode='ambiguous';assert.equal((await read('/data/mail-body/'+C+'/mail1')).statusCode,403);assert.equal(providerCalls,before);});
  await check('Fresh message/thread mismatch denied',async()=>{mode='provider-thread';assert.equal((await read('/data/mail-body/'+C+'/mail1')).statusCode,403);});
  await check('Opaque attachment ID and Japanese filename retained',async()=>{const r=await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D');assert.equal(r.statusCode,200);assert(r.body.equals(bytes));});
+ await check('Portal originals use the saved MIME part after attachment ID rotation',async()=>{
+  for(const kind of ['version','photo']){
+   const r=await read('/data/material/'+C+'/'+kind+'/'+ASSET);
+   assert.equal(r.statusCode,200);assert(r.body.equals(bytes));assert.equal(providerPart,'1');
+  }
+  const index=JSON.parse((await read('/data/materials/'+C)).body).result;
+  assert.equal(index.cards[0].versions[0].canonical_attachment_key,undefined);
+ });
+ await check('Portal binding still refuses ambiguous parts, foreign ownership and wrong saved keys before Gmail',async before=>{
+  const path='/data/material/'+C+'/version/'+ASSET;
+  for(const [testMode,status] of [['duplicate-part',403],['ambiguous',403],['bad-key',409],['stored-size-mismatch',409],['legacy-stale',403]]){
+   mode=testMode;assert.equal((await read(path)).statusCode,status);assert.equal(providerCalls,before);
+  }
+  assert.equal((await read('/data/material/'+OTHER+'/version/'+ASSET)).statusCode,403);
+  assert.equal(providerCalls,before);
+ });
+ await check('Portal checks saved hash and preserves exact legacy attachment reads',async()=>{
+  const path='/data/material/'+C+'/version/'+ASSET;
+  mode='bad-hash';assert.equal((await read(path)).statusCode,409);
+  mode='legacy-current';assert.equal((await read(path)).statusCode,200);assert.equal(providerPart,undefined);
+ });
  await check('No attachments and wrong ID cannot access Provider',async before=>{mode='no-attachments';assert.equal((await read('/data/mail-attachment/'+C+'/mail1/attachment%2B%3D')).statusCode,403);assert.equal(providerCalls,before);});
  await check('PNG JPEG WebP originals pass exact MIME, magic and size',async()=>{
   const saved={...attachment},loader=provider.attachment;
@@ -57,6 +88,12 @@ async function check(name,fn){mode='';const before=providerCalls;await fn(before
     return new Response(JSON.stringify(data));
    });
    const message=await p.message('mail1'),file=await p.attachment({messageId:'mail1',metadata:attachment,raw:message});assert(file.bytes.equals(bytes));
+   message.payload.parts.push({mimeType:'application/pdf',filename:attachment.filename,partId:'2',body:{attachmentId:'fresh-token',size:bytes.length}});
+   const exact=await p.attachment({messageId:'mail1',metadata:attachment,partId:'2',raw:message});
+   assert(exact.bytes.equals(bytes));assert(requests.at(-1).url.endsWith('/attachments/fresh-token'));
+   const requestCount=requests.length;
+   await assert.rejects(()=>p.attachment({messageId:'mail1',metadata:attachment,partId:'9',raw:message}),/attachment_mail_mismatch/);
+   assert.equal(requests.length,requestCount);
    assert(requests.every(r=>r.url==='https://oauth2.googleapis.com/token'?r.method==='POST':r.url.startsWith('https://gmail.googleapis.com/gmail/v1/users/me/')&&r.method==='GET'));
    assert(requests.some(r=>r.url.includes('/profile')));
    await assert.rejects(()=>p.attachment({messageId:'mail1',metadata:{...attachment,size:999},raw:message}),/asset_identity_mismatch/);
