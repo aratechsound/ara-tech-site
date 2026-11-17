@@ -5,7 +5,9 @@ const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{const name=path.join(root,new URL(req.url,'http://localhost').pathname);if(!name.startsWith(root+path.sep)){res.writeHead(403).end();return;}try{res.setHeader('content-type',name.endsWith('.mjs')?'text/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(name));}catch{res.writeHead(404).end();}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
+ // Chromium needs a UTF-8 filename locale; the CI container sorts with LC_ALL=C.
+ const env=process.platform==='linux'?{...process.env,LC_ALL:'C.UTF-8'}:process.env;
+ const browser=await chromium.launch({headless:true,env,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
   const page=await browser.newPage();
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
