@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { canonicalAssetKey } = require('./_pa-portal-candidates.cjs');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SUPABASE = 'https://kogbnremsouajxxsgxro.supabase.co';
 
@@ -81,7 +82,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const list=await rows('pa_inquiries',{id:'eq.'+assertId(id),select:'id',deleted_at:'is.null',limit:2},token);
     if(list.length!==1||list[0].id!==id)throw new ReadError('case_not_readable',403);
   }
-  async function materials(id,token){
+  async function materials(id,token,{includeAssetIdentity=false}={}){
     await readableCase(id,token);
     const portal=await rows('pa_portals',{case_id:'eq.'+id,select:'id,case_id',limit:2},token,true);
     if(portal.length>1||portal.some(p=>p.case_id!==id))throw new ReadError('case_binding_mismatch',403);
@@ -89,8 +90,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const portalId=assertId(portal[0].id);
     const cards=await allDirect('pa_portal_document_cards',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,category,title,owner_kind,sort_order,current_version_id,created_at',order:'sort_order.asc,id.asc'},token);
     if(cards.some(c=>c.portal_id!==portalId||!UUID.test(c.id)))throw new ReadError('case_binding_mismatch',403);
-    const versions=cards.length?await allDirect('pa_portal_document_versions',{card_id:`in.(${cards.map(c=>c.id).join(',')})`,archived_at:'is.null',select:'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at',order:'created_at.desc,id.asc'},token):[];
-    const photos=await allDirect('pa_portal_photo_items',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at',order:'sort_order.asc,id.asc'},token);
+    const identity=includeAssetIdentity?',source_provider,gmail_part_id,canonical_attachment_key,source_content_sha256,source_byte_size':'';
+    const versions=cards.length?await allDirect('pa_portal_document_versions',{card_id:`in.(${cards.map(c=>c.id).join(',')})`,archived_at:'is.null',select:'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at'+identity,order:'created_at.desc,id.asc'},token):[];
+    const photos=await allDirect('pa_portal_photo_items',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at'+identity,order:'sort_order.asc,id.asc'},token);
     if(versions.some(v=>!cards.some(c=>c.id===v.card_id))||photos.some(p=>p.portal_id!==portalId))throw new ReadError('case_binding_mismatch',403);
     return {portal_exists:true,cards:cards.map(c=>({...c,versions:versions.filter(v=>v.card_id===c.id)})),photos};
   }
@@ -100,14 +102,14 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     throw new ReadError('incomplete_result',503);
   }
   async function asset(id,kind,assetId,token){
-    const model=await materials(id,token);assertId(assetId);
+    const model=await materials(id,token,{includeAssetIdentity:true});assertId(assetId);
     const item=kind==='version'?model.cards.flatMap(c=>c.versions).find(v=>v.id===assetId):kind==='photo'?model.photos.find(v=>v.id===assetId):null;
     if(!item)throw new ReadError('asset_case_mismatch',403);
     // Gmail attachment retrieval requires the existing canonical Provider module and
     // credential/session path; never get a refresh token or use an alternate path here.
     if(['gmail_attachment','pa_attachment'].includes(item.source_type)){
       const ref=item.source_ref||{};
-      const original=await mailAttachment(id,ref.gmail_message_id,ref.gmail_attachment_id,token);
+      const original=await mailAttachment(id,ref.gmail_message_id,ref.gmail_attachment_id,token,item);
       if(original.mime!==contentType(item.mime_type))throw new ReadError('asset_identity_mismatch',409);
       return original;
     }
@@ -297,18 +299,30 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     if(new Set(messages.map(m=>m.gmail_message_id)).size!==messages.length)throw new ReadError('mail_binding_mismatch',403);
     return {messages,unknown,history_only:true};
   }
-  async function mailAttachment(id,messageId,attachmentId,token){
+  async function mailAttachment(id,messageId,attachmentId,token,portalAsset){
     if(!ATTACH_ID.test(attachmentId||''))throw new ReadError('invalid_attachment_identity',400);
     const message=await mailMessage(id,messageId,token);
-    const matches=(Array.isArray(message.attachment_metadata)?message.attachment_metadata:[]).filter(a=>String(a.id||a.gmail_attachment_id||a.part_id||'')===attachmentId);
+    const hasCanonicalIdentity=portalAsset&&(portalAsset.source_provider!=null||portalAsset.gmail_part_id!=null||portalAsset.canonical_attachment_key!=null);
+    let partId;
+    if(hasCanonicalIdentity){
+      // Provider attachment tokens can rotate. A saved canonical part remains bound to this message.
+      partId=portalAsset.gmail_part_id;
+      const key=canonicalAssetKey(messageId,partId);
+      if(portalAsset.source_provider!=='gmail'||!key||key!==portalAsset.canonical_attachment_key)throw new ReadError('asset_identity_mismatch',409);
+    }
+    const matches=(Array.isArray(message.attachment_metadata)?message.attachment_metadata:[]).filter(a=>partId?a.part_id===partId:String(a.id||a.gmail_attachment_id||a.part_id||'')===attachmentId);
     if(matches.length!==1)throw new ReadError('attachment_mail_mismatch',403);
-    const item=readMailAttachment
-      ? await readMailAttachment({caseId:id,messageId,attachmentId,metadata:matches[0],token})
-      : await providerRead(async()=>provider.attachment({messageId,metadata:matches[0],raw:await boundProviderMessage(message)}));
-    const mime=contentType(matches[0].mime_type),bytes=item.bytes;
+    const metadata=matches[0],mime=contentType(metadata.mime_type);
     if(!MIME.has(mime))throw new ReadError('preview_type_refused',415);
+    if(portalAsset&&(mime!==contentType(portalAsset.mime_type)
+      ||portalAsset.source_byte_size!=null&&Number(metadata.size)!==Number(portalAsset.source_byte_size)))throw new ReadError('asset_identity_mismatch',409);
+    const item=readMailAttachment
+      ? await readMailAttachment({caseId:id,messageId,attachmentId,partId,metadata,token})
+      : await providerRead(async()=>provider.attachment({messageId,metadata,partId,raw:await boundProviderMessage(message)}));
+    const bytes=item.bytes;
     if(!Buffer.isBuffer(bytes)||bytes.length>MAX_BYTES)throw new ReadError('file_too_large',413);
-    if(contentType(item.mime)!==mime||!validMagic(bytes,mime)||matches[0].size!==undefined&&Number(matches[0].size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
+    if(contentType(item.mime)!==mime||!validMagic(bytes,mime)||metadata.size!==undefined&&Number(metadata.size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
+    if(portalAsset?.source_content_sha256!=null&&crypto.createHash('sha256').update(bytes).digest('hex')!==portalAsset.source_content_sha256)throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime};
   }
   async function commercial(id,token){
