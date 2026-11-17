@@ -4,6 +4,7 @@ import {privateText,privateMoney,privateFrame,releasePrivateFrame,setPrivateAmou
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createMailHtmlView} from './mail-html-view.mjs';
+import {createCaseBasicsEditor} from './case-basics.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -66,10 +67,11 @@ function pair(label,value){return `<div class="label-pair"><span>${escape(label)
 const requestMailBody=(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id));
 const bodyView=createMailBodyView({request:requestMailBody,isAuthenticated:()=>!!session});
 const htmlView=createMailHtmlView();
+const caseBasicsEditor=createCaseBasicsEditor();
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();caseBasicsEditor.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -120,11 +122,42 @@ function renderInspector(){
   const state=commercial?.state==='ready'?commercial.value:null;
   $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('正式受注',statusText(c))}${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section><div class="notice">配送結果UNKNOWNは安全停止。結果確認と業務操作は既存画面で確認してください。</div>`;
 }
+function canEditCaseBasics(c){
+  return Boolean(c&&!passiveMail&&session?.user?.id&&!isClosedCase(c)&&!c.deleted_at&&
+    c.status!=='on_hold'&&!c.progress?.is_on_hold&&Number.isSafeInteger(c.revision)&&c.revision>0);
+}
+function openCaseBasics(){
+  const inquiry=current(),ownerId=session?.user?.id,epoch=selectionEpoch;
+  if(tab!=='overview'||!canEditCaseBasics(inquiry))return;
+  const stillCurrent=()=>epoch===selectionEpoch&&selected===inquiry.id&&tab==='overview'&&session?.user?.id===ownerId;
+  caseBasicsEditor.open({
+    inquiry,stillCurrent,
+    save:async input=>{
+      const {updateCaseBasics}=await import('./integration.mjs');
+      return updateCaseBasics({...input,ownerId,stillCurrent});
+    },
+    readback:async(result,changes)=>{
+      const snapshot=await api('/data/cases');
+      if(!stillCurrent())return;
+      const row=snapshot.cases.find(item=>item.id===inquiry.id);
+      if(!Number.isSafeInteger(row?.revision)||row.revision<result.revision||
+        Object.entries(changes).some(([key,value])=>row[key]!==value)){
+        throw Error('case_basics_readback_unknown');
+      }
+      cases=cases.map(item=>item.id===inquiry.id?{...item,...row,
+        progress:snapshot.progress.find(progress=>progress.inquiry_id===inquiry.id)||null}:item);
+      detail.caseBasicsSaved=true;
+      void loadSurface('audit','/data/case/'+inquiry.id+'/audit',epoch);
+      renderList();
+      render();
+    }
+  });
+}
 function overview(c){
   const p=c.progress||{},a=attention(c);
   const next=p.next_action||p.next_action_memo||c.next_action||p.memo||'保存済みの進行状況を確認';
   const step=Number(p.current_step);
-  return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2><div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':step>i+1?'done':''}">${i+1} ${escape(s)}</span>`).join('')}</div><div class="stage-info">工程 ${Number.isInteger(step)&&step>0&&step<=14?step+' / 14':'未取得'}${p.is_on_hold?' / 保留':''}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>r.action,time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
+  return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2>${canEditCaseBasics(c)?button('基本情報を編集','case-basics','quiet'):''}${detail.caseBasicsSaved?'<p class="notice" role="status">基本情報を保存しました。</p>':''}<div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${c.organization_name?fact('お客様・担当者',c.customer_name||c.contact_name):''}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':step>i+1?'done':''}">${i+1} ${escape(s)}</span>`).join('')}</div><div class="stage-info">工程 ${Number.isInteger(step)&&step>0&&step<=14?step+' / 14':'未取得'}${p.is_on_hold?' / 保留':''}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>r.action,time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
 }
 function syncStatusHtml(){
   if(passiveMail)return '<strong data-mail-sync-state="readonly">メール閲覧モード：保存済み履歴を表示しています。自動取込・メール送信は停止中です。</strong>';
@@ -640,7 +673,7 @@ async function refresh(){
 function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
   const changed=tab!==name;
-  if(changed)htmlView.close();
+  if(changed){htmlView.close();caseBasicsEditor.close();}
   if(changed&&detail.commercialPanel){detail.commercialPanel.controller.abort();delete detail.commercialPanel;}
   resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
   if(name==='conversation'&&changed)void syncSelectedMail();
@@ -681,6 +714,7 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
+  if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
   const historyHtml=e.target.closest('[data-history-mail-html]');
