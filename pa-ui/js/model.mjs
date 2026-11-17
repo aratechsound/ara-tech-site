@@ -45,8 +45,10 @@ export function filterCases(items,{term='',review='active',type='',status='',yea
 export function scheduleState(token,now=Date.now()){
   if(!token)return '保存済みURLなし';
   if(token.revoked_at)return '失効';
-  if(token.expires_at&&Date.parse(token.expires_at)<=now)return '期限切れ';
+  const expires=Date.parse(token.expires_at);
+  if(expires<=now)return token.answered_at?'回答済み・期限切れ':'期限切れ';
   if(token.answered_at)return '回答済み';
+  if(!Number.isFinite(expires))return '期限未確認';
   return '有効（保存済み状態）';
 }
 export function scheduleResponseLabel(row){return ({agree:'条件に同意し、日程調整を依頼',decline:'条件に同意せず、日程調整を依頼しない',question:'ARA-TECHへ確認したい'})[row.decision]||row.schedule_availability||row.availability||row.decision||row.status||'保存済み回答';}
