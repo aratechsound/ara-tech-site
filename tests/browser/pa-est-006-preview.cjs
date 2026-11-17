@@ -5,8 +5,9 @@ const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { createFixture } = require('../helpers/pa-contract-fixture.cjs');
+const { setup, MODE } = require('../validate-pam-025-direct-confirmation.cjs');
 const { read } = require('../helpers/pa-estimate-fixture.cjs');
-const { createService } = require('../../api/_pa-commercial.cjs');
+const { createService, decryptSecret } = require('../../api/_pa-commercial.cjs');
 const { createHandler } = require('../../api/_pa-commercial-handler.cjs');
 const { sha } = require('../../api/_pa-contract-pdf.cjs');
 
@@ -19,7 +20,7 @@ const harness = (caseId) => `<!doctype html><html lang="ja"><head><meta charset=
 async function counts(db, caseId) { const result = {}; for (const [key, sql] of Object.entries({ offers: 'select count(*) n from pa_contract_offers where inquiry_id=$1', tokens: 'select count(*) n from pa_contract_tokens t join pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1', contracts: 'select count(*) n from pa_contracts where inquiry_id=$1', outbox: 'select count(*) n from pa_commercial_outbox where inquiry_id=$1', audit: "select count(*) n from pa_inquiry_audit where inquiry_id=$1 and action='formal_contract_issued'" })) result[key] = Number((await db.query(sql, [caseId])).rows[0].n); result.revision = Number((await db.query('select revision from pa_case_commercial_state where inquiry_id=$1', [caseId])).rows[0].revision); return result; }
 
 async function main() {
-    let fixture, server, browser;
+    let fixture, billingFixture, server, browser;
     const pageErrors = [], apiActions = [];
     try {
         fixture = await createFixture();
@@ -37,7 +38,8 @@ async function main() {
         const estimate = await service.issueEstimate({ case_id: fixture.inquiryId, expected_revision: 0, expected_current: null, operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: '見積書 2026.09.11 龍姫湖まつり（改訂）.pdf', content_base64: fixture.quote.toString('base64'), sha256: sha(fixture.quote), amount_minor: 198550, currency: 'JPY', tax_basis: 'tax_included', conditions: { source: 'pa-est-006-browser' }, source_kind: 'managed_send', source_sent_at: '2026-09-11T12:00:00Z', body: '見積書を送付します。', cc_addresses: [] }, { id: fixture.actorId });
         await service.dispatch({ job_id: estimate.outbox_id }, { id: fixture.actorId });
         const safeService = new Proxy(service, { get: (target, property) => property === 'snapshot' ? async (...args) => ({ ...(await target.snapshot(...args)), related_materials: [] }) : target[property] });
-        const handler = createHandler({ service: safeService, admin: async () => ({ id: fixture.actorId }), rate: async () => ({ allowed: true }) });
+        const options = { admin: async () => ({ id: fixture.actorId }), rate: async () => ({ allowed: true }) };
+        let handler = createHandler({ service: safeService, ...options });
         server = http.createServer(async (request, response) => {
             try {
                 const url = new URL(request.url, `http://${request.headers.host}`);
@@ -66,11 +68,25 @@ async function main() {
                 export const readUrl=path=>'/fixture-desk-read?path='+encodeURIComponent(path);
                 export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;`
         }));
-        await context.route(base + '/fixture-desk-read?**', route => {
+        await context.route(base + '/fixture-desk-read?**', async route => {
             const target = new URL(route.request().url()).searchParams.get('path');
-            const result = target === '/data/cases' ? { cases: deskCases, progress: [] }
+            let result = target === '/data/cases' ? { cases: deskCases, progress: [] }
                 : target.startsWith('/data/commercial/') ? { estimates: [], offers: [], billings: [] }
                 : target.startsWith('/data/sent-estimates/') ? { messages: [], unknown: [] } : [];
+            if (billingFixture) {
+                const db = billingFixture.db;
+                if (target === '/data/cases') {
+                    const { rows } = await db.query('select id,status from pa_inquiries where id=$1', [billingFixture.inquiryId]);
+                    result = {
+                        cases: deskCases.map(item => item.id === rows[0].id ? { ...item, status: rows[0].status } : item),
+                        progress: (await db.query('select * from pa_case_progress')).rows
+                    };
+                } else if (target === '/data/commercial/' + billingFixture.inquiryId) {
+                    result = await billingFixture.service.snapshot(billingFixture.inquiryId);
+                } else if (target === '/data/case/' + billingFixture.inquiryId + '/payments') {
+                    result = (await db.query('select * from pa_payment_records where inquiry_id=$1', [billingFixture.inquiryId])).rows;
+                }
+            }
             return route.fulfill({ json: { ok: true, result } });
         });
         const page = await context.newPage(); page.on('pageerror', (error) => { pageErrors.push(error.message); console.error('PAGEERROR', error.message); }); page.on('console', (message) => { if (message.type() === 'error') console.error('CONSOLE', message.text()); }); page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
@@ -204,9 +220,78 @@ async function main() {
         await page.getByRole('heading', { name: '見積・正式受注', exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: '正式受注の操作', exact: true }).count(), 0);
         assert.equal(apiActions.length, beforeReadOnly);
+
+        billingFixture = await setup();
+        const f = billingFixture;
+        process.env.ALLOWED_ORIGINS = base;
+        const case_id = f.inquiryId;
+        await f.createEstimate();
+        const quote = await f.service.confirmationPreview({ case_id, confirmation_mode: MODE }, f.actor);
+        const agreement = await f.service.issueDirectConfirmationAndSend({
+            case_id, confirmation_mode: MODE, preview_fingerprint: quote.fingerprint, operation_id: crypto.randomUUID()
+        }, f.actor);
+        const { rows: [offer] } = await f.db.query('select snapshot_sha256 from pa_contract_offers where id=$1', [agreement.id]);
+        const { rows: [job] } = await f.db.query('select secret_envelope from pa_commercial_outbox where id=$1', [agreement.outbox_id]);
+        const accepted = await f.contract.accept({
+            token: decryptSecret(job.secret_envelope).split('#')[1], offer_id: agreement.id,
+            snapshot_sha256: offer.snapshot_sha256, confirmer_name: '合成案件担当者', agree: true
+        });
+        assert.equal(accepted.state, 'accepted');
+        const sendsBeforeBilling = f.state.sendCount;
+        handler = createHandler({ service: f.service, ...options });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(`${base}/pa-admin.html?case=${case_id}`);
+        await page.getByRole('button', { name: '請求・入金', exact: true }).click();
+        await page.getByRole('button', { name: '請求・入金の操作', exact: true }).click();
+        const settle = page.getByRole('button', { name: '実施・精算を確認', exact: true });
+        await settle.click();
+        let form = page.getByRole('dialog', { name: '実施・精算確認', exact: true });
+        assert.equal(await form.getByLabel('最終精算額（円）').inputValue(), '');
+        assert.equal(await form.getByRole('button', { name: '実施・精算を確定' }).isDisabled(), true);
+        await page.keyboard.press('Escape');
+        await form.waitFor({ state: 'detached' });
+        assert.equal(apiActions.filter(action => action === 'confirm_settlement').length, 0);
+        await settle.click();
+        await form.getByRole('button', { name: '金額を表示・入力' }).click();
+        assert.equal(await form.getByLabel('最終精算額（円）').inputValue(), '110000');
+        await form.getByLabel('確認根拠').fill('隔離案件の実施確認');
+        await form.getByRole('button', { name: '実施・精算を確定' }).click();
+        await page.getByRole('button', { name: '既存書類で請求管理', exact: true }).click();
+        form = page.getByRole('dialog', { name: '既存書類で請求管理', exact: true });
+        await form.getByLabel('合意した支払期限（未確定の場合は空欄）').fill('2026-11-30');
+        await form.getByRole('button', { name: '請求書を別途発行せずに登録' }).click();
+        await page.getByRole('button', { name: '案件完了を確認', exact: true }).click();
+        form = page.getByRole('dialog', { name: '入金確認と案件完了', exact: true });
+        await form.getByRole('button', { name: '金額を表示・入力' }).click();
+        await form.getByLabel('追加入金確認日').fill('2026-11-10');
+        assert.equal(await form.getByLabel('今回確認した金額（円）').inputValue(), '110000');
+        await form.getByRole('button', { name: '全条件を確認して完了' }).click();
+        assert.equal(apiActions.filter(action => action === 'close_case').length, 0);
+        await form.getByLabel('確認メモ').fill('隔離案件の銀行振込を確認');
+        const closeResponse = page.waitForResponse(response => response.url().includes('/api/pa-mail?surface=commercial')
+            && response.request().postDataJSON()?.action === 'close_case');
+        await form.getByRole('button', { name: '全条件を確認して完了' }).click();
+        const saved = await closeResponse;
+        assert.equal(saved.status(), 200, await saved.text());
+        await page.getByText('案件は完了しました。', { exact: true }).waitFor();
+        await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        const { rows: [bill] } = await f.db.query('select * from pa_billings where inquiry_id=$1', [case_id]);
+        assert.equal(bill.invoice_policy, 'no_separate_invoice');
+        assert.equal(bill.state, 'paid');
+        assert.equal((await f.db.query('select status from pa_inquiries where id=$1', [case_id])).rows[0].status, 'closed');
+        assert.equal((await f.db.query('select count(*)::int n from pa_payment_records where billing_id=$1', [bill.id])).rows[0].n, 1);
+        assert.equal(f.state.sendCount, sendsBeforeBilling);
+        assert.equal(apiActions.filter(action => action === 'close_case').length, 1);
+        assert.equal(context.pages().length, 1);
+        await page.reload();
+        await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        await page.getByRole('button', { name: '請求・入金', exact: true }).click();
+        await page.getByText('bank_transfer', { exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: '請求・入金の操作', exact: true }).count(), 0);
+        console.log('PASS CASE DESK settlement, no separate invoice, payment and close; cancel does not write; no billing mail');
         const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
-    } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
+    } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); if (billingFixture) await billingFixture.db.close(); }
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
