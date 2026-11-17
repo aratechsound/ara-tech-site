@@ -11,7 +11,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
  const posts=[],intakePosts=[],provider=[],checks=[];
- let followUpDelivery, failFollowUpRead=false, unknownFollowUp=false;
+ let followUpDelivery, failFollowUpRead=false, unknownFollowUp=false, indexFollowUp=false;
  const transport=async(url,opts={})=>{
   const u=new URL(url);provider.push({host:u.host,path:u.pathname,method:opts.method||'GET'});
   if(u.host==='gmail.googleapis.com'&&u.pathname.endsWith('/messages/send')){
@@ -73,7 +73,17 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
     if(followUpDelivery)result.push(followUpDelivery);
    }
    else if(parts[2]==='case'){const id=parts[3];if(parts[4]==='links')result=(await f.db.query('select * from pa_gmail_thread_links where inquiry_id=$1',[id])).rows;else if(parts[4]==='mail-sync')result=await metadata(id);else if(parts[4]==='attention')result=(await f.db.query('select * from pa_case_mail_attention where inquiry_id=$1',[id])).rows;}
-   else if(parts[2]==='mail'){if(failRead&&latestSent&&parts[3]===A)return json({ok:false,code:'fixture_read_failed'},503);result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;if(duplicateRead&&result[0])result.push({...result[0]});}
+   else if(parts[2]==='mail'){
+    if(failRead&&latestSent&&parts[3]===A)return json({ok:false,code:'fixture_read_failed'},503);
+    result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;
+    if(duplicateRead&&result[0])result.push({...result[0]});
+    if(indexFollowUp&&parts[3]===B)result.push({
+     inquiry_id:B,gmail_message_id:followUpDelivery.gmail_message_id,gmail_thread_id:'follow_up_thread',
+     direction:'outbound',sent_at:followUpDelivery.sent_at,subject:followUpDelivery.subject,
+     from_address:'aratechsound@gmail.com',to_addresses:[followUpDelivery.recipient],
+     body_text:'Original provider body',attachment_metadata:[{id:'pdf1',filename:'見積書_日本語.pdf',mime_type:'application/pdf',size:120}]
+    });
+   }
    else if(parts[2]==='mail-live'){
     if(parts[3]===B)return json({ok:false,code:'fixture_gmail_unavailable'},503);
     result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
@@ -204,6 +214,20 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await page.reload();
    await page.locator('[data-delivery-id="follow-up"]').getByText('Edited fixture follow-up',{exact:true}).waitFor();
    assert.equal(await page.getByRole('form',{name:'お問い合わせへの返信'}).count(),0);
+   indexFollowUp=true;
+   await page.reload();
+   const combined=page.locator('[data-message="follow_up_mail"]');
+   await combined.getByText('Edited fixture follow-up',{exact:true}).waitFor();
+   assert.deepEqual(page.errors,[]);
+   assert.equal(await combined.count(),1);
+   assert.equal(await page.locator('[data-delivery-id="follow-up"]').count(),0);
+   await combined.getByText('見積書_日本語.pdf',{exact:true}).waitFor();
+   await combined.getByRole('button',{name:'全文を表示'}).click();
+   await combined.getByText('Original provider body',{exact:true}).waitFor();
+   await combined.getByRole('button',{name:'閉じる'}).click();
+   await combined.getByText('Edited fixture follow-up',{exact:true}).waitFor();
+   assert.deepEqual(page.errors,[]);
+   indexFollowUp=false;
    await page.close();
   }
   {

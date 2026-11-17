@@ -26,7 +26,10 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
   function mount(container,id,row,valid){
     const k=key(id,row);let entry=cache.get(k);
     if(!entry){entry={state:row.body_text||row.body_html?'ready':'idle',parts:row.body_text||row.body_html?fullBody(row):null,expanded:false,quoteOpen:false,notify:()=>{}};cache.set(k,entry);}
-    const body=container.querySelector('.mail-excerpt'),button=container.querySelector('[data-body-read]');
+    const body=container.querySelector('.mail-excerpt, .timeline-body');
+    const button=container.querySelector('[data-body-read]');
+    if (!body || !button) return;
+    const savedDeliveryBody = body.classList.contains('timeline-body') ? body.textContent : '';
     const quoted=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');
     quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);body.after(quoted);
     quoted.addEventListener('toggle',()=>{entry.quoteOpen=quoted.open;});
@@ -34,7 +37,8 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       if(!valid()||!container.isConnected)return;
       const failed=entry.state==='error',parts=entry.parts,busy=['loading','queued'].includes(entry.state);
       body.classList.toggle('expanded',entry.expanded&&!!parts);body.classList.toggle('unavailable',failed);
-      body.textContent=failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
+      body.textContent=!entry.expanded&&savedDeliveryBody?savedDeliveryBody:
+        failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
         parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':purposeExcerpt(parts.text)||'新規本文なし（引用のみ）'):
         savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
       button.textContent=busy?'本文を取得中…':failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
