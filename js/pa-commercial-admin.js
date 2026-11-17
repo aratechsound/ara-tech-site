@@ -636,9 +636,13 @@ export async function renderDeskConfirmationActions(root, context) {
             let refreshRequired = false;
             try {
                 if (await openPdfMail(context, {state: data.state, current, registerOnly})) await context.refreshCommercial();
-            } catch {
+            } catch (error) {
                 refreshRequired = true;
-                if (!context.signal.aborted) status.textContent = "見積の処理結果を確認できません。状態を再取得して履歴を確認してください。";
+                if (!context.signal.aborted) {
+                    status.textContent = error.message === "confirmation_already_active"
+                        ? "有効な正式受注確認があるため見積を登録できません。状態を再取得してください。"
+                        : "見積の処理結果を確認できません。状態を再取得して履歴を確認してください。";
+                }
             } finally {
                 if (!refreshRequired) buttons.forEach(item => item.disabled = false);
                 estimateBusy = false;

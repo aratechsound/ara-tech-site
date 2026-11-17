@@ -10,6 +10,7 @@ const { createService: contractService } = require('../api/_pa-contract.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
 const MODE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const MIGRATION = '20261008090000_pam025_direct_confirmation_with_estimate.sql';
+const ESTIMATE_CONFIRMATION_GUARD = '20261117183629_paui095_preserve_active_confirmation_on_estimate.sql';
 async function setup({ transport, migrate = true } = {}) {
   const f = await createFixture();
   process.env.PA_COMMERCIAL_OUTBOX_KEY = '88'.repeat(32);
@@ -23,7 +24,15 @@ async function setup({ transport, migrate = true } = {}) {
     '20260914170000_pa_est_007r1_production_e2e.sql']) await f.db.exec(read(name));
   await f.db.exec(r7.slice(0, cut) + '\ncommit;');
   await f.db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
-  if (migrate) await f.db.exec(read(MIGRATION));
+  if (migrate) {
+    await f.db.exec(read(MIGRATION));
+    const estimateAclSql = "select proacl from pg_proc where oid='public.pa_v5_issue_estimate(uuid,uuid,bigint,uuid,uuid,uuid,text,text,text,text,bigint,text,text,jsonb,text,timestamptz,text,text,text,jsonb)'::regprocedure";
+    const previousAcl = await f.db.query(estimateAclSql);
+    await f.db.exec(read(ESTIMATE_CONFIRMATION_GUARD));
+    const currentAcl = await f.db.query(estimateAclSql);
+    assert.equal(previousAcl.rows.length, 1);
+    assert.deepEqual(currentAcl.rows, previousAcl.rows);
+  }
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
     const response = await f.fetchImpl(url, options);

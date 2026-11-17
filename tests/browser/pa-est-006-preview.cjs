@@ -363,10 +363,30 @@ async function main() {
         assert.deepEqual(originalDocument.bytes, pf.quote);
         assert.deepEqual(revisedDocument.bytes, revisedPdf);
         console.log('PASS CASE DESK estimate revision preserves both sent rows and both PDF originals');
+        const staleRevisionSend = await reviewPdf(false, revisedPdf, '見積書 未確定第3版.pdf');
         const fp = await pf.service.confirmationPreview({ case_id: pf.inquiryId }, pf.actor);
         const issued = await pf.service.issueConfirmation({
             case_id: pf.inquiryId, preview_fingerprint: fp.fingerprint, operation_id: crypto.randomUUID()
         }, pf.actor);
+        const activeBeforeStaleRevision = await counts(pf.db, pf.inquiryId);
+        const staleRevisionResponse = page.waitForResponse(response =>
+            response.url().includes('/api/pa-mail?surface=commercial')
+            && response.request().postDataJSON()?.action === 'issue_estimate');
+        await staleRevisionSend.click();
+        assert.deepEqual(await (await staleRevisionResponse).json(), { ok: false, code: 'confirmation_already_active' });
+        await page.getByText('有効な正式受注確認があるため見積を登録できません。状態を再取得してください。', { exact: true }).waitFor();
+        assert.deepEqual(await counts(pf.db, pf.inquiryId), activeBeforeStaleRevision);
+        assert.equal(pf.state.sendCount, 2);
+        assert.equal((await pf.db.query('select state from pa_contract_tokens where offer_id=$1', [issued.id])).rows[0].state, 'active');
+        const afterStaleRevision = await pf.service.snapshot(pf.inquiryId);
+        assert.equal(afterStaleRevision.estimates.length, 2);
+        assert.equal(afterStaleRevision.state.current_estimate_revision_id, revision.id);
+        await openDesk(pf, false);
+        await page.getByRole('button', { name: '正式受注確認を送る', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
+        assert.equal(await page.getByRole('button', { name: '見積原本を登録（送信しない）', exact: true }).count(), 0);
+        assert.deepEqual(await counts(pf.db, pf.inquiryId), activeBeforeStaleRevision);
+        console.log('PASS CASE DESK stale estimate send preserves the active confirmation and blocks new estimate actions');
         const sendModel = await pf.service.confirmationSendPreview({ case_id: pf.inquiryId, offer_id: issued.id }, pf.actor);
         assert.equal((await pf.service.dispatch({
             case_id: pf.inquiryId, offer_id: issued.id, job_id: issued.outbox_id, preview_fingerprint: sendModel.fingerprint
@@ -422,7 +442,7 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_stale_estimate_preserves_active_confirmation: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         if (browser) await browser.close();
