@@ -7,7 +7,7 @@ const {createFixture} = require('./helpers/ara-case-fixture.cjs');
 
 const root=path.resolve(__dirname,'..');
 const columns=['id','customer_name','email','organization_name','phone','event_name',
-  'venue','event_time','request_summary','event_date','case_type','submission_source','status'];
+  'venue','event_time','request_summary','event_date','case_type','received_at','submission_source','status'];
 const outsider='55555555-5555-4555-8555-555555555555';
 
 async function main(){
@@ -123,6 +123,7 @@ async function main(){
     const box=await dialog.boundingBox();
     assert(box.x>=0&&box.x+box.width<=390);
     await fill('架空の音響依頼','PA_EVENT');
+    await dialog.getByLabel('受付日時（JST）').fill('2026-11-18T07:30');
     await dialog.getByLabel('イベント名').fill('架空の催事');
     await dialog.getByRole('button',{name:'問い合わせを登録'}).dblclick();
     await status.getByText(/通信状態を確認してから/).waitFor();
@@ -164,6 +165,8 @@ async function main(){
       {id:attempts[0],case_type:'PA_EVENT',created_by:actor,status:'new_inquiry',submission_source:'manual'}
     ]);
     assert.deepEqual(await results('select inquiry_id from pa_case_progress'),[{inquiry_id:attempts[0]}]);
+    const [received]=await results('select received_at from pa_inquiries where id=$1',[attempts[0]]);
+    assert.equal(new Date(received.received_at).toISOString(),'2026-11-17T22:30:00.000Z');
     assert.equal((await results('select * from pa_inquiry_audit')).length,2);
     assert.equal((await results('select * from pa_email_deliveries')).length,0);
     assert.deepEqual(unexpected,[]);

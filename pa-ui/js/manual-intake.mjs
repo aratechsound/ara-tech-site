@@ -20,12 +20,16 @@ export async function manualIntakeRequest(client,{id,ownerId,values,stillCurrent
       if(value.length>limit)throw Error('invalid_manual_intake');
       return [name,value||null];
     }));
-    const {case_type,event_date}=values;
+    const {case_type,event_date,received_at}=values;
+    const receivedTime=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/u.test(received_at)
+      ?new Date(received_at+':00+09:00'):null;
     if(!Object.hasOwn(caseTypes,case_type)||!fields.customer_name||!fields.email||
       !/^[^\s@]+@[^\s@]+$/u.test(fields.email)||
+      !Number.isFinite(receivedTime?.valueOf())||
       (event_date&&!/^\d{4}-\d{2}-\d{2}$/u.test(event_date)))throw Error('invalid_manual_intake');
     const {error}=await client.from('pa_inquiries').insert({
-      ...fields,id,case_type,event_date:event_date||null,submission_source:'manual',status:'new_inquiry'
+      ...fields,id,case_type,event_date:event_date||null,received_at:receivedTime.toISOString(),
+      submission_source:'manual',status:'new_inquiry'
     }).abortSignal(AbortSignal.timeout(25000));
     if(error)throw Error('manual_intake_write_unverified');
     return;
@@ -60,6 +64,7 @@ export function createManualIntake(){
       <p>電話・口頭・紹介などで受けた問い合わせを登録します。</p>
       <form>
         <fieldset>
+          <label>受付日時（JST）<input name="received_at" type="datetime-local" required></label>
           <label>案件種別<select name="case_type" required><option value="">選択してください</option></select></label>
           <label>お客様名・担当者名<input name="customer_name" required></label>
           <label>メールアドレス<input name="email" type="email" required></label>
@@ -81,6 +86,7 @@ export function createManualIntake(){
     const form=dialog.querySelector('form'),fields=form.querySelector('fieldset');
     const submit=form.querySelector('[type="submit"]'),check=form.querySelector('[data-check]');
     const cancel=form.querySelector('[data-close]'),status=form.querySelector('[role="status"]');
+    form.elements.received_at.value=new Date(Date.now()+9*60*60*1000).toISOString().slice(0,16);
     for(const [value,label] of Object.entries(caseTypes))form.elements.case_type.add(new Option(label,value));
     for(const [name,limit] of Object.entries(lengths))form.elements[name].maxLength=limit;
     let id=null,busy=false,locked=false,unavailable=false;
