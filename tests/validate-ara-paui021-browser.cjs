@@ -36,10 +36,16 @@ const root=path.resolve(__dirname,'..');
    let pdf='%PDF-1.4\n',offsets=[0];for(let i=0;i<objects.length;i++){offsets.push(pdf.length);pdf+=(i+1)+' 0 obj\n'+objects[i]+'\nendobj\n';}
    const xref=pdf.length;pdf+='xref\n0 7\n0000000000 65535 f \n'+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
    const {createGallery}=await import('/pa-ui/js/gallery.mjs');
-   const g=createGallery({isCurrent:()=>true,requestBlob:async()=>new Blob([pdf],{type:'application/pdf'})});
+   let reads=0;
+   const g=createGallery({isCurrent:()=>true,requestBlob:async()=>{
+    if(++reads===1)throw {status:503,code:'read_unavailable'};
+    return new Blob([pdf],{type:'application/pdf'});
+   }});
    await g.openPreview({key:'two-page',asset_id:'a',mime_type:'application/pdf',filename:'日本語2ページ.pdf'});
    return pdf;
   });
+  await page.getByRole('button',{name:'原本を再取得',exact:true}).click();
+  await page.locator('dialog canvas').waitFor();
   assert.equal(await page.locator('dialog canvas').count(),1);
   const downloadLink=page.getByRole('link',{name:'原本をダウンロード',exact:true});
   await downloadLink.waitFor({timeout:3000});
@@ -52,10 +58,11 @@ const root=path.resolve(__dirname,'..');
   await page.getByText('2 / 2ページ · 125%',{exact:true}).waitFor();
   await page.getByRole('button',{name:'閉じる',exact:true}).click();
   assert.equal(await downloadLink.count(),0);
-  console.log('PASS real PDF.js two-page render, page navigation, zoom and exact Japanese original download');
+  console.log('PASS explicit PDF retry after a temporary read failure, two-page render, zoom and exact Japanese original download');
   const C='11111111-1111-4111-8111-111111111111',errors=[];page.on('pageerror',e=>errors.push(e.message));
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX8sAAAAASUVORK5CYII=','base64');
   const reads=[];
+  let transientReads=0;
   let releasePayments;
   const paymentsPending=new Promise(resolve=>{releasePayments=resolve;});
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const session={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>session,current:async()=>session,subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
@@ -66,9 +73,16 @@ const root=path.resolve(__dirname,'..');
    else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
    else if(p.startsWith('/data/materials/'))value={cards:[],photos:[
     {id:'fixture-png',display_filename:'現場写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
+    {id:'fixture-transient',display_filename:'再取得する写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
     {id:'fixture-denied',display_filename:'閲覧不可.png',mime_type:'image/png',source_type:'gmail_attachment'}
    ]};
    else if(p==='/data/material/'+C+'/photo/fixture-png')return r.fulfill({contentType:'image/png',body:png});
+   else if(p==='/data/material/'+C+'/photo/fixture-transient'){
+    transientReads++;
+    return transientReads<3
+      ?r.fulfill({status:503,json:{ok:false,code:'provider_read_failed'}})
+      :r.fulfill({contentType:'image/png',body:png});
+   }
    else if(p==='/data/material/'+C+'/photo/fixture-denied')return r.fulfill({status:403,json:{ok:false,code:'acl_denied'}});
    else if(p.startsWith('/data/mail/'))value=[{gmail_message_id:'mail1',inquiry_id:C,direction:'inbound',subject:'Fixture mail',attachment_metadata:[]}];
    else if(p.startsWith('/data/mail-body/'))value={gmail_message_id:'mail1',body_text:'Full body '.repeat(200)+'\n> quoted history',body_state:'ready'};
@@ -103,10 +117,25 @@ const root=path.resolve(__dirname,'..');
   assert.deepEqual(fs.readFileSync(await imageDownload.path()),png);
   assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Save reuses the inspected bytes');
   await page.keyboard.press('Escape');
+  const transient=page.getByRole('button',{name:'再取得する写真.png の拡大プレビュー',exact:true});
+  await transient.locator('.material-error').waitFor();
+  assert.equal(transientReads,1,'Thumbnail failure alone must not retry');
+  await transient.click();
+  await page.locator('dialog .preview-content').getByText('Gmail原本の読取に失敗しました',{exact:true}).waitFor();
+  assert.equal(transientReads,2,'Opening the original after a failed thumbnail must make a fresh read');
+  assert.equal(await downloadLink.count(),0);
+  await page.getByRole('button',{name:'原本を再取得',exact:true}).click();
+  await downloadLink.waitFor();
+  const [retriedDownload]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
+  assert.equal(retriedDownload.suggestedFilename(),'再取得する写真.png');
+  assert.deepEqual(fs.readFileSync(await retriedDownload.path()),png);
+  assert.equal(transientReads,3,'Saving a recovered original reuses the successful read');
+  await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'閲覧不可.png の拡大プレビュー',exact:true}).click();
   await page.locator('dialog .preview-content').getByText(/閲覧拒否/).waitFor();
   assert.equal(await downloadLink.count(),0);
+  assert.equal(await page.getByRole('button',{name:'原本を再取得',exact:true}).count(),0);
   assert(reads.every(entry=>entry.method==='GET'));
-  assert.deepEqual(errors,[]);console.log('PASS CASE DESK photo original filename and bytes, late payment response preserves preview and GET count, no extra read on save, ACL-denied asset has no download');
+  assert.deepEqual(errors,[]);console.log('PASS CASE DESK temporary photo thumbnail/original failures recover by explicit GET, no extra read on save, late payment response preserves preview, ACL denial has no retry or download');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
