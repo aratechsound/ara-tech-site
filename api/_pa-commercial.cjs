@@ -520,6 +520,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         venue: inquiry.venue || null, service_scope: inquiry.request_summary || null,
         organization: inquiry.organization_name || null, contact_name: inquiry.contact_name || inquiry.customer_name || null,
         recipient: inquiry.email, gmail_thread_id: primaryThread?.gmail_thread_id || null,
+        delivery_outcome_unresolved: outbox.some(job => deliveryConflicts(job, {
+          estimateId: effectiveState.current_estimate_revision_id, offers
+        })),
         payment_due_date: issuanceTermsV4(inquiry.event_date).payment_due_date,
         cancellation_terms: issuanceTermsV4(inquiry.event_date).cancellation_terms
       },

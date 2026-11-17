@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { chromium } = require('C:/Users/user/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.js');
+const { chromium } = require('playwright');
 const { createFixture } = require('../helpers/pa-contract-fixture.cjs');
 const { read } = require('../helpers/pa-estimate-fixture.cjs');
 const { createService } = require('../../api/_pa-commercial.cjs');
@@ -52,7 +52,7 @@ async function main() {
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         const base = `http://127.0.0.1:${server.address().port}`;
         process.env.ALLOWED_ORIGINS = base; process.env.PA_PUBLIC_ORIGIN = base; process.env.PA_COMMERCIAL_OUTBOX_KEY = '77'.repeat(32);
-        browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' });
+        browser = await chromium.launch({ headless: true, ...(process.env.PA_CHROME_EXECUTABLE ? { executablePath: process.env.PA_CHROME_EXECUTABLE } : {}) });
         const context = await browser.newContext();
         await context.route('**/*', (route) => { const url = new URL(route.request().url()); return url.origin === base || url.protocol === 'blob:' ? route.continue() : route.abort(); });
         const page = await context.newPage(); page.on('pageerror', (error) => { pageErrors.push(error.message); console.error('PAGEERROR', error.message); }); page.on('console', (message) => { if (message.type() === 'error') console.error('CONSOLE', message.text()); }); page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
@@ -97,7 +97,6 @@ async function main() {
 
         const firstOffer = (await fixture.db.query('select id,version from public.pa_contract_offers where inquiry_id=$1 order by version desc limit 1', [fixture.inquiryId])).rows[0];
         const firstJob = (await fixture.db.query("select id from public.pa_commercial_outbox where inquiry_id=$1 and aggregate_id=$2 and job_kind='confirmation'", [fixture.inquiryId, firstOffer.id])).rows[0];
-        await fixture.db.query("update public.pa_commercial_outbox set state='unknown' where id=$1", [firstJob.id]);
         const replaceBefore = await counts(fixture.db, fixture.inquiryId);
         await page.goto(`${base}/harness.html`);
         await page.getByRole('button', { name: 'この確認を失効して再発行準備' }).click();
@@ -108,17 +107,38 @@ async function main() {
         await page.getByRole('button', { name: '旧確認を失効して新しい確認を準備（送信しない）' }).click();
         await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' });
         assert.deepEqual(await counts(fixture.db, fixture.inquiryId), replaceBefore, 'replacement final dialog opens without mutation');
+        const replaced = page.waitForResponse(response => response.url().includes('/api/pa-mail?surface=commercial')
+            && response.request().postDataJSON()?.action === 'replace_confirmation');
         await page.getByRole('button', { name: '旧確認を失効して新しい確認を発行する（送信しない）' }).click();
-        await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        const replacementResponse = await replaced;
+        assert.equal(replacementResponse.status(), 200, await replacementResponse.text());
+        await page.locator('#pa-contract-v5-summary').getByText(/正式受注確認 #2/u).waitFor();
         const replaceAfter = await counts(fixture.db, fixture.inquiryId);
         assert.equal(replaceAfter.offers, replaceBefore.offers + 1);
         assert.equal(replaceAfter.tokens, replaceBefore.tokens + 1);
         assert.equal(replaceAfter.outbox, replaceBefore.outbox + 1);
         assert.equal(replaceAfter.contracts, replaceBefore.contracts);
-        assert.equal((await fixture.db.query("select state from public.pa_commercial_outbox where id=$1", [firstJob.id])).rows[0].state, 'unknown');
+        assert.equal((await fixture.db.query("select state from public.pa_commercial_outbox where id=$1", [firstJob.id])).rows[0].state, 'cancelled');
         assert.equal(Number((await fixture.db.query("select count(*) n from public.pa_contract_tokens t join public.pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1 and t.state='active'", [fixture.inquiryId])).rows[0].n), 1);
         assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0, 'replacement never dispatches provider');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, old_unknown_preserved: true, active_token_count: 1, real_issue: 0, real_email: 0 };
+
+        const currentJob = (await fixture.db.query(
+            "select id,aggregate_id from public.pa_commercial_outbox where inquiry_id=$1 and job_kind='confirmation' and id<>$2",
+            [fixture.inquiryId, firstJob.id]
+        )).rows[0];
+        await fixture.db.query("update public.pa_commercial_outbox set state='unknown',delivery_state='unknown_after_provider_start' where id=$1", [currentJob.id]);
+        const unknownBefore = await counts(fixture.db, fixture.inquiryId);
+        await page.goto(`${base}/harness.html`);
+        const contractPanel = page.locator('#pa-contract-v5-summary');
+        await contractPanel.getByText('送信結果を照合してから、正式受注確認を準備してください。').waitFor();
+        assert.equal(await contractPanel.getByRole('button', { name: 'この確認を失効して再発行準備' }).count(), 0);
+        assert.equal(await contractPanel.getByRole('button', { name: '正式受注確認を送る' }).count(), 0);
+        await assert.rejects(service.confirmationPreview({
+            case_id: fixture.inquiryId, replace_offer_id: currentJob.aggregate_id
+        }, { id: fixture.actorId }), /delivery_outcome_unresolved/u);
+        assert.deepEqual(await counts(fixture.db, fixture.inquiryId), unknownBefore);
+        assert.equal((await fixture.db.query("select state from public.pa_commercial_outbox where id=$1", [currentJob.id])).rows[0].state, 'unknown');
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
 }

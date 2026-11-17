@@ -76,3 +76,4 @@ bash tests/ci/test-git-checkout.sh > /workspace/outputs/GIT_INITIALIZATION_TESTS
 cat /workspace/outputs/GIT_INITIALIZATION_TESTS.log
 node tests/ci/validate-security-checks.cjs
 node tests/browser/works-reviewed-publication.cjs
+PA_EST_006_OUTPUT_DIR=/workspace/outputs/pa-est-006-preview node tests/browser/pa-est-006-preview.cjs
