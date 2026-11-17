@@ -18,6 +18,7 @@ import {createCaseMailSync} from './case-mail-sync.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
 import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
 import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,paymentClosureBasis,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
+import {openScheduleToken,scheduleTokenSecret,scheduleTokenUrl} from './schedule-token.mjs';
 
 const $=id=>document.getElementById(id),central=$('detail-card');
 const tx=value=>escape(privateText(String(value??'未提供')));
@@ -548,6 +549,72 @@ const scheduleNoticeLabels = {
   schedule_result_confirmed:'日程確定の通知',
   schedule_result_unavailable:'日程確保不可の通知'
 };
+function canManageSchedule(c){
+  return Boolean(c&&!passiveMail&&session?.user?.id&&c.updated_at&&c.progress&&getRows('tokens')&&!c.deleted_at
+    &&!isClosedCase(c)&&c.status!=='on_hold'&&!c.progress?.is_on_hold);
+}
+function openScheduleLinks(){
+  const c=current(),ownerId=session?.user?.id,epoch=selectionEpoch;
+  if(!canManageSchedule(c)||tab!=='schedule')return;
+  const prior=openScheduleToken(getRows('tokens'));
+  openInfo('日程URLの発行・失効',`
+    <form id="schedule-token-command">
+      <p><strong>${tx(c.inquiry_number||'案件')}</strong></p>
+      <p>${prior?'対象は現在表示された未回答のURLです。発行し直すと、そのURLは失効します。':'保存済みの未回答URLはありません。'}</p>
+      ${prior?'<p>対象URLの期限 '+escape(timelineDate(prior.expires_at))+'</p>':''}
+      <label>発行するURLの回答期限（JST） <input name="expiry" type="datetime-local"></label>
+      <div class="inlinebtns">
+        <button type="submit" class="action" value="issue">日程URLを発行</button>
+        ${prior?'<button type="submit" class="action quiet" value="revoke">確認したURLを失効</button>':''}
+      </div>
+      <p id="schedule-command-status" role="status"></p>
+      <label id="schedule-issued-url" hidden>今回発行したURL <input readonly></label>
+    </form>`);
+  const form=$('schedule-token-command'),status=$('schedule-command-status');
+  const stillCurrent=()=>epoch===selectionEpoch&&selected===c.id&&tab==='schedule'
+    &&session?.user?.id===ownerId&&form.isConnected&&$('modal-wrap').open;
+  let attempted=false;
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    if(attempted||!stillCurrent())return;
+    const action=event.submitter?.value;
+    if(action!=='issue'&&action!=='revoke')return;
+    let expiry=null,token=null;
+    if(action==='issue'){
+      const value=form.elements.expiry.value;
+      const when=Date.parse(value+':00+09:00');
+      if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)||!(when>Date.now())){
+        status.textContent='現在より後の回答期限を日本時間で入力してください。';return;
+      }
+      expiry=new Date(when).toISOString();
+      token=scheduleTokenSecret();
+    }
+    attempted=true;
+    for(const control of form.querySelectorAll('button,input[name]'))control.disabled=true;
+    status.textContent='保存しています…';
+    try{
+      const {requestScheduleToken}=await import('./integration.mjs');
+      if(!stillCurrent())return;
+      const result=await requestScheduleToken({ownerId,caseId:c.id,updatedAt:c.updated_at,
+        expectedToken:prior?.id||null,action,token,expiry});
+      if(!stillCurrent())return;
+      const confirmed=result.state===(action==='issue'?'issued':'revoked')&&result.updated_at&&result.case_status&&(action==='issue'?result.token_id:result.revoked_at);
+      if(confirmed){
+        cases=cases.map(item=>item.id===c.id?{...item,updated_at:result.updated_at,status:result.case_status}:item);
+        renderList();
+        status.textContent=action==='issue'?'発行しました。URLはこの画面で控えてください。':'確認したURLを失効しました。';
+        if(action==='issue'){
+          const output=$('schedule-issued-url');output.querySelector('input').value=scheduleTokenUrl(token);output.hidden=false;
+        }
+      }else{
+        status.textContent='発行・失効を確定できません。案件一覧を更新し、現在のURL状態を確認してください。';
+      }
+      await loadSurface('tokens','/data/case/'+c.id+'/tokens',epoch);
+    }catch{
+      if(stillCurrent())status.textContent='結果を確認できません。再操作する前に案件一覧を更新し、現在のURL状態を確認してください。';
+    }
+  });
+}
 function schedule(c){
   const p=c.progress||{};
   const tokens=readBlock('tokens','日程URL状態',rows=>{
@@ -555,7 +622,7 @@ function schedule(c){
     if(!latest)return '<div class="empty-state">取得成功 / 保存済み日程URL記録なし</div>';
     return pair('URL状態',scheduleState(latest))+pair('発行',timelineDate(latest.issued_at))+
       pair('期限',timelineDate(latest.expires_at))+pair('回答',timelineDate(latest.answered_at))+
-      '<p class="hint">発行済みURLの確認・発行・失効は既存の業務操作から行えます。</p>';
+      '<p class="hint">URLの文字列は発行時にだけ表示します。</p>';
   });
   const answers=readBlock('responses','日程回答',rows=>rowsHtml(rows,{
     title:scheduleResponseLabel,
@@ -580,7 +647,7 @@ function schedule(c){
     <div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${tokens}</div>
     <div class="group"><h2 class="sectiontitle">顧客回答</h2>${answers}</div>
     <div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${notices}</div>
-    <div class="inlinebtns" style="margin-top:12px">${button('リンク発行・失効','schedule-link','quiet',true)}${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
+    <div class="inlinebtns" style="margin-top:12px"><button class="action quiet" data-action="schedule-link" ${canManageSchedule(c)?'':'disabled'}>リンク発行・失効</button>${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
 }
 function protectAudit(value,key=''){
   if(/amount|price|total|balance|subtotal|fee|cost|金額|請求額|見積額/i.test(key)&&value!==null&&value!==undefined)return typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?privateMoney(Number(value)):privateText(value);
@@ -752,6 +819,7 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
+  if(e.target.closest('[data-action="schedule-link"]:not(:disabled)')){openScheduleLinks();return;}
   if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
@@ -800,7 +868,7 @@ $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inli
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){closeInfo();openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
 $('drawer-close').onclick=()=>$('drawer-wrap').close();
-function closeInfo(){threadLink?.reset();$('modal-wrap').close();resetPrivacy();}
+function closeInfo(){threadLink?.reset();$('modal-wrap').close();$('schedule-token-command')?.remove();resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 $('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeInfo();});
 window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});

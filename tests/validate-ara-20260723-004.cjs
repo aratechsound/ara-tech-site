@@ -23,10 +23,10 @@ assert.match(adminHtml, /この内容でGmail送信/);
 assert.doesNotMatch(adminHtml, /件名をコピー|本文をコピー|メールアプリで開く|mailto:/);
 assert.match(adminHtml, /結果メールのGmail送信成功後にだけ更新/);
 
-assert.match(adminJs, /crypto\.getRandomValues\(bytes\)/);
-assert.match(adminJs, /new Uint8Array\(32\)/);
-assert.match(adminJs, /issue_pa_schedule_token/);
-assert.match(adminJs, /revoke_pa_schedule_token/);
+assert.match(adminJs, /scheduleTokenSecret\(\)/);
+assert.match(adminJs, /changeScheduleToken\("issue"/);
+assert.match(adminJs, /changeScheduleToken\("revoke"/);
+assert.match(read("pa-ui/js/schedule-token.mjs"), /crypto\.getRandomValues\(new Uint8Array\(32\)\)/);
 assert.match(adminJs, /action: "send_result"/);
 assert.match(adminJs, /日程確保フォームへの回答だけでは、契約・予約または日程確保は確定しません/);
 assert.doesNotMatch(adminJs, /service_role/i);
