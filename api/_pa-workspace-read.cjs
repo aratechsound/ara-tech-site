@@ -244,13 +244,18 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     if(contentType(item.mime)!==mime||!validMagic(bytes,mime)||metadata.size!==undefined&&Number(metadata.size)!==bytes.length)throw new ReadError('asset_identity_mismatch',409);
     return {bytes,mime};
   }
-  async function mailMessage(id,messageId,token){
+  async function mailMessage(id,messageId,token,{includeBody=false}={}){
     if(!MAIL_ID.test(messageId||''))throw new ReadError('invalid_mail_identity',400);
-    const messages=await mail(id,token),message=messages.find(m=>m.gmail_message_id===messageId);
-    if(!message)throw new ReadError('mail_binding_mismatch',403);
+    await readableCase(id,token);
+    // Some deployments do not store bodies in the index. Read the complete row
+    // only for the requested body; attachment reads need just the binding and metadata.
+    const matches=await rows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,
+      select:includeBody?'*':'gmail_message_id,inquiry_id,gmail_thread_id,attachment_metadata',limit:2},token);
+    const message=matches[0];
+    if(matches.length!==1||message.gmail_message_id!==messageId||message.inquiry_id!==id
+      ||!MAIL_ID.test(message.gmail_thread_id||''))throw new ReadError('mail_binding_mismatch',403);
     const owners=await allRows('pa_gmail_thread_links',{gmail_thread_id:'eq.'+message.gmail_thread_id,select:'inquiry_id,gmail_thread_id'},token);
-    const indexes=await allRows('pa_gmail_message_index',{gmail_message_id:'eq.'+messageId,select:'inquiry_id,gmail_thread_id'},token);
-    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id)||indexes.length!==1||indexes[0].inquiry_id!==id||indexes[0].gmail_thread_id!==message.gmail_thread_id)throw new ReadError('mail_binding_mismatch',403);
+    if(!owners.length||owners.some(l=>l.inquiry_id!==id||l.gmail_thread_id!==message.gmail_thread_id))throw new ReadError('mail_binding_mismatch',403);
     return message;
   }
   async function providerRead(fn){
@@ -390,7 +395,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
           res.setHeader('Content-Type',item.mime);return res.end(item.bytes);
         }
         else if(segments.length===4&&segments[1]==='mail-body'){
-          const message=await mailMessage(assertId(segments[2]),segments[3],token);
+          const message=await mailMessage(assertId(segments[2]),segments[3],token,{includeBody:true});
           if(message.body_text||message.body_html){
             result={gmail_message_id:message.gmail_message_id,body_text:message.body_text||'',body_html:message.body_html||'',body_state:message.body_text||message.body_html?'ready':'empty',source:'saved'};
           }else{
