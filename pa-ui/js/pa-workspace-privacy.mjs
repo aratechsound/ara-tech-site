@@ -14,6 +14,7 @@ export function privateText(text='') {return protectMoneyText(text,v=>{const t=`
 export function setPrivateAmount(input,value) {inputs.set(input,String(value??''));input.value='';input.readOnly=true;input.placeholder='金額非表示';input.dataset.privateAmount='true';}
 export function readPrivateAmount(input) {return inputs.has(input)?inputs.get(input):input.value;}
 export function privateFrame(frame,kind,value) {frames.set(frame,{kind,value});frame.removeAttribute('src');frame.removeAttribute('srcdoc');frame.title='明示表示時のみ原本プレビュー';frame.hidden=true;}
+export function releasePrivateFrame(frame) {frames.delete(frame);}
 function renderTokens(root=document.body) {
  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const pending=[];let n;
  while(n=walker.nextNode())if(n.parentElement?.tagName!=='SCRIPT' && /\[\[PRIVATE_MONEY_\d+\]\]/.test(n.data))pending.push(n);

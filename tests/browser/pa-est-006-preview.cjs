@@ -55,8 +55,29 @@ async function main() {
         browser = await chromium.launch({ headless: true, ...(process.env.PA_CHROME_EXECUTABLE ? { executablePath: process.env.PA_CHROME_EXECUTABLE } : {}) });
         const context = await browser.newContext();
         await context.route('**/*', (route) => { const url = new URL(route.request().url()); return url.origin === base || url.protocol === 'blob:' ? route.continue() : route.abort(); });
+        const deskCases = [
+            { id: fixture.inquiryId, inquiry_number: 'PA-FIXTURE-A', event_name: '隔離見積案件', case_type: 'PA_EVENT', status: 'new' },
+            { id: fixture.otherId, inquiry_number: 'PA-FIXTURE-B', event_name: '別の隔離案件', case_type: 'PA_EVENT', status: 'new' }
+        ];
+        await context.route(base + '/pa-ui/js/integration.mjs', route => route.fulfill({
+            contentType: 'text/javascript',
+            body: `const session={user:{id:'fixture-owner'},access_token:'fixture-admin',expires_at:9999999999};
+                export const workspaceAuth={restore:async()=>session,current:async()=>session};
+                export const readUrl=path=>'/fixture-desk-read?path='+encodeURIComponent(path);
+                export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;`
+        }));
+        await context.route(base + '/fixture-desk-read?**', route => {
+            const target = new URL(route.request().url()).searchParams.get('path');
+            const result = target === '/data/cases' ? { cases: deskCases, progress: [] }
+                : target.startsWith('/data/commercial/') ? { estimates: [], offers: [], billings: [] }
+                : target.startsWith('/data/sent-estimates/') ? { messages: [], unknown: [] } : [];
+            return route.fulfill({ json: { ok: true, result } });
+        });
         const page = await context.newPage(); page.on('pageerror', (error) => { pageErrors.push(error.message); console.error('PAGEERROR', error.message); }); page.on('console', (message) => { if (message.type() === 'error') console.error('CONSOLE', message.text()); }); page.on('response', (response) => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
         const before = await counts(fixture.db, fixture.inquiryId);
+        const otherCaseBefore = (await fixture.db.query(
+            'select to_jsonb(i) as row from pa_inquiries i where id=$1', [fixture.otherId]
+        )).rows;
         const openPreview = async () => { await page.getByRole('button', { name: '正式受注確認を発行準備' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint')); };
         const ownerButton = () => page.getByRole('button', { name: 'この内容で正式受注確認を発行する（送信しない）' });
         const issueCalls = () => apiActions.filter((action) => action === 'issue_confirmation').length;
@@ -84,11 +105,47 @@ async function main() {
         assert.deepEqual(await counts(fixture.db, fixture.inquiryId), before); assert.equal(pageErrors.length, 0, pageErrors.join('\n'));
         assert.equal(issueCalls(), 0);
 
-        await page.goto(`${base}/harness.html`); await openPreview(); await page.getByLabel('上記の内容を確認しました。').check(); await ownerButton().click();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(`${base}/pa-admin.html?case=${fixture.inquiryId}`);
+        await page.getByRole('button', { name: '見積・受注', exact: true }).click();
+        await page.getByRole('button', { name: '正式受注の操作', exact: true }).click();
+        await openPreview();
+        const deskPreview = page.locator('.pa-confirmation-preview-dialog');
+        const brandedFrame = deskPreview.locator('iframe.pa-confirmation-preview__email');
+        assert.equal(await brandedFrame.getAttribute('sandbox'), '');
+        assert.equal(await brandedFrame.getAttribute('srcdoc'), null);
+        assert.doesNotMatch(await deskPreview.innerText(), /198,550/u);
+        await deskPreview.getByRole('button', { name: '金額・原本を表示' }).click();
+        assert.match(await deskPreview.innerText(), /198,550/u);
+        assert.match(await brandedFrame.getAttribute('srcdoc'), /ARA-TECH/u);
+        await deskPreview.getByRole('button', { name: '金額・原本を表示' }).click();
+        assert.equal(await brandedFrame.getAttribute('srcdoc'), null);
+        assert.doesNotMatch(await deskPreview.innerText(), /198,550/u);
+        assert(await deskPreview.evaluate(node => node.getBoundingClientRect().width <= innerWidth));
+        await page.screenshot({ path: path.join(out, 'desk-confirmation-390.png') });
+        await page.getByLabel('上記の内容を確認しました。').check();
+        await ownerButton().click();
+        await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'visible' });
+        // Simulate a case change while the final confirmation is displayed.
+        await page.locator(`[data-case="${fixture.otherId}"]`).evaluate(node => node.click());
+        await deskPreview.waitFor({ state: 'detached' });
+        await page.locator('.pa-confirmation-final-dialog').waitFor({ state: 'detached' });
+        assert.equal(issueCalls(), 0);
+        await page.setViewportSize({ width: 1366, height: 1000 });
+        await page.locator(`[data-case="${fixture.inquiryId}"]`).click();
+        await page.getByRole('button', { name: '見積・受注', exact: true }).click();
+        await page.getByRole('button', { name: '正式受注の操作', exact: true }).click();
+        await openPreview();
+        await page.screenshot({ path: path.join(out, 'desk-confirmation-1366.png') });
+        await page.getByLabel('上記の内容を確認しました。').check(); await ownerButton().click();
         await page.getByRole('button', { name: '正式受注確認を発行する（送信しない）' }).click();
         await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        assert.equal(new URL(page.url()).pathname, '/pa-admin.html');
+        assert.equal(context.pages().length, 1, 'CASE DESK must not open the legacy admin');
         const afterIssue = await counts(fixture.db, fixture.inquiryId);
         assert.equal(afterIssue.offers, before.offers + 1); assert.equal(afterIssue.tokens, before.tokens + 1); assert.equal(afterIssue.contracts, before.contracts); assert.equal(apiActions.filter((action) => action === 'dispatch_outbox').length, 0);
+        await page.setViewportSize({ width: 1366, height: 1000 });
+        await page.goto(`${base}/harness.html`);
         await page.getByRole('button', { name: '正式受注確認を送る' }).click(); await page.locator('.pa-confirmation-preview-dialog').waitFor({ state: 'visible' }); await page.waitForFunction(() => document.querySelector('.pa-confirmation-preview__fingerprint'));
         assert.match(await page.locator('.pa-confirmation-preview-dialog').innerText(), /発行済みです。案内メールはまだ送信されていません/u);
         await page.getByLabel('上記の内容を確認しました。').check(); await page.getByRole('button', { name: '正式受注確認を送る' }).last().click();
@@ -138,7 +195,16 @@ async function main() {
         }, { id: fixture.actorId }), /delivery_outcome_unresolved/u);
         assert.deepEqual(await counts(fixture.db, fixture.inquiryId), unknownBefore);
         assert.equal((await fixture.db.query("select state from public.pa_commercial_outbox where id=$1", [currentJob.id])).rows[0].state, 'unknown');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, real_issue: 0, real_email: 0 };
+        assert.deepEqual((await fixture.db.query(
+            'select to_jsonb(i) as row from pa_inquiries i where id=$1', [fixture.otherId]
+        )).rows, otherCaseBefore);
+        const beforeReadOnly = apiActions.length;
+        await page.goto(`${base}/pa-admin.html?case=${fixture.inquiryId}&mail-view=readonly`);
+        await page.getByRole('button', { name: '見積・受注', exact: true }).click();
+        await page.getByRole('heading', { name: '見積・正式受注', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: '正式受注の操作', exact: true }).count(), 0);
+        assert.equal(apiActions.length, beforeReadOnly);
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally { if (browser) await browser.close(); if (server) await new Promise((resolve) => server.close(resolve)); if (fixture) await fixture.db.close(); }
 }

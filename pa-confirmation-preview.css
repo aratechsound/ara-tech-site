@@ -67,6 +67,32 @@
 .pa-confirmation-final-dialog__actions { justify-content: flex-end; margin-top: 20px; }
 body:has(.pa-confirmation-preview-dialog[open]) { overflow: hidden; }
 
+body:has(#detail-card) :is(.pa-confirmation-preview-dialog, .pa-confirmation-final-dialog) {
+    background: #fff;
+    color: #172e45;
+    color-scheme: light;
+}
+body:has(#detail-card) :is(.pa-confirmation-preview-dialog, .pa-confirmation-final-dialog) .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+body:has(#detail-card) :is(.pa-confirmation-preview-dialog, .pa-confirmation-final-dialog) .button {
+    background: #007bff;
+    border: 1px solid #007bff;
+    border-radius: 8px;
+    color: #071827;
+    padding: 8px 12px;
+}
+body:has(#detail-card) :is(.pa-confirmation-preview-dialog, .pa-confirmation-final-dialog) .button--secondary {
+    background: #f5faff;
+    color: #064f91;
+}
+body:has(#detail-card) :is(.pa-confirmation-preview-dialog, .pa-confirmation-final-dialog) .button:disabled {
+    opacity: .55;
+}
+.pa-confirmation-preview-dialog :is(.hidden, [hidden]) { display: none; }
+
 @media (max-width: 940px) {
     .pa-confirmation-preview-dialog { width: min(98vw, 940px); }
     .pa-confirmation-preview__header { align-items: flex-start; flex-direction: column; }
