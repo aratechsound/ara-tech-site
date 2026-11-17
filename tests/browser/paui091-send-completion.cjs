@@ -32,6 +32,11 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    let raw='';for await(const chunk of req)raw+=chunk;
    const payload=JSON.parse(raw);
    assert.equal(req.headers.authorization,'Bearer fixture-only');
+   if(payload.action==='preview_content_hearing'){
+    assert.equal(payload.inquiry_id,B);
+    if(payload.body==='Preview failure')return json({ok:false,code:'preview_unavailable'},503);
+    return json({ok:true,html:require('../../api/_pa-mail.cjs').buildCustomerHtml(payload.body)});
+   }
    intakePosts.push(payload);
    return json({ok:true,delivery:{message_type:'content_hearing_follow_up',status:'sent',
     recipient:payload.expected_recipient,subject:payload.subject},case_state:{result_status:'waiting_customer_reply'}});
@@ -123,9 +128,14 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await followUp.click();
    const form = page.getByRole('form', {name:'お問い合わせへの返信'});
    assert.equal(await form.getByLabel('宛先',{exact:true}).inputValue(),'other@example.invalid');
+   await form.getByLabel('本文',{exact:true}).fill('Preview failure');
+   await form.getByRole('button',{name:'プレビュー'}).click();
+   await form.getByText('プレビューを表示できません。宛先と内容を確認してください。',{exact:true}).waitFor();
+   assert.equal(await form.getByRole('heading',{name:'送信前プレビュー'}).isHidden(),true);
    await form.getByLabel('本文',{exact:true}).fill('Fixture follow-up body');
    await form.getByRole('button',{name:'プレビュー'}).click();
-   await form.getByText('Fixture follow-up body',{exact:true}).waitFor();
+   await form.frameLocator('iframe').getByText('Fixture follow-up body',{exact:true}).waitFor();
+   assert.equal(await form.locator('iframe').getAttribute('sandbox'),'');
    assert.equal(await form.getByRole('button',{name:'確認した内容で送信する'}).isDisabled(),true);
    await form.getByLabel('本文',{exact:true}).fill('Edited fixture follow-up');
    assert.equal(await form.getByRole('heading',{name:'送信前プレビュー'}).isHidden(),true);

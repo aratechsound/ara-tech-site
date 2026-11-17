@@ -196,7 +196,10 @@ function openIntakeComposer() {
   if (!canStartFollowUp(inquiry) || detail.intakeComposer) return;
   const epoch = selectionEpoch;
   const isCurrent = () => epoch===selectionEpoch && selected===inquiry.id;
-  const form = createIntakeComposer({inquiry, close:()=>{
+  const form = createIntakeComposer({inquiry, requestPreview:({recipient,subject,body})=>
+    authenticatedMailRequest({
+      action:'preview_content_hearing', inquiry_id:inquiry.id, expected_recipient:recipient, subject, body
+    }, ()=>isCurrent() && tab==='conversation', {endpoint:'/api/pa-mail'}), close:()=>{
     delete detail.intakeComposer;
     render();
     central.querySelector('[data-intake-reply]')?.focus();

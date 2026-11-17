@@ -1,5 +1,9 @@
 const {
     CONTENT_HEARING_TYPE,
+    assertContentHearingMessage,
+    buildCustomerHtml,
+    cleanBody,
+    cleanHeader,
     createScheduleDelivery,
     finalizeContentHearingDelivery,
     finalizeScheduleResult,
@@ -72,6 +76,17 @@ const paMailHandler = async (request, response) => {
     try {
         const user = await verifyAdmin(bearerToken(request));
         const input = parseBody(request);
+        if (input.action === "preview_content_hearing") {
+            const inquiry = await getInquiry(input.inquiry_id);
+            if (inquiry.id !== input.inquiry_id || inquiry.submission_source !== "public_form" ||
+                !input.expected_recipient || input.expected_recipient !== String(inquiry.email || "").trim()) {
+                throw new Error("follow_up_recipient_changed");
+            }
+            const subject = cleanHeader(input.subject, 240);
+            const body = cleanBody(input.body);
+            assertContentHearingMessage(subject, body);
+            return sendJson(response, 200, { ok: true, html: buildCustomerHtml(body) });
+        }
         const rateLimitPolicy = RATE_LIMIT_POLICY_BY_ACTION[input.action];
         if (!rateLimitPolicy) throw new Error("invalid_action");
         const rate = await checkRateLimit({
