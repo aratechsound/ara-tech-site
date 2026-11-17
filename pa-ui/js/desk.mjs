@@ -696,7 +696,21 @@ function renderFeatures(){
   $('feature-summary').textContent=`表示 ${shown.length}件 / 全 ${features.length}件`;
   $('feature-list').innerHTML=shown.map(f=>`<div class="feature"><span class="fid">${escape(f.id)}</span><span><strong>${escape(f.name)}</strong><small>${escape(f.place)} / <span class="features-status ${f.status==='新UIから利用可能'?'available':f.status==='認証・ACL未解決'?'acl':f.status==='内部機能'?'internal':''}">${escape(f.status)}</span></small><div class="feature-detail">${escape(f.scope)}</div></span><button data-feature="${escape(f.id)}">対応を見る ›</button></div>`).join('');
 }
-function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(current())setTab(f.target||'overview');if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){const row=replyableMessages()[0];if(row)void replyState.open(row).catch(()=>{});return;}openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
+function featureJump(id){
+  const f=features.find(x=>x.id===id);
+  if(!f)return;
+  $('drawer-wrap').classList.remove('open');
+  if(current())setTab(f.target||'overview');
+  if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){
+    const row=replyableMessages()[0];
+    if(row)void replyState.open(row).catch(()=>{});
+    return;
+  }
+  const entry=f.current_control
+    ?`<p><strong>CASE DESKの操作場所</strong><br>${escape(f.current_control)}</p>`
+    :`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
+  openInfo(f.id+' '+f.name,entry+`<p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);
+}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
 function signOut(callAuth=true){manualIntake.close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
