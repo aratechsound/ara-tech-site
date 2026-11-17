@@ -86,6 +86,8 @@ async function main() {
                     result = await service.snapshot(inquiryId);
                 } else if (target === '/data/case/' + inquiryId + '/payments') {
                     result = (await db.query('select * from pa_payment_records where inquiry_id=$1', [inquiryId])).rows;
+                } else if (target === '/data/case/' + inquiryId + '/audit') {
+                    result = (await db.query('select occurred_at,action,details from pa_inquiry_audit where inquiry_id=$1 order by occurred_at desc', [inquiryId])).rows;
                 }
             }
             return route.fulfill({ json: { ok: true, result } });
@@ -308,6 +310,7 @@ async function main() {
         assert.equal(saved.status(), 200, await saved.text());
         await page.getByText('案件は完了しました。', { exact: true }).waitFor();
         await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        await page.getByText('入金記録に基づく完了', { exact: true }).waitFor();
         const { rows: [bill] } = await f.db.query('select * from pa_billings where inquiry_id=$1', [case_id]);
         assert.equal(bill.invoice_policy, 'no_separate_invoice');
         assert.equal(bill.state, 'paid');
@@ -443,6 +446,7 @@ async function main() {
         await closeInvoice.getByLabel('確認メモ').fill('隔離案件の請求書に対する入金を確認');
         await closeInvoice.getByRole('button', { name: '全条件を確認して完了' }).click();
         await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        await page.getByText('入金記録に基づく完了', { exact: true }).waitFor();
         assert.equal((await pf.db.query('select count(*)::int n from pa_payment_records where inquiry_id=$1', [pf.inquiryId])).rows[0].n, 1);
         assert.equal(pf.state.sendCount, beforeInvoiceSend + 1);
         console.log('PASS CASE DESK estimate and separate invoice PDFs, byte identity on delivery, payment and close');

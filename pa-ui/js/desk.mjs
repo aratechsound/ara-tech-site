@@ -504,7 +504,7 @@ async function openDeskCommercial(){
         if(closed)panel.textContent='案件は完了しました。';
         const reload=[loadSurface('commercial','/data/commercial/'+c.id,epoch)];
         if(activeTab==='invoice')reload.push(loadSurface('payments','/data/case/'+c.id+'/payments',epoch));
-        if(closed)reload.push(reloadBilledCase(c.id,epoch));
+        if(closed)reload.push(reloadBilledCase(c.id,epoch),loadSurface('audit','/data/case/'+c.id+'/audit',epoch));
         await Promise.all(reload);
         if(!closed&&stillCurrent())await openDeskCommercial();
       }
