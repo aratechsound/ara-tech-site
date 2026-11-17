@@ -85,8 +85,23 @@ async function browserConfig(body, ok){
     checks.push({name:'profile helper zero DB',db_calls:0,gmail_get:1,result:'PASS'});
     const source=fs.readFileSync(path.join(__dirname,'../api/pa-gmail.js'),'utf8');
     const policies=[...source.slice(source.indexOf('const ACTION_POLICY'),source.indexOf('const parseBody')).matchAll(/\s+(\w+): "(PA_[A-Z_]+)"/g)];
-    assert.equal(policies.length,13);
-    assert.equal(policies.find(([,action])=>action==='reply_context')[2],'PA_GMAIL_REPLY_PREVIEW');
+    assert.equal(policies.length,14);
+    assert.deepEqual(Object.fromEntries(policies.map(([,action,policy])=>[action,policy])),{
+        inbox_list:'PA_GMAIL_SYNC',
+        inbox_review:'PA_GMAIL_ATTACHMENT_GET',
+        inbox_attachment:'PA_GMAIL_ATTACHMENT_GET',
+        inbox_sync:'PA_GMAIL_SYNC',
+        inbox_decide:'PA_GMAIL_MANUAL_LINK',
+        sync:'PA_GMAIL_SYNC',
+        manual_link:'PA_GMAIL_MANUAL_LINK',
+        link_intake_follow_up:'PA_GMAIL_MANUAL_LINK',
+        attachment_download:'PA_GMAIL_ATTACHMENT_GET',
+        portal_documents:'PA_GMAIL_ATTACHMENT_GET',
+        reply_context:'PA_GMAIL_REPLY_PREVIEW',
+        reply_preview:'PA_GMAIL_REPLY_PREVIEW',
+        send_reply:'PA_GMAIL_SEND_REPLY',
+        reconcile_estimate_submission:'PA_GMAIL_RECONCILE_ESTIMATE'
+    });
     for(const [,action,policy] of policies){
         scenario={};calls=[];const r=response();await handler({method:'POST',headers:{origin:'https://ara-tech.cc',authorization:'Bearer fixture-admin'},body:{action}},r);
         assert.equal(r.code,429,action);assert.equal(calls.filter(c=>c.path==='/rest/v1/rpc/consume_rate_limit').length,1);assert.equal(calls.filter(c=>c.host==='gmail.googleapis.com').length,0);
