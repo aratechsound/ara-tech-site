@@ -711,12 +711,8 @@ function featureJump(id){
   const f=features.find(x=>x.id===id);
   if(!f)return;
   $('drawer-wrap').close();
-  if(current())setTab(f.target||'overview');
-  if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){
-    const row=replyableMessages()[0];
-    if(row)void replyState.open(row).catch(()=>{});
-    return;
-  }
+  // The feature guide must not start the conversation tab's automatic sync.
+  if(current()&&f.target!=='conversation')setTab(f.target||'overview');
   const entry=f.current_control
     ?`<p><strong>CASE DESKの操作場所</strong><br>${escape(f.current_control)}</p>`
     :`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
