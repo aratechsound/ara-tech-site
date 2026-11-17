@@ -13,6 +13,20 @@ export function displayStatus(c){
   return c.status;
 }
 export function statusText(c){return STATUS[displayStatus(c)]||'状態未定義';}
+export function paymentClosureBasis(c,auditRows){
+  const closedAt=c.progress?.closed_at;
+  if(displayStatus(c)!=='owner_payment_completed'||!closedAt)return null;
+  const actions=new Set();
+  for(const row of auditRows){
+    // The close and audit entries share the same transaction timestamp.
+    if(row.occurred_at!==closedAt)continue;
+    if(row.action==='owner_payment_completion_confirmed'&&row.details?.confirmation_source==='owner_attestation')
+      actions.add('Owner申告で完了');
+    if(row.action==='payment_confirmed_and_closed'||row.action==='payment_confirmed_and_closed_v5')
+      actions.add('入金記録に基づく完了');
+  }
+  return actions.size===1?[...actions][0]:null;
+}
 export function statusColor(c){const s=displayStatus(c);return /cancelled|declined|unavailable/.test(s)?'red':/confirmed|completed/.test(s)?'green':/hold|confirmation/.test(s)?'amber':'blue';}
 export function eventDate(c){return c.progress?.confirmed_event_date||c.event_date||null;}
 export function sortCases(items,order='event'){

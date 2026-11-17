@@ -8,14 +8,26 @@ const root=path.resolve(__dirname,'..');
  const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
  const origin=process.env.PAUI024_PREVIEW||'http://127.0.0.1:'+server.address().port;
- const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false;
+ const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false,closureFixture=null;
  page.on('pageerror',e=>errors.push(e.message));
  const C='11111111-1111-4111-8111-111111111111';
+ const closedAt='2026-11-13T05:00:00.321456+00:00';
+ const attestation={action:'owner_payment_completion_confirmed',details:{confirmation_source:'owner_attestation'},occurred_at:closedAt};
+ const ledger={action:'payment_confirmed_and_closed_v5',occurred_at:closedAt};
  const source='お世話になっております。\nARA-TECHの荒殿です。\nご連絡ありがとうございます。\n今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。\n11月1日、2台、雨天中止の条件です。\n続きの原文です。\n--\n署名\n> 古いメール本文';
  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
- if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:[]};
+ if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:closureFixture?'closed':'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:closureFixture?[{inquiry_id:C,close_reason:'payment_received',closed_at:closedAt}]:[]};
+ else if(p==='/data/case/'+C+'/audit'&&closureFixture){
+   if(closureFixture==='failed')return r.fulfill({status:503,json:{ok:false,error:'read_unavailable'}});
+   const prior={...attestation,occurred_at:'2026-11-13T05:00:00.321455+00:00'};
+   if(closureFixture==='attested')value=[attestation];
+   else if(closureFixture==='ledger')value=[ledger,prior];
+   else if(closureFixture==='legacy-ledger')value=[{...ledger,action:'payment_confirmed_and_closed'}];
+   else if(closureFixture==='conflict')value=[attestation,ledger];
+   else value=[prior];
+ }
  else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
  else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
  else if(p==='/data/case/'+C+'/tokens')value=[{issued_at:'2026-11-12T23:00:00Z',expires_at:'2026-11-13T23:00:00Z',answered_at:'2026-11-13T05:00:00Z'}];
@@ -65,6 +77,21 @@ const root=path.resolve(__dirname,'..');
  assert.match(await page.locator('.record').filter({hasText:'日程確定の通知'}).innerText(),/2026\/11\/15 8:55:00 JST/u);
  assert.equal(await page.getByText('回答済み・期限切れ',{exact:true}).count(),1);
  assert.equal(await page.getByText('条件に同意し、日程調整を依頼',{exact:true}).count(),1);
- assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: white logo, neutral panels, safe text, full/quote, schedule JST/delivery failure/read-only, and the current feature catalog route');
+ for(const [fixture,expected] of [
+   ['attested','Owner申告で完了'],
+   ['ledger','入金記録に基づく完了'],
+   ['legacy-ledger','入金記録に基づく完了'],
+   ['stale','今回の完了の根拠を確認できる監査記録がありません'],
+   ['conflict','今回の完了の根拠を確認できる監査記録がありません'],
+   ['failed',null]
+ ]){
+   closureFixture=fixture;
+   await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
+   await page.getByRole('button',{name:'請求・入金',exact:true}).click();
+   const basis=page.locator('.group').filter({has:page.getByRole('heading',{name:'完了の根拠',exact:true})});
+   if(expected)await basis.getByText(expected,{exact:true}).waitFor();
+   else await basis.locator('.read-error').waitFor();
+ }
+ assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: white logo, neutral panels, safe text, full/quote, schedule JST/delivery failure/read-only, payment closure provenance, and the current feature catalog route');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
