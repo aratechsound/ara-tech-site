@@ -57,9 +57,9 @@ function readBlock(surface,label,render){
   if(state.state==='error')return errorBlock(state.error,label);
   return render(state.value);
 }
-function rowsHtml(rows,{title,body,time,kind}={}){
+function rowsHtml(rows,{title,body,time,kind,formatTime=date}={}){
   if(!rows.length)return '<div class="empty-state">保存済み記録なし</div>';
-  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(date(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}</article>`).join('')+'</div>';
+  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(formatTime(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}</article>`).join('')+'</div>';
 }
 function fact(label,value){return `<div class="fact"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
@@ -490,9 +490,50 @@ async function reloadBilledCase(id,epoch){
 function invoice(c){
   return moneyBar()+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作');
 }
+const scheduleNoticeLabels = {
+  schedule_request:'日程調整の案内',
+  schedule_response_agree_customer:'条件同意の受付確認',
+  schedule_response_agree_internal:'条件同意の内部通知',
+  schedule_response_question_customer:'確認事項の受付確認',
+  schedule_response_question_internal:'確認事項の内部通知',
+  schedule_response_decline_customer:'見送りの受付確認',
+  schedule_response_decline_internal:'見送りの内部通知',
+  schedule_result_confirmed:'日程確定の通知',
+  schedule_result_unavailable:'日程確保不可の通知'
+};
 function schedule(c){
   const p=c.progress||{};
-  return `<div class="toolbar">${button('‹ 概要に戻る','overview','quiet')}${flag('amber','日程調整')}</div><div class="schedule-hero"><div><div class="kicker" style="color:var(--amber)">SCHEDULE COORDINATION</div><strong>${escape(statusText(c))}</strong></div></div><div class="facts">${fact('確保日',p.confirmed_event_date)}${fact('確保時間',p.confirmed_event_time)}${fact('予約確定',p.booking_confirmed_on)}${fact('確定状況',p.schedule_status||c.status)}</div><div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${readBlock('tokens','日程URL状態',rows=>{const latest=rows[0];return latest?pair('URL状態',scheduleState(latest))+pair('発行',date(latest.issued_at))+pair('期限',date(latest.expires_at))+pair('回答',date(latest.answered_at))+`<p class="hint">既存GETは秘密のURL tokenを返しません。URL再表示・発行・失効は無効です。</p>`:'<div class="empty-state">取得成功 / 保存済み日程URL記録なし</div>';})}</div><div class="group"><h2 class="sectiontitle">顧客回答</h2>${readBlock('responses','日程回答',rows=>rowsHtml(rows,{title:scheduleResponseLabel,body:r=>[r.respondent_name?'回答者 '+r.respondent_name:null,r.organization?'団体 '+r.organization:null,r.question_details?'確認事項 '+r.question_details:null,r.authority?'条件同意の権限 '+({yes:'ある',no:'ない',unknown:'分からない'}[r.authority]||r.authority):null,r.confirmation_name?'確認者 '+r.confirmation_name:null,r.terms_version?'規約版 '+r.terms_version:null,r.event_date,r.event_time,r.venue,r.request_summary,r.additional_notes,r.notes].filter(Boolean).join(' / '),time:r=>r.submitted_at||r.responded_at||r.created_at}))}</div><div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${readBlock('deliveries','案内記録',rows=>rowsHtml(rows.filter(r=>/schedule|日程/i.test(r.message_type||'')),{title:r=>r.message_type,body:r=>/unknown/.test(r.status+' '+r.error_summary)?'UNKNOWN / 再送停止':r.status,time:r=>r.sent_at||r.requested_at}))}</div><div class="inlinebtns" style="margin-top:12px">${button('リンク発行・失効','schedule-link','quiet',true)}${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
+  const tokens=readBlock('tokens','日程URL状態',rows=>{
+    const latest=rows[0];
+    if(!latest)return '<div class="empty-state">取得成功 / 保存済み日程URL記録なし</div>';
+    return pair('URL状態',scheduleState(latest))+pair('発行',timelineDate(latest.issued_at))+
+      pair('期限',timelineDate(latest.expires_at))+pair('回答',timelineDate(latest.answered_at))+
+      '<p class="hint">発行済みURLの確認・発行・失効は既存の業務操作から行えます。</p>';
+  });
+  const answers=readBlock('responses','日程回答',rows=>rowsHtml(rows,{
+    title:scheduleResponseLabel,
+    body:r=>[r.respondent_name?'回答者 '+r.respondent_name:null,r.organization?'団体 '+r.organization:null,
+      r.question_details?'確認事項 '+r.question_details:null,
+      r.authority?'条件同意の権限 '+({yes:'ある',no:'ない',unknown:'分からない'}[r.authority]||r.authority):null,
+      r.confirmation_name?'確認者 '+r.confirmation_name:null,r.terms_version?'規約版 '+r.terms_version:null,
+      r.event_date,r.event_time,r.venue,r.request_summary,r.additional_notes,r.notes].filter(Boolean).join(' / '),
+    time:r=>r.submitted_at||r.responded_at||r.created_at,formatTime:timelineDate
+  }));
+  const notices=readBlock('deliveries','案内記録',rows=>rowsHtml(rows.filter(r=>/schedule|日程/i.test(r.message_type||'')),{
+    title:r=>scheduleNoticeLabels[r.message_type]||'日程連絡',
+    body:r=>{
+      const outcome=deliveryOutcome(r);
+      return outcome==='配送結果未確定'?outcome+' / 再送前に履歴を確認':outcome;
+    },
+    time:deliveryDate,formatTime:timelineDate
+  }));
+  return `<div class="toolbar">${button('‹ 概要に戻る','overview','quiet')}${flag('amber','日程調整')}</div>
+    <div class="schedule-hero"><strong>${escape(statusText(c))}</strong></div>
+    <div class="facts">${fact('確保日',p.confirmed_event_date)}${fact('確保時間',p.confirmed_event_time)}${fact('予約確定',p.booking_confirmed_on)}</div>
+    <div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${tokens}</div>
+    <div class="group"><h2 class="sectiontitle">顧客回答</h2>${answers}</div>
+    <div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${notices}</div>
+    <div class="inlinebtns" style="margin-top:12px">${button('リンク発行・失効','schedule-link','quiet',true)}${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
 }
 function protectAudit(value,key=''){
   if(/amount|price|total|balance|subtotal|fee|cost|金額|請求額|見積額/i.test(key)&&value!==null&&value!==undefined)return typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?privateMoney(Number(value)):privateText(value);

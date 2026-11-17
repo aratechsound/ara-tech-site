@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
  const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
  const origin=process.env.PAUI024_PREVIEW||'http://127.0.0.1:'+server.address().port;
- const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[],counts={},methods=[];let active=0,maxActive=0;
+ const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false;
  page.on('pageerror',e=>errors.push(e.message));
  const C='11111111-1111-4111-8111-111111111111';
  const source='お世話になっております。\nARA-TECHの荒殿です。\nご連絡ありがとうございます。\n今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。\n11月1日、2台、雨天中止の条件です。\n続きの原文です。\n--\n署名\n> 古いメール本文';
@@ -18,6 +18,12 @@ const root=path.resolve(__dirname,'..');
  if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:[]};
  else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
  else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
+ else if(p==='/data/case/'+C+'/tokens')value=[{issued_at:'2026-11-12T23:00:00Z',expires_at:'2026-11-13T23:00:00Z',answered_at:'2026-11-13T05:00:00Z'}];
+ else if(p==='/data/case/'+C+'/responses')value=[{decision:'agree',submitted_at:'2026-11-13T05:00:00Z'}];
+ else if(scheduleFixture&&p==='/data/case/'+C+'/deliveries')value=[
+  {id:'result',inquiry_id:C,message_type:'schedule_result_confirmed',status:'failed',error_summary:'gmail_send_invalid',failed_at:'2026-11-14T23:55:00Z'},
+  {id:'request',inquiry_id:C,message_type:'schedule_request',status:'sent',sent_at:'2026-11-12T23:00:00Z'}
+ ];
  else if(p==='/data/mail/'+C)value=[{gmail_message_id:'purpose',inquiry_id:C,direction:'inbound',subject:'用件抜粋・架空検証',snippet:'お世話になっております。',attachment_metadata:[]},{gmail_message_id:'html',inquiry_id:C,direction:'outbound',subject:'HTML本文・架空検証',attachment_metadata:[]}];
  else if(p.startsWith('/data/mail-body/')){const id=p.split('/').pop();counts[id]=(counts[id]||0)+1;active++;maxActive=Math.max(maxActive,active);await new Promise(resolve=>setTimeout(resolve,250));active--;value={gmail_message_id:id,inquiry_id:C,...(id==='html'?{body_html:'<p>Hello!</p><p>Thank you for your email.</p><p>Budget JPY 110,000; 2 units on 2026/11/01.</p><img src="https://invalid.example/tracker"><script>window.paui024Danger=true</script><blockquote>Old budget</blockquote>'}:{body_text:source})};}
  await r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:value})});
@@ -36,6 +42,15 @@ const root=path.resolve(__dirname,'..');
  if(process.env.PAUI024_SCREENSHOT)await page.screenshot({path:process.env.PAUI024_SCREENSHOT});
  for(const width of [760,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'small screen horizontal fit');assert.equal(await bg('.top'),'rgb(0, 123, 255)');await card.getByRole('button',{name:'全文を表示',exact:true}).click();assert.equal(await body.evaluate(n=>getComputedStyle(n).overflowY),'visible');await card.getByRole('button',{name:'閉じる',exact:true}).click();}
  if(process.env.PAUI024_SMALL_SCREENSHOT)await page.screenshot({path:process.env.PAUI024_SMALL_SCREENSHOT,fullPage:true});
- assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: white logo, neutral panels, HTML inert, snippet refresh, original excerpt, full/reopen/quote, no inner scroll, toggle GET=0');
+ scheduleFixture=true;
+ await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
+ await page.locator('#open-schedule').click();
+ await page.getByText('日程確定の通知',{exact:true}).waitFor();
+ assert.equal(await page.getByText('配送結果未確定 / 再送前に履歴を確認',{exact:true}).count(),1);
+ assert.equal(await page.getByText('日程調整の案内',{exact:true}).count(),1);
+ assert.match(await page.locator('.record').filter({hasText:'日程確定の通知'}).innerText(),/2026\/11\/15 8:55:00 JST/u);
+ assert.equal(await page.getByText('回答済み・期限切れ',{exact:true}).count(),1);
+ assert.equal(await page.getByText('条件に同意し、日程調整を依頼',{exact:true}).count(),1);
+ assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: white logo, neutral panels, safe text, full/quote, and schedule JST/delivery failure/read-only');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
