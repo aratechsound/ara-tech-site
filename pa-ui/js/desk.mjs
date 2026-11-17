@@ -17,7 +17,7 @@ const intakeCompletions = new Map();
 import {createCaseMailSync} from './case-mail-sync.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
 import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
-import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
+import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,paymentClosureBasis,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
 
 const $=id=>document.getElementById(id),central=$('detail-card');
 const tx=value=>escape(privateText(String(value??'未提供')));
@@ -530,7 +530,12 @@ async function reloadBilledCase(id,epoch){
   }
 }
 function invoice(c){
-  return moneyBar()+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作');
+  const closure=displayStatus(c)==='owner_payment_completed'
+    ? '<div class="group"><h2 class="sectiontitle">完了の根拠</h2>'+
+      readBlock('audit','完了の監査履歴',rows=>'<p class="stage-info">'+
+        escape(paymentClosureBasis(c,rows)||'今回の完了の根拠を確認できる監査記録がありません')+'</p>')+'</div>'
+    : '';
+  return moneyBar()+closure+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作');
 }
 const scheduleNoticeLabels = {
   schedule_request:'日程調整の案内',
