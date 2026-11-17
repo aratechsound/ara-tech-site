@@ -112,6 +112,12 @@ body:has(#detail-card) .pa-commercial-dialog :is(input, textarea, select) {
     width: 100%;
 }
 body:has(#detail-card) .pa-commercial-dialog::backdrop { background: rgba(12, 24, 36, .64); }
+body:has(#detail-card) .pa-commercial-mail-review iframe {
+    background: #fff;
+    border: 1px solid #8196ab;
+    height: 280px;
+    width: 100%;
+}
 .pa-confirmation-preview-dialog :is(.hidden, [hidden]) { display: none; }
 
 @media (max-width: 940px) {

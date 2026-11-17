@@ -950,13 +950,9 @@ const findStandaloneDelivery = async (input, fetchImpl = fetch) => {
     return evidence;
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
-    updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
-    const normalizedAttachments = normalizeReplyAttachments(attachments);
-    const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
+const verifyReplyPreview = ({ confirmationToken, preview, actorId, attachments }) => {
     verifyPreviewToken(confirmationToken, {
-        inquiryId,
+        inquiryId: preview.inquiry_id,
         actorId,
         threadId: preview.gmail_thread_id,
         replySourceMessageId: preview.reply_source_message_id,
@@ -965,9 +961,17 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         ccAddresses: preview.cc_addresses,
         subject: preview.subject,
         body: preview.body,
-        mode: normalizedMode,
-        attachmentsHash: replyAttachmentsHash(normalizedAttachments)
+        mode: preview.mode,
+        attachmentsHash: replyAttachmentsHash(normalizeReplyAttachments(attachments))
     });
+};
+
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
+    updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
+    const normalizedAttachments = normalizeReplyAttachments(attachments);
+    const normalizedMode = replyMode(mode);
+    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
+    verifyReplyPreview({ confirmationToken, preview, actorId, attachments: normalizedAttachments });
     updateDeliveryTrace(deliveryTrace, { phase: "reply_source_validation" });
     const implicitApproval = signedPreviewPayload(confirmationToken).replySourceExplicit === false;
     const thread = await gmailThread(preview.gmail_thread_id, fetchImpl);
@@ -1034,3 +1038,4 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
 
 module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
+module.exports.verifyReplyPreview = verifyReplyPreview;
