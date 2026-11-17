@@ -5,7 +5,7 @@ const { createFixture } = require('./helpers/ara-case-fixture.cjs');
 const { read } = require('./helpers/pa-estimate-fixture.cjs');
 const publicIntake = require('../api/pa-inquiry.js');
 const { getInquiry, sendContentHearingAndFinalize } = require('../api/_pa-mail.cjs');
-const { syncCase } = require('../api/_pa-gmail.cjs');
+const { linkIntakeFollowUp, syncCase } = require('../api/_pa-gmail.cjs');
 const { createService: commercialService, decryptSecret } = require('../api/_pa-commercial.cjs');
 const { createService: contractService } = require('../api/_pa-contract.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
@@ -83,6 +83,17 @@ function caseTransport(fixture) {
   return { fetchImpl, sent, drain: () => Promise.allSettled(pending) };
 }
 
+async function installCommercialMigrations(db) {
+  await db.exec("create function auth.role() returns text language sql stable as $$ select 'service_role'::text $$");
+  await db.exec(read('20260914170000_pa_est_007r1_production_e2e.sql'));
+  const recovery = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+  const fixturesStart = recovery.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+  assert(fixturesStart > 0);
+  await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
+  await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
+  await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+}
+
 async function main() {
   const fixture = await createFixture();
   const { db } = fixture;
@@ -96,14 +107,7 @@ async function main() {
       PA_PUBLIC_ORIGIN: 'https://example.invalid'
     });
     // The isolated REST adapter represents the server-side service role.
-    await db.exec("create function auth.role() returns text language sql stable as $$ select 'service_role'::text $$");
-    await db.exec(read('20260914170000_pa_est_007r1_production_e2e.sql'));
-    const recovery = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
-    const fixturesStart = recovery.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
-    assert(fixturesStart > 0);
-    await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
-    await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
-    await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+    await installCommercialMigrations(db);
 
     const submission = {
       submission_key: randomUUID(), form_source: 'direct', event_date: '2026-11-01',
@@ -146,7 +150,29 @@ async function main() {
     customerReply.internalDate = String(Date.now());
     fixture.state.messages.set(customerReply.id, customerReply);
     fixture.state.threadMessages.get(provider.threadId).push(customerReply);
-    const synced = await syncCase({ inquiryId: caseId, actorId: actor.id }, fetchImpl);
+    const command = { inquiryId: caseId, deliveryId: followUp.delivery.id, actorId: actor.id };
+    const otherId = randomUUID();
+    await db.query(
+      "insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status,submission_source,submission_key) values($1,'PA-FIXTURE-OTHER','別の合成案件',$2,'PA_EVENT','new','public_form',$1)",
+      [otherId, inquiry.email]
+    );
+    await assert.rejects(linkIntakeFollowUp({ ...command, inquiryId: otherId }, fetchImpl), /intake_follow_up_not_linkable/u);
+    await db.query(
+      "insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,$2,'manual','primary_conversation')",
+      [otherId, provider.threadId]
+    );
+    const savedOtherLink = (await db.query('select * from pa_gmail_thread_links where inquiry_id=$1', [otherId])).rows;
+    await assert.rejects(linkIntakeFollowUp(command, fetchImpl), /ambiguous_thread_link/u);
+    assert.deepEqual((await db.query('select * from pa_gmail_thread_links where inquiry_id=$1', [otherId])).rows, savedOtherLink);
+    assert.deepEqual((await db.query('select * from pa_gmail_thread_links where inquiry_id=$1', [caseId])).rows, []);
+    await db.query('delete from pa_gmail_thread_links where inquiry_id=$1', [otherId]);
+    const linked = await linkIntakeFollowUp(command, fetchImpl);
+    assert.equal(linked.gmail_thread_id, provider.threadId);
+    const linkedBeforeReplay = (await db.query('select * from pa_gmail_thread_links where inquiry_id=$1', [caseId])).rows;
+    assert.equal((await linkIntakeFollowUp(command, fetchImpl)).id, linked.id);
+    assert.deepEqual((await db.query('select * from pa_gmail_thread_links where inquiry_id=$1', [caseId])).rows, linkedBeforeReplay);
+    assert.equal(sent.length, 3);
+    const synced = await syncCase({ inquiryId: caseId, actorId: actor.id, linkedOnly: true }, fetchImpl);
     assert.equal(synced.primary_link.gmail_thread_id, provider.threadId);
     assert.deepEqual(synced.messages.filter(row => row.thread_id === provider.threadId)
       .map(row => row.id).sort(), [customerReply.id, provider.id].sort());
@@ -263,4 +289,7 @@ async function main() {
   }
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (require.main === module) {
+  main().catch(error => { console.error(error); process.exitCode = 1; });
+}
+module.exports = { caseTransport, installCommercialMigrations };

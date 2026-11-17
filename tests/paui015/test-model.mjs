@@ -13,6 +13,11 @@ check('Year/type/state/current_step filters',()=>assert.equal(filterCases(rows,{
 check('Saved formal authority projection only',()=>assert.equal(displayStatus(rows[1]),'formal_order_confirmed'));
 check('Terminal cases do not gain formal confirmation',()=>assert.equal(displayStatus({...rows[1],status:'cancelled'}),'cancelled'));
 check('URL expiry/revocation/answer states distinct',()=>{assert.equal(scheduleState({revoked_at:'2026-01-01'}),'失効');assert.equal(scheduleState({expires_at:'2026-01-01'},Date.parse('2026-10-12')),'期限切れ');assert.equal(scheduleState({answered_at:'2026-01-01',expires_at:'2027-01-01'},Date.parse('2026-10-12')),'回答済み');});
+check('Expired answered URL retains the answer and missing expiry does not imply active',()=>{
+ assert.equal(scheduleState({answered_at:'2026-01-01',expires_at:'2026-02-01'},Date.parse('2026-10-12')),'回答済み・期限切れ');
+ assert.equal(scheduleState({expires_at:null}),'期限未確認');
+ assert.equal(scheduleState({expires_at:'invalid'}),'期限未確認');
+});
 check('Missing review evidence never invents document NEW',()=>{assert.equal(documentChange({version_label:'v2'},[{},{}]),'更新あり');assert.equal(documentChange({},[{}]),'初版・確認状態未取得');assert.equal(documentChange({is_new:true},[{}]),'NEW');assert.equal(documentChange({},[]),'確認状態未取得');});
 check('Canonical customer decision values render',()=>{assert.equal(scheduleResponseLabel({decision:'agree'}),'条件に同意し、日程調整を依頼');assert.equal(scheduleResponseLabel({decision:'question'}),'ARA-TECHへ確認したい');assert.equal(scheduleResponseLabel({decision:'decline'}),'条件に同意せず、日程調整を依頼しない');});
 check('Money text covers scales and ranges',()=>{assert.equal(protectMoneyText('予算 25万円 / 1,000〜2,000円',()=>'<hidden>'),'予算 <hidden> / <hidden>');});

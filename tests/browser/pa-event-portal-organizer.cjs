@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.join(root, "js", "pa-case-portal.js"), "utf8
 const client = `const SUPABASE_ANON_KEY="fixture"; const SUPABASE_URL="https://fixture.invalid"; const isSupabaseConfigured=false;
 const testDependencies={createClient:()=>{throw new Error("organizer must not create Supabase client")},pdfjsLib:{GlobalWorkerOptions:{},getDocument(){return {promise:Promise.resolve({numPages:1,getPage:async()=>({getViewport:({scale})=>({width:600*scale,height:800*scale}),render:()=>({promise:Promise.resolve()})})})}}}};
 Object.defineProperty(globalThis,"__PA_PORTAL_TEST_DEPS__",{get(){globalThis.__PORTAL_DEPENDENCY_HASH__=location.hash;return testDependencies}});
-${source.replace(/^import .*$/gmu, "")}`;
+${source.replace(/^import .* from "\.\/supabase-config\.js";$/mu, "")}`;
 const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZtQAAAAASUVORK5CYII=", "base64");
 const ref = (character) => character.repeat(36);
 const portal = { event: { event_name: "共同ポータル検証", event_date: "2026-10-18", event_time: "10:00〜15:00", venue: "検証会場" }, cards: [
@@ -28,6 +28,8 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     const url = new URL(request.url, "http://127.0.0.1");
     if (url.pathname === "/pa-case-portal.css") return send(response, 200, "text/css", css);
     if (url.pathname === "/js/pa-case-portal.js") return send(response, 200, "text/javascript", client);
+    if (/^\/js\/[a-z0-9-]+\.mjs$/u.test(url.pathname)) return send(response, 200, "text/javascript", fs.readFileSync(path.join(root, url.pathname)));
+    if (url.pathname === "/pa-staff-portal.css") return send(response, 200, "text/css", fs.readFileSync(path.join(root, url.pathname)));
     if (url.pathname.startsWith("/img/")) return send(response, 204, "image/png", "");
     if (url.pathname === "/api/event-portal") {
       let raw = ""; for await (const chunk of request) raw += chunk; const input = JSON.parse(raw); requests.push(input);
@@ -37,15 +39,22 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     return send(response, 200, "text/html", html);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.PA_CHROME_EXECUTABLE || "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe", args: ["--disable-extensions", "--no-first-run"] });
+  let browser;
   try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    browser = await chromium.launch({ executablePath: process.env.PA_CHROME_EXECUTABLE || undefined });
+    const page = await browser.newPage({ locale: "en-US", viewport: { width: 1440, height: 1000 } });
+    page.on("pageerror", (error) => console.error("Portal browser:", error.message));
+    await page.route("**/*", (route) => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
     await page.goto(`http://127.0.0.1:${server.address().port}/event-portal#${"9".repeat(64)}`, { waitUntil: "networkidle" });
     await page.waitForSelector("#portal:not([hidden])");
     assert.equal(await page.locator("#candidate-inbox").count(), 0, "organizer DOM must not contain the internal Gmail candidate inbox");
     assert.equal(new URL(page.url()).hash, ""); assert.equal(new URL(page.url()).pathname, "/event-portal");
     assert.equal(await page.evaluate(() => globalThis.__PORTAL_DEPENDENCY_HASH__), "");
     assert.equal(await page.locator("body").getAttribute("class").then((v) => v.includes("organizer-portal")), true);
+    assert.equal(await page.locator("html").getAttribute("lang"), "en");
+    assert.equal(await page.getByRole("button", { name: "Enlarge ARA音響図.pdf", exact: true }).isVisible(), true);
+    await page.locator("#organizer-language").selectOption("ja");
+    assert.equal(await page.locator("html").getAttribute("lang"), "ja");
     assert.equal(await page.locator("#portal").textContent().then((v) => /PA案件|案件状態|Gmail|見積|契約|請求|UUID/u.test(v)), false);
     await page.locator('button[aria-label="ARA音響図.pdfを拡大表示"]').click();
     await page.waitForSelector("#preview-dialog .pdf-pages canvas");
@@ -74,5 +83,8 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     assert.equal(requests.some((item) => item.action === "candidates" || item.action === "candidate_list" || item.action === "candidate_download" || Object.hasOwn(item, "inquiry_id")), false);
     assert.deepEqual(requests.map((item) => item.action).slice(0, 2), ["exchange", "read"]);
     console.log("PA organizer V8 browser validation: PASS (clean fragment, PDF/image previews, edit permissions, picker isolation, history, 390px modals)");
-  } finally { await browser.close(); await new Promise((resolve) => server.close(resolve)); }
+  } finally {
+    await browser?.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

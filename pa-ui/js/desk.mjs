@@ -3,6 +3,10 @@ import {requiresReauthentication} from './auth-session.mjs';
 import {privateText,privateMoney,privateFrame,releasePrivateFrame,setPrivateAmount,readPrivateAmount,releasePrivateAmount,resetPrivacy} from './pa-workspace-privacy.mjs';
 import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
+import {createMailHtmlView} from './mail-html-view.mjs';
+import {createCaseBasicsEditor} from './case-basics.mjs';
+import {createCaseCalendar} from './case-calendar.mjs';
+import {createManualIntake} from './manual-intake.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -56,17 +60,26 @@ function readBlock(surface,label,render){
   if(state.state==='error')return errorBlock(state.error,label);
   return render(state.value);
 }
-function rowsHtml(rows,{title,body,time,kind}={}){
+function rowsHtml(rows,{title,body,time,kind,formatTime=date}={}){
   if(!rows.length)return '<div class="empty-state">保存済み記録なし</div>';
-  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(date(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}</article>`).join('')+'</div>';
+  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(formatTime(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}</article>`).join('')+'</div>';
 }
 function fact(label,value){return `<div class="fact"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
-const bodyView=createMailBodyView({request:(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id)),isAuthenticated:()=>!!session});
+const requestMailBody=(id,row)=>api(row.read_route==='live'?'/data/mail-live-body/'+id+'/'+encodeURIComponent(row.gmail_thread_id)+'/'+encodeURIComponent(row.gmail_message_id):'/data/mail-body/'+id+'/'+encodeURIComponent(row.gmail_message_id));
+const bodyView=createMailBodyView({request:requestMailBody,isAuthenticated:()=>!!session});
+const htmlView=createMailHtmlView();
+const caseBasicsEditor=createCaseBasicsEditor();
+const manualIntake=createManualIntake();
+const caseCalendar=createCaseCalendar({displayText:privateText,onSelect:async id=>{
+  const epoch=selectionEpoch+1;
+  await selectCase(id);
+  if(selected===id&&selectionEpoch===epoch)setTab('schedule');
+}});
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();caseBasicsEditor.close();caseCalendar.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -87,6 +100,7 @@ function updateFilters(){
 }
 function visibleCases(){return sortCases(filterCases(cases,{term:$('search').value,review:$('filter').value,type:$('type-filter').value,status:$('status-filter').value,year:$('year-filter').value,step:$('step-filter').value}),$('order').value);}
 function renderList(){
+  $('new-case').disabled=passiveMail||!session;
   renderCounts();updateFilterSummary();if(listError){$('case-list').innerHTML=errorBlock(listError,'案件一覧');return;}
   const list=visibleCases();let month='',html='';
   for(const c of list){
@@ -117,22 +131,88 @@ function renderInspector(){
   const state=commercial?.state==='ready'?commercial.value:null;
   $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('正式受注',statusText(c))}${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section><div class="notice">配送結果UNKNOWNは安全停止。結果確認と業務操作は既存画面で確認してください。</div>`;
 }
+function canEditCaseBasics(c){
+  return Boolean(c&&!passiveMail&&session?.user?.id&&!isClosedCase(c)&&!c.deleted_at&&
+    c.status!=='on_hold'&&!c.progress?.is_on_hold&&Number.isSafeInteger(c.revision)&&c.revision>0);
+}
+function openCaseBasics(){
+  const inquiry=current(),ownerId=session?.user?.id,epoch=selectionEpoch;
+  if(tab!=='overview'||!canEditCaseBasics(inquiry))return;
+  const stillCurrent=()=>epoch===selectionEpoch&&selected===inquiry.id&&tab==='overview'&&session?.user?.id===ownerId;
+  caseBasicsEditor.open({
+    inquiry,stillCurrent,
+    save:async input=>{
+      const {updateCaseBasics}=await import('./integration.mjs');
+      return updateCaseBasics({...input,ownerId,stillCurrent});
+    },
+    readback:async(result,changes)=>{
+      const snapshot=await api('/data/cases');
+      if(!stillCurrent())return;
+      const row=snapshot.cases.find(item=>item.id===inquiry.id);
+      if(!Number.isSafeInteger(row?.revision)||row.revision<result.revision||
+        Object.entries(changes).some(([key,value])=>row[key]!==value)){
+        throw Error('case_basics_readback_unknown');
+      }
+      cases=cases.map(item=>item.id===inquiry.id?{...item,...row,
+        progress:snapshot.progress.find(progress=>progress.inquiry_id===inquiry.id)||null}:item);
+      detail.caseBasicsSaved=true;
+      void loadSurface('audit','/data/case/'+inquiry.id+'/audit',epoch);
+      renderList();
+      render();
+    }
+  });
+}
 function overview(c){
   const p=c.progress||{},a=attention(c);
   const next=p.next_action||p.next_action_memo||c.next_action||p.memo||'保存済みの進行状況を確認';
   const step=Number(p.current_step);
-  return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2><div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':step>i+1?'done':''}">${i+1} ${escape(s)}</span>`).join('')}</div><div class="stage-info">工程 ${Number.isInteger(step)&&step>0&&step<=14?step+' / 14':'未取得'}${p.is_on_hold?' / 保留':''}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>r.action,time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
+  return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2>${canEditCaseBasics(c)?button('基本情報を編集','case-basics','quiet'):''}${detail.caseBasicsSaved?'<p class="notice" role="status">基本情報を保存しました。</p>':''}<div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${c.organization_name?fact('お客様・担当者',c.customer_name||c.contact_name):''}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':step>i+1?'done':''}">${i+1} ${escape(s)}</span>`).join('')}</div><div class="stage-info">工程 ${Number.isInteger(step)&&step>0&&step<=14?step+' / 14':'未取得'}${p.is_on_hold?' / 保留':''}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>r.action,time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
 }
 function syncStatusHtml(){
   if(passiveMail)return '<strong data-mail-sync-state="readonly">メール閲覧モード：保存済み履歴を表示しています。自動取込・メール送信は停止中です。</strong>';
   const state=caseMailSync.get(selected),labels={idle:'保存済みメールを読み込み後、この案件を同期します。',syncing:'この案件の最新メールを同期中…',success:'同期完了：関連付け済みスレッドの最新メールを反映しました。',unlinked:'関連付け済みスレッドがありません。顧客メールを関連付けてください。',error:'同期失敗：最新は未確認です。保存済みメールを保持しています。'};
-  return `<strong data-mail-sync-state="${escape(state.phase)}">${escape(labels[state.phase])}</strong><p>最終成功：<time data-mail-sync-success>${escape(state.lastSuccess?date(state.lastSuccess):'未記録')}</time></p><button type="button" class="action quiet" data-action="mail-sync" ${state.promise||replyState?.pending(selected)?'disabled':''}>この案件のメールを再取得</button>`;
+  const pending=detail.intakeThreadLink==='pending', disabled=state.promise||replyState?.pending(selected)||pending;
+  const followUp=unlinkedIntakeFollowUp();
+  const action=followUp?`<button type="button" class="action quiet" data-action="link-intake-follow-up" ${disabled?'disabled':''}>${pending?'初回返信を照合中…':'初回返信のスレッドを紐付けて同期'}</button>`:'';
+  const error=detail.intakeThreadLink==='error'?'<p>初回返信の紐付けを確認できませんでした。再確認するか「顧客メールを関連付け」から確認してください。</p>':'';
+  return `<strong data-mail-sync-state="${escape(state.phase)}">${escape(labels[state.phase])}</strong><p>最終成功：<time data-mail-sync-success>${escape(state.lastSuccess?date(state.lastSuccess):'未記録')}</time></p><div class="inlinebtns"><button type="button" class="action quiet" data-action="mail-sync" ${disabled?'disabled':''}>この案件のメールを再取得</button>${action}</div>${error}`;
+}
+function unlinkedIntakeFollowUp(){
+  const links=getRows('links'), deliveries=getRows('deliveries');
+  if(current()?.submission_source!=='public_form'||!Array.isArray(links)||!Array.isArray(deliveries))return null;
+  const sent=deliveries.filter(row=>row.message_type===followUpType&&row.status==='sent');
+  if(sent.length!==1||!sent[0].gmail_message_id||!sent[0].gmail_thread_id||links.some(link=>
+    link.conversation_role==='primary_conversation'||link.gmail_thread_id===sent[0].gmail_thread_id))return null;
+  return sent[0];
 }
 function renderMailSyncStatus(){const host=$('case-mail-sync');if(host&&current()&&caseMailSync)host.innerHTML=syncStatusHtml();}
+async function linkIntakeFollowUp(){
+  const id=selected, epoch=selectionEpoch, followUp=unlinkedIntakeFollowUp();
+  if(passiveMail||!followUp||tab!=='conversation'||!session||detail.intakeThreadLink==='pending'||
+    caseMailSync.get(id).promise||replyState.pending(id))return;
+  const sameCase=()=>id===selected&&epoch===selectionEpoch;
+  detail.intakeThreadLink='pending';renderMailSyncStatus();
+  try{
+    const {result}=await authenticatedMailRequest({
+      action:'link_intake_follow_up',inquiry_id:id,delivery_id:followUp.id
+    },()=>sameCase()&&tab==='conversation');
+    if(!sameCase())return;
+    if(result?.inquiry_id!==id||result.gmail_thread_id!==followUp.gmail_thread_id)throw Error('mail_link_conflict');
+    await loadSurface('links','/data/case/'+id+'/links',epoch);
+    if(!sameCase())return;
+    if(!getRows('links')?.some(link=>link.inquiry_id===id&&link.gmail_thread_id===result.gmail_thread_id)){
+      throw Error('mail_link_readback_unverified');
+    }
+    delete detail.intakeThreadLink;renderMailSyncStatus();
+    await syncSelectedMail();
+  }catch{
+    if(sameCase()){detail.intakeThreadLink='error';renderMailSyncStatus();}
+  }
+}
 async function syncSelectedMail(){
   const id=selected,epoch=selectionEpoch;if(passiveMail||!id||tab!=='conversation'||!session||replyState.pending(id))return;
   if(caseLoad?.id===id&&caseLoad.epoch===epoch)await caseLoad.promise;
-  if(id!==selected||epoch!==selectionEpoch||tab!=='conversation'||!session||replyState.pending(id))return;
+  if(id!==selected||epoch!==selectionEpoch||tab!=='conversation'||!session||replyState.pending(id)||detail.intakeThreadLink==='pending')return;
   return caseMailSync.run(id);
 }
 function persistCaseView(){const url=new URL(location.href);url.searchParams.set('case',selected);if(tab==='conversation')url.searchParams.set('tab','conversation');else url.searchParams.delete('tab');window.history.replaceState(null,'',url);}
@@ -145,6 +225,36 @@ function conversation(c){
 
 function conversationEntries(inquiry) {
   return conversationTimeline(inquiry, getRows('messages') || [], getRows('deliveries') || []);
+}
+
+function openHistoryMailHtml(button) {
+  const inquiry=current(),epoch=selectionEpoch,owner=session?.user?.id;
+  if(!inquiry||tab!=='conversation'||!owner)return;
+  const card=button.closest('article');
+  const entry=conversationEntries(inquiry).find(row=>row.kind!=='form'&&(row.message
+    ? row.message.gmail_message_id===card?.dataset.message
+    : row.deliveries[0]?.id===card?.dataset.deliveryId));
+  if(!entry||customerInbound(entry))return;
+  const message=entry.message;
+  const delivery=entry.deliveries.find(deliveredHtml);
+  if(!message&&!delivery)return;
+  return htmlView.open({
+    isCurrent:()=>epoch===selectionEpoch&&selected===inquiry.id&&tab==='conversation'&&session?.user?.id===owner,
+    request:async()=>{
+      if(message){
+        const original=await requestMailBody(inquiry.id,message);
+        if(original.gmail_message_id!==message.gmail_message_id||(original.inquiry_id&&original.inquiry_id!==inquiry.id)){
+          throw Error('mail_binding_mismatch');
+        }
+        if(original.body_html||!delivery)return original;
+      }
+      const result=await api('/data/mail-delivery-html/'+inquiry.id+'/'+encodeURIComponent(delivery.id));
+      if(result.inquiry_id!==inquiry.id||result.delivery_id!==delivery.id||result.source!=='delivery_template'){
+        throw Error('mail_binding_mismatch');
+      }
+      return result;
+    }
+  });
 }
 
 function replyableMessages() {
@@ -294,6 +404,10 @@ function intakeCompletionNotice(id) {
   return '<div class="notice" role="status" data-intake-notice>送信は完了しましたが、履歴表示を更新できませんでした。 <button type="button" class="lightbtn" data-intake-recheck>履歴を再取得</button></div>';
 }
 
+const deliveredHtml = row => row.status==='sent'&&deliveryOutcome(row)==='送信済み'&&row.body&&
+  ['customer_receipt',followUpType].includes(row.message_type);
+const historyHtmlButton = '<button type="button" class="lightbtn body-read" data-history-mail-html>HTML本文を表示</button>';
+
 function deliveryEntry(entry) {
   const row = entry.deliveries[0];
   const label = deliveryLabel(row);
@@ -302,7 +416,7 @@ function deliveryEntry(entry) {
   const content = `<div class="mail-address">差出人 ARA-TECH<br>宛先 ${escape(row.recipient || '未取得')}</div>
     <strong class="mail-subject">${escape(row.subject || '件名未取得')}</strong>
     ${row.body ? '<p class="timeline-body">' + tx(row.body) + '</p>' : '<p class="hint">配送記録の件名と結果を表示</p>'}
-    <p class="hint">添付情報未取得</p>${deliveryAttempts(entry.deliveries)}`;
+    ${deliveredHtml(row)?historyHtmlButton:''}<p class="hint">添付情報未取得</p>${deliveryAttempts(entry.deliveries)}`;
   const inner = label === '内部通知'
     ? `<details><summary>${heading}</summary>${content}</details>`
     : `<div class="mail-heading">${heading}</div>${content}`;
@@ -338,7 +452,7 @@ function renderTimelineMail(entry, isNew) {
   const followUpBody = entry.deliveries.find(row=>row.message_type===followUpType && row.status==='sent')?.body;
   const body = followUpBody || savedExcerpt(r);
   const atts = mailAttachments(r);
-  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
+  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${dir==='sent'?historyHtmlButton:''}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 function commercialControls(c,label){
   if(passiveMail||c?.case_type!=='PA_EVENT'||isClosedCase(c)||c.status==='on_hold'||c.progress?.is_on_hold)return '';
@@ -418,9 +532,50 @@ async function reloadBilledCase(id,epoch){
 function invoice(c){
   return moneyBar()+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作');
 }
+const scheduleNoticeLabels = {
+  schedule_request:'日程調整の案内',
+  schedule_response_agree_customer:'条件同意の受付確認',
+  schedule_response_agree_internal:'条件同意の内部通知',
+  schedule_response_question_customer:'確認事項の受付確認',
+  schedule_response_question_internal:'確認事項の内部通知',
+  schedule_response_decline_customer:'見送りの受付確認',
+  schedule_response_decline_internal:'見送りの内部通知',
+  schedule_result_confirmed:'日程確定の通知',
+  schedule_result_unavailable:'日程確保不可の通知'
+};
 function schedule(c){
   const p=c.progress||{};
-  return `<div class="toolbar">${button('‹ 概要に戻る','overview','quiet')}${flag('amber','日程調整')}</div><div class="schedule-hero"><div><div class="kicker" style="color:var(--amber)">SCHEDULE COORDINATION</div><strong>${escape(statusText(c))}</strong></div></div><div class="facts">${fact('確保日',p.confirmed_event_date)}${fact('確保時間',p.confirmed_event_time)}${fact('予約確定',p.booking_confirmed_on)}${fact('確定状況',p.schedule_status||c.status)}</div><div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${readBlock('tokens','日程URL状態',rows=>{const latest=rows[0];return latest?pair('URL状態',scheduleState(latest))+pair('発行',date(latest.issued_at))+pair('期限',date(latest.expires_at))+pair('回答',date(latest.answered_at))+`<p class="hint">既存GETは秘密のURL tokenを返しません。URL再表示・発行・失効は無効です。</p>`:'<div class="empty-state">取得成功 / 保存済み日程URL記録なし</div>';})}</div><div class="group"><h2 class="sectiontitle">顧客回答</h2>${readBlock('responses','日程回答',rows=>rowsHtml(rows,{title:scheduleResponseLabel,body:r=>[r.respondent_name?'回答者 '+r.respondent_name:null,r.organization?'団体 '+r.organization:null,r.question_details?'確認事項 '+r.question_details:null,r.authority?'条件同意の権限 '+({yes:'ある',no:'ない',unknown:'分からない'}[r.authority]||r.authority):null,r.confirmation_name?'確認者 '+r.confirmation_name:null,r.terms_version?'規約版 '+r.terms_version:null,r.event_date,r.event_time,r.venue,r.request_summary,r.additional_notes,r.notes].filter(Boolean).join(' / '),time:r=>r.submitted_at||r.responded_at||r.created_at}))}</div><div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${readBlock('deliveries','案内記録',rows=>rowsHtml(rows.filter(r=>/schedule|日程/i.test(r.message_type||'')),{title:r=>r.message_type,body:r=>/unknown/.test(r.status+' '+r.error_summary)?'UNKNOWN / 再送停止':r.status,time:r=>r.sent_at||r.requested_at}))}</div><div class="inlinebtns" style="margin-top:12px">${button('リンク発行・失効','schedule-link','quiet',true)}${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
+  const tokens=readBlock('tokens','日程URL状態',rows=>{
+    const latest=rows[0];
+    if(!latest)return '<div class="empty-state">取得成功 / 保存済み日程URL記録なし</div>';
+    return pair('URL状態',scheduleState(latest))+pair('発行',timelineDate(latest.issued_at))+
+      pair('期限',timelineDate(latest.expires_at))+pair('回答',timelineDate(latest.answered_at))+
+      '<p class="hint">発行済みURLの確認・発行・失効は既存の業務操作から行えます。</p>';
+  });
+  const answers=readBlock('responses','日程回答',rows=>rowsHtml(rows,{
+    title:scheduleResponseLabel,
+    body:r=>[r.respondent_name?'回答者 '+r.respondent_name:null,r.organization?'団体 '+r.organization:null,
+      r.question_details?'確認事項 '+r.question_details:null,
+      r.authority?'条件同意の権限 '+({yes:'ある',no:'ない',unknown:'分からない'}[r.authority]||r.authority):null,
+      r.confirmation_name?'確認者 '+r.confirmation_name:null,r.terms_version?'規約版 '+r.terms_version:null,
+      r.event_date,r.event_time,r.venue,r.request_summary,r.additional_notes,r.notes].filter(Boolean).join(' / '),
+    time:r=>r.submitted_at||r.responded_at||r.created_at,formatTime:timelineDate
+  }));
+  const notices=readBlock('deliveries','案内記録',rows=>rowsHtml(rows.filter(r=>/schedule|日程/i.test(r.message_type||'')),{
+    title:r=>scheduleNoticeLabels[r.message_type]||'日程連絡',
+    body:r=>{
+      const outcome=deliveryOutcome(r);
+      return outcome==='配送結果未確定'?outcome+' / 再送前に履歴を確認':outcome;
+    },
+    time:deliveryDate,formatTime:timelineDate
+  }));
+  return `<div class="toolbar">${button('‹ 概要に戻る','overview','quiet')}${flag('amber','日程調整')}</div>
+    <div class="schedule-hero"><strong>${escape(statusText(c))}</strong></div>
+    <div class="facts">${fact('確保日',p.confirmed_event_date)}${fact('確保時間',p.confirmed_event_time)}${fact('予約確定',p.booking_confirmed_on)}</div>
+    <div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${tokens}</div>
+    <div class="group"><h2 class="sectiontitle">顧客回答</h2>${answers}</div>
+    <div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${notices}</div>
+    <div class="inlinebtns" style="margin-top:12px">${button('リンク発行・失効','schedule-link','quiet',true)}${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
 }
 function protectAudit(value,key=''){
   if(/amount|price|total|balance|subtotal|fee|cost|金額|請求額|見積額/i.test(key)&&value!==null&&value!==undefined)return typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?privateMoney(Number(value)):privateText(value);
@@ -509,7 +664,7 @@ async function selectCase(id,{restoreTab=false}={}){
   const promise=Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
   caseLoad={id,epoch,promise};await promise;if(epoch===selectionEpoch){await replyState.resumeSent();if(tab==='conversation')void syncSelectedMail();}
 }
-async function refresh(){
+async function refresh({openCaseId}={}){
   ++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
   renderList();render();$('case-list').innerHTML='<div class="load-state">案件一覧を取得中…</div>';$('refresh-cases').disabled=true;
   try{
@@ -520,13 +675,14 @@ async function refresh(){
     if(att.status==='rejected')attentionError=att.reason;
     const attentionMap=new Map(att.status==='fulfilled'?att.value.map(a=>[a.inquiry_id,a]):[]);
     cases=list.value.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:attentionMap.get(c.id)||null,attentionLoaded:att.status==='fulfilled'}));
-    updateFilters();renderList();render();const requested=new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested,{restoreTab:true});
+    updateFilters();renderList();render();const requested=openCaseId||new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested,{restoreTab:!openCaseId});
   }catch(error){if(epoch!==listEpoch)return;cases=[];listError=error;renderList();render();}
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
 function setTab(name){
   if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
   const changed=tab!==name;
+  if(changed){htmlView.close();caseBasicsEditor.close();}
   if(changed&&detail.commercialPanel){detail.commercialPanel.controller.abort();delete detail.commercialPanel;}
   resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
   if(name==='conversation'&&changed)void syncSelectedMail();
@@ -542,7 +698,7 @@ function renderFeatures(){
 }
 function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(current())setTab(f.target||'overview');if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){const row=replyableMessages()[0];if(row)void replyState.open(row).catch(()=>{});return;}openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){manualIntake.close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -567,8 +723,13 @@ $('login-form').addEventListener('submit',async e=>{
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
+  if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
+  const historyHtml=e.target.closest('[data-history-mail-html]');
+  if(historyHtml){void openHistoryMailHtml(historyHtml);return;}
+  const intakeLink=e.target.closest('[data-action="link-intake-follow-up"]');
+  if(intakeLink){if(!intakeLink.disabled)void linkIntakeFollowUp();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
   if(reply&&!reply.disabled&&!passiveMail){
     const rows=replyableMessages(),row=reply.dataset.replyMessage?rows.find(r=>r.gmail_message_id===reply.dataset.replyMessage):rows[0];
@@ -583,7 +744,29 @@ document.addEventListener('click',e=>{
 });
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
 $('refresh-cases').onclick=refresh;$('sign-out').onclick=signOut;$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
-$('new-case').disabled=false;$('new-case').title='既存の登録画面を開く';$('new-case').onclick=()=>window.open('/pa-admin-legacy.html','_blank','noopener,noreferrer');
+$('open-case-calendar').onclick=()=>{if(session&&!listError)caseCalendar.open(cases,eventDate(current()||{}));};
+$('new-case').onclick=()=>{
+  const ownerId=session?.user?.id;
+  if(passiveMail||!ownerId)return;
+  $('manual-intake-status').textContent='';
+  const stillCurrent=()=>session?.user?.id===ownerId;
+  manualIntake.open({ownerId,stillCurrent,
+    request:async input=>{
+      const {requestManualIntake}=await import('./integration.mjs');
+      return requestManualIntake(input);
+    },
+    onSaved:async row=>{
+      if(!stillCurrent())return;
+      const status=$('manual-intake-status');
+      status.textContent='問い合わせを登録しました。 '+row.inquiry_number;
+      const epoch=listEpoch+1;
+      await refresh({openCaseId:row.id});
+      if(stillCurrent()&&listEpoch===epoch&&!cases.some(c=>c.id===row.id)){
+        status.textContent+=' 案件一覧を再取得してください。';
+      }
+    }
+  });
+};
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
@@ -591,7 +774,7 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{manualIntake.close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 threadLink=createThreadLink({read:api,open:openInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async input=>{

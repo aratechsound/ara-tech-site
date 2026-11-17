@@ -11,3 +11,22 @@
 @media(prefers-reduced-motion:reduce){.casename.scrolling .case-name-track{animation:none}.case .casename{white-space:normal}.case-name-track{width:auto}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 @media(hover:none){.case .casename{white-space:normal}.case-name-track{width:auto;animation:none!important}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 .mail-excerpt.expanded{display:block;overflow:visible;white-space:pre-wrap;-webkit-line-clamp:unset}[data-quoted-body] pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;color:var(--muted)}[data-quoted-body]{border-left:2px solid var(--border);padding-left:9px;font-size:11px}
+.case-basics-dialog{width:min(480px,calc(100vw - 28px));max-height:calc(100dvh - 28px);padding:18px;background:#111;color:#eee;border:1px solid #555;border-radius:8px}
+.case-basics-dialog::backdrop{background:rgb(0 0 0 / .72)}
+.case-basics-dialog h3{margin:0 0 8px}.case-basics-dialog label{display:grid;gap:4px;margin:9px 0}
+.case-basics-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
+.case-basics-dialog input{padding:8px;background:#191919;color:#eee;border:1px solid #666;border-radius:4px}
+.manual-intake-dialog select,.manual-intake-dialog textarea{padding:8px;background:#191919;color:#eee;border:1px solid #666;border-radius:4px;font:inherit;min-width:0}
+.manual-intake-dialog textarea{resize:vertical}
+#manual-intake-status:not(:empty){margin:5px 0;color:var(--text);overflow-wrap:anywhere}
+.case-calendar-dialog{width:min(540px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:14px;background:#111;color:#eee;border:1px solid #555;border-radius:8px}
+.case-calendar-dialog::backdrop{background:rgb(0 0 0 / .72)}
+.case-calendar-dialog h3,.case-calendar-dialog h4{margin:0 0 8px}.case-calendar-dialog p{margin:8px 0}
+.calendar-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
+.calendar-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin:8px 0 14px}
+.calendar-month .lightbtn{display:flex;flex-direction:column;place-content:center;align-items:center;min-height:38px;width:100%;padding:2px}
+.calendar-weekday{text-align:center;font-size:12px;color:#bbb}
+.calendar-month [aria-pressed=true]{border-color:#007bff;background:#082644;color:#fff}
+.calendar-month [aria-current=date]{text-decoration:underline}
+.calendar-cases{display:grid;gap:5px}.calendar-cases button{text-align:left;overflow-wrap:anywhere}
+.calendar-cases small{display:block}
