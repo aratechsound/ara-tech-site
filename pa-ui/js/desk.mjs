@@ -648,6 +648,9 @@ async function loadSurface(name,url,epoch){
   detail[name]={state:'loading'};
   try{const value=await api(url);if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
   catch(error){if(epoch!==selectionEpoch)return;detail[name]={state:'error',error};}
+  // Only the material indexes can change the document gallery. Keep its active
+  // preview and cached originals while unrelated case data updates the inspector.
+  if(tab==='documents'&&name!=='materials'&&name!=='commercial'){renderInspector();return;}
   if(epoch===selectionEpoch)render();
 }
 function discoverMail(){if(current()&&detail.mailCandidates?.state!=='loading')void loadSurface('mailCandidates','/data/mail-candidates/'+selected,selectionEpoch);}

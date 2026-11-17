@@ -56,8 +56,10 @@ const root=path.resolve(__dirname,'..');
   const C='11111111-1111-4111-8111-111111111111',errors=[];page.on('pageerror',e=>errors.push(e.message));
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX8sAAAAASUVORK5CYII=','base64');
   const reads=[];
+  let releasePayments;
+  const paymentsPending=new Promise(resolve=>{releasePayments=resolve;});
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const session={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>session,current:async()=>session,subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
-  await page.route('**/api/pa-workspace-read?**',r=>{
+  await page.route('**/api/pa-workspace-read?**',async r=>{
    const p=new URL(r.request().url()).searchParams.get('path');let value=[];
    reads.push({path:p,method:r.request().method()});
    if(p==='/data/cases')value={cases:[{id:C,event_name:'Fixture Event',inquiry_number:'PA-20261002-00015',status:'new'}],progress:[]};
@@ -71,6 +73,7 @@ const root=path.resolve(__dirname,'..');
    else if(p.startsWith('/data/mail/'))value=[{gmail_message_id:'mail1',inquiry_id:C,direction:'inbound',subject:'Fixture mail',attachment_metadata:[]}];
    else if(p.startsWith('/data/mail-body/'))value={gmail_message_id:'mail1',body_text:'Full body '.repeat(200)+'\n> quoted history',body_state:'ready'};
    else if(p.startsWith('/data/sent-estimates/'))value={messages:[{gmail_message_id:'sent1',inquiry_id:C,subject:'Fixture sent estimate',sent_at:'2026-10-09T00:00:00Z',to_addresses:['fixture@example.invalid'],attachment_metadata:[],history_only:true,validity:'unknown'}],unknown:[]};
+   if(p.endsWith('/payments'))await paymentsPending;
    r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:value})});
   });
   await page.reload();await page.locator('[data-case="'+C+'"]').click();
@@ -90,6 +93,11 @@ const root=path.resolve(__dirname,'..');
   await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).click();
   await downloadLink.waitFor();
   const imageReads=reads.filter(e=>e.path.endsWith('/fixture-png')).length;
+  releasePayments();
+  await page.waitForFunction(()=>[...document.querySelectorAll('#inspector .label-pair')]
+    .some(row=>row.querySelector('span')?.textContent==='入金'&&row.querySelector('b')?.textContent==='0記録'));
+  assert.equal(await downloadLink.isVisible(),true,'An unrelated case response keeps the active material preview open');
+  assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Unrelated case data does not re-fetch the visible original');
   const [imageDownload]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
   assert.equal(imageDownload.suggestedFilename(),'現場写真.png');
   assert.deepEqual(fs.readFileSync(await imageDownload.path()),png);
@@ -99,6 +107,6 @@ const root=path.resolve(__dirname,'..');
   await page.locator('dialog .preview-content').getByText(/閲覧拒否/).waitFor();
   assert.equal(await downloadLink.count(),0);
   assert(reads.every(entry=>entry.method==='GET'));
-  assert.deepEqual(errors,[]);console.log('PASS CASE DESK photo original filename and bytes, no extra request on save, ACL-denied asset has no download');
+  assert.deepEqual(errors,[]);console.log('PASS CASE DESK photo original filename and bytes, late payment response preserves preview and GET count, no extra read on save, ACL-denied asset has no download');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
