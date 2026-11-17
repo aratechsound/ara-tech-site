@@ -68,7 +68,8 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
       {...receipt,id:'receipt',message_type:'customer_receipt',gmail_message_id:'receipt'},
       {...receipt,id:'internal',message_type:'internal_new_inquiry',gmail_message_id:'internal'},
       {...receipt,id:'unknown',message_type:'schedule_request',status:'sending',gmail_message_id:null},
-      {...receipt,id:'failed',message_type:'schedule_request',status:'failed',gmail_message_id:null}
+      {...receipt,id:'failed',message_type:'schedule_request',status:'failed',gmail_message_id:null,error_summary:'gmail_send_400'},
+      {...receipt,id:'ambiguous-failed',message_type:'schedule_result_confirmed',status:'failed',gmail_message_id:null,error_summary:'mail_delivery_failed'}
     ];
     if(followUpDelivery)result.push(followUpDelivery);
    }
@@ -179,7 +180,8 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.equal(await page.locator('[data-timeline-kind="delivery"] [data-intake-reply]').count(),0);
    await page.getByText('内部通知・送信済み',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・配送結果未確定',{exact:false}).first().waitFor();
-   await page.getByText('業務案内・配送・送信失敗',{exact:false}).first().waitFor();
+   await page.locator('[data-delivery-id="failed"] .mail-heading').filter({hasText:'業務案内・配送・送信失敗'}).waitFor();
+   await page.locator('[data-delivery-id="ambiguous-failed"] .mail-heading').filter({hasText:'業務案内・配送・配送結果未確定'}).waitFor();
    await page.locator('[data-customer-mail-empty]').waitFor();
    assert.equal(await page.locator('[data-reply-message]').count(),0);
    await page.getByRole('button',{name:'取込せず原本を確認'}).click();
