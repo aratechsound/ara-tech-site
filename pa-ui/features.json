@@ -273,20 +273,22 @@
     "api": "/api/pa-gmail sync / pa_gmail_thread_links; pa_gmail_message_index; pa_inquiry_audit",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "関連付け済みスレッドの取込は隔離試験で確認。",
+    "current_control": "案件の「やり取り」または「この案件のメールを再取得」"
   },
   {
     "id": "PAUI-C-002",
     "name": "受信・送信本文と添付履歴表示",
     "place": "メール・やり取り",
-    "status": "認証・ACL未解決",
-    "scope": "送受信・差出人宛先・日時・保存済み本文抜粋・添付情報を表示。実メール本文の保存がないため本文取得はHOLD。",
+    "status": "新UIから利用可能",
+    "scope": "案件の送受信履歴に差出人、宛先、日時、本文、添付情報を表示します。紐付け済みGmailの全文は開いた時に取得できます。",
     "target": "conversation",
-    "source": "js/pa-admin.js:2373",
-    "api": "/api/pa-gmail sync; attachment_download / pa_gmail_message_index; pa_email_deliveries",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/mail-body-view.mjs",
+    "api": "GET /api/pa-workspace-read /data/mail-body, /data/mail-live-body; pa_gmail_message_index; pa_email_deliveries",
+    "validation": "認証済み本番の既存履歴で全文表示を確認。未保存・権限拒否時は取得結果を表示します。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #54・#64・#81で、既存案件の本文展開または送信済みHTML表示を本番で確認。",
+    "current_control": "「やり取り」→ 対象メールの「全文を表示」または「HTML本文を表示」"
   },
   {
     "id": "PAUI-C-003",
@@ -299,7 +301,8 @@
     "api": "/api/pa-gmail manual_link / pa_gmail_thread_links; pa_inquiry_audit",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-031 local fixture PASS; Production business E2E pending"
+    "integration_verification": "PAUI-031 local fixture PASS; Production business E2E pending",
+    "current_control": "「やり取り」→「顧客メールを関連付け」"
   },
   {
     "id": "PAUI-C-004",
@@ -312,7 +315,8 @@
     "api": "/api/pa-gmail reply_preview/send_reply / pa_gmail_message_index; pa_gmail_thread_links; pa_email_deliveries",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN",
+    "current_control": "「やり取り」→ 返信する受信メールの「返信」"
   },
   {
     "id": "PAUI-C-005",
@@ -325,20 +329,22 @@
     "api": "/api/pa-gmail reply_preview/send_reply / delivery/index; Gmail attachment metadata",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN",
+    "current_control": "受信メールの「返信」→「添付ファイル」"
   },
   {
     "id": "PAUI-C-006",
     "name": "Gmail添付preview・download",
     "place": "メール・やり取り",
-    "status": "認証・ACL未解決",
-    "scope": "共通PDF/画像サムネイル・ページ移動・拡大とOfficeアイコンを匿名fixtureで検証。正規の書込みなしGmail読取経路は未接続。",
+    "status": "新UIから利用可能",
+    "scope": "案件に紐付いたGmail添付を開いて、PDF・画像をプレビューし、取得済み原本を保存できます。原本の権限は取得時に照合します。",
     "target": "conversation",
-    "source": "js/pa-admin.js:3245",
-    "api": "/api/pa-gmail attachment_download / pa_gmail_message_index; pa_gmail_thread_links",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/gallery.mjs",
+    "api": "GET /api/pa-workspace-read /data/mail-attachment, /data/mail-live-attachment",
+    "validation": "既存原本の閲覧と保存リンクを本番で確認。日本語名での実保存とバイト一致は隔離資料で確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#79・#81でケース帰属、閲覧権限、原本保存を検証。",
+    "current_control": "「やり取り」→ 対象メールの添付資料 → プレビュー内の保存リンク"
   },
   {
     "id": "PAUI-C-007",
@@ -958,14 +964,15 @@
     "id": "PAUI-G-001",
     "name": "案件関連資料の集約・検索preview",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "初期金額保護を原本から分離。資料索引・検索・版履歴を維持。原本ACL通過は別検証。",
+    "status": "新UIから利用可能",
+    "scope": "案件の資料索引を資料名で検索し、閲覧権限のあるPDF・画像を開けます。金額は明示操作で表示します。",
     "target": "documents",
-    "source": "js/pa-commercial-admin.js:595",
-    "api": "commercial snapshot/document; pa-gmail attachment_download; pa-portal download / commercial documents; Gmail index; portal cards/versions/photos",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/gallery.mjs",
+    "api": "GET /api/pa-workspace-read /data/materials, /data/commercial, /data/material, /data/document",
+    "validation": "認証済み本番で既存資料のPDFプレビューを確認。非公開アップロード原本の取得は権限変更の承認待ち。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#81・#82で索引と既存原本表示を確認。非公開アップロードはPR #80候補。",
+    "current_control": "「資料」→「資料名で検索」→ 対象資料のプレビュー"
   },
   {
     "id": "PAUI-G-002",
@@ -995,16 +1002,17 @@
   },
   {
     "id": "PAUI-G-004",
-    "name": "資料版履歴・current版切替",
+    "name": "資料の版履歴表示",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "保存済み版履歴の参照のみ。current版切替は無効。実ACL通過は別検証。",
+    "status": "新UIから利用可能",
+    "scope": "複数版がある資料の版と登録日時を参照できます。現行版切替はCASE DESKで無効です。",
     "target": "documents",
-    "source": "js/pa-case-portal.js:143",
-    "api": "/api/pa-portal switch_current / pa_portal_document_versions; cards.current_version_id",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/gallery.mjs; js/pa-case-portal.js:143",
+    "api": "GET /api/pa-workspace-read /data/materials; pa_portal_document_versions; cards.current_version_id",
+    "validation": "CASE DESKの版一覧は保存済み索引から表示します。版切替APIは旧経路にあります。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "CASE DESKのギャラリーに複数版の参照UIを確認。現行版切替はこの案内の対象外。",
+    "current_control": "「資料」→ 複数版がある資料の「版履歴」"
   },
   {
     "id": "PAUI-G-005",
@@ -1140,14 +1148,15 @@
     "id": "PAUI-G-015",
     "name": "PDF画像資料preview・原本download",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "共通rendererとPDF.jsで通常プレビュー。30秒非表示は独立金額欄のみ。実Gmail原本は未取得。downloadは無効。",
+    "status": "新UIから利用可能",
+    "scope": "閲覧権限のあるPDF・画像をプレビューし、取得済みの原本をファイル名付きで保存できます。",
     "target": "documents",
-    "source": "js/portal-document-view.mjs:3",
-    "api": "/pdfjs rewrites; portal download / asset refs; source sha256",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/gallery.mjs; js/portal-document-view.mjs",
+    "api": "GET /api/pa-workspace-read /data/material, /data/document; /pdfjs; source sha256",
+    "validation": "日本語名の既存PDF・写真と保存リンクを本番で確認。非公開アップロード原本の取得は権限変更の承認待ち。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#79で原本のプレビュー、保存リンク、合成資料の保存バイト一致を確認。",
+    "current_control": "「資料」→ 対象資料のプレビュー内にある保存リンク"
   },
   {
     "id": "PAUI-G-016",

@@ -65,6 +65,14 @@ const root=path.resolve(__dirname,'..');
  assert.equal(await guide.locator('[data-legacy]').count(),0);
  await page.locator('#modal-close-top').click();
  await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ for(const id of ['PAUI-C-002','PAUI-C-004','PAUI-C-006']){
+   await page.locator('#features-trigger').click();
+   await page.locator('[data-feature="'+id+'"]').click();
+   await guide.getByText('CASE DESKの操作場所',{exact:true}).waitFor();
+   assert.equal(await guide.locator('[data-legacy]').count(),0);
+   await page.locator('#modal-close-top').click();
+   await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ }
  await page.getByRole('button',{name:'やり取り',exact:true}).click();
  const card=page.locator('[data-message="purpose"]'),body=card.locator('.mail-excerpt');
  await page.waitForFunction(()=>document.querySelector('[data-message="purpose"] .mail-excerpt').textContent.startsWith('今回は11万円'));
