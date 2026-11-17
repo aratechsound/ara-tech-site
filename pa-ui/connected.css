@@ -16,6 +16,9 @@
 .case-basics-dialog h3{margin:0 0 8px}.case-basics-dialog label{display:grid;gap:4px;margin:9px 0}
 .case-basics-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
 .case-basics-dialog input{padding:8px;background:#191919;color:#eee;border:1px solid #666;border-radius:4px}
+.manual-intake-dialog select,.manual-intake-dialog textarea{padding:8px;background:#191919;color:#eee;border:1px solid #666;border-radius:4px;font:inherit;min-width:0}
+.manual-intake-dialog textarea{resize:vertical}
+#manual-intake-status:not(:empty){margin:5px 0;color:var(--text);overflow-wrap:anywhere}
 .case-calendar-dialog{width:min(540px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:14px;background:#111;color:#eee;border:1px solid #555;border-radius:8px}
 .case-calendar-dialog::backdrop{background:rgb(0 0 0 / .72)}
 .case-calendar-dialog h3,.case-calendar-dialog h4{margin:0 0 8px}.case-calendar-dialog p{margin:8px 0}

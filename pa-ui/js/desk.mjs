@@ -6,6 +6,7 @@ import {createMailBodyView} from './mail-body-view.mjs';
 import {createMailHtmlView} from './mail-html-view.mjs';
 import {createCaseBasicsEditor} from './case-basics.mjs';
 import {createCaseCalendar} from './case-calendar.mjs';
+import {createManualIntake} from './manual-intake.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -69,6 +70,7 @@ const requestMailBody=(id,row)=>api(row.read_route==='live'?'/data/mail-live-bod
 const bodyView=createMailBodyView({request:requestMailBody,isAuthenticated:()=>!!session});
 const htmlView=createMailHtmlView();
 const caseBasicsEditor=createCaseBasicsEditor();
+const manualIntake=createManualIntake();
 const caseCalendar=createCaseCalendar({displayText:privateText,onSelect:async id=>{
   const epoch=selectionEpoch+1;
   await selectCase(id);
@@ -98,6 +100,7 @@ function updateFilters(){
 }
 function visibleCases(){return sortCases(filterCases(cases,{term:$('search').value,review:$('filter').value,type:$('type-filter').value,status:$('status-filter').value,year:$('year-filter').value,step:$('step-filter').value}),$('order').value);}
 function renderList(){
+  $('new-case').disabled=passiveMail||!session;
   renderCounts();updateFilterSummary();if(listError){$('case-list').innerHTML=errorBlock(listError,'案件一覧');return;}
   const list=visibleCases();let month='',html='';
   for(const c of list){
@@ -661,7 +664,7 @@ async function selectCase(id,{restoreTab=false}={}){
   const promise=Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
   caseLoad={id,epoch,promise};await promise;if(epoch===selectionEpoch){await replyState.resumeSent();if(tab==='conversation')void syncSelectedMail();}
 }
-async function refresh(){
+async function refresh({openCaseId}={}){
   ++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
   renderList();render();$('case-list').innerHTML='<div class="load-state">案件一覧を取得中…</div>';$('refresh-cases').disabled=true;
   try{
@@ -672,7 +675,7 @@ async function refresh(){
     if(att.status==='rejected')attentionError=att.reason;
     const attentionMap=new Map(att.status==='fulfilled'?att.value.map(a=>[a.inquiry_id,a]):[]);
     cases=list.value.cases.map(c=>({...c,progress:map.get(c.id)||null,attention:attentionMap.get(c.id)||null,attentionLoaded:att.status==='fulfilled'}));
-    updateFilters();renderList();render();const requested=new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested,{restoreTab:true});
+    updateFilters();renderList();render();const requested=openCaseId||new URL(location.href).searchParams.get('case');if(requested&&cases.some(c=>c.id===requested))await selectCase(requested,{restoreTab:!openCaseId});
   }catch(error){if(epoch!==listEpoch)return;cases=[];listError=error;renderList();render();}
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
@@ -695,7 +698,7 @@ function renderFeatures(){
 }
 function featureJump(id){const f=features.find(x=>x.id===id);if(!f)return;$('drawer-wrap').classList.remove('open');if(current())setTab(f.target||'overview');if(['PAUI-C-004','PAUI-C-005'].includes(id)&&current()){const row=replyableMessages()[0];if(row)void replyState.open(row).catch(()=>{});return;}openInfo(f.id+' '+f.name,`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button><p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);}
 function openInfo(title,html){resetPrivacy();$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal-wrap').classList.add('open');$('modal-close-top').focus();}
-function signOut(callAuth=true){for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){manualIntake.close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -742,7 +745,28 @@ document.addEventListener('click',e=>{
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
 $('refresh-cases').onclick=refresh;$('sign-out').onclick=signOut;$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
 $('open-case-calendar').onclick=()=>{if(session&&!listError)caseCalendar.open(cases,eventDate(current()||{}));};
-$('new-case').disabled=false;$('new-case').title='既存の登録画面を開く';$('new-case').onclick=()=>window.open('/pa-admin-legacy.html','_blank','noopener,noreferrer');
+$('new-case').onclick=()=>{
+  const ownerId=session?.user?.id;
+  if(passiveMail||!ownerId)return;
+  $('manual-intake-status').textContent='';
+  const stillCurrent=()=>session?.user?.id===ownerId;
+  manualIntake.open({ownerId,stillCurrent,
+    request:async input=>{
+      const {requestManualIntake}=await import('./integration.mjs');
+      return requestManualIntake(input);
+    },
+    onSaved:async row=>{
+      if(!stillCurrent())return;
+      const status=$('manual-intake-status');
+      status.textContent='問い合わせを登録しました。 '+row.inquiry_number;
+      const epoch=listEpoch+1;
+      await refresh({openCaseId:row.id});
+      if(stillCurrent()&&listEpoch===epoch&&!cases.some(c=>c.id===row.id)){
+        status.textContent+=' 案件一覧を再取得してください。';
+      }
+    }
+  });
+};
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
@@ -750,7 +774,7 @@ $('drawer-close').onclick=()=>{$('drawer-wrap').classList.remove('open');$('feat
 function closeInfo(){threadLink?.reset();$('modal-wrap').classList.remove('open');resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('drawer-wrap').classList.remove('open');closeInfo();}});
-window.addEventListener('pagehide',()=>{for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>{manualIntake.close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 threadLink=createThreadLink({read:api,open:openInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async input=>{
