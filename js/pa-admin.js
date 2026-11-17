@@ -3137,6 +3137,8 @@ const mailErrorMessage = (code) => {
     if (String(code).startsWith("gmail_send_")) {
         return "Gmailから送信できませんでした。案件データは保持されています。接続状態を確認して再送してください。";
     }
+    if (code === "schedule_token_not_available") return "この案件の有効な日程URLを確認できません。現在の発行状態と案内文を確認してください。";
+    if (code === "invalid_schedule_url" || code === "invalid_schedule_message") return "案内メールの受付番号と日程URLを確認してください。";
     if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
     return "メールを送信できませんでした。案件データは保持されています。送信履歴を確認して再送してください。";
 };
