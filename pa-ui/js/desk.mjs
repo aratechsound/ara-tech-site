@@ -126,13 +126,48 @@ function overview(c){
 function syncStatusHtml(){
   if(passiveMail)return '<strong data-mail-sync-state="readonly">メール閲覧モード：保存済み履歴を表示しています。自動取込・メール送信は停止中です。</strong>';
   const state=caseMailSync.get(selected),labels={idle:'保存済みメールを読み込み後、この案件を同期します。',syncing:'この案件の最新メールを同期中…',success:'同期完了：関連付け済みスレッドの最新メールを反映しました。',unlinked:'関連付け済みスレッドがありません。顧客メールを関連付けてください。',error:'同期失敗：最新は未確認です。保存済みメールを保持しています。'};
-  return `<strong data-mail-sync-state="${escape(state.phase)}">${escape(labels[state.phase])}</strong><p>最終成功：<time data-mail-sync-success>${escape(state.lastSuccess?date(state.lastSuccess):'未記録')}</time></p><button type="button" class="action quiet" data-action="mail-sync" ${state.promise||replyState?.pending(selected)?'disabled':''}>この案件のメールを再取得</button>`;
+  const pending=detail.intakeThreadLink==='pending', disabled=state.promise||replyState?.pending(selected)||pending;
+  const followUp=unlinkedIntakeFollowUp();
+  const action=followUp?`<button type="button" class="action quiet" data-action="link-intake-follow-up" ${disabled?'disabled':''}>${pending?'初回返信を照合中…':'初回返信のスレッドを紐付けて同期'}</button>`:'';
+  const error=detail.intakeThreadLink==='error'?'<p>初回返信の紐付けを確認できませんでした。再確認するか「顧客メールを関連付け」から確認してください。</p>':'';
+  return `<strong data-mail-sync-state="${escape(state.phase)}">${escape(labels[state.phase])}</strong><p>最終成功：<time data-mail-sync-success>${escape(state.lastSuccess?date(state.lastSuccess):'未記録')}</time></p><div class="inlinebtns"><button type="button" class="action quiet" data-action="mail-sync" ${disabled?'disabled':''}>この案件のメールを再取得</button>${action}</div>${error}`;
+}
+function unlinkedIntakeFollowUp(){
+  const links=getRows('links'), deliveries=getRows('deliveries');
+  if(current()?.submission_source!=='public_form'||!Array.isArray(links)||!Array.isArray(deliveries))return null;
+  const sent=deliveries.filter(row=>row.message_type===followUpType&&row.status==='sent');
+  if(sent.length!==1||!sent[0].gmail_message_id||!sent[0].gmail_thread_id||links.some(link=>
+    link.conversation_role==='primary_conversation'||link.gmail_thread_id===sent[0].gmail_thread_id))return null;
+  return sent[0];
 }
 function renderMailSyncStatus(){const host=$('case-mail-sync');if(host&&current()&&caseMailSync)host.innerHTML=syncStatusHtml();}
+async function linkIntakeFollowUp(){
+  const id=selected, epoch=selectionEpoch, followUp=unlinkedIntakeFollowUp();
+  if(passiveMail||!followUp||tab!=='conversation'||!session||detail.intakeThreadLink==='pending'||
+    caseMailSync.get(id).promise||replyState.pending(id))return;
+  const sameCase=()=>id===selected&&epoch===selectionEpoch;
+  detail.intakeThreadLink='pending';renderMailSyncStatus();
+  try{
+    const {result}=await authenticatedMailRequest({
+      action:'link_intake_follow_up',inquiry_id:id,delivery_id:followUp.id
+    },()=>sameCase()&&tab==='conversation');
+    if(!sameCase())return;
+    if(result?.inquiry_id!==id||result.gmail_thread_id!==followUp.gmail_thread_id)throw Error('mail_link_conflict');
+    await loadSurface('links','/data/case/'+id+'/links',epoch);
+    if(!sameCase())return;
+    if(!getRows('links')?.some(link=>link.inquiry_id===id&&link.gmail_thread_id===result.gmail_thread_id)){
+      throw Error('mail_link_readback_unverified');
+    }
+    delete detail.intakeThreadLink;renderMailSyncStatus();
+    await syncSelectedMail();
+  }catch{
+    if(sameCase()){detail.intakeThreadLink='error';renderMailSyncStatus();}
+  }
+}
 async function syncSelectedMail(){
   const id=selected,epoch=selectionEpoch;if(passiveMail||!id||tab!=='conversation'||!session||replyState.pending(id))return;
   if(caseLoad?.id===id&&caseLoad.epoch===epoch)await caseLoad.promise;
-  if(id!==selected||epoch!==selectionEpoch||tab!=='conversation'||!session||replyState.pending(id))return;
+  if(id!==selected||epoch!==selectionEpoch||tab!=='conversation'||!session||replyState.pending(id)||detail.intakeThreadLink==='pending')return;
   return caseMailSync.run(id);
 }
 function persistCaseView(){const url=new URL(location.href);url.searchParams.set('case',selected);if(tab==='conversation')url.searchParams.set('tab','conversation');else url.searchParams.delete('tab');window.history.replaceState(null,'',url);}
@@ -569,6 +604,8 @@ $('login-form').addEventListener('submit',async e=>{
 document.addEventListener('click',e=>{
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
+  const intakeLink=e.target.closest('[data-action="link-intake-follow-up"]');
+  if(intakeLink){if(!intakeLink.disabled)void linkIntakeFollowUp();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
   if(reply&&!reply.disabled&&!passiveMail){
     const rows=replyableMessages(),row=reply.dataset.replyMessage?rows.find(r=>r.gmail_message_id===reply.dataset.replyMessage):rows[0];

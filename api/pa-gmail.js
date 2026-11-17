@@ -1,7 +1,7 @@
 const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyContext, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail, reviewUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
-const { mailboxProfile } = require("./_pa-gmail.cjs");
+const { linkIntakeFollowUp, mailboxProfile } = require("./_pa-gmail.cjs");
 const { applyOriginPolicy, checkRateLimit, isRateLimitUnavailable } = require("./_request-security.cjs");
 const { workspaceRequest, dispatchWorkspaceRead } = require("./_pa-workspace-handler.cjs");
 
@@ -18,6 +18,7 @@ const ACTION_POLICY = Object.freeze({
     inbox_decide: "PA_GMAIL_MANUAL_LINK",
     sync: "PA_GMAIL_SYNC",
     manual_link: "PA_GMAIL_MANUAL_LINK",
+    link_intake_follow_up: "PA_GMAIL_MANUAL_LINK",
     attachment_download: "PA_GMAIL_ATTACHMENT_GET",
     portal_documents: "PA_GMAIL_ATTACHMENT_GET",
     reply_context: "PA_GMAIL_REPLY_PREVIEW",
@@ -88,6 +89,12 @@ module.exports = async (request, response) => {
             });
             return sendJson(response, 200, { ok: true, result });
         }
+        if (input.action === "link_intake_follow_up") {
+            const result = await linkIntakeFollowUp({
+                inquiryId: input.inquiry_id, deliveryId: input.delivery_id, actorId: user.id
+            });
+            return sendJson(response, 200, { ok: true, result });
+        }
         if (input.action === "attachment_download") {
             const attachment = await getAttachmentBinary({
                 inquiryId: input.inquiry_id,
@@ -133,6 +140,7 @@ module.exports = async (request, response) => {
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
         const code = String(error?.message || "");
+        if (code === "intake_follow_up_not_linkable") return sendJson(response, 409, { ok: false, code });
         if (["mail_operation_conflict","mail_page_conflict","mail_link_conflict","inquiry_archived"].includes(code)) return sendJson(response, 409, { ok: false, code, phase:error.phase||'candidate_review', database_code:error.databaseCode||null });
         if (code === "gmail_mailbox_mismatch") return sendJson(response, 503, { ok: false, code });
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });

@@ -253,11 +253,11 @@ const getGlobalThreadLink = async (threadId, fetchImpl) => {
     const rows = await selectRows("pa_gmail_thread_links", query, fetchImpl);
     return Array.isArray(rows) ? rows[0] || null : null;
 };
-const writeRow = (table, values, conflict, fetchImpl) => {
+const writeRow = (table, values, conflict, fetchImpl, preserveExisting = false) => {
     const query = new URLSearchParams({ on_conflict: conflict, select: "*" });
     return supabaseRequest(`/rest/v1/${table}?${query}`, {
         method: "POST",
-        prefer: "return=representation,resolution=merge-duplicates",
+        prefer: "return=representation,resolution=" + (preserveExisting ? "ignore-duplicates" : "merge-duplicates"),
         body: JSON.stringify(values)
     }, fetchImpl);
 };
@@ -270,10 +270,11 @@ const audit = (inquiryId, actorId, action, details, fetchImpl) => supabaseReques
     body: JSON.stringify({ inquiry_id: inquiryId, actor_user_id: actorId, action, details })
 }, fetchImpl);
 
-const linkThread = async ({ inquiryId, threadId, source, role = "secondary_conversation", actorId }, fetchImpl) => {
+const linkThread = async ({ inquiryId, threadId, source, role = "secondary_conversation", actorId, preserveExisting = false }, fetchImpl) => {
     if (!isUuid(inquiryId) || !validGmailId(threadId) || !CONVERSATION_ROLES.has(role)) throw new Error("invalid_gmail_thread");
     const existing = await getGlobalThreadLink(threadId, fetchImpl);
     if (existing && existing.inquiry_id !== inquiryId) throw new Error("ambiguous_thread_link");
+    if (existing && preserveExisting) return existing;
     if (role === "primary_conversation") {
         const primary = await getPrimaryLink(inquiryId, fetchImpl);
         if (primary && primary.gmail_thread_id !== threadId) throw new Error("primary_conversation_exists");
@@ -284,8 +285,12 @@ const linkThread = async ({ inquiryId, threadId, source, role = "secondary_conve
         link_source: source,
         conversation_role: role,
         linked_by: actorId
-    }, "inquiry_id,gmail_thread_id", fetchImpl);
-    return Array.isArray(rows) ? rows[0] : null;
+    }, "inquiry_id,gmail_thread_id", fetchImpl, preserveExisting);
+    const inserted = Array.isArray(rows) ? rows[0] : null;
+    if (inserted || !preserveExisting) return inserted || null;
+    const stored = await getGlobalThreadLink(threadId, fetchImpl);
+    if (stored?.inquiry_id !== inquiryId) throw new Error("mail_link_conflict");
+    return stored;
 };
 
 const deliveryThreadCandidates = async (inquiryId, fetchImpl) => {
@@ -322,6 +327,36 @@ const resolveExactDelivery = async (delivery, fetchImpl) => {
 const exactDelivery = (deliveries, messageType) => {
     const matches = deliveries.filter((delivery) => delivery.message_type === messageType);
     return matches.length === 1 ? matches[0] : null;
+};
+// Owner-initiated recovery limited to the already-sent first reply for this intake.
+const linkIntakeFollowUp = async ({ inquiryId, deliveryId, actorId }, fetchImpl = fetch) => {
+    if (![inquiryId, deliveryId, actorId].every(isUuid)) throw new Error("invalid_input");
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
+    if (inquiry.id !== inquiryId || inquiry.submission_source !== "public_form") {
+        throw new Error("intake_follow_up_not_linkable");
+    }
+    const query = new URLSearchParams({
+        inquiry_id: `eq.${inquiryId}`, message_type: "eq.content_hearing_follow_up",
+        status: "eq.sent", limit: "2",
+        select: "id,inquiry_id,recipient,subject,sent_at,gmail_message_id,gmail_thread_id"
+    });
+    const deliveries = await selectRows("pa_email_deliveries", query, fetchImpl);
+    const delivery = deliveries?.[0];
+    if (deliveries?.length !== 1 || delivery.id !== deliveryId || delivery.inquiry_id !== inquiryId
+        || !inquiry.email || !sameAddress(delivery.recipient, inquiry.email)
+        || !validGmailId(delivery.gmail_thread_id) || !Number.isFinite(Date.parse(delivery.sent_at))) {
+        throw new Error("intake_follow_up_not_linkable");
+    }
+    const exact = await resolveExactDelivery(delivery, fetchImpl);
+    const internalDate = Number(exact?.message.internalDate);
+    if (exact?.threadId !== delivery.gmail_thread_id || !Array.isArray(exact.message.labelIds)
+        || !exact.message.labelIds.includes("SENT") || !Number.isFinite(internalDate) || internalDate <= 0) {
+        throw new Error("intake_follow_up_not_linkable");
+    }
+    return linkThread({
+        inquiryId, threadId: exact.threadId, source: "gmail_message_id",
+        role: "primary_conversation", actorId, preserveExisting: true
+    }, fetchImpl);
 };
 const fallbackCandidates = async (inquiry, delivery, fetchImpl) => {
     if (!delivery || !caseReference(inquiry.inquiry_number)) return [];
@@ -1036,6 +1071,6 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, linkIntakeFollowUp, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
 module.exports.verifyReplyPreview = verifyReplyPreview;
