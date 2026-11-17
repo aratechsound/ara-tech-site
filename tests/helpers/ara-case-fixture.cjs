@@ -34,7 +34,7 @@ async function createFixture() {
    const name = ident(u.pathname.split('/').at(-1));
    const args = Object.keys(input).map((key, i) => `${ident(key)}=>$${i+1}`).join(',');
    const params = Object.values(input).map(value => value && typeof value === 'object' ? JSON.stringify(value) : value);
-   const returnsRows = ['consume_rate_limit', 'finalize_pa_content_hearing_delivery'].includes(name);
+   const returnsRows = ['consume_rate_limit', 'finalize_pa_content_hearing_delivery', 'submit_pa_schedule_response'].includes(name);
    try {
     const call = `public.${name}(${args})`;
     const { rows } = await db.query(returnsRows ? `select * from ${call}` : `select ${call} result`, params);
@@ -49,7 +49,14 @@ async function createFixture() {
    ident(key);
    if(value==='is.null')where.push(`${key} is null`);
    else if(value==='not.is.null')where.push(`${key} is not null`);
-   else if(value.startsWith('eq.')){values.push(value.slice(3));where.push(`${key}=$${values.length}`);}
+   else if(value.startsWith('eq.')){
+    const filter=value.slice(3);
+    if(table==='pa_schedule_tokens'&&key==='token_hash'){
+     if(!/^\\x[a-f0-9]{64}$/u.test(filter))throw Error('Invalid fixture schedule hash');
+     values.push(Buffer.from(filter.slice(2),'hex'));
+    }else values.push(filter);
+    where.push(`${key}=$${values.length}`);
+   }
    else if(value.startsWith('in.')){
     const match=/^in\.\(([A-Za-z0-9_-]{1,200}(?:,[A-Za-z0-9_-]{1,200}){0,99})\)$/.exec(value);
     const messageFilter = table === 'pa_gmail_message_index' && key === 'gmail_message_id';
