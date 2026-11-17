@@ -75,9 +75,16 @@ export function createGallery({requestBlob,isCurrent}){
     opened.addEventListener('close',()=>{++renderId;opened.remove();if(dialog===opened)dialog=null;},{once:true});
     if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。原本の取得・ダウンロードは行いません。';return;}
     try{
+      const record=await attachmentRecord(item);if(!alive())return;
+      const download=document.createElement('a');
+      download.className='lightbtn';
+      download.textContent='原本をダウンロード';
+      download.href=record.url;
+      download.download=item.filename;
       if(item.mime_type!=='application/pdf'){
-        const record=await attachmentRecord(item);if(!alive())return;
-        const img=document.createElement('img');img.src=record.url;img.alt=item.filename;body.replaceChildren(img);return;
+        const img=document.createElement('img');img.src=record.url;img.alt=item.filename;
+        await img.decode();if(!alive())return;
+        body.replaceChildren(img);controls.append(download);return;
       }
       const pdf=await ensureView().getPdfDocument(item);if(!alive())return;pages=pdf.numPages;
       const prev=document.createElement('button'),next=document.createElement('button'),minus=document.createElement('button'),plus=document.createElement('button'),label=document.createElement('span');
@@ -86,7 +93,13 @@ export function createGallery({requestBlob,isCurrent}){
         if(!alive())return;
         const ticket=++renderId,canvas=document.createElement('canvas');canvas.setAttribute('aria-label','PDF '+page+'ページ');
         label.textContent=page+' / '+pages+'ページ · '+Math.round(zoom*100)+'%';prev.disabled=page===1;next.disabled=page===pages;minus.disabled=zoom<=.5;plus.disabled=zoom>=2;
-        try{await ensureView().renderPdfPage(item,page,canvas,Math.max(280,body.clientWidth-28)*zoom,Infinity,Infinity);if(alive()&&ticket===renderId)body.replaceChildren(canvas);}
+        try{
+          await ensureView().renderPdfPage(item,page,canvas,Math.max(280,body.clientWidth-28)*zoom,Infinity,Infinity);
+          if(alive()&&ticket===renderId){
+            body.replaceChildren(canvas);
+            if(!download.isConnected)controls.append(download);
+          }
+        }
         catch(e){if(alive()&&ticket===renderId)body.textContent=previewError(e);}
       }
       prev.onclick=()=>{page=Math.max(1,page-1);draw();};next.onclick=()=>{page=Math.min(pages,page+1);draw();};minus.onclick=()=>{zoom=Math.max(.5,zoom-.25);draw();};plus.onclick=()=>{zoom=Math.min(2,zoom+.25);draw();};await draw();
