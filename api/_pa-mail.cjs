@@ -604,9 +604,11 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body, messageType }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType, onDispatch }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
+    const raw = buildRawMessage({ to, subject, body, messageType, config });
+    onDispatch?.();
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
         headers: {
@@ -614,9 +616,13 @@ const sendGmail = async ({ to, subject, body, messageType }, fetchImpl = fetch) 
             "content-type": "application/json",
             accept: "application/json"
         },
-        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, messageType, config }) })
+        body: JSON.stringify({ raw })
     });
-    if (!response.ok) throw new Error(`gmail_send_${response.status}`);
+    if (!response.ok) {
+        const error = new Error(`gmail_send_${response.status}`);
+        error.gmailHttpStatus = response.status;
+        throw error;
+    }
     const payload = await response.json();
     if (!payload?.id) throw new Error("gmail_send_invalid");
     return { id: String(payload.id), threadId: payload.threadId ? String(payload.threadId) : null };
@@ -666,28 +672,31 @@ const safeErrorCode = (error) => {
     return "mail_delivery_failed";
 };
 
+const scheduleSendRejected = code => /^gmail_send_(?:400|401|403|404|413|422|429)$/u.test(code);
+const scheduleFailureBeforeDispatch = code =>
+    /^(?:gmail_not_configured|gmail_oauth_(?:[0-9]{3}|invalid)|mail_before_dispatch_failed)$/u.test(code);
+
 const deliver = async (row, fetchImpl = fetch) => {
+    const schedule = row.message_type === "schedule_request";
+    let dispatched = false;
+    let gmail;
     try {
-        const gmail = await sendGmail({
+        gmail = await sendGmail({
             to: row.recipient,
             subject: row.subject,
             body: row.body,
-            messageType: row.message_type
-        }, fetchImpl);
-        return updateDelivery(row.id, {
-            status: "sent",
-            sent_at: new Date().toISOString(),
-            failed_at: null,
-            gmail_message_id: gmail.id,
-            gmail_thread_id: gmail.threadId,
-            error_summary: null
+            messageType: row.message_type,
+            onDispatch: () => { dispatched = true; }
         }, fetchImpl);
     } catch (error) {
-        const code = safeErrorCode(error);
+        let code = safeErrorCode(error);
+        const uncertain = schedule && dispatched && !scheduleSendRejected("gmail_send_" + error?.gmailHttpStatus);
+        if (uncertain) code = "mail_outcome_unknown";
+        else if (schedule && !dispatched && code === "mail_delivery_failed") code = "mail_before_dispatch_failed";
         try {
             return await updateDelivery(row.id, {
-                status: "failed",
-                failed_at: new Date().toISOString(),
+                status: uncertain ? "unknown" : "failed",
+                failed_at: uncertain ? null : new Date().toISOString(),
                 gmail_message_id: null,
                 gmail_thread_id: null,
                 error_summary: code
@@ -697,6 +706,22 @@ const deliver = async (row, fetchImpl = fetch) => {
             wrapped.deliveryId = row.id;
             throw wrapped;
         }
+    }
+    try {
+        return await updateDelivery(row.id, {
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            failed_at: null,
+            gmail_message_id: gmail.id,
+            gmail_thread_id: gmail.threadId,
+            error_summary: null
+        }, fetchImpl);
+    } catch (error) {
+        if (!schedule) throw error;
+        // The write may have committed. Never replace a possibly sent row with failed.
+        const wrapped = new Error("mail_outcome_unknown");
+        wrapped.deliveryId = row.id;
+        throw wrapped;
     }
 };
 
@@ -1277,6 +1302,9 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
     const previous = await getDelivery(deliveryId, fetchImpl);
     if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
     if (previous.message_type === "schedule_request") {
+        if (!scheduleFailureBeforeDispatch(previous.error_summary) && !scheduleSendRejected(previous.error_summary)) {
+            throw new Error("mail_outcome_unknown");
+        }
         if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
         await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
     }
@@ -1292,12 +1320,16 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
 
     const parameters = new URLSearchParams({
         dedupe_key: `eq.${previous.dedupe_key}`,
-        select: "attempt_number",
+        select: "id,status,attempt_number",
         order: "attempt_number.desc",
         limit: "1"
     });
     const attempts = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
-    const attemptNumber = Number(attempts?.[0]?.attempt_number || 0) + 1;
+    const latestAttempt = attempts?.[0];
+    if (previous.message_type === "schedule_request" && (latestAttempt?.id !== previous.id || latestAttempt.status !== "failed")) {
+        throw new Error("retry_not_allowed");
+    }
+    const attemptNumber = Number(latestAttempt?.attempt_number || 0) + 1;
     return createAndDeliver({
         inquiry_id: inquiry.id,
         message_type: previous.message_type,

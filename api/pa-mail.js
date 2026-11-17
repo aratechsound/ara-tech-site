@@ -181,6 +181,7 @@ const paMailHandler = async (request, response) => {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
         if (code === "schedule_token_not_available") return sendJson(response, 409, { ok: false, code });
+        if (code === "mail_outcome_unknown") return sendJson(response, 409, { ok: false, code });
         if ([
             "invalid_input",
             "invalid_action",

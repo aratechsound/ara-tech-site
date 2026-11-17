@@ -128,7 +128,81 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         await assert.rejects(()=>retryDelivery({deliveryId:failed.id,inquiry:revokedOther,actorUserId:actor},fetchImpl),/schedule_token_not_available/);
         assert.deepEqual(await counts(),beforeRetry);
         assert.equal(state.sendCount,3);
-        console.log('PASS isolated schedule lifecycle: hash-only, public fields, reissue/revoke, exact-case send and retry, single response and delivery dedupe; simulated Gmail 3, real sends 0');
+        const newAttempt = async () => {
+            const inquiry = await makeCase('schedule_coordination');
+            const {token} = await issue(inquiry);
+            return prepare(await readInquiry(inquiry),token);
+        };
+        const providerPath = '/gmail/v1/users/me/messages/send';
+        const deliveryPath = '/rest/v1/pa_email_deliveries';
+        const loseGmailReply = async (url,options) => {
+            const result = await fetchImpl(url,options);
+            if (new URL(url).pathname === providerPath) {
+                assert.equal(result.ok,true);
+                throw Error('fixture lost the provider acknowledgement');
+            }
+            return result;
+        };
+        const accepted = await newAttempt();
+        const unknown = await createScheduleDelivery(accepted,loseGmailReply);
+        assert.equal(unknown.status,'unknown');
+        assert.equal(unknown.error_summary,'mail_outcome_unknown');
+        assert.equal(unknown.failed_at,null);
+        const unknownReadback = await row('select status from pa_email_deliveries where id=$1',[unknown.id]);
+        assert.equal(unknownReadback.status,'unknown');
+        await assert.rejects(()=>retryDelivery({deliveryId:unknown.id,inquiry:accepted.inquiry,actorUserId:actor},fetchImpl),/retry_not_allowed/);
+        assert.equal((await createScheduleDelivery(accepted,fetchImpl)).id,unknown.id);
+        assert.equal(state.sendCount,4,'one dispatch even if its response was lost');
+
+        for (const response of [new Response('{}',{status:503}), new Response('{}',{status:200})]) {
+            const input = await newAttempt();
+            const delivery = await createScheduleDelivery(input,(url,options) => new URL(url).pathname===providerPath
+                ? response : fetchImpl(url,options));
+            assert.equal(delivery.status,'unknown');
+            assert.equal(delivery.error_summary,'mail_outcome_unknown');
+            await assert.rejects(()=>retryDelivery({deliveryId:delivery.id,inquiry:input.inquiry,actorUserId:actor},fetchImpl),/retry_not_allowed/);
+        }
+
+        const oauthFailed = await newAttempt();
+        const beforeProvider = await createScheduleDelivery(oauthFailed,(url,options) => {
+            if (new URL(url).origin==='https://oauth2.googleapis.com') throw Error('fixture OAuth unavailable');
+            return fetchImpl(url,options);
+        });
+        assert.equal(beforeProvider.status,'failed');
+        assert.equal(beforeProvider.error_summary,'mail_before_dispatch_failed');
+        const retried = await retryDelivery({deliveryId:beforeProvider.id,inquiry:oauthFailed.inquiry,actorUserId:actor},fetchImpl);
+        assert.equal(retried.status,'sent');
+
+        const saved = await newAttempt();
+        const loseWriteReply = async (url,options) => {
+            const result = await fetchImpl(url,options);
+            if (new URL(url).pathname===deliveryPath && options?.method==='PATCH'
+                && JSON.parse(options.body).status==='sent') throw Error('fixture lost the committed DB acknowledgement');
+            return result;
+        };
+        await assert.rejects(()=>createScheduleDelivery(saved,loseWriteReply),/mail_outcome_unknown/);
+        const sentReadback = await createScheduleDelivery(saved,fetchImpl);
+        assert.equal(sentReadback.status,'sent');
+        assert.equal(state.sendCount,6);
+
+        const recovered = await newAttempt();
+        const rejected = await createScheduleDelivery(recovered,simulateGmailFailure);
+        const lostRetry = await retryDelivery({deliveryId:rejected.id,inquiry:recovered.inquiry,actorUserId:actor},loseGmailReply);
+        assert.equal(lostRetry.status,'unknown');
+        assert.equal(lostRetry.attempt_number,2);
+        await assert.rejects(()=>retryDelivery({deliveryId:rejected.id,inquiry:recovered.inquiry,actorUserId:actor},fetchImpl),/retry_not_allowed/);
+        assert.equal(state.sendCount,7,'the older failed attempt cannot bypass a newer unknown retry');
+        const historical = await newAttempt();
+        const oldFailure = await createScheduleDelivery(historical,simulateGmailFailure);
+        await db.query("update pa_email_deliveries set error_summary='mail_delivery_failed' where id=$1",[oldFailure.id]);
+        await assert.rejects(()=>retryDelivery({deliveryId:oldFailure.id,inquiry:historical.inquiry,actorUserId:actor},fetchImpl),/mail_outcome_unknown/);
+        const rejectedOverHttp = await requestSchedule({
+            action:'retry',inquiry_id:historical.inquiry.id,delivery_id:oldFailure.id
+        });
+        assert.equal(rejectedOverHttp.statusCode,409);
+        assert.deepEqual(rejectedOverHttp.payload,{ok:false,code:'mail_outcome_unknown'});
+        assert.equal(state.sendCount,7,'ambiguous historical failure must not dispatch');
+        console.log('PASS isolated schedule lifecycle: hash-only, public fields, reissue/revoke, exact-case send and retry, single response and delivery dedupe; ambiguous delivery retry refused, simulated Gmail 7, real sends 0');
     } finally {
         await db.close();
     }
