@@ -163,6 +163,7 @@ const paMailHandler = async (request, response) => {
             ok: delivery.status === "sent",
             delivery: {
                 id: delivery.id,
+                dedupe_key: delivery.dedupe_key,
                 message_type: delivery.message_type,
                 recipient: delivery.recipient,
                 subject: delivery.subject,

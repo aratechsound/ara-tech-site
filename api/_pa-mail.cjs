@@ -625,8 +625,8 @@ const sendGmail = async ({ to, subject, body, messageType, beforeDispatch, onDis
         throw error;
     }
     const payload = await response.json();
-    if (!payload?.id) throw new Error("gmail_send_invalid");
-    return { id: String(payload.id), threadId: payload.threadId ? String(payload.threadId) : null };
+    if (typeof payload?.id !== "string" || !/^[A-Za-z0-9_-]{1,200}$/u.test(payload.id)) throw new Error("gmail_send_invalid");
+    return { id: payload.id, threadId: typeof payload.threadId === "string" && /^[A-Za-z0-9_-]{1,200}$/u.test(payload.threadId) ? payload.threadId : null };
 };
 
 const insertDelivery = async (delivery, fetchImpl = fetch) => {
@@ -666,7 +666,7 @@ const insertDelivery = async (delivery, fetchImpl = fetch) => {
 };
 
 const updateDelivery = async (deliveryId, patch, fetchImpl = fetch) => {
-    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, select: "*" });
+    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, status: "eq.sending", select: "*" });
     const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
         method: "PATCH",
         prefer: "return=representation",
@@ -681,13 +681,18 @@ const safeErrorCode = (error) => {
     if (/^(gmail_not_configured|gmail_oauth_(?:\d{3}|invalid)|gmail_send_(?:\d{3}|invalid))$/u.test(message)) {
         return message;
     }
-    if (/^supabase_\d{3}$/u.test(message)) return message;
+    if (message === "mail_outcome_unknown" || message === "mail_before_dispatch_failed" || /^supabase_\d{3}$/u.test(message)) return message;
     return "mail_delivery_failed";
 };
 
-const scheduleSendRejected = code => /^gmail_send_(?:400|401|403|404|413|422|429)$/u.test(code);
-const scheduleFailureBeforeDispatch = code =>
-    /^(?:gmail_not_configured|gmail_oauth_(?:[0-9]{3}|invalid)|mail_before_dispatch_failed)$/u.test(code);
+const gmailSendRejected = code => /^gmail_send_(?:400|401|403|404|413|422|429)$/u.test(code);
+const retryableDeliveryFailure = code => gmailSendRejected(code)
+    || /^(?:gmail_not_configured|gmail_oauth_(?:[0-9]{3}|invalid)|mail_before_dispatch_failed)$/u.test(code);
+
+const deliveryErrorResult = (messageType, error) => {
+    const code = safeErrorCode(error);
+    return { message_type: messageType, status: code === "mail_outcome_unknown" ? "unknown" : "failed", error_summary: code };
+};
 
 const deliver = async (row, fetchImpl = fetch) => {
     const schedule = row.message_type === "schedule_request";
@@ -706,10 +711,10 @@ const deliver = async (row, fetchImpl = fetch) => {
         }, fetchImpl);
     } catch (error) {
         let code = safeErrorCode(error);
-        const uncertain = schedule && dispatched && !scheduleSendRejected("gmail_send_" + error?.gmailHttpStatus);
+        const uncertain = dispatched && !gmailSendRejected("gmail_send_" + error?.gmailHttpStatus);
         if (uncertain) code = "mail_outcome_unknown";
         else if (schedule && !dispatched && error.message === "schedule_token_not_available") code = error.message;
-        else if (schedule && !dispatched && code === "mail_delivery_failed") code = "mail_before_dispatch_failed";
+        else if (!dispatched && code === "mail_delivery_failed") code = "mail_before_dispatch_failed";
         try {
             return await updateDelivery(row.id, {
                 status: uncertain ? "unknown" : "failed",
@@ -733,8 +738,7 @@ const deliver = async (row, fetchImpl = fetch) => {
             gmail_thread_id: gmail.threadId,
             error_summary: null
         }, fetchImpl);
-    } catch (error) {
-        if (!schedule) throw error;
+    } catch {
         // The write may have committed. Never replace a possibly sent row with failed.
         const wrapped = new Error("mail_outcome_unknown");
         wrapped.deliveryId = row.id;
@@ -952,11 +956,7 @@ const sendScheduleResponseEmails = async (inquiry, response, fetchImpl = fetch) 
                 ...template
             }, fetchImpl);
         } catch (error) {
-            return {
-                message_type: template.message_type,
-                status: "failed",
-                error_summary: safeErrorCode(error)
-            };
+            return deliveryErrorResult(template.message_type, error);
         }
     }));
 };
@@ -1038,11 +1038,7 @@ const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
         try {
             return await createAndDeliver(delivery, fetchImpl);
         } catch (error) {
-            return {
-                message_type: delivery.message_type,
-                status: "failed",
-                error_summary: safeErrorCode(error)
-            };
+            return deliveryErrorResult(delivery.message_type, error);
         }
     }));
 };
@@ -1318,35 +1314,28 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
     if (!isUuid(actorUserId)) throw new Error("invalid_operation");
     const previous = await getDelivery(deliveryId, fetchImpl);
     if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
+    if (!retryableDeliveryFailure(previous.error_summary)) throw new Error("mail_outcome_unknown");
     if (previous.message_type === "schedule_request") {
-        if (!scheduleFailureBeforeDispatch(previous.error_summary) && !scheduleSendRejected(previous.error_summary)) {
-            throw new Error("mail_outcome_unknown");
-        }
         if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
         await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
     }
 
-    const successLookup = new URLSearchParams({
-        dedupe_key: `eq.${previous.dedupe_key}`,
-        status: "eq.sent",
-        select: "id",
-        limit: "1"
-    });
-    const successes = await supabaseRequest(`/rest/v1/pa_email_deliveries?${successLookup}`, {}, fetchImpl);
-    if (Array.isArray(successes) && successes[0]) throw new Error("retry_not_allowed");
-
     const parameters = new URLSearchParams({
+        inquiry_id: `eq.${previous.inquiry_id}`,
         dedupe_key: `eq.${previous.dedupe_key}`,
-        select: "id,status,attempt_number",
+        select: "id,status,attempt_number,error_summary",
         order: "attempt_number.desc",
-        limit: "1"
+        limit: "1000"
     });
     const attempts = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
-    const latestAttempt = attempts?.[0];
-    if (previous.message_type === "schedule_request" && (latestAttempt?.id !== previous.id || latestAttempt.status !== "failed")) {
-        throw new Error("retry_not_allowed");
-    }
-    const attemptNumber = Number(latestAttempt?.attempt_number || 0) + 1;
+    const latestAttempt = Array.isArray(attempts) ? attempts[0] : null;
+    if (latestAttempt?.id !== previous.id || latestAttempt.status !== "failed") throw new Error("retry_not_allowed");
+    if (attempts.some(attempt => attempt.status === "sent")) throw new Error("retry_not_allowed");
+    if (attempts.length !== latestAttempt.attempt_number || attempts.some(attempt =>
+        attempt.status !== "failed" || !retryableDeliveryFailure(attempt.error_summary)
+    )) throw new Error("mail_outcome_unknown");
+
+    const attemptNumber = latestAttempt.attempt_number + 1;
     return createAndDeliver({
         inquiry_id: inquiry.id,
         message_type: previous.message_type,
