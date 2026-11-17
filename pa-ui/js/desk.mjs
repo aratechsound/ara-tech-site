@@ -5,6 +5,7 @@ import {createGallery,previewError} from './gallery.mjs';
 import {createMailBodyView} from './mail-body-view.mjs';
 import {createMailHtmlView} from './mail-html-view.mjs';
 import {createCaseBasicsEditor} from './case-basics.mjs';
+import {createCaseCalendar} from './case-calendar.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
@@ -68,10 +69,15 @@ const requestMailBody=(id,row)=>api(row.read_route==='live'?'/data/mail-live-bod
 const bodyView=createMailBodyView({request:requestMailBody,isAuthenticated:()=>!!session});
 const htmlView=createMailHtmlView();
 const caseBasicsEditor=createCaseBasicsEditor();
+const caseCalendar=createCaseCalendar({displayText:privateText,onSelect:async id=>{
+  const epoch=selectionEpoch+1;
+  await selectCase(id);
+  if(selected===id&&selectionEpoch===epoch)setTab('schedule');
+}});
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();caseBasicsEditor.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);threadLink?.reset();htmlView.close();caseBasicsEditor.close();caseCalendar.close();$('modal-wrap').classList.remove('open');resetPrivacy();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -735,6 +741,7 @@ document.addEventListener('click',e=>{
 });
 for(const id of ['search','order','filter','type-filter','status-filter','year-filter','step-filter'])$(id).addEventListener(id==='search'?'input':'change',()=>{resetPrivacy();renderList();});
 $('refresh-cases').onclick=refresh;$('sign-out').onclick=signOut;$('open-schedule').onclick=()=>setTab('schedule');$('open-portal').onclick=()=>resetPrivacy();
+$('open-case-calendar').onclick=()=>{if(session&&!listError)caseCalendar.open(cases,eventDate(current()||{}));};
 $('new-case').disabled=false;$('new-case').title='既存の登録画面を開く';$('new-case').onclick=()=>window.open('/pa-admin-legacy.html','_blank','noopener,noreferrer');
 $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){$('modal-wrap').classList.remove('open');openDrawer();}});
