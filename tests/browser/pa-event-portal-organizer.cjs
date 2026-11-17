@@ -42,7 +42,7 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
   let browser;
   try {
     browser = await chromium.launch({ executablePath: process.env.PA_CHROME_EXECUTABLE || undefined });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const page = await browser.newPage({ locale: "en-US", viewport: { width: 1440, height: 1000 } });
     page.on("pageerror", (error) => console.error("Portal browser:", error.message));
     await page.route("**/*", (route) => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
     await page.goto(`http://127.0.0.1:${server.address().port}/event-portal#${"9".repeat(64)}`, { waitUntil: "networkidle" });
@@ -51,6 +51,10 @@ const send = (response, status, type, body) => { response.writeHead(status, { "c
     assert.equal(new URL(page.url()).hash, ""); assert.equal(new URL(page.url()).pathname, "/event-portal");
     assert.equal(await page.evaluate(() => globalThis.__PORTAL_DEPENDENCY_HASH__), "");
     assert.equal(await page.locator("body").getAttribute("class").then((v) => v.includes("organizer-portal")), true);
+    assert.equal(await page.locator("html").getAttribute("lang"), "en");
+    assert.equal(await page.getByRole("button", { name: "Enlarge ARA音響図.pdf", exact: true }).isVisible(), true);
+    await page.locator("#organizer-language").selectOption("ja");
+    assert.equal(await page.locator("html").getAttribute("lang"), "ja");
     assert.equal(await page.locator("#portal").textContent().then((v) => /PA案件|案件状態|Gmail|見積|契約|請求|UUID/u.test(v)), false);
     await page.locator('button[aria-label="ARA音響図.pdfを拡大表示"]').click();
     await page.waitForSelector("#preview-dialog .pdf-pages canvas");
