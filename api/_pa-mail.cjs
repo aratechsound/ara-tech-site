@@ -1067,15 +1067,7 @@ const requireOpenScheduleToken = async (inquiryId, url, fetchImpl) => {
     }
 };
 
-const createScheduleDelivery = async ({
-    inquiry,
-    subject,
-    body,
-    scheduleUrl,
-    operationKey,
-    actorUserId
-}, fetchImpl = fetch) => {
-    if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+const prepareScheduleInvitation = ({inquiry, subject, body, scheduleUrl}) => {
     if (![
         "schedule_coordination",
         "second_form_not_issued",
@@ -1097,6 +1089,13 @@ const createScheduleDelivery = async ({
     if (!safeSubject.includes(inquiry.inquiry_number) || scheduleUrlInMessage(safeBody) !== safeUrl) {
         throw new Error("invalid_schedule_message");
     }
+    return {safeUrl, safeSubject, safeBody};
+};
+
+const createScheduleDelivery = async (input, fetchImpl = fetch) => {
+    const {inquiry, operationKey, actorUserId} = input;
+    if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+    const {safeUrl, safeSubject, safeBody} = prepareScheduleInvitation(input);
     const dedupeKey = `schedule:${inquiry.id}:${operationKey.toLowerCase()}`;
     try {
         await requireOpenScheduleToken(inquiry.id, safeUrl, fetchImpl);
@@ -1207,14 +1206,7 @@ const sendContentHearingAndFinalize = async ({
     return { delivery, caseState };
 };
 
-const createScheduleResultDelivery = async ({
-    inquiry,
-    result,
-    subject,
-    body,
-    actorUserId
-}, fetchImpl = fetch) => {
-    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+const prepareScheduleResult = async ({inquiry, result, subject, body}, fetchImpl) => {
     if (!["confirmed", "unavailable"].includes(result)) throw new Error("invalid_schedule_result");
 
     const response = await getScheduleResponseByInquiry(inquiry.id, fetchImpl);
@@ -1243,6 +1235,24 @@ const createScheduleResultDelivery = async ({
     }
 
     const safeBody = normalizeCustomerBody(safeBodyInput);
+    return {safeSubject, safeBody};
+};
+
+const previewScheduleMail = async ({kind, ...input}, fetchImpl = fetch) => {
+    if (kind === "invitation") {
+        const {safeUrl, safeBody} = prepareScheduleInvitation(input);
+        await requireOpenScheduleToken(input.inquiry.id, safeUrl, fetchImpl);
+        return buildCustomerHtml(safeBody);
+    }
+    if (kind !== "result") throw new Error("invalid_action");
+    const {safeBody} = await prepareScheduleResult(input, fetchImpl);
+    return buildCustomerHtml(safeBody);
+};
+
+const createScheduleResultDelivery = async (input, fetchImpl = fetch) => {
+    const {inquiry, result, actorUserId} = input;
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    const {safeSubject, safeBody} = await prepareScheduleResult(input, fetchImpl);
     const messageType = result === "confirmed"
         ? "schedule_result_confirmed"
         : "schedule_result_unavailable";
@@ -1386,6 +1396,7 @@ module.exports = {
     createAndDeliver,
     createContentHearingDelivery,
     createScheduleDelivery,
+    previewScheduleMail,
     createScheduleResultDelivery,
     customerReceiptTemplate,
     contentHearingTemplate,

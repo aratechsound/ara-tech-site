@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const {buildCustomerHtml} = require('../api/_pa-mail.cjs');
 
 const root = path.resolve(__dirname,'..');
 const fixtureId = '11111111-1111-4111-8111-111111111111';
@@ -12,12 +13,13 @@ const tokenId = '22222222-2222-4222-8222-222222222222';
 const inquiry = {
   id:fixtureId, inquiry_number:'PA-FIXTURE-A', case_type:'PA_EVENT', status:'schedule_coordination',
   event_name:'架空の日程調整案件', event_date:'2027-01-01', venue:'架空の会場',
+  customer_name:'架空のお客様', email:'schedule@example.invalid',
   public_conditions:'架空の公開用条件', updated_at:initialVersion
 };
 
 async function main() {
-  let history = [];
-  const calls = [];
+  let history = [], deliveryHistory = [], responded = false, showDelivery = false;
+  const calls = [], mailCalls = [];
   const errors = [];
   const blockedWrites = [];
   const server = http.createServer((req,res)=>{
@@ -27,6 +29,8 @@ async function main() {
       let result = [];
       if (route === '/data/cases') result = {cases:[inquiry],progress:[{inquiry_id:fixtureId,is_on_hold:false}]};
       else if (route === '/data/case/'+fixtureId+'/tokens') result = history;
+      else if (route === '/data/case/'+fixtureId+'/responses' && responded) result = [{decision:'agree'}];
+      else if (route === '/data/case/'+fixtureId+'/deliveries' && showDelivery) result = deliveryHistory;
       else if (route.startsWith('/data/commercial/')) result = {estimates:[],offers:[],billings:[]};
       else if (route.startsWith('/data/materials/')) result = {cards:[],photos:[]};
       res.setHeader('Content-Type','application/json');
@@ -57,6 +61,22 @@ async function main() {
         + "export const readUrl=p=>'/fixture-workspace?path='+encodeURIComponent(p);"
         + "export const legacyUrl=id=>\"/pa-admin-legacy.html?case=\"+encodeURIComponent(id); export const requestScheduleToken=payload=>window.fixtureSchedule(payload);"
     }));
+    await context.route(origin+'/api/pa-mail',async route=>{
+      const input=route.request().postDataJSON();
+      assert.equal(route.request().method(),'POST');
+      assert.equal(input.inquiry_id,fixtureId);
+      assert.equal(input.expected_recipient,inquiry.email);
+      mailCalls.push(input);
+      if(input.action==='preview_schedule')return route.fulfill({json:{ok:true,html:buildCustomerHtml(input.body)}});
+      assert(['send_schedule','send_result'].includes(input.action));
+      const sent=input.action==='send_schedule';
+      const delivery={id:sent?'fixture-sent':'fixture-unknown',inquiry_id:fixtureId,
+        message_type:sent?'schedule_request':'schedule_result_confirmed',
+        status:sent?'sent':'unknown', gmail_message_id:sent?'fake_gmail_sent':null, recipient:inquiry.email,
+        subject:input.subject,body:input.body,requested_at:issuedVersion,sent_at:sent?issuedVersion:null};
+      deliveryHistory.push(delivery);
+      return route.fulfill({json:{ok:sent,delivery}});
+    });
     const page = await context.newPage();
     page.on('pageerror', error=>errors.push(error.message));
     await page.exposeFunction('fixtureSchedule', async input=>{
@@ -112,14 +132,69 @@ async function main() {
     assert.equal(context.pages().length,1);
     assert.equal(new URL(page.url()).pathname,'/pa-admin.html');
 
+    await page.keyboard.press('Escape');
+    const invitation = page.getByRole('button',{name:'日程案内を作成'});
+    await invitation.click();
+    const composer = page.getByRole('dialog',{name:'日程案内メール'});
+    assert.equal(await composer.getByLabel('宛先',{exact:true}).inputValue(),inquiry.email);
+    assert.equal(await composer.getByLabel('宛先',{exact:true}).getAttribute('readonly'),'');
+    await composer.getByRole('button',{name:'プレビュー'}).click();
+    const review = composer.locator('[data-intake-review]');
+    await review.waitFor();
+    assert.equal(await review.locator('iframe').getAttribute('sandbox'),'');
+    assert.match(await review.locator('iframe').getAttribute('srcdoc'),/ARA-TECH/);
+    assert.deepEqual(mailCalls.map(entry=>entry.action),['preview_schedule']);
+    await composer.getByRole('checkbox').check();
+    await composer.getByLabel('件名',{exact:true}).fill('日程について／PA-FIXTURE-A');
+    assert.equal(await review.isVisible(),false);
+    await composer.getByRole('button',{name:'プレビュー'}).click();
+    await review.waitFor();
+    await composer.getByRole('checkbox').check();
+    await composer.getByRole('button',{name:'確認した内容で送信する'}).click();
+    await composer.waitFor({state:'hidden'});
+    await page.getByText('送信は完了しました。配送履歴を再取得してください。').waitFor();
+    assert.deepEqual(mailCalls.map(entry=>entry.action),['preview_schedule','preview_schedule','send_schedule']);
+    assert.equal(mailCalls[2].schedule_url,'https://ara-tech.cc/pa-schedule-confirm.html?token='+issued.token);
+    assert.match(mailCalls[2].operation_key,/^[a-f0-9-]{36}$/u);
+    showDelivery=true;
+    await page.getByRole('button',{name:'配送履歴を再取得'}).click();
+    await page.getByText('送信しました。配送履歴を更新しました。').waitFor();
+    assert.equal(mailCalls.length,3);
+
+    await page.setViewportSize({width:390,height:844});
+    responded=true;
+    inquiry.status='schedule_adjusting';
+    await page.goto(openCase);
+    await schedule.click();
+    await page.getByRole('button',{name:'日程確定を通知'}).click();
+    const result = page.getByRole('dialog',{name:'日程確定を通知'});
+    assert(await result.evaluate(node=>node.getBoundingClientRect().width<=innerWidth));
+    await result.getByRole('button',{name:'プレビュー'}).click();
+    await result.getByRole('checkbox').check();
+    await result.getByRole('button',{name:'確認した内容で送信する'}).click();
+    await result.getByText('送信結果を確認できません。配送記録を確認してください。').waitFor();
+    assert.deepEqual(mailCalls.slice(3).map(entry=>[entry.action,entry.result]),[
+      ['preview_schedule','confirmed'],['send_result','confirmed']
+    ]);
+    await result.getByRole('button',{name:'閉じる',exact:true}).click();
+    await page.goto(openCase);
+    await schedule.click();
+    await page.getByText(/配送結果未確定/).waitFor();
+    assert(await page.getByRole('button',{name:'日程確定を通知'}).isDisabled());
+    assert(await page.getByRole('button',{name:'日程確保不可を通知'}).isDisabled());
+    assert.equal(context.pages().length,1);
+    assert.equal(new URL(page.url()).pathname,'/pa-admin.html');
+
     await page.goto(openCase+'&mail-view=readonly');
     await schedule.click();
     await page.getByRole('heading',{name:'日程案内・確定通知'}).waitFor();
     assert(await action.isDisabled());
     assert.equal(calls.length,2);
+    assert.equal(mailCalls.length,5);
+    assert(await page.getByRole('button',{name:'日程案内を作成'}).isDisabled());
     assert.deepEqual(blockedWrites,[]);
     assert.deepEqual(errors,[]);
-    console.log('PASS isolated CASE DESK schedule links: issue in current view, exact version and token sent for revoke, stale result stops, read-only blocked, no live traffic');
+    console.log('PASS isolated CASE DESK schedule links: issue in current view, exact version and token sent for revoke, stale result stops, sandboxed invitation and result, read-only readback, UNKNOWN survives reload, no live traffic');
   } finally {
     await browser?.close();
     await new Promise(resolve=>server.close(resolve));

@@ -19,6 +19,7 @@ import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
 import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
 import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,paymentClosureBasis,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
 import {openScheduleToken,scheduleTokenSecret,scheduleTokenUrl} from './schedule-token.mjs';
+import {scheduleInvitationTemplate,scheduleResultTemplate} from './schedule-mail.mjs';
 
 const $=id=>document.getElementById(id),central=$('detail-card');
 const tx=value=>escape(privateText(String(value??'未提供')));
@@ -604,7 +605,11 @@ function openScheduleLinks(){
         renderList();
         status.textContent=action==='issue'?'発行しました。URLはこの画面で控えてください。':'確認したURLを失効しました。';
         if(action==='issue'){
-          const output=$('schedule-issued-url');output.querySelector('input').value=scheduleTokenUrl(token);output.hidden=false;
+          const output=$('schedule-issued-url'),url=scheduleTokenUrl(token);
+          detail.scheduleIssued={id:result.token_id,url,expiresAt:result.expires_at};
+          output.querySelector('input').value=url;output.hidden=false;
+        }else{
+          delete detail.scheduleIssued;
         }
       }else{
         status.textContent='発行・失効を確定できません。案件一覧を更新し、現在のURL状態を確認してください。';
@@ -615,6 +620,103 @@ function openScheduleLinks(){
     }
   });
 }
+function scheduleMailOption(c, action){
+  if(!canManageSchedule(c)||!c.email?.trim()||!Array.isArray(getRows('deliveries')))return null;
+  const result=action==='invitation'?null:action;
+  const issued=detail.scheduleIssued;
+  if(!result){
+    const active=openScheduleToken(getRows('tokens'));
+    if(!issued||active?.id!==issued.id||!(Date.parse(active.expires_at)>Date.now()))return null;
+  }else{
+    const results=new Set(['schedule_result_confirmed','schedule_result_unavailable']);
+    if(!['confirmed','unavailable'].includes(result)||c.status!=='schedule_adjusting'
+      ||!getRows('responses')?.some(row=>row.decision==='agree')
+      ||getRows('deliveries').some(row=>results.has(row.message_type)))return null;
+  }
+  const key=c.id+':schedule:'+(result?'result':issued.id);
+  try{if(scheduleAttempts.has(key)||scheduleAttempts.blocked(c.id))return null;}
+  catch{return null;}
+  return {
+    key,result,issued:result?null:issued,
+    type:result?'schedule_result_'+result:'schedule_request',
+    title:result==='confirmed'?'日程確定を通知':result==='unavailable'?'日程確保不可を通知':'日程案内メール'
+  };
+}
+
+async function refreshScheduleDelivery(){
+  const receipt=detail.scheduleReceipt,id=selected,epoch=selectionEpoch;
+  if(!receipt||receipt.loading)return;
+  receipt.loading=true;
+  await loadSurface('deliveries','/data/case/'+id+'/deliveries',epoch);
+  if(epoch!==selectionEpoch||detail.scheduleReceipt!==receipt)return;
+  receipt.loading=false;
+  receipt.verified=Boolean(getRows('deliveries')?.some(row=>row.inquiry_id===id&&row.id===receipt.id
+    &&row.gmail_message_id===receipt.gmail_message_id&&row.status==='sent'&&row.message_type===receipt.message_type));
+  render();
+}
+
+function openScheduleMail(action){
+  const c=current(), option=scheduleMailOption(c,action), epoch=selectionEpoch, owner=session?.user?.id;
+  if(!option||tab!=='schedule')return;
+  const {result,issued,key,title,type}=option;
+  const operationKey=crypto.randomUUID();
+  const formatDate=value=>value?new Date(value).toLocaleDateString('ja-JP',{timeZone:'Asia/Tokyo'}):'未定';
+  const draft=result?scheduleResultTemplate(c,result,formatDate):
+    scheduleInvitationTemplate(c,issued.url,{formatDate,formatDateTime:timelineDate,fallbackDeadline:issued.expiresAt});
+  openInfo(title,'<div id="schedule-mail-composer-host"></div>');
+  const host=$('schedule-mail-composer-host');
+  const isCurrent=()=>epoch===selectionEpoch&&selected===c.id&&session?.user?.id===owner&&tab==='schedule'
+    &&host.isConnected&&$('modal-wrap').open;
+  const payload=({recipient,subject,body})=>({
+    inquiry_id:c.id,expected_recipient:recipient,subject,body,
+    ...(result?{result}:{schedule_url:issued.url})
+  });
+  const request= (input,timeout) => authenticatedMailRequest(input,isCurrent,{endpoint:'/api/pa-mail',timeout});
+  const form=createIntakeComposer({inquiry:c,draft,title,embedded:true,close:()=>{closeInfo();render();},
+    requestPreview:content=>{
+      if(scheduleMailOption(current(),action)?.key!==key||!isCurrent())throw Error('case_changed');
+      return request({action:'preview_schedule',kind:result?'result':'invitation',...payload(content)},25000);
+    },
+    send:async content=>{
+      if(scheduleMailOption(current(),action)?.key!==key||!isCurrent())throw Error('case_changed');
+      scheduleAttempts.begin(key,c.id);
+      let delivery,response;
+      try{
+        response=await request(result?{action:'send_result',...payload(content)}:
+          {action:'send_schedule',operation_key:operationKey,...payload(content)},65000);
+        delivery=response.delivery;
+        if(delivery?.status!=='sent'||delivery.message_type!==type
+          ||!/^[A-Za-z0-9_-]{1,200}$/.test(delivery.gmail_message_id||'')
+          ||delivery.recipient?.trim()!==content.recipient||delivery.subject!==content.subject||!delivery.id){
+          throw Error('mail_outcome_unknown');
+        }
+        scheduleAttempts.finish(key,'sent');
+      }catch(error){
+        if(['schedule_recipient_changed','schedule_token_not_available','schedule_delivery_busy','rate_limited',
+          'schedule_not_allowed','result_not_allowed','invalid_schedule_url','invalid_schedule_message','invalid_result_message',
+          'not_authorized','case_changed','login_required'].includes(error.message))scheduleAttempts.release(key);
+        else scheduleAttempts.finish(key,'unknown');
+        if(isCurrent())render();
+        throw error;
+      }
+      if(!isCurrent())return response;
+      detail.scheduleReceipt={id:delivery.id,gmail_message_id:delivery.gmail_message_id,message_type:type};
+      if(!result)delete detail.scheduleIssued;
+      const status=result==='confirmed'?'schedule_confirmed':'schedule_unavailable';
+      if(result&&response.case_state?.result_status===status){
+        cases=cases.map(item=>item.id===c.id?{...item,status}:item);
+        renderList();
+      }
+      closeInfo();
+      render();
+      void refreshScheduleDelivery();
+      return response;
+    }
+  });
+  host.append(form);
+  form.elements.subject.focus();
+}
+
 function schedule(c){
   const p=c.progress||{};
   const tokens=readBlock('tokens','日程URL状態',rows=>{
@@ -647,7 +749,15 @@ function schedule(c){
     <div class="group"><h2 class="sectiontitle">URL・期限・失効状態</h2>${tokens}</div>
     <div class="group"><h2 class="sectiontitle">顧客回答</h2>${answers}</div>
     <div class="group"><h2 class="sectiontitle">日程案内・確定通知</h2>${notices}</div>
-    <div class="inlinebtns" style="margin-top:12px"><button class="action quiet" data-action="schedule-link" ${canManageSchedule(c)?'':'disabled'}>リンク発行・失効</button>${button('案内・確定送信','schedule-send','quiet',true)}</div>`;
+    ${detail.scheduleReceipt?'<p class="notice" role="status">'+(detail.scheduleReceipt.verified?'送信しました。配送履歴を更新しました。':detail.scheduleReceipt.loading?'送信しました。配送履歴を確認中です…':'送信は完了しました。配送履歴を再取得してください。')+'</p>':''}
+    ${canManageSchedule(c)&&!detail.scheduleIssued?'<p class="hint">日程案内を作成するには、この画面で日程URLを発行してください。</p>':''}
+    <div class="inlinebtns" style="margin-top:12px">
+      <button class="action quiet" data-action="schedule-link" ${canManageSchedule(c)?'':'disabled'}>リンク発行・失効</button>
+      <button class="action quiet" data-schedule-message="invitation" ${scheduleMailOption(c,'invitation')?'':'disabled'}>日程案内を作成</button>
+      <button class="action quiet" data-schedule-message="confirmed" ${scheduleMailOption(c,'confirmed')?'':'disabled'}>日程確定を通知</button>
+      <button class="action quiet" data-schedule-message="unavailable" ${scheduleMailOption(c,'unavailable')?'':'disabled'}>日程確保不可を通知</button>
+      ${detail.scheduleReceipt&&!detail.scheduleReceipt.verified&&!detail.scheduleReceipt.loading?'<button class="action quiet" data-schedule-readback>配送履歴を再取得</button>':''}
+    </div>`;
 }
 function protectAudit(value,key=''){
   if(/amount|price|total|balance|subtotal|fee|cost|金額|請求額|見積額/i.test(key)&&value!==null&&value!==undefined)return typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?privateMoney(Number(value)):privateText(value);
@@ -820,6 +930,9 @@ $('login-form').addEventListener('submit',async e=>{
 });
 document.addEventListener('click',e=>{
   if(e.target.closest('[data-action="schedule-link"]:not(:disabled)')){openScheduleLinks();return;}
+  const scheduleMessage=e.target.closest('[data-schedule-message]:not(:disabled)');
+  if(scheduleMessage){openScheduleMail(scheduleMessage.dataset.scheduleMessage);return;}
+  if(e.target.closest('[data-schedule-readback]')){void refreshScheduleDelivery();return;}
   if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
@@ -868,7 +981,7 @@ $('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inli
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){closeInfo();openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
 $('drawer-close').onclick=()=>$('drawer-wrap').close();
-function closeInfo(){threadLink?.reset();$('modal-wrap').close();$('schedule-token-command')?.remove();resetPrivacy();}
+function closeInfo(){threadLink?.reset();$('modal-wrap').close();$('schedule-token-command')?.remove();$('schedule-mail-composer-host')?.remove();resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 $('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeInfo();});
 window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
@@ -905,6 +1018,7 @@ const replyRequest=(input,isCurrent)=>authenticatedMailRequest(input,isCurrent,{
 let attemptStorage;
 try{attemptStorage=sessionStorage;}catch{attemptStorage={getItem(){throw Error('send_lock_unavailable');},setItem(){throw Error('send_lock_unavailable');}};}
 const intakeAttempts=createAttemptStore(attemptStorage,'paui-intake-follow-up-attempts-v1');
+const scheduleAttempts=createAttemptStore(attemptStorage,'paui095-schedule-mail-attempts-v1');
 replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(attemptStorage),changed:renderMailSyncStatus,
   readSent:async receipt=>{
     const id=receipt.caseId,owner=session?.user?.id;if(!owner)throw Error('login_required');

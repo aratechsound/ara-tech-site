@@ -1,9 +1,9 @@
 export const followUpType = 'content_hearing_follow_up';
 
-export function createIntakeComposer({inquiry, requestPreview, send, close}) {
+export function createIntakeComposer({inquiry, requestPreview, send, close, draft, embedded = false, title = "お問い合わせへの返信"}) {
   const form = document.createElement('form');
   form.className = 'reply-composer';
-  form.setAttribute('aria-label', 'お問い合わせへの返信');
+  form.setAttribute('aria-label', title);
   form.innerHTML = `<div class="reply-heading"><h2>お問い合わせへの返信</h2>
     <button type="button" class="lightbtn" data-intake-close>閉じる</button></div>
     <label>宛先<input type="email" name="recipient" readonly></label>
@@ -22,10 +22,13 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
   const submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]');
   recipient.value = inquiry.email.trim();
-  subject.value = ('お問い合わせについて｜' + inquiry.inquiry_number).slice(0, 240);
+  subject.value = (draft?.subject || ('お問い合わせについて｜' + inquiry.inquiry_number)).slice(0, 240);
   const name = inquiry.contact_name || inquiry.customer_name;
-  body.value = name ? name + ' 様\n\n' : '';
+  body.value = draft?.body ?? (name ? name + ' 様\n\n' : '');
+  form.querySelector('h2').textContent = title;
+  form.querySelector('.reply-heading').hidden = embedded;
   const frame = review.querySelector('iframe');
+  frame.title = title + 'プレビュー';
   let snapshot;
   let revision = 0;
   const message = text => {
@@ -79,7 +82,7 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
       const result = await send(payload);
       message(result.delivery.status === 'sent' ? '送信しました。' : '送信結果を確認できません。配送記録を確認してください。');
     } catch (error) {
-      if (error.message === 'follow_up_recipient_changed') {
+      if (['follow_up_recipient_changed','schedule_recipient_changed'].includes(error.message)) {
         message('登録済みの宛先が変わりました。画面を再読み込みして確認してください。');
       } else if (error.message === 'send_already_attempted') {
         message('この案件の送信は試行済みです。配送記録を確認してください。');

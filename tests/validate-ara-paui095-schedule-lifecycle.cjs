@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createFixture } = require('./helpers/ara-case-fixture.cjs');
-const { createScheduleDelivery, retryDelivery, submitScheduleResponseAndNotify } = require('../api/_pa-mail.cjs');
+const { createScheduleDelivery, retryDelivery, submitScheduleResponseAndNotify, buildCustomerHtml, normalizeCustomerBody } = require('../api/_pa-mail.cjs');
 const mailHandler = require('../api/pa-mail.js');
 
 const answer = {
@@ -50,7 +50,7 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         scheduleUrl:urlFor(token),body:'ご確認ください。\n'+urlFor(token)+'\n'+extra
     });
     const counts = () => row('select (select count(*)::int from pa_email_deliveries) deliveries, (select count(*)::int from pa_schedule_responses) responses');
-    const requestSchedule = async input => {
+    const requestSchedule = async (input, credential='fixture-admin') => {
         const response = {
             statusCode:200, setHeader(){}, status(code){this.statusCode=code;return this;},
             json(payload){this.payload=payload;return this;}
@@ -60,7 +60,7 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
             global.fetch=fetchImpl;
             await mailHandler({
                 method:'POST',url:'/api/pa-mail',body:input,
-                headers:{origin:'https://ara-tech.cc',host:'ara-tech.cc',authorization:'Bearer fixture-admin','x-forwarded-for':'192.0.2.31'}
+                headers:{origin:'https://ara-tech.cc',host:'ara-tech.cc',authorization:'Bearer '+credential,'x-forwarded-for':'192.0.2.31'}
             },response);
             return response;
         } finally { global.fetch=savedFetch; }
@@ -106,6 +106,21 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         await assert.rejects(()=>createScheduleDelivery(prepare(current,now.token,undefined,urlFor(foreign.token)),fetchImpl),/invalid_schedule_message/);
         assert.equal(state.sendCount,0);
         const send=prepare(current,now.token);
+        const previewInput={action:'preview_schedule',kind:'invitation',inquiry_id:current.id,
+            expected_recipient:current.email,subject:send.subject,body:send.body,schedule_url:send.scheduleUrl};
+        const beforePreview=await counts();
+        const readsBeforePreview=state.network.length;
+        const preview=await requestSchedule(previewInput);
+        assert.equal(preview.statusCode,200);
+        assert.equal(preview.payload.html,buildCustomerHtml(normalizeCustomerBody(send.body)));
+        assert.deepEqual(await counts(),beforePreview);
+        assert(state.network.slice(readsBeforePreview).every(request=>request.method==='GET'));
+        assert.equal((await requestSchedule({...previewInput,expected_recipient:'outside@example.invalid'})).statusCode,409);
+        assert.equal((await requestSchedule(previewInput,'foreign-fixture')).statusCode,401);
+        const changedRecipient=await requestSchedule({...previewInput,action:'send_schedule',operation_key:send.operationKey,expected_recipient:'outside@example.invalid'});
+        assert.equal(changedRecipient.statusCode,409);
+        assert.deepEqual(await counts(),beforePreview);
+        assert.equal(state.sendCount,0);
         assert.equal((await createScheduleDelivery(send,fetchImpl)).status,'sent');
         assert.equal((await createScheduleDelivery(send,fetchImpl)).status,'sent');
         assert.equal(state.sendCount,1);
@@ -120,6 +135,16 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         assert.equal((await readInquiry(target)).status,'schedule_adjusting');
         assert.equal((await counts()).responses,1);
         const answered=await readInquiry(target);
+        const resultBody=answered.inquiry_number+'\n見積・契約・正式予約をご案内します。';
+        const beforeResultPreview=await counts();
+        const resultPreview=await requestSchedule({action:'preview_schedule',kind:'result',result:'confirmed',
+            inquiry_id:answered.id,expected_recipient:answered.email,
+            subject:'日程確定 '+answered.inquiry_number,body:resultBody});
+        assert.equal(resultPreview.statusCode,200);
+        assert.equal(resultPreview.payload.html,buildCustomerHtml(normalizeCustomerBody(resultBody)));
+        assert.deepEqual(await counts(),beforeResultPreview);
+        assert.equal(state.sendCount,3);
+
         assert.equal((await createScheduleDelivery({...send,inquiry:answered},fetchImpl)).status,'sent');
         assert.equal(state.sendCount,3);
         await assert.rejects(()=>createScheduleDelivery(prepare(answered,now.token),fetchImpl),/schedule_token_not_available/);
