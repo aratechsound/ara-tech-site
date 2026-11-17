@@ -20,7 +20,7 @@ const harness = (caseId) => `<!doctype html><html lang="ja"><head><meta charset=
 async function counts(db, caseId) { const result = {}; for (const [key, sql] of Object.entries({ offers: 'select count(*) n from pa_contract_offers where inquiry_id=$1', tokens: 'select count(*) n from pa_contract_tokens t join pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1', contracts: 'select count(*) n from pa_contracts where inquiry_id=$1', outbox: 'select count(*) n from pa_commercial_outbox where inquiry_id=$1', audit: "select count(*) n from pa_inquiry_audit where inquiry_id=$1 and action='formal_contract_issued'" })) result[key] = Number((await db.query(sql, [caseId])).rows[0].n); result.revision = Number((await db.query('select revision from pa_case_commercial_state where inquiry_id=$1', [caseId])).rows[0].revision); return result; }
 
 async function main() {
-    let fixture, billingFixture, pdfFixture, unknownFixture, server, browser;
+    let fixture, billingFixture, pdfFixture, unknownFixture, linkOnlyFixture, server, browser;
     const pageErrors = [], apiActions = [];
     try {
         fixture = await createFixture();
@@ -73,7 +73,7 @@ async function main() {
             let result = target === '/data/cases' ? { cases: deskCases, progress: [] }
                 : target.startsWith('/data/commercial/') ? { estimates: [], offers: [], billings: [] }
                 : target.startsWith('/data/sent-estimates/') ? { messages: [], unknown: [] } : [];
-            const activeFixture = unknownFixture || pdfFixture || billingFixture;
+            const activeFixture = linkOnlyFixture || unknownFixture || pdfFixture || billingFixture;
             if (activeFixture) {
                 const { db, inquiryId, service } = activeFixture;
                 if (target === '/data/cases') {
@@ -156,7 +156,7 @@ async function main() {
         await page.screenshot({ path: path.join(out, 'desk-confirmation-1366.png') });
         await page.getByLabel('上記の内容を確認しました。').check(); await ownerButton().click();
         await page.getByRole('button', { name: '正式受注確認を発行する（送信しない）' }).click();
-        await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        await page.getByRole('button', { name: '正式受注確認を送る', exact: true }).waitFor({ state: 'visible' });
         assert.equal(new URL(page.url()).pathname, '/pa-admin.html');
         assert.equal(context.pages().length, 1, 'CASE DESK must not open the legacy admin');
         const afterIssue = await counts(fixture.db, fixture.inquiryId);
@@ -401,12 +401,42 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        linkOnlyFixture = await setup();
+        const lf = linkOnlyFixture;
+        await openDesk(lf, false);
+        await page.getByRole('button', { name: '見積原本を登録（送信しない）', exact: true }).click();
+        const register = page.getByRole('dialog', { name: '見積原本を登録', exact: true });
+        await register.getByRole('button', { name: '金額を表示・入力' }).click();
+        await register.getByLabel('税込金額（円）').fill('110000');
+        await register.locator('input[type=file]').setInputFiles({ name: '確認ページ掲載用.pdf', mimeType: 'application/pdf', buffer: lf.quote });
+        await register.getByRole('button', { name: '原本を登録（メールは送信しない）', exact: true }).click();
+        const attach = page.getByRole('button', { name: '正式受注確認を送る（見積PDFを添付）', exact: true });
+        await attach.waitFor();
+        assert.equal(lf.state.sendCount, 0);
+        await page.getByRole('button', { name: '正式受注確認を送る（メール添付なし）', exact: true }).click();
+        const preview = page.locator('.pa-confirmation-preview-dialog');
+        await preview.getByText('なし（確認ページで提示）', { exact: true }).waitFor();
+        assert.equal(lf.state.sendCount, 0);
+        await preview.getByLabel('上記の内容を確認しました。').check();
+        await preview.getByRole('button', { name: '正式受注確認として送信', exact: true }).click();
+        const final = page.locator('.pa-confirmation-final-dialog');
+        await final.getByText('見積書原本は確認ページで提示します。', { exact: false }).first().waitFor();
+        assert.equal(lf.state.sendCount, 0);
+        await final.getByRole('button', { name: '正式受注確認を送信する', exact: true }).click();
+        await preview.waitFor({ state: 'detached' });
+        assert.equal(lf.state.sendCount, 1);
+        const { rows: [linkJob] } = await lf.db.query("select state,attachment_ids from pa_commercial_outbox where job_kind='confirmation'");
+        assert.equal(linkJob.state, 'sent');
+        assert.deepEqual(linkJob.attachment_ids, []);
+        assert.doesNotMatch(Buffer.from(lf.state.lastRaw.raw, 'base64url').toString('utf8'), /Content-Type: application\/pdf/iu);
+        assert.equal(context.pages().length, 1);
+        console.log('PASS CASE DESK original registered without send, both attachment choices visible, confirmed link-only email');
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, desk_link_only_confirmation: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         if (browser) await browser.close();
         if (server) await new Promise((resolve) => server.close(resolve));
-        for (const instance of [fixture, billingFixture, pdfFixture, unknownFixture]) await instance?.db.close();
+        for (const instance of [fixture, billingFixture, pdfFixture, unknownFixture, linkOnlyFixture]) await instance?.db.close();
     }
 }
 
