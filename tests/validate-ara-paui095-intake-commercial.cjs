@@ -83,6 +83,17 @@ function caseTransport(fixture) {
   return { fetchImpl, sent, drain: () => Promise.allSettled(pending) };
 }
 
+async function installCommercialMigrations(db) {
+  await db.exec("create function auth.role() returns text language sql stable as $$ select 'service_role'::text $$");
+  await db.exec(read('20260914170000_pa_est_007r1_production_e2e.sql'));
+  const recovery = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
+  const fixturesStart = recovery.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
+  assert(fixturesStart > 0);
+  await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
+  await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
+  await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+}
+
 async function main() {
   const fixture = await createFixture();
   const { db } = fixture;
@@ -96,14 +107,7 @@ async function main() {
       PA_PUBLIC_ORIGIN: 'https://example.invalid'
     });
     // The isolated REST adapter represents the server-side service role.
-    await db.exec("create function auth.role() returns text language sql stable as $$ select 'service_role'::text $$");
-    await db.exec(read('20260914170000_pa_est_007r1_production_e2e.sql'));
-    const recovery = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
-    const fixturesStart = recovery.search(/\r?\ndo \$\$\r?\ndeclare\r?\n  c_case constant/u);
-    assert(fixturesStart > 0);
-    await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
-    await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
-    await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+    await installCommercialMigrations(db);
 
     const submission = {
       submission_key: randomUUID(), form_source: 'direct', event_date: '2026-11-01',
@@ -288,4 +292,4 @@ async function main() {
 if (require.main === module) {
   main().catch(error => { console.error(error); process.exitCode = 1; });
 }
-module.exports = { caseTransport };
+module.exports = { caseTransport, installCommercialMigrations };
