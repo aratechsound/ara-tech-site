@@ -12,6 +12,12 @@ export function previewError(e){
   const bindings={attachment_mail_mismatch:'原本未取得 / メールの添付索引との紐付けを検証できません',mail_binding_mismatch:'原本未取得 / 案件・メールの紐付けを検証できません',case_binding_mismatch:'原本未取得 / 案件・資料の紐付けを検証できません'};
   return codes[e.code]||bindings[e.code]||(e.status===403?'閲覧拒否 / 403（認証・ACLまたは資料の紐付け）':e.status===401?'認証が必要です':'原本未取得 / 読取失敗');
 }
+function canRetryOriginal(error){
+  if([401,403,404,409].includes(error.status))return false;
+  return error instanceof TypeError
+    || ['provider_read_failed','read_unavailable','read_timeout_or_cancelled'].includes(error.code)
+    || [408,429,502,504].includes(error.status);
+}
 // Shared by portal documents and mail attachments. Only separate money fields expire.
 export function createGallery({requestBlob,isCurrent}){
   const id='asset-preview-'+(++serial),urls=new Set(),records=new Map();
@@ -26,7 +32,10 @@ export function createGallery({requestBlob,isCurrent}){
       const blob=await requestBlob(item);
       if(!current()||epoch!==generation)throw Error('stale_asset');
       const url=URL.createObjectURL(blob);urls.add(url);return {blob,url};
-    })();
+    })().catch(error=>{
+      if(records.get(item.key)===pending)records.delete(item.key);
+      throw error;
+    });
     records.set(item.key,pending);return pending;
   }
   function ensureView(){
@@ -74,36 +83,55 @@ export function createGallery({requestBlob,isCurrent}){
     const alive=()=>current()&&epoch===generation&&opened.isConnected&&opened.open;
     opened.addEventListener('close',()=>{++renderId;opened.remove();if(dialog===opened)dialog=null;},{once:true});
     if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。原本の取得・ダウンロードは行いません。';return;}
-    try{
-      const record=await attachmentRecord(item);if(!alive())return;
-      const download=document.createElement('a');
-      download.className='lightbtn';
-      download.textContent='原本をダウンロード';
-      download.href=record.url;
-      download.download=item.filename;
-      if(item.mime_type!=='application/pdf'){
-        const img=document.createElement('img');img.src=record.url;img.alt=item.filename;
-        await img.decode();if(!alive())return;
-        body.replaceChildren(img);controls.append(download);return;
-      }
-      const pdf=await ensureView().getPdfDocument(item);if(!alive())return;pages=pdf.numPages;
-      const prev=document.createElement('button'),next=document.createElement('button'),minus=document.createElement('button'),plus=document.createElement('button'),label=document.createElement('span');
-      prev.textContent='前のページ';next.textContent='次のページ';minus.textContent='縮小';plus.textContent='拡大';label.setAttribute('aria-live','polite');controls.append(prev,label,next,minus,plus);
-      async function draw(){
+    async function renderOriginal(){
+      if(!alive())return;
+      controls.replaceChildren();
+      body.textContent='原本を取得中…';
+      let record;
+      try{record=await attachmentRecord(item);}
+      catch(error){
         if(!alive())return;
-        const ticket=++renderId,canvas=document.createElement('canvas');canvas.setAttribute('aria-label','PDF '+page+'ページ');
-        label.textContent=page+' / '+pages+'ページ · '+Math.round(zoom*100)+'%';prev.disabled=page===1;next.disabled=page===pages;minus.disabled=zoom<=.5;plus.disabled=zoom>=2;
-        try{
-          await ensureView().renderPdfPage(item,page,canvas,Math.max(280,body.clientWidth-28)*zoom,Infinity,Infinity);
-          if(alive()&&ticket===renderId){
-            body.replaceChildren(canvas);
-            if(!download.isConnected)controls.append(download);
-          }
+        body.textContent=previewError(error);
+        if(canRetryOriginal(error)){
+          const retry=document.createElement('button');
+          retry.type='button';retry.textContent='原本を再取得';
+          retry.onclick=()=>void renderOriginal();
+          controls.append(retry);
         }
-        catch(e){if(alive()&&ticket===renderId)body.textContent=previewError(e);}
+        return;
       }
-      prev.onclick=()=>{page=Math.max(1,page-1);draw();};next.onclick=()=>{page=Math.min(pages,page+1);draw();};minus.onclick=()=>{zoom=Math.max(.5,zoom-.25);draw();};plus.onclick=()=>{zoom=Math.min(2,zoom+.25);draw();};await draw();
-    }catch(e){if(alive())body.textContent=previewError(e);}
+      if(!alive())return;
+      try{
+        const download=document.createElement('a');
+        download.className='lightbtn';
+        download.textContent='原本をダウンロード';
+        download.href=record.url;
+        download.download=item.filename;
+        if(item.mime_type!=='application/pdf'){
+          const img=document.createElement('img');img.src=record.url;img.alt=item.filename;
+          await img.decode();if(!alive())return;
+          body.replaceChildren(img);controls.append(download);return;
+        }
+        const pdf=await ensureView().getPdfDocument(item);if(!alive())return;pages=pdf.numPages;
+        const prev=document.createElement('button'),next=document.createElement('button'),minus=document.createElement('button'),plus=document.createElement('button'),label=document.createElement('span');
+        prev.textContent='前のページ';next.textContent='次のページ';minus.textContent='縮小';plus.textContent='拡大';label.setAttribute('aria-live','polite');controls.append(prev,label,next,minus,plus);
+        async function draw(){
+          if(!alive())return;
+          const ticket=++renderId,canvas=document.createElement('canvas');canvas.setAttribute('aria-label','PDF '+page+'ページ');
+          label.textContent=page+' / '+pages+'ページ · '+Math.round(zoom*100)+'%';prev.disabled=page===1;next.disabled=page===pages;minus.disabled=zoom<=.5;plus.disabled=zoom>=2;
+          try{
+            await ensureView().renderPdfPage(item,page,canvas,Math.max(280,body.clientWidth-28)*zoom,Infinity,Infinity);
+            if(alive()&&ticket===renderId){
+              body.replaceChildren(canvas);
+              if(!download.isConnected)controls.append(download);
+            }
+          }
+          catch(e){if(alive()&&ticket===renderId)body.textContent=previewError(e);}
+        }
+        prev.onclick=()=>{page=Math.max(1,page-1);draw();};next.onclick=()=>{page=Math.min(pages,page+1);draw();};minus.onclick=()=>{zoom=Math.max(.5,zoom-.25);draw();};plus.onclick=()=>{zoom=Math.min(2,zoom+.25);draw();};await draw();
+      }catch(e){if(alive())body.textContent=previewError(e);}
+    }
+    await renderOriginal();
   }
   function mount(target,items,{compact=false,showSource=false}={}){
     root=target;entries=items;
