@@ -218,7 +218,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await form.getByRole('checkbox').check();
    await form.getByRole('button',{name:'確認した内容で送信する'}).click();
    await form.getByText('送信結果を確認できません。配送記録を確認してください。',{exact:true}).waitFor();
-   assert.equal(await form.getByRole('button',{name:'確認した内容で送信する'}).isDisabled(),true);
+   assert.equal(await form.locator('button[type="submit"]').isDisabled(),true);
    await page.reload();
    await page.getByRole('button',{name:'お客様に返信',exact:true}).click();
    await page.getByText('送信は試行済みです。配送記録とGmail履歴を確認してください。').waitFor();
