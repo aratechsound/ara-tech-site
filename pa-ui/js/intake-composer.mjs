@@ -1,6 +1,6 @@
 export const followUpType = 'content_hearing_follow_up';
 
-export function createIntakeComposer({inquiry, requestPreview, send, close, draft, embedded = false, title = "お問い合わせへの返信"}) {
+export function createIntakeComposer({inquiry, requestPreview, send, close, draft, embedded = false, readOnly = false, title = "お問い合わせへの返信"}) {
   const form = document.createElement('form');
   form.className = 'reply-composer';
   form.setAttribute('aria-label', title);
@@ -17,10 +17,13 @@ export function createIntakeComposer({inquiry, requestPreview, send, close, draf
       <button type="submit" class="action blue" disabled>確認した内容で送信する</button>
     </section><p role="status" hidden></p>`;
   const {recipient, subject, body, confirmed} = form.elements;
+  subject.readOnly = body.readOnly = readOnly;
   const preview = form.querySelector('[data-intake-preview]');
   const review = form.querySelector('[data-intake-review]');
   const submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]');
+  if (readOnly) submit.textContent = '確認した内容で再送する';
+
   recipient.value = inquiry.email.trim();
   subject.value = (draft?.subject || ('お問い合わせについて｜' + inquiry.inquiry_number)).slice(0, 240);
   const name = inquiry.contact_name || inquiry.customer_name;
@@ -59,8 +62,9 @@ export function createIntakeComposer({inquiry, requestPreview, send, close, draf
       const result = await requestPreview(draft);
       if (revision !== requestRevision || !form.isConnected) return;
       if (typeof result.html !== 'string' || !result.html) throw Error('preview_unavailable');
+      if (readOnly && !/^[a-f0-9]{64}$/u.test(result.delivery_snapshot || '')) throw Error('preview_unavailable');
       frame.srcdoc = result.html;
-      snapshot = draft;
+      snapshot = {...draft, deliverySnapshot:result.delivery_snapshot};
     } catch {
       if (revision === requestRevision) message('プレビューを表示できません。宛先と内容を確認してください。');
       return;
@@ -80,6 +84,10 @@ export function createIntakeComposer({inquiry, requestPreview, send, close, draf
     message('送信中です…');
     try {
       const result = await send(payload);
+      if (result.delivery.status === 'failed') {
+        message('送信に失敗しました。配送履歴を確認してください。');
+        return;
+      }
       message(result.delivery.status === 'sent' ? '送信しました。' : '送信結果を確認できません。配送記録を確認してください。');
     } catch (error) {
       if (['follow_up_recipient_changed','schedule_recipient_changed'].includes(error.message)) {

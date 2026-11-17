@@ -30,14 +30,18 @@ async function main() {
     phone:'010-0000-0000',relationship:'organizer',authority:'yes',decision:'agree',
     agreements:['not-secured','adjustment-starts','completion-notice','schedule-fee','cancellation-fee','no-fee-if-unsecured','authorized']};
 
-  try {
+  const makeResult = async () => {
     const scheduled = await makeCase('schedule_coordination');
     const token = randomBytes(32).toString('base64url');
     await row("select * from issue_pa_schedule_token($1,$2,now()+interval '1 day')",[scheduled.id,token]);
     assert.equal((await row('select result from submit_pa_schedule_response($1,$2,$3)',[token,JSON.stringify(answer),randomUUID()])).result,'accepted');
     const inquiry = await row('select * from pa_inquiries where id=$1',[scheduled.id]);
-    const resultInput = {inquiry,result:'confirmed',actorUserId:actor,
+    return {inquiry,result:'confirmed',actorUserId:actor,
       subject:'Fixture '+inquiry.inquiry_number,body:inquiry.inquiry_number+'\n見積・契約・正式予約のご案内'};
+  };
+  try {
+    const resultInput = await makeResult();
+    const {inquiry} = resultInput;
     const first = await sendScheduleResultAndFinalize(resultInput,loseProviderReply);
     assert.equal(first.delivery.status,'unknown');
     assert.equal(first.delivery.error_summary,'mail_outcome_unknown');
@@ -79,7 +83,22 @@ async function main() {
     const saved = await sendAutomaticInquiryEmails(automatic,fetchImpl);
     assert(saved.every(delivery=>delivery.status==='sent' && delivery.gmail_message_id));
     assert.equal(state.sendCount,4,'readback of committed acknowledgements does not dispatch again');
-    console.log('PASS shared mail delivery acknowledgement: result and hearing, safe retry, historical ambiguity, automatic readback; simulated Gmail 4, real Gmail 0');
+    const changedResult = await makeResult();
+    const rejectedResult = await sendScheduleResultAndFinalize(changedResult,rejectProvider);
+    assert.equal(rejectedResult.delivery.status,'failed');
+    const duringOAuth = async (url,options) => {
+      if (new URL(url).origin==='https://oauth2.googleapis.com') {
+        await db.query('update pa_case_progress set is_on_hold=true where inquiry_id=$1',[changedResult.inquiry.id]);
+      }
+      return fetchImpl(url,options);
+    };
+    const canceled = await retry(rejectedResult.delivery,changedResult.inquiry,duringOAuth);
+    assert.equal(canceled.status,'failed');
+    assert.equal(canceled.error_summary,'mail_before_dispatch_failed');
+    assert.equal(state.sendCount,4,'a hold reached during OAuth stops schedule dispatch');
+    assert.equal((await row('select status from pa_inquiries where id=$1',[changedResult.inquiry.id])).status,'schedule_adjusting');
+    await assert.rejects(()=>retry(canceled,changedResult.inquiry),/retry_not_allowed/);
+    console.log('PASS shared mail delivery acknowledgement: result and hearing, safe retry, historical ambiguity, automatic readback, HOLD during OAuth; simulated Gmail 4, real Gmail 0');
   } finally { await db.close(); }
 }
 

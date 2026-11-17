@@ -704,9 +704,10 @@ const deliver = async (row, fetchImpl = fetch) => {
             subject: row.subject,
             body: row.body,
             messageType: row.message_type,
-            beforeDispatch: schedule ? () => requireOpenScheduleToken(
-                row.inquiry_id, scheduleUrlInMessage(row.body), fetchImpl
-            ) : undefined,
+            beforeDispatch: row.is_retry && isScheduleDelivery(row.message_type)
+                ? async () => validateScheduleRetryContext(await getInquiry(row.inquiry_id,fetchImpl),row,fetchImpl)
+                : schedule ? () => requireOpenScheduleToken(row.inquiry_id,scheduleUrlInMessage(row.body),fetchImpl)
+                : undefined,
             onDispatch: () => { dispatched = true; }
         }, fetchImpl);
     } catch (error) {
@@ -1320,15 +1321,32 @@ const getDelivery = async (deliveryId, fetchImpl = fetch) => {
     return rows[0];
 };
 
-const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = fetch) => {
-    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+const isScheduleDelivery = type => type === "schedule_request" || Boolean(resultForMessageType(type));
+const scheduleRetrySnapshot = row => crypto.createHash("sha256").update(JSON.stringify([
+    row.inquiry_id, row.id, row.message_type, row.attempt_number, row.recipient, row.subject, row.body
+])).digest("hex");
+
+const validateScheduleRetryContext = async (inquiry, previous, fetchImpl) => {
+    if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
+    const query = new URLSearchParams({inquiry_id:"eq."+inquiry.id, select:"is_on_hold,closed_at", limit:"2"});
+    const progress = await supabaseRequest("/rest/v1/pa_case_progress?"+query,{},fetchImpl);
+    if (progress?.length !== 1 || progress[0].is_on_hold || progress[0].closed_at) throw new Error("retry_not_allowed");
+    const draft = {inquiry, subject:previous.subject, body:previous.body};
+    const result = resultForMessageType(previous.message_type);
+    if (result) {
+        if (inquiry.status !== "schedule_adjusting") throw new Error("result_not_allowed");
+        await prepareScheduleResult({...draft,result},fetchImpl);
+    } else {
+        const {safeUrl} = prepareScheduleInvitation({...draft,scheduleUrl:scheduleUrlInMessage(previous.body)});
+        await requireOpenScheduleToken(inquiry.id,safeUrl,fetchImpl);
+    }
+};
+
+const prepareDeliveryRetry = async ({deliveryId, inquiry}, fetchImpl) => {
     const previous = await getDelivery(deliveryId, fetchImpl);
     if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
     if (!retryableDeliveryFailure(previous.error_summary)) throw new Error("mail_outcome_unknown");
-    if (previous.message_type === "schedule_request") {
-        if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
-        await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
-    }
+    if (isScheduleDelivery(previous.message_type)) await validateScheduleRetryContext(inquiry,previous,fetchImpl);
 
     const parameters = new URLSearchParams({
         inquiry_id: `eq.${previous.inquiry_id}`,
@@ -1345,9 +1363,26 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
         attempt.status !== "failed" || !retryableDeliveryFailure(attempt.error_summary)
     )) throw new Error("mail_outcome_unknown");
 
-    const attemptNumber = latestAttempt.attempt_number + 1;
+    return previous;
+};
+
+const previewScheduleRetry = async (input, fetchImpl = fetch) => {
+    const previous = await prepareDeliveryRetry(input, fetchImpl);
+    if (!isScheduleDelivery(previous.message_type)) throw new Error("retry_not_allowed");
+    const snapshot = scheduleRetrySnapshot(previous);
+    if (input.expectedSnapshot !== snapshot) throw new Error("schedule_retry_changed");
+    return {html:buildCustomerHtml(normalizeCustomerBody(previous.body)), delivery_snapshot:snapshot};
+};
+
+const retryDelivery = async ({actorUserId, expectedSnapshot, ...input}, fetchImpl = fetch) => {
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    const previous = await prepareDeliveryRetry(input, fetchImpl);
+    if (expectedSnapshot !== undefined && (
+        !isScheduleDelivery(previous.message_type) || expectedSnapshot !== scheduleRetrySnapshot(previous)
+    )) throw new Error("schedule_retry_changed");
+    const attemptNumber = previous.attempt_number + 1;
     return createAndDeliver({
-        inquiry_id: inquiry.id,
+        inquiry_id: input.inquiry.id,
         message_type: previous.message_type,
         dedupe_key: previous.dedupe_key,
         attempt_number: attemptNumber,
@@ -1397,6 +1432,7 @@ module.exports = {
     createContentHearingDelivery,
     createScheduleDelivery,
     previewScheduleMail,
+    previewScheduleRetry,
     createScheduleResultDelivery,
     customerReceiptTemplate,
     contentHearingTemplate,

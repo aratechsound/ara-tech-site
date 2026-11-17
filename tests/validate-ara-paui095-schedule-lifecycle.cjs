@@ -158,6 +158,24 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
             ? new Response('{}',{status:400}) : fetchImpl(url,options);
         const failed=await createScheduleDelivery(prepare(latestOther,retryToken.token),simulateGmailFailure);
         assert.equal(failed.status,'failed');
+        const snapshot = crypto.createHash('sha256').update(JSON.stringify([
+            failed.inquiry_id,failed.id,failed.message_type,failed.attempt_number,failed.recipient,failed.subject,failed.body
+        ])).digest('hex');
+        const retryPreview={action:'preview_schedule_retry',inquiry_id:latestOther.id,
+            delivery_id:failed.id,expected_recipient:latestOther.email,expected_snapshot:snapshot};
+        const beforeRetryPreview=await counts();
+        const previewReadStart=state.network.length;
+        const retryDraft=await requestSchedule(retryPreview);
+        assert.equal(retryDraft.statusCode,200);
+        assert.deepEqual(retryDraft.payload,{ok:true,html:buildCustomerHtml(failed.body),delivery_snapshot:snapshot});
+        assert(state.network.slice(previewReadStart).every(request=>request.method==='GET'));
+        assert.equal((await requestSchedule({...retryPreview,action:'retry',expected_snapshot:'0'.repeat(64)})).statusCode,409);
+        assert.equal((await requestSchedule({...retryPreview,expected_snapshot:'0'.repeat(64)})).statusCode,409);
+        const foreignPreview=await requestSchedule({...retryPreview,inquiry_id:current.id,expected_recipient:current.email});
+        assert.equal(foreignPreview.statusCode,400);
+        assert.deepEqual(foreignPreview.payload,{ok:false,code:'retry_not_allowed'});
+        assert.deepEqual(await counts(),beforeRetryPreview);
+        assert.equal(state.sendCount,3);
         await assert.rejects(()=>retryDelivery({deliveryId:failed.id,inquiry:{...latestOther,email:'changed@example.invalid'},actorUserId:actor},fetchImpl),/retry_not_allowed/);
         await revoke(other);
         const beforeRetry=await counts();

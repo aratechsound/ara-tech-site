@@ -10,13 +10,13 @@ import {createManualIntake} from './manual-intake.mjs';
 import {createCaseNameView} from './case-name-view.mjs';
 import {createMailAttachmentCarousel} from './mail-carousel.mjs';
 import {createThreadLink} from './manual-thread-link.mjs';
-import {createReplyState,createAttemptStore} from './reply-state.mjs';
+import {createReplyState,createAttemptStore,digest} from './reply-state.mjs';
 import {createReplyComposer} from './reply-composer.mjs';
 import {createIntakeComposer,followUpType} from './intake-composer.mjs';
 const intakeCompletions = new Map();
 import {createCaseMailSync} from './case-mail-sync.mjs';
 import {savedExcerpt,mailAttachments,messageAttention} from './mail-model.mjs';
-import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,timelineDate} from './conversation-timeline.mjs';
+import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,deliveryOutcome,retryableDeliveryFailure,timelineDate} from './conversation-timeline.mjs';
 import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,paymentClosureBasis,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
 import {openScheduleToken,scheduleTokenSecret,scheduleTokenUrl} from './schedule-token.mjs';
 import {scheduleInvitationTemplate,scheduleResultTemplate} from './schedule-mail.mjs';
@@ -62,9 +62,9 @@ function readBlock(surface,label,render){
   if(state.state==='error')return errorBlock(state.error,label);
   return render(state.value);
 }
-function rowsHtml(rows,{title,body,time,kind,formatTime=date}={}){
+function rowsHtml(rows,{title,body,time,kind,actions,formatTime=date}={}){
   if(!rows.length)return '<div class="empty-state">保存済み記録なし</div>';
-  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(formatTime(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}</article>`).join('')+'</div>';
+  return '<div class="rows">'+rows.map(row=>`<article class="record"><div class="record-head"><strong>${tx(title?.(row)||'保存済み記録')}</strong><span class="record-date">${escape(formatTime(time?.(row)))}</span></div>${kind?'<div class="stage-info">'+tx(kind(row))+'</div>':''}${body?'<div class="record-body">'+tx(body(row))+'</div>':''}${actions?.(row)||''}</article>`).join('')+'</div>';
 }
 function fact(label,value){return `<div class="fact"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
 function pair(label,value){return `<div class="label-pair"><span>${escape(label)}</span><b>${tx(value||'未提供')}</b></div>`;}
@@ -620,13 +620,47 @@ function openScheduleLinks(){
     }
   });
 }
-function scheduleMailOption(c, action){
+function eligibleScheduleRetry(c,id){
+  const rows=getRows('deliveries'), prior=rows.find(row=>row.id===id);
+  if(!prior||prior.inquiry_id!==c.id||prior.recipient?.trim()!==c.email.trim()
+    ||!prior.body?.trim()||!prior.subject?.trim()||rows.some(row=>row.retry_of===id))return null;
+  const result=prior.message_type==='schedule_result_confirmed'?'confirmed':
+    prior.message_type==='schedule_result_unavailable'?'unavailable':null;
+  if(result){
+    if(c.status!=='schedule_adjusting'||!getRows('responses')?.some(row=>row.decision==='agree'))return null;
+  }else{
+    if(prior.message_type!=='schedule_request')return null;
+    const token=openScheduleToken(getRows('tokens'));
+    if(!token||!(Date.parse(token.expires_at)>Date.now()))return null;
+  }
+  let cursor=prior;
+  for(let n=prior.attempt_number;n>0;n--){
+    if(cursor?.inquiry_id!==c.id||cursor.message_type!==prior.message_type||cursor.attempt_number!==n
+      ||cursor.status!=='failed'||!retryableDeliveryFailure(cursor.error_summary))return null;
+    if(n===1&&cursor.retry_of)return null;
+    if(n>1)cursor=rows.find(row=>row.id===cursor.retry_of);
+  }
+  if(!Number.isSafeInteger(prior.attempt_number)||prior.attempt_number<1)return null;
+  return {prior,result,type:prior.message_type,title:'日程メールを再送',key:c.id+':schedule-retry:'+id};
+}
+
+function scheduleAttemptAvailable(caseId,key){
+  try{return !scheduleAttempts.has(key)&&!scheduleAttempts.blocked(caseId);}
+  catch{return false;}
+}
+
+function scheduleMailOption(c, action, deliveryId){
   if(!canManageSchedule(c)||!c.email?.trim()||!Array.isArray(getRows('deliveries')))return null;
+  if(action==='retry'){
+    const option=eligibleScheduleRetry(c,deliveryId);
+    return option&&scheduleAttemptAvailable(c.id,option.key)?option:null;
+  }
   const result=action==='invitation'?null:action;
   const issued=detail.scheduleIssued;
   if(!result){
     const active=openScheduleToken(getRows('tokens'));
-    if(!issued||active?.id!==issued.id||!(Date.parse(active.expires_at)>Date.now()))return null;
+    if(!issued||active?.id!==issued.id||!(Date.parse(active.expires_at)>Date.now())
+      ||getRows('deliveries').some(row=>row.message_type==='schedule_request'&&row.body?.includes(issued.url)))return null;
   }else{
     const results=new Set(['schedule_result_confirmed','schedule_result_unavailable']);
     if(!['confirmed','unavailable'].includes(result)||c.status!=='schedule_adjusting'
@@ -634,8 +668,7 @@ function scheduleMailOption(c, action){
       ||getRows('deliveries').some(row=>results.has(row.message_type)))return null;
   }
   const key=c.id+':schedule:'+(result?'result':issued.id);
-  try{if(scheduleAttempts.has(key)||scheduleAttempts.blocked(c.id))return null;}
-  catch{return null;}
+  if(!scheduleAttemptAvailable(c.id,key))return null;
   return {
     key,result,issued:result?null:issued,
     type:result?'schedule_result_'+result:'schedule_request',
@@ -655,14 +688,14 @@ async function refreshScheduleDelivery(){
   render();
 }
 
-function openScheduleMail(action){
-  const c=current(), option=scheduleMailOption(c,action), epoch=selectionEpoch, owner=session?.user?.id;
+function openScheduleMail(action,deliveryId){
+  const c=current(), option=scheduleMailOption(c,action,deliveryId), epoch=selectionEpoch, owner=session?.user?.id;
   if(!option||tab!=='schedule')return;
-  const {result,issued,key,title,type}=option;
+  const {result,issued,key,title,type,prior}=option;
   const operationKey=crypto.randomUUID();
   const formatDate=value=>value?new Date(value).toLocaleDateString('ja-JP',{timeZone:'Asia/Tokyo'}):'未定';
-  const draft=result?scheduleResultTemplate(c,result,formatDate):
-    scheduleInvitationTemplate(c,issued.url,{formatDate,formatDateTime:timelineDate,fallbackDeadline:issued.expiresAt});
+  const draft=prior|| (result?scheduleResultTemplate(c,result,formatDate):
+    scheduleInvitationTemplate(c,issued.url,{formatDate,formatDateTime:timelineDate,fallbackDeadline:issued.expiresAt}));
   openInfo(title,'<div id="schedule-mail-composer-host"></div>');
   const host=$('schedule-mail-composer-host');
   const isCurrent=()=>epoch===selectionEpoch&&selected===c.id&&session?.user?.id===owner&&tab==='schedule'
@@ -672,29 +705,41 @@ function openScheduleMail(action){
     ...(result?{result}:{schedule_url:issued.url})
   });
   const request= (input,timeout) => authenticatedMailRequest(input,isCurrent,{endpoint:'/api/pa-mail',timeout});
-  const form=createIntakeComposer({inquiry:c,draft,title,embedded:true,close:()=>{closeInfo();render();},
-    requestPreview:content=>{
-      if(scheduleMailOption(current(),action)?.key!==key||!isCurrent())throw Error('case_changed');
+  const form=createIntakeComposer({inquiry:c,draft,title,embedded:true,readOnly:Boolean(prior),close:()=>{closeInfo();render();},
+    requestPreview:async content=>{
+      if(scheduleMailOption(current(),action,deliveryId)?.key!==key||!isCurrent())throw Error('case_changed');
+      if(prior){
+        const expectedSnapshot=await digest([c.id,prior.id,type,prior.attempt_number,prior.recipient,prior.subject,prior.body]);
+        return request({action:'preview_schedule_retry',inquiry_id:c.id,expected_recipient:content.recipient,
+          delivery_id:prior.id,expected_snapshot:expectedSnapshot},25000);
+      }
       return request({action:'preview_schedule',kind:result?'result':'invitation',...payload(content)},25000);
     },
     send:async content=>{
-      if(scheduleMailOption(current(),action)?.key!==key||!isCurrent())throw Error('case_changed');
+      if(scheduleMailOption(current(),action,deliveryId)?.key!==key||!isCurrent())throw Error('case_changed');
       scheduleAttempts.begin(key,c.id);
       let delivery,response;
       try{
-        response=await request(result?{action:'send_result',...payload(content)}:
-          {action:'send_schedule',operation_key:operationKey,...payload(content)},65000);
+        const input=prior?{action:'retry',inquiry_id:c.id,expected_recipient:content.recipient,
+          delivery_id:prior.id,expected_snapshot:content.deliverySnapshot}:
+          result?{action:'send_result',...payload(content)}:{action:'send_schedule',operation_key:operationKey,...payload(content)};
+        response=await request(input,65000);
         delivery=response.delivery;
-        if(delivery?.status!=='sent'||delivery.message_type!==type
-          ||!/^[A-Za-z0-9_-]{1,200}$/.test(delivery.gmail_message_id||'')
-          ||delivery.recipient?.trim()!==content.recipient||delivery.subject!==content.subject||!delivery.id){
+        if(delivery?.message_type!==type||delivery.recipient?.trim()!==content.recipient
+          ||delivery.subject!==content.subject||!delivery.id)throw Error('mail_outcome_unknown');
+        if(delivery.status==='failed'&&retryableDeliveryFailure(delivery.error_summary)){
+          scheduleAttempts.release(key);
+          if(isCurrent())await loadSurface('deliveries','/data/case/'+c.id+'/deliveries',epoch);
+          return response;
+        }
+        if(delivery.status!=='sent'||!/^[A-Za-z0-9_-]{1,200}$/.test(delivery.gmail_message_id||'')){
           throw Error('mail_outcome_unknown');
         }
         scheduleAttempts.finish(key,'sent');
       }catch(error){
         if(['schedule_recipient_changed','schedule_token_not_available','schedule_delivery_busy','rate_limited',
           'schedule_not_allowed','result_not_allowed','invalid_schedule_url','invalid_schedule_message','invalid_result_message',
-          'not_authorized','case_changed','login_required'].includes(error.message))scheduleAttempts.release(key);
+          'schedule_retry_changed','retry_not_allowed','not_authorized','case_changed','login_required'].includes(error.message))scheduleAttempts.release(key);
         else scheduleAttempts.finish(key,'unknown');
         if(isCurrent())render();
         throw error;
@@ -741,6 +786,8 @@ function schedule(c){
       const outcome=deliveryOutcome(r);
       return outcome==='配送結果未確定'?outcome+' / 再送前に履歴を確認':outcome;
     },
+    actions:row=>scheduleMailOption(c,'retry',row.id)
+      ? '<button class="action quiet" data-schedule-retry="'+escape(row.id)+'">このメールを再送</button>':'',
     time:deliveryDate,formatTime:timelineDate
   }));
   return `<div class="toolbar">${button('‹ 概要に戻る','overview','quiet')}${flag('amber','日程調整')}</div>
@@ -932,6 +979,8 @@ document.addEventListener('click',e=>{
   if(e.target.closest('[data-action="schedule-link"]:not(:disabled)')){openScheduleLinks();return;}
   const scheduleMessage=e.target.closest('[data-schedule-message]:not(:disabled)');
   if(scheduleMessage){openScheduleMail(scheduleMessage.dataset.scheduleMessage);return;}
+  const scheduleRetry=e.target.closest('[data-schedule-retry]');
+  if(scheduleRetry){openScheduleMail('retry',scheduleRetry.dataset.scheduleRetry);return;}
   if(e.target.closest('[data-schedule-readback]')){void refreshScheduleDelivery();return;}
   if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}

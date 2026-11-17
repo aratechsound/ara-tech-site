@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const {createHash} = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -68,12 +69,25 @@ async function main() {
       assert.equal(input.expected_recipient,inquiry.email);
       mailCalls.push(input);
       if(input.action==='preview_schedule')return route.fulfill({json:{ok:true,html:buildCustomerHtml(input.body)}});
-      assert(['send_schedule','send_result'].includes(input.action));
+      const prior=deliveryHistory.find(row=>row.id===input.delivery_id);
+      if(['preview_schedule_retry','retry'].includes(input.action)){
+        assert(prior);
+        const snapshot=createHash('sha256').update(JSON.stringify([
+          prior.inquiry_id,prior.id,prior.message_type,prior.attempt_number,prior.recipient,prior.subject,prior.body
+        ])).digest('hex');
+        assert.equal(input.expected_snapshot,snapshot);
+        if(input.action==='preview_schedule_retry'){
+          return route.fulfill({json:{ok:true,html:buildCustomerHtml(prior.body),delivery_snapshot:snapshot}});
+        }
+      }
+      assert(['send_schedule','send_result','retry'].includes(input.action));
       const sent=input.action==='send_schedule';
-      const delivery={id:sent?'fixture-sent':'fixture-unknown',inquiry_id:fixtureId,
-        message_type:sent?'schedule_request':'schedule_result_confirmed',
-        status:sent?'sent':'unknown', gmail_message_id:sent?'fake_gmail_sent':null, recipient:inquiry.email,
-        subject:input.subject,body:input.body,requested_at:issuedVersion,sent_at:sent?issuedVersion:null};
+      const status=sent?'sent':prior?'unknown':'failed';
+      const delivery={id:sent?'fixture-sent':prior?'fixture-unknown':'fixture-failed',inquiry_id:fixtureId,
+        message_type:sent?'schedule_request':'schedule_result_confirmed',attempt_number:prior?2:1,
+        retry_of:prior?.id||null,error_summary:sent?null:prior?'mail_outcome_unknown':'gmail_send_400',
+        status,gmail_message_id:sent?'fake_gmail_sent':null,recipient:inquiry.email,
+        subject:prior?.subject||input.subject,body:prior?.body||input.body,requested_at:issuedVersion,sent_at:sent?issuedVersion:null};
       deliveryHistory.push(delivery);
       return route.fulfill({json:{ok:sent,delivery}});
     });
@@ -172,16 +186,31 @@ async function main() {
     await result.getByRole('button',{name:'プレビュー'}).click();
     await result.getByRole('checkbox').check();
     await result.getByRole('button',{name:'確認した内容で送信する'}).click();
-    await result.getByText('送信結果を確認できません。配送記録を確認してください。').waitFor();
-    assert.deepEqual(mailCalls.slice(3).map(entry=>[entry.action,entry.result]),[
-      ['preview_schedule','confirmed'],['send_result','confirmed']
-    ]);
+    await result.getByText('送信に失敗しました。配送履歴を確認してください。').waitFor();
     await result.getByRole('button',{name:'閉じる',exact:true}).click();
+    await page.getByRole('button',{name:'このメールを再送',exact:true}).click();
+    const resend=page.getByRole('dialog',{name:'日程メールを再送'});
+    assert.equal(await resend.getByRole('textbox',{name:'宛先',exact:true}).getAttribute('readonly'),'');
+    assert.equal(await resend.getByRole('textbox',{name:'件名',exact:true}).getAttribute('readonly'),'');
+    assert.equal(await resend.getByRole('textbox',{name:'本文',exact:true}).getAttribute('readonly'),'');
+    await resend.getByRole('button',{name:'プレビュー'}).click();
+    await resend.getByRole('checkbox').waitFor();
+    assert.deepEqual(mailCalls.slice(3).map(entry=>entry.action),[
+      'preview_schedule','send_result','preview_schedule_retry'
+    ]);
+    await resend.getByRole('checkbox').check();
+    await resend.getByRole('button',{name:'確認した内容で再送する'}).click();
+    await resend.getByText('送信結果を確認できません。配送記録を確認してください。').waitFor();
+    assert.equal(mailCalls.at(-1).action,'retry');
+    assert.equal(mailCalls.at(-1).delivery_id,'fixture-failed');
+    assert.equal(mailCalls.at(-1).subject,undefined);
+    await resend.getByRole('button',{name:'閉じる',exact:true}).click();
     await page.goto(openCase);
     await schedule.click();
     await page.getByText(/配送結果未確定/).waitFor();
     assert(await page.getByRole('button',{name:'日程確定を通知'}).isDisabled());
     assert(await page.getByRole('button',{name:'日程確保不可を通知'}).isDisabled());
+    assert.equal(await page.getByRole('button',{name:'このメールを再送',exact:true}).count(),0);
     assert.equal(context.pages().length,1);
     assert.equal(new URL(page.url()).pathname,'/pa-admin.html');
 
@@ -190,11 +219,11 @@ async function main() {
     await page.getByRole('heading',{name:'日程案内・確定通知'}).waitFor();
     assert(await action.isDisabled());
     assert.equal(calls.length,2);
-    assert.equal(mailCalls.length,5);
+    assert.equal(mailCalls.length,7);
     assert(await page.getByRole('button',{name:'日程案内を作成'}).isDisabled());
     assert.deepEqual(blockedWrites,[]);
     assert.deepEqual(errors,[]);
-    console.log('PASS isolated CASE DESK schedule links: issue in current view, exact version and token sent for revoke, stale result stops, sandboxed invitation and result, read-only readback, UNKNOWN survives reload, no live traffic');
+    console.log('PASS isolated CASE DESK schedule links: issue in current view, exact version and token sent for revoke, stale result stops, sandboxed invitation and result, read-only readback, exact confirmed retry, UNKNOWN survives reload, no live traffic');
   } finally {
     await browser?.close();
     await new Promise(resolve=>server.close(resolve));

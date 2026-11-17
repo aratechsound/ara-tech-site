@@ -9,6 +9,7 @@ const {
     finalizeScheduleResult,
     getInquiry,
     previewScheduleMail,
+    previewScheduleRetry,
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
@@ -103,6 +104,12 @@ const paMailHandler = async (request, response) => {
             });
             return sendJson(response, 200, { ok: true, html });
         }
+        if (input.action === "preview_schedule_retry") {
+            const inquiry = await getInquiry(input.inquiry_id);
+            checkScheduleRecipient(inquiry, input);
+            const preview = await previewScheduleRetry({inquiry,deliveryId:input.delivery_id,expectedSnapshot:input.expected_snapshot});
+            return sendJson(response, 200, {ok:true,...preview});
+        }
         const rateLimitPolicy = RATE_LIMIT_POLICY_BY_ACTION[input.action];
         if (!rateLimitPolicy) throw new Error("invalid_action");
         const rate = await checkRateLimit({
@@ -115,8 +122,11 @@ const paMailHandler = async (request, response) => {
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
         const inquiry = await getInquiry(input.inquiry_id);
-        if (["send_schedule", "send_result"].includes(input.action) && Object.hasOwn(input, "expected_recipient")) {
+        if (["send_schedule", "send_result", "retry"].includes(input.action) && Object.hasOwn(input, "expected_recipient")) {
             checkScheduleRecipient(inquiry, input);
+        }
+        if (input.action === "retry" && Object.hasOwn(input, "expected_recipient") && !/^[a-f0-9]{64}$/u.test(input.expected_snapshot || "")) {
+            throw new Error("schedule_retry_changed");
         }
         let delivery;
         let caseState = null;
@@ -159,6 +169,7 @@ const paMailHandler = async (request, response) => {
             delivery = await retryDelivery({
                 deliveryId: input.delivery_id,
                 inquiry,
+                expectedSnapshot: input.expected_snapshot,
                 actorUserId: user.id
             });
             const result = resultForMessageType(delivery.message_type);
@@ -200,7 +211,7 @@ const paMailHandler = async (request, response) => {
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists", "schedule_recipient_changed"].includes(code)) {
+        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists", "schedule_recipient_changed", "schedule_retry_changed"].includes(code)) {
             return sendJson(response, 409, { ok: false, code });
         }
         if (code === "mail_outcome_unknown") return sendJson(response, 409, { ok: false, code });
