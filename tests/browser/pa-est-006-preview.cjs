@@ -244,6 +244,36 @@ async function main() {
         await page.goto(`${base}/pa-admin.html?case=${case_id}`);
         await page.getByRole('button', { name: '請求・入金', exact: true }).click();
         await page.getByRole('button', { name: '請求・入金の操作', exact: true }).click();
+        const entryResponse = action => page.waitForResponse(response =>
+            response.url().includes('/api/pa-mail?surface=commercial')
+            && response.request().postDataJSON()?.action === action);
+        const recordPayment = async ({ button, title, action, submit, amount, date }) => {
+            await page.getByRole('button', { name: button, exact: true }).click();
+            const paymentForm = page.getByRole('dialog', { name: title, exact: true });
+            await paymentForm.getByRole('button', { name: '金額を表示・入力' }).click();
+            await paymentForm.getByLabel('入金確認日').fill(date);
+            await paymentForm.locator('input[type="number"]').fill(String(amount));
+            await paymentForm.getByLabel('確認メモ').fill('合成案件の確認済み入金');
+            const response = entryResponse(action);
+            await paymentForm.getByRole('button', { name: submit, exact: true }).click();
+            const result = await response;
+            assert.equal(result.status(), 200, await result.text());
+        };
+        await recordPayment({ button:'前払いを記録', title:'前払いの手動確認', action:'record_prepayment',
+            submit:'前払いとして記録', amount:30000, date:'2026-11-04' });
+        const { rows: [originalPrepayment] } = await f.db.query('select id,amount,billing_id from pa_payment_records where inquiry_id=$1', [case_id]);
+        assert.equal(Number(originalPrepayment.amount), 30000);
+        assert.equal(originalPrepayment.billing_id, null);
+        await page.getByRole('button', { name: '前払いを訂正', exact: true }).click();
+        const correction = page.getByRole('dialog', { name: '前払い記録の訂正', exact: true });
+        await correction.getByRole('button', { name: '金額を表示・入力' }).click();
+        await correction.getByLabel('対象記録').selectOption(originalPrepayment.id);
+        await correction.getByLabel('訂正差額（減額はマイナス）').fill('-5000');
+        await correction.getByLabel('訂正理由').fill('合成案件の照合による訂正');
+        const adjusted = entryResponse('adjust_payment');
+        await correction.getByRole('button', { name: '追記で訂正', exact: true }).click();
+        const adjustment = await adjusted;
+        assert.equal(adjustment.status(), 200, await adjustment.text());
         const settle = page.getByRole('button', { name: '実施・精算を確認', exact: true });
         await settle.click();
         let form = page.getByRole('dialog', { name: '実施・精算確認', exact: true });
@@ -261,11 +291,13 @@ async function main() {
         form = page.getByRole('dialog', { name: '既存書類で請求管理', exact: true });
         await form.getByLabel('合意した支払期限（未確定の場合は空欄）').fill('2026-11-30');
         await form.getByRole('button', { name: '請求書を別途発行せずに登録' }).click();
+        await recordPayment({ button:'入金を記録', title:'手動入金確認', action:'record_payment',
+            submit:'入金のみ記録', amount:20000, date:'2026-11-08' });
         await page.getByRole('button', { name: '案件完了を確認', exact: true }).click();
         form = page.getByRole('dialog', { name: '入金確認と案件完了', exact: true });
         await form.getByRole('button', { name: '金額を表示・入力' }).click();
         await form.getByLabel('追加入金確認日').fill('2026-11-10');
-        assert.equal(await form.getByLabel('今回確認した金額（円）').inputValue(), '110000');
+        assert.equal(await form.getByLabel('今回確認した金額（円）').inputValue(), '65000');
         await form.getByRole('button', { name: '全条件を確認して完了' }).click();
         assert.equal(apiActions.filter(action => action === 'close_case').length, 0);
         await form.getByLabel('確認メモ').fill('隔離案件の銀行振込を確認');
@@ -280,16 +312,22 @@ async function main() {
         assert.equal(bill.invoice_policy, 'no_separate_invoice');
         assert.equal(bill.state, 'paid');
         assert.equal((await f.db.query('select status from pa_inquiries where id=$1', [case_id])).rows[0].status, 'closed');
-        assert.equal((await f.db.query('select count(*)::int n from pa_payment_records where billing_id=$1', [bill.id])).rows[0].n, 1);
+        const { rows: ledger } = await f.db.query(
+            'select id,amount from pa_payment_records where billing_id=$1 order by payment_date', [bill.id]);
+        assert.deepEqual(ledger.map(row => Number(row.amount)), [30000, 20000, 65000]);
+        assert.equal(ledger[0].id, originalPrepayment.id);
+        const { rows: corrections } = await f.db.query(
+            'select payment_id,delta_minor from pa_payment_adjustments where inquiry_id=$1', [case_id]);
+        assert.deepEqual(corrections.map(row => [row.payment_id, Number(row.delta_minor)]), [[originalPrepayment.id, -5000]]);
         assert.equal(f.state.sendCount, sendsBeforeBilling);
         assert.equal(apiActions.filter(action => action === 'close_case').length, 1);
         assert.equal(context.pages().length, 1);
         await page.reload();
         await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
         await page.getByRole('button', { name: '請求・入金', exact: true }).click();
-        await page.getByText('bank_transfer', { exact: true }).waitFor();
+        await page.getByText('bank_transfer', { exact: true }).first().waitFor();
         assert.equal(await page.getByRole('button', { name: '請求・入金の操作', exact: true }).count(), 0);
-        console.log('PASS CASE DESK settlement, no separate invoice, payment and close; cancel does not write; no billing mail');
+        console.log('PASS CASE DESK prepayment, append-only correction, partial payment, exact remaining balance, and closure without separate invoice or billing mail');
 
         const openDesk = async (testFixture, invoice) => {
             process.env.ALLOWED_ORIGINS = base;
@@ -422,7 +460,7 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         if (browser) await browser.close();
