@@ -13,6 +13,7 @@ export function privateMoney(value,currency='JPY') {
 export function privateText(text='') {return protectMoneyText(text,v=>{const t=`[[PRIVATE_MONEY_${++serial}]]`;tokens.set(t,v);return t;});}
 export function setPrivateAmount(input,value) {inputs.set(input,String(value??''));input.value='';input.readOnly=true;input.placeholder='金額非表示';input.dataset.privateAmount='true';}
 export function readPrivateAmount(input) {return inputs.has(input)?inputs.get(input):input.value;}
+export function releasePrivateAmount(input) {inputs.delete(input);}
 export function privateFrame(frame,kind,value) {frames.set(frame,{kind,value});frame.removeAttribute('src');frame.removeAttribute('srcdoc');frame.title='明示表示時のみ原本プレビュー';frame.hidden=true;}
 export function releasePrivateFrame(frame) {frames.delete(frame);}
 function renderTokens(root=document.body) {
