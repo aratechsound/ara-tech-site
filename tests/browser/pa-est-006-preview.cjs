@@ -20,7 +20,7 @@ const harness = (caseId) => `<!doctype html><html lang="ja"><head><meta charset=
 async function counts(db, caseId) { const result = {}; for (const [key, sql] of Object.entries({ offers: 'select count(*) n from pa_contract_offers where inquiry_id=$1', tokens: 'select count(*) n from pa_contract_tokens t join pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1', contracts: 'select count(*) n from pa_contracts where inquiry_id=$1', outbox: 'select count(*) n from pa_commercial_outbox where inquiry_id=$1', audit: "select count(*) n from pa_inquiry_audit where inquiry_id=$1 and action='formal_contract_issued'" })) result[key] = Number((await db.query(sql, [caseId])).rows[0].n); result.revision = Number((await db.query('select revision from pa_case_commercial_state where inquiry_id=$1', [caseId])).rows[0].revision); return result; }
 
 async function main() {
-    let fixture, billingFixture, pdfFixture, unknownFixture, server, browser;
+    let fixture, billingFixture, pdfFixture, unknownFixture, recoveryFixture, server, browser;
     const pageErrors = [], apiActions = [];
     try {
         fixture = await createFixture();
@@ -73,7 +73,7 @@ async function main() {
             let result = target === '/data/cases' ? { cases: deskCases, progress: [] }
                 : target.startsWith('/data/commercial/') ? { estimates: [], offers: [], billings: [] }
                 : target.startsWith('/data/sent-estimates/') ? { messages: [], unknown: [] } : [];
-            const activeFixture = unknownFixture || pdfFixture || billingFixture;
+            const activeFixture = recoveryFixture || unknownFixture || pdfFixture || billingFixture;
             if (activeFixture) {
                 const { db, inquiryId, service } = activeFixture;
                 if (target === '/data/cases') {
@@ -355,6 +355,32 @@ async function main() {
             assert.equal(await send.isDisabled(), false);
             return send;
         };
+        const openRecoveryDialog = async () => {
+            await page.getByRole('button', { name: '送信済みメールから見積を登録', exact: true }).click();
+            const dialog = page.getByRole('dialog', { name: '送信済みメールから見積を登録', exact: true });
+            const candidates = dialog.getByLabel('送信済みPDF');
+            const options = candidates.locator('option').filter({ hasText: /____\.pdf|2026\.10\.18/u });
+            await options.first().waitFor({ state: 'attached' });
+            await candidates.selectOption(await options.first().getAttribute('value'));
+            await dialog.locator('.pa-recovery-dialog__filename').getByText(/見積書 2026\.10\.18/u).waitFor();
+            const box = await dialog.boundingBox();
+            assert(box.x >= 0 && box.x + box.width <= page.viewportSize().width);
+            return dialog;
+        };
+        const recoverFromDialog = async (dialog, mode) => {
+            const save = dialog.getByRole('button', { name: '再送せず登録', exact: true });
+            assert.equal(await save.isDisabled(), true);
+            assert.equal(await dialog.getByRole('radio', { name: '過去の見積として取り込む' }).isChecked(), true);
+            await dialog.getByRole('radio', { name: mode }).check();
+            await dialog.getByRole('button', { name: '金額を表示・入力' }).click();
+            const recovered = page.waitForResponse(response => response.url().includes('/api/pa-mail?surface=commercial')
+                && response.request().postDataJSON()?.action === 'recover_estimate');
+            await save.click();
+            const response = await recovered;
+            assert.equal(response.status(), 200, await response.text());
+            await dialog.waitFor({ state: 'detached' });
+            return (await response.json()).result;
+        };
         pdfFixture = await setup();
         const pf = pdfFixture;
         await openDesk(pf, false);
@@ -425,6 +451,13 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積原本を登録（送信しない）', exact: true }).count(), 0);
         assert.deepEqual(await counts(pf.db, pf.inquiryId), activeBeforeStaleRevision);
         console.log('PASS CASE DESK stale estimate send preserves the active confirmation and blocks new estimate actions');
+        const historicalRecovery = await openRecoveryDialog();
+        assert.equal(await historicalRecovery.getByRole('radio', { name: '現在の見積として登録' }).isDisabled(), true);
+        const historical = await recoverFromDialog(historicalRecovery, '過去の見積として取り込む');
+        assert.equal(historical.current, false);
+        assert.equal((await pf.service.snapshot(pf.inquiryId)).state.current_estimate_revision_id, revision.id);
+        assert.equal((await pf.db.query('select state from pa_contract_tokens where offer_id=$1', [issued.id])).rows[0].state, 'active');
+        assert.equal(pf.state.sendCount, 2);
         const sendModel = await pf.service.confirmationSendPreview({ case_id: pf.inquiryId, offer_id: issued.id }, pf.actor);
         assert.equal((await pf.service.dispatch({
             case_id: pf.inquiryId, offer_id: issued.id, job_id: issued.outbox_id, preview_fingerprint: sendModel.fingerprint
@@ -480,12 +513,37 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_stale_estimate_preserves_active_confirmation: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        recoveryFixture = await setup();
+        await openDesk(recoveryFixture, false);
+        const recoveryBeforeCancel = await recoveryFixture.service.snapshot(recoveryFixture.inquiryId);
+        let recoveryDialog = await openRecoveryDialog();
+        await recoveryDialog.getByRole('button', { name: 'キャンセル', exact: true }).click();
+        await recoveryDialog.waitFor({ state: 'detached' });
+        assert.deepEqual(await recoveryFixture.service.snapshot(recoveryFixture.inquiryId), recoveryBeforeCancel);
+        recoveryDialog = await openRecoveryDialog();
+        const recoveredCurrent = await recoverFromDialog(recoveryDialog, '現在の見積として登録');
+        assert.equal(recoveredCurrent.current, true);
+        const recoverySnapshot = await recoveryFixture.service.snapshot(recoveryFixture.inquiryId);
+        assert.equal(recoverySnapshot.state.current_estimate_revision_id, recoveredCurrent.id);
+        const recoveredRevision = recoverySnapshot.estimates.find(item => item.id === recoveredCurrent.id);
+        const recoveredDocument = await recoveryFixture.service.document(recoveryFixture.inquiryId, recoveredRevision.document_id);
+        assert.match(recoveredDocument.filename, /^見積書 2026\.10\.18/u);
+        assert.deepEqual(recoveredDocument.bytes, recoveryFixture.quote);
+        assert.equal(recoveryFixture.state.sendCount, 0);
+        await page.getByRole('cell', { name: /版 1 \/ .*現行/u }).waitFor();
+        await openDesk(recoveryFixture, false);
+        recoveryDialog = await openRecoveryDialog();
+        await recoveryDialog.getByRole('button', { name: '金額を表示・入力' }).click();
+        assert.equal(await recoveryDialog.getByRole('button', { name: '再送せず登録', exact: true }).isDisabled(), true);
+        await recoveryDialog.getByRole('button', { name: 'キャンセル', exact: true }).click();
+        assert.equal(context.pages().length, 1);
+        console.log('PASS CASE DESK historical and current recovery, no resend, canonical readback, and registered attachment lock');
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_stale_estimate_preserves_active_confirmation: true, desk_estimate_recovery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         if (browser) await browser.close();
         if (server) await new Promise((resolve) => server.close(resolve));
-        for (const instance of [fixture, billingFixture, pdfFixture, unknownFixture]) await instance?.db.close();
+        for (const instance of [fixture, billingFixture, pdfFixture, unknownFixture, recoveryFixture]) await instance?.db.close();
     }
 }
 

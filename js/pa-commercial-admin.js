@@ -215,13 +215,21 @@ async function openPdfMail(context, { state, current, accepted, invoice = false,
 }
 
 let recoveryOpening = false;
-const openRecovery = async (context, state, trigger) => {
-    if (recoveryOpening) return;
+const openRecovery = async (context, state, trigger, { allowCurrent = true } = {}) => {
+    if (recoveryOpening || context.signal?.aborted) return;
     recoveryOpening = true;
+    const privacy = context.privacy;
+    let busy = false;
+    let unavailable = false;
+    let revealed = !privacy;
+    let updateSubmit = () => {};
+    let manualAmount;
     const triggerLabel = trigger?.textContent || "送信済みメールから登録";
     if (trigger) { trigger.disabled = true; trigger.textContent = "検索中…"; }
 
     const dialog = element("dialog", "pa-commercial-dialog pa-recovery-dialog");
+    dialog.setAttribute("aria-label", "送信済みメールから見積を登録");
+    if (privacy) dialog.dataset.externalMoneyGuard = "true";
     const form = document.createElement("form");
     form.append(element("h3", "", "送信済みメールから見積を登録"));
     const status = element("div", "pa-recovery-dialog__status", "検索中…\n送信済みメールと添付を確認しています");
@@ -235,12 +243,32 @@ const openRecovery = async (context, state, trigger) => {
     const submit = element("button", "button button--small", "再送せず登録");
     submit.type = "submit";
     submit.disabled = true;
+    const onReset = () => { revealed = false; updateSubmit(); };
+    const onReveal = event => {
+        if (event.detail.scope === dialog) { revealed = true; updateSubmit(); }
+    };
+    if (privacy) {
+        privacy.reset();
+        const reveal = button("金額を表示・入力", () => {});
+        reveal.dataset.moneyToggle = "true";
+        reveal.setAttribute("aria-pressed", "false");
+        actions.append(reveal);
+        document.addEventListener("privacy-reset", onReset);
+        document.addEventListener("privacy-reveal", onReveal);
+    }
     actions.append(cancel, submit);
     form.append(actions);
     dialog.append(form);
     document.body.append(dialog);
+    const abort = () => { if (dialog.open) dialog.close("cancel"); };
+    context.signal?.addEventListener("abort", abort, { once: true });
+    dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
     dialog.addEventListener("close", () => {
         recoveryOpening = false;
+        context.signal?.removeEventListener("abort", abort);
+        document.removeEventListener("privacy-reset", onReset);
+        document.removeEventListener("privacy-reveal", onReveal);
+        if (manualAmount) privacy?.releaseAmount(manualAmount);
         if (trigger?.isConnected) { trigger.disabled = false; trigger.textContent = triggerLabel; }
         dialog.remove();
     }, { once: true });
@@ -248,19 +276,21 @@ const openRecovery = async (context, state, trigger) => {
 
     try {
         const candidates = await api(context, "recovery_candidates");
+        if (!dialog.open) return;
         if (!candidates.length) {
             status.textContent = "この案件に復旧可能な送信済みPDFはありません。";
             cancel.textContent = "閉じる";
             return;
         }
 
-        status.classList.add("hidden");
+        status.hidden = true;
         const candidateLabel = element("label", "field");
         candidateLabel.append(element("span", "", "送信済みPDF"));
         const candidateSelect = document.createElement("select");
         candidateSelect.name = "candidate";
+        const fileText = value => privacy ? privacy.text(String(value || "")) : String(value || "");
         candidates.forEach((item, index) => candidateSelect.append(new Option(
-            `${item.source_sent_at || "送信日時不明"} / ${item.filename}${item.existing ? "（登録済み）" : ""}`,
+            `${item.source_sent_at || "送信日時不明"} / ${fileText(item.filename)}${item.existing ? "（登録済み）" : ""}`,
             String(index)
         )));
         candidateLabel.append(candidateSelect);
@@ -278,9 +308,9 @@ const openRecovery = async (context, state, trigger) => {
         moneyRow.append(element("span", "pa-commercial__label", "見積金額："), amountRow);
         summary.append(fileRow, moneyRow);
 
-        const manualLabel = element("label", "field hidden");
+        const manualLabel = element("label", "field");
         manualLabel.append(element("span", "", "見積金額（円）"));
-        const manualAmount = document.createElement("input");
+        manualAmount = document.createElement("input");
         manualAmount.type = "number";
         manualAmount.name = "amount";
         manualAmount.min = "1";
@@ -292,31 +322,46 @@ const openRecovery = async (context, state, trigger) => {
         const mode = document.createElement("fieldset");
         mode.className = "pa-recovery-dialog__mode";
         mode.append(element("legend", "", "登録方法"));
-        [["current", "現在の見積として登録"], ["historical", "過去の見積として取り込む"]].forEach(([value, label], index) => {
+        [["current", "現在の見積として登録"], ["historical", "過去の見積として取り込む"]].forEach(([value, label]) => {
             const option = element("label", "pa-recovery-dialog__radio");
             const radio = document.createElement("input");
             radio.type = "radio";
             radio.name = "mode";
             radio.value = value;
-            radio.checked = index === 0;
+            radio.disabled = value === "current" && !allowCurrent;
+            radio.checked = value === (privacy || !allowCurrent ? "historical" : "current");
             option.append(radio, document.createTextNode(label));
             mode.append(option);
         });
         const resend = element("p", "pa-recovery-dialog__resend", "");
         resend.append(element("span", "pa-commercial__label", "メール再送："), document.createTextNode("しない"));
+        if (!allowCurrent) mode.append(element("small", "", "この案件では現在の見積に切り替えられません。過去の見積として登録できます。"));
         content.append(candidateLabel, summary, manualLabel, mode, resend);
 
         let previewEpoch = 0;
         let preview = null;
+        const selection = () => candidates[Number(candidateSelect.value)];
+        const amountFor = () => preview?.amount_extraction?.status === "HIGH_CONFIDENCE"
+            ? Number(preview.amount_extraction.amount_minor)
+            : Number(privacy ? privacy.readAmount(manualAmount) : manualAmount.value);
+        updateSubmit = () => {
+            const amountMinor = amountFor();
+            submit.disabled = busy || unavailable || !revealed || !preview || Boolean(selection()?.existing)
+                || !Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > 9999999999;
+        };
         const loadPreview = async () => {
             const epoch = ++previewEpoch;
-            const selected = candidates[Number(candidateSelect.value)];
+            const selected = selection();
             preview = null;
-            submit.disabled = true;
-            manualLabel.classList.add("hidden");
+            if (privacy) {
+                privacy.reset();
+                privacy.setAmount(manualAmount, "");
+            } else manualAmount.value = "";
+            updateSubmit();
+            manualLabel.hidden = true;
             manualAmount.disabled = true;
-            sourceBadge.classList.add("hidden");
-            filename.textContent = selected.filename || "ファイル名を確認中";
+            sourceBadge.hidden = true;
+            filename.textContent = fileText(selected.filename) || "ファイル名を確認中";
             amount.textContent = "PDFから金額を確認しています…";
             amountRow.setAttribute("aria-busy", "true");
             try {
@@ -327,19 +372,20 @@ const openRecovery = async (context, state, trigger) => {
                 if (epoch !== previewEpoch || !dialog.open) return;
                 preview = loaded;
                 selected.filename = loaded.original_filename;
-                filename.textContent = loaded.original_filename;
-                candidateSelect.options[Number(candidateSelect.value)].textContent = `${selected.source_sent_at || "送信日時不明"} / ${loaded.original_filename}${selected.existing ? "（登録済み）" : ""}`;
+                filename.textContent = fileText(loaded.original_filename);
+                candidateSelect.options[Number(candidateSelect.value)].textContent = `${selected.source_sent_at || "送信日時不明"} / ${fileText(loaded.original_filename)}${selected.existing ? "（登録済み）" : ""}`;
                 if (loaded.amount_extraction?.status === "HIGH_CONFIDENCE") {
-                    amount.textContent = money(loaded.amount_extraction.amount_minor, "JPY");
-                    sourceBadge.classList.remove("hidden");
+                    const cents = loaded.amount_extraction.amount_minor;
+                    amount.textContent = privacy ? privacy.money(cents, "JPY") : money(cents, "JPY");
+                    sourceBadge.hidden = false;
                 } else {
                     amount.textContent = "自動取得できませんでした";
-                    manualLabel.classList.remove("hidden");
+                    manualLabel.hidden = false;
                     manualAmount.disabled = false;
-                    manualAmount.focus();
+                    if (!privacy) manualAmount.focus();
                 }
-                submit.disabled = Boolean(selected.existing) || (loaded.amount_extraction?.status !== "HIGH_CONFIDENCE" && !manualAmount.value);
                 if (selected.existing) amount.textContent += " / 登録済み";
+                updateSubmit();
             } catch {
                 if (epoch !== previewEpoch || !dialog.open) return;
                 amount.textContent = "PDFの確認に失敗しました";
@@ -349,35 +395,50 @@ const openRecovery = async (context, state, trigger) => {
             }
         };
         candidateSelect.addEventListener("change", loadPreview);
-        manualAmount.addEventListener("input", () => { if (!preview || preview.amount_extraction?.status !== "HIGH_CONFIDENCE") submit.disabled = !manualAmount.value; });
+        manualAmount.addEventListener("input", () => queueMicrotask(updateSubmit));
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
-            const selected = candidates[Number(candidateSelect.value)];
-            if (selected.existing || !preview) return;
-            const extracted = preview.amount_extraction?.status === "HIGH_CONFIDENCE";
-            const amountMinor = extracted ? Number(preview.amount_extraction.amount_minor) : Number(manualAmount.value);
-            if (!Number.isSafeInteger(amountMinor) || amountMinor < 1) { manualAmount.focus(); return; }
-            submit.disabled = true;
+            if (submit.disabled || busy) return;
+            const selected = selection();
+            const amountMinor = amountFor();
+            const registrationMode = new FormData(form).get("mode");
+            if (registrationMode !== "historical" && !(registrationMode === "current" && allowCurrent)) return;
+            busy = true;
+            updateSubmit();
+            candidateSelect.disabled = mode.disabled = manualAmount.disabled = true;
             cancel.disabled = true;
             submit.textContent = "登録しています…";
             try {
-                await api(context, "recover_estimate", {
+                const registered = await api(context, "recover_estimate", {
                     expected_revision: state.revision, expected_current: state.current_estimate_revision_id,
                     operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(),
-                    mode: new FormData(form).get("mode"), amount_minor: amountMinor,
+                    mode: registrationMode, amount_minor: amountMinor,
                     currency: "JPY", tax_basis: "tax_included", conditions: {},
                     gmail_message_id: selected.gmail_message_id, gmail_attachment_id: selected.gmail_attachment_id
                 });
+                if (privacy) {
+                    const checked = await api(context, "recovery_candidates");
+                    if (!registered?.id || !checked.some(row => row.gmail_message_id === selected.gmail_message_id
+                        && row.gmail_attachment_id === selected.gmail_attachment_id
+                        && row.existing?.estimate_revision_id === registered.id)) throw Error("estimate_recovery_unverified");
+                }
                 dialog.close("registered");
                 await context.refreshCommercial();
             } catch (error) {
-                status.textContent = error.message === "amount_extraction_mismatch"
-                    ? "PDFから再確認した金額と一致しません。もう一度選択してください。"
-                    : "登録できませんでした。状態を更新して再確認してください。";
-                status.classList.remove("hidden");
-                submit.disabled = false;
+                if (!dialog.open) return;
+                status.textContent = {
+                    amount_extraction_mismatch: "PDFから再確認した金額と一致しません。",
+                    confirmation_already_active: "有効な正式受注確認があるため、現在の見積に切り替えられません。",
+                    delivery_outcome_unresolved: "関連する配送結果を照合してから、現在の見積に切り替えてください。"
+                }[error.message] || "登録結果を確認できませんでした。画面を閉じ、登録済みの表示を確認してください。";
+                status.hidden = false;
                 cancel.disabled = false;
+                cancel.textContent = "閉じる";
+                unavailable = true;
                 submit.textContent = "再送せず登録";
+            } finally {
+                busy = false;
+                if (dialog.open) updateSubmit();
             }
         });
         await loadPreview();
@@ -612,11 +673,18 @@ export async function renderDeskConfirmationActions(root, context) {
         const current = data.estimates.find(estimate => estimate.id === data.state.current_estimate_revision_id);
         const unresolved = data.confirmation_preflight?.delivery_outcome_unresolved;
         status.textContent = confirmationDisplayState({ accepted, active, delivery }).label;
-        if (accepted) return;
         if (["closed", "cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
             status.textContent = "終了・保留中の案件では正式受注確認を操作できません。";
             return;
         }
+        const actions = element("div", "inlinebtns");
+        const action = (label, run) => actions.append(button(label, run, "action blue"));
+        const currentDeliveryClear = !current?.delivery || ["sent", "cancelled"].includes(current.delivery.state);
+        action("送信済みメールから見積を登録", event => openRecovery(context, data.state, event.currentTarget, {
+            allowCurrent: !accepted && !active && unresolved === false && currentDeliveryClear
+        }));
+        root.append(actions);
+        if (accepted) return;
         if (typeof unresolved !== "boolean") {
             status.textContent = "正式受注確認の操作可否を取得できません。状態を再取得してください。";
             return;
@@ -625,8 +693,6 @@ export async function renderDeskConfirmationActions(root, context) {
             status.textContent = "送信結果を照合してから、正式受注確認を準備してください。";
             return;
         }
-        const actions = element("div", "inlinebtns");
-        const action = (label, run) => actions.append(button(label, run, "action blue"));
         let estimateBusy = false;
         const estimateAction = registerOnly => async () => {
             if (estimateBusy) return;
@@ -648,13 +714,12 @@ export async function renderDeskConfirmationActions(root, context) {
                 estimateBusy = false;
             }
         };
-        if (!active && (!current?.delivery || ["sent", "cancelled"].includes(current.delivery.state))) {
+        if (!active && currentDeliveryClear) {
             action("見積書PDFを送る", estimateAction(false));
             action("見積原本を登録（送信しない）", estimateAction(true));
         }
         if (!current) {
             status.textContent = "正規見積が未登録です。";
-            root.append(actions);
             return;
         }
         if (current.delivery?.state === "sent") status.textContent += " / 見積書送信済み";
@@ -676,7 +741,6 @@ export async function renderDeskConfirmationActions(root, context) {
                 }));
             }
         }
-        if (actions.childElementCount) root.append(actions);
     } catch {
         if (!context.signal.aborted) status.textContent = "正式受注確認の状態を取得できません。状態を再取得してください。";
     }
