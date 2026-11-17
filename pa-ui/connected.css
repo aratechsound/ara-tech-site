@@ -11,3 +11,8 @@
 @media(prefers-reduced-motion:reduce){.casename.scrolling .case-name-track{animation:none}.case .casename{white-space:normal}.case-name-track{width:auto}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 @media(hover:none){.case .casename{white-space:normal}.case-name-track{width:auto;animation:none!important}.case-name-track>span:first-child{white-space:normal;overflow-wrap:anywhere;flex:1}.case-name-track>[aria-hidden]{display:none}}
 .mail-excerpt.expanded{display:block;overflow:visible;white-space:pre-wrap;-webkit-line-clamp:unset}[data-quoted-body] pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;color:var(--muted)}[data-quoted-body]{border-left:2px solid var(--border);padding-left:9px;font-size:11px}
+.case-basics-dialog{width:min(480px,calc(100vw - 28px));max-height:calc(100dvh - 28px);padding:18px;background:#111;color:#eee;border:1px solid #555;border-radius:8px}
+.case-basics-dialog::backdrop{background:rgb(0 0 0 / .72)}
+.case-basics-dialog h3{margin:0 0 8px}.case-basics-dialog label{display:grid;gap:4px;margin:9px 0}
+.case-basics-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
+.case-basics-dialog input{padding:8px;background:#191919;color:#eee;border:1px solid #666;border-radius:4px}
