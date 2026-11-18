@@ -2,6 +2,7 @@
 const greeting=/^(?:(?:いつも)?(?:大変)?お世話になっております|お世話になります|こんにちは|こんばんは|おはようございます|初めまして|はじめまして|Hello|Hi|Good morning|Good afternoon|Good evening)[。.!！、,\s]*$/iu;
 const thanks=/^(?:(?:ご連絡|ご返信|ご回答|お問い合わせ|お問合せ)(?:いただき|をいただき)?(?:まして)?(?:、)?(?:誠に)?ありがとうございます|Thank you for (?:your (?:email|message|reply|response)|getting back to me)|Thanks for (?:your (?:email|message|reply)|getting back to me))[。.!！\s]*$/iu;
 const introduction=/^(?:(?:ARA-TECH|株式会社[\p{L}・ー＆& .-]{1,35}|[\p{L}・ー＆& .-]{1,35}(?:株式会社|実行委員会))の[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}・ー .]{1,20}(?:です|と申します)|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}・ー .]{1,20}と申します|My name is [\p{L} .'-]{1,45})[。.!！\s]*$/iu;
+const brand=/^ARA-TECH$/iu;
 const organization=/^(?:株式会社[\p{L}・ー＆& .-]{1,35}|[\p{L}・ー＆& .-]{1,35}株式会社)$/u;
 const name=/^[\p{L}・ー .]{1,20}(?:です|と申します)[。\s]*$/u;
 const salutation=/^(?:Dear [\p{L} .'-]{1,45}[,:]|[\p{L}・ー .]{1,30}(?:様|御中))$/iu;
@@ -26,17 +27,23 @@ export function purposeExcerpt(text) {
     const s=raw.trim();
     if(s.startsWith('>'))continue;
     if(quote.test(s))break;
-    if(signature.test(s)||(/^ARA-TECH$/i.test(s)&&lines.slice(index+1,index+8).some(line=>/^\s*(?:Email|Web)\s*[:：]/i.test(line))))break;
+    if(signature.test(s))break;
+    if(brand.test(s)){
+      const following=lines.slice(index+1,index+8).map(line=>line.trim()).filter(Boolean);
+      if(!salutation.test(following[0]||'')&&following.some(line=>/^(?:Email|Web)\s*[:：]/iu.test(line)))break;
+    }
     if(s)body.push(raw);
   }
   let start=0;
   while(start<body.length){
     const s=body[start].trim();
     if(greetingLine(s)){start++;continue;}
-    const inline=s.match(/^(.+?[。.!！])\s*(\S.*)$/u);
+    const inline=s.match(/^(.+?[。.!！、])\s*(\S.*)$/u);
     if(inline&&greeting.test(inline[1])){body[start]=inline[2];continue;}
-    // Only recognize a two-line introduction when both lines are unambiguous.
-    if(organization.test(s)&&name.test(body[start+1]?.trim()||'')){start+=2;continue;}
+    const next=body[start+1]?.trim()||'';
+    // An organization on its own might be the topic. Require a recipient or name line.
+    if(((brand.test(s)||organization.test(s))&&salutation.test(next))||
+       (organization.test(s)&&name.test(next))){start+=2;continue;}
     break;
   }
   // A boilerplate-only mail still shows its original text, never a fabricated empty body.
