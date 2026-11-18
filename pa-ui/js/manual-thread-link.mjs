@@ -34,17 +34,30 @@ export function createThreadLink({read,write,open,close,current,refresh,candidat
         approved.onchange=()=>{confirm.disabled=!approved.checked||!v.preflight_complete||attempted.has(key);};
         confirm.onclick=async()=>{
           if(!valid()||!approved.checked||confirm.disabled)return;
-          // Invalidate the entire selection once DML may start. No search,
-          // reselect, second Submit, automatic retry or automatic rollback.
-          ++generation;
-          attempted.add(key);
+          // Keep the approval tied to this dialog while Auth is pending.
+          const operation=++generation;
+          const isCurrent=()=>operation===generation&&current()?.id===c.id&&current()?.epoch===c.epoch;
+          let dispatched=false;
+          const beginDispatch=()=>{
+            if(!isCurrent())return false;
+            attempted.add(key);
+            dispatched=true;
+            results.textContent='関連付け・同期を実行中…';
+            return true;
+          };
           for(const el of document.querySelectorAll('#modal-content input,#modal-content button'))el.disabled=true;
-          results.textContent='関連付け・同期を実行中…';
+          results.textContent='管理者認証を確認中…';
           try{
-            await write({action:'manual_link',inquiry_id:c.id,gmail_thread_id:id,conversation_role:'secondary_conversation'});
+            await write({action:'manual_link',inquiry_id:c.id,gmail_thread_id:id,conversation_role:'secondary_conversation'},beginDispatch);
+            if(!isCurrent())return;
             results.textContent='操作結果を取得しました。案件の最新メールを読取確認しています。';
-            if(current()?.id===c.id&&current()?.epoch===c.epoch)await refresh();
-          }catch{results.textContent='結果UNKNOWN。リンク・索引・attention・audit・候補の一部が保存済みの可能性があります。再実行せず、保存済み記録を確認してください。';}
+            await refresh();
+          }catch{
+            if(!isCurrent())return;
+            results.textContent=dispatched
+              ?'結果UNKNOWN。リンク・索引・attention・audit・候補の一部が保存済みの可能性があります。再実行せず、保存済み記録を確認してください。'
+              :'管理者認証を確認できませんでした。関連付けは未送信です。';
+          }
         };
       }catch{if(valid()&&request===requestId)preview.textContent='関連付け・帰属・Gmailの読取に失敗しました。別案件への帰属、権限、通信状態を確認してください。DB保存は行いません。';}
     }
