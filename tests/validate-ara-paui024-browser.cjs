@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'..');
  const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
  const origin=process.env.PAUI024_PREVIEW||'http://127.0.0.1:'+server.address().port;
- const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false,closureFixture=null;
+ const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false,closureFixture=null,formalFixture=null;
  page.on('pageerror',e=>errors.push(e.message));
  const C='11111111-1111-4111-8111-111111111111';
  const closedAt='2026-11-13T05:00:00.321456+00:00';
@@ -18,7 +18,8 @@ const root=path.resolve(__dirname,'..');
  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
- if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:closureFixture?'closed':'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:closureFixture?[{inquiry_id:C,close_reason:'payment_received',closed_at:closedAt}]:[]};
+ if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:closureFixture?'closed':formalFixture?'waiting_customer_reply':'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:closureFixture?[{inquiry_id:C,close_reason:'payment_received',closed_at:closedAt}]:
+   formalFixture?.progress?[{inquiry_id:C,...formalFixture.progress}]:[]};
  else if(p==='/data/case/'+C+'/audit'&&closureFixture){
    if(closureFixture==='failed')return r.fulfill({status:503,json:{ok:false,error:'read_unavailable'}});
    const prior={...attestation,occurred_at:'2026-11-13T05:00:00.321455+00:00'};
@@ -28,8 +29,12 @@ const root=path.resolve(__dirname,'..');
    else if(closureFixture==='conflict')value=[attestation,ledger];
    else value=[prior];
  }
- else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
+ else if(p.startsWith('/data/commercial/')){
+   if(formalFixture?.error)return r.fulfill({status:503,json:{ok:false,code:'read_unavailable'}});
+   value={estimates:[],offers:formalFixture?.offers||[],documents:[],billings:[],read_projection:true};
+ }
  else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
+ else if(p.startsWith('/data/sent-estimates/'))value={messages:[],unknown:[]};
  else if(p==='/data/case/'+C+'/tokens')value=[{issued_at:'2026-11-12T23:00:00Z',expires_at:'2026-11-13T23:00:00Z',answered_at:'2026-11-13T05:00:00Z'}];
  else if(p==='/data/case/'+C+'/responses')value=[{decision:'agree',submitted_at:'2026-11-13T05:00:00Z'}];
  else if(scheduleFixture&&p==='/data/case/'+C+'/deliveries')value=[
@@ -121,6 +126,29 @@ const root=path.resolve(__dirname,'..');
    if(expected)await basis.getByText(expected,{exact:true}).waitFor();
    else await basis.locator('.read-error').waitFor();
  }
- assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: safe mail, schedule, payment provenance, feature catalog, and keyboard focus/return for guide and drawer');
+ closureFixture=null;
+ await page.setViewportSize({width:1440,height:900});
+ const firstOffer={id:'offer-1',version:1,issued_at:'2026-11-12T10:00:00Z',expires_at:'2026-11-19T10:00:00Z'};
+ const secondOffer={...firstOffer,id:'offer-2',version:2};
+ const orderSummary=page.locator('#inspector .label-pair').filter({has:page.getByText('正式受注',{exact:true})});
+ for(const [fixture,label] of [
+   [{offers:[firstOffer,secondOffer],progress:{formal_contract_id:firstOffer.id}},'顧客同意の記録あり'],
+   [{offers:[firstOffer],progress:{estimate_approved_on:'2026-11-12',booking_confirmed_on:'2026-11-13'}},'旧工程に見積承認・予約確定あり'],
+   [{offers:[firstOffer]},'発行記録あり・同意未確認'],
+   [{offers:[]},'保存済み発行記録なし'],
+   [{error:true},'発行記録を取得できません']
+ ]){
+   formalFixture=fixture;
+   await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
+   await orderSummary.getByText(label,{exact:true}).waitFor({timeout:3000});
+   if(fixture.progress?.formal_contract_id){
+     await page.setViewportSize({width:390,height:844});
+     await page.getByRole('button',{name:'見積・受注',exact:true}).click();
+     await page.getByText('版 1 / 顧客同意の記録あり',{exact:true}).waitFor({timeout:3000});
+     await page.getByText('版 2 / 発行記録あり・同意未確認',{exact:true}).waitFor({timeout:3000});
+     await page.setViewportSize({width:1440,height:900});
+   }
+ }
+ assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: safe mail, schedule, payment provenance, feature catalog, guide keyboard operations, and saved formal-order evidence');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

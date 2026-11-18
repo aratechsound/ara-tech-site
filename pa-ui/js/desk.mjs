@@ -125,11 +125,21 @@ function renderHeader(){
   document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.disabled=!c;b.setAttribute('aria-selected',String(b.dataset.tab===tab));});
   renderCounts();
 }
+const unconfirmedOfferLabel='発行記録あり・同意未確認';
+const acceptedOfferLabel='顧客同意の記録あり';
+function formalOrderReadback(progress,commercial){
+  if(progress?.formal_contract_id)return acceptedOfferLabel;
+  if(progress?.estimate_approved_on&&progress?.booking_confirmed_on)return '旧工程に見積承認・予約確定あり';
+  if(!commercial||commercial.state==='loading')return '発行記録を取得中…';
+  const offers=commercial.state==='ready'?commercial.value?.offers:null;
+  if(!Array.isArray(offers))return '発行記録を取得できません';
+  return offers.length?unconfirmedOfferLabel:'保存済み発行記録なし';
+}
 function renderInspector(){
   const c=current();if(!c){$('inspector').replaceChildren();return;}
   const commercial=detail.commercial;
   const state=commercial?.state==='ready'?commercial.value:null;
-  $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('正式受注',statusText(c))}${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section><div class="notice">配送結果UNKNOWNは安全停止。結果確認と業務操作は既存画面で確認してください。</div>`;
+  $('inspector').innerHTML=`<section class="sidesection"><h3 class="sidehead">業務の進行状態</h3>${pair('見積',state?state.estimates?.length?state.estimates.length+'版':'保存済み記録なし':'未取得')}${pair('正式受注',formalOrderReadback(c.progress,commercial))}${pair('請求',state?state.billings?.length?state.billings.length+'記録':'保存済み記録なし':'未取得')}${pair('入金',detail.payments?.state==='ready'?getRows('payments').length+'記録':'未取得')}</section><section class="sidesection"><h3 class="sidehead">保存済み新着状態</h3>${pair('顧客返信',attention(c).label)}<p class="hint">メール未読件数は提供されていません。選択・閲覧では確認状態を変更しません。</p></section><div class="notice">配送結果UNKNOWNは安全停止。結果確認と業務操作は既存画面で確認してください。</div>`;
 }
 function canEditCaseBasics(c){
   return Boolean(c&&!passiveMail&&session?.user?.id&&!isClosedCase(c)&&!c.deleted_at&&
@@ -460,8 +470,13 @@ function commercialControls(c,label){
 }
 function estimate(c){
   return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2>`+readBlock('commercial','商務・原本',s=>{
-    const estimates=s.estimates||[],offers=s.offers||[];
-    return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">保存済み見積なし</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${rowsHtml(offers,{title:o=>'版 '+o.version+' / '+(o.state||'unknown'),body:o=>'有効期限 '+date(o.expires_at)+(o.confirmed_at?' / 同意 '+date(o.confirmed_at):''),time:o=>o.issued_at})}</div>`;
+    const estimates=s.estimates||[],offers=s.offers||[],acceptedId=c.progress?.formal_contract_id;
+    const confirmationHistory=rowsHtml(offers,{
+      title:offer=>'版 '+offer.version+' / '+(acceptedId&&offer.id===acceptedId?acceptedOfferLabel:unconfirmedOfferLabel),
+      body:offer=>'有効期限 '+date(offer.expires_at),
+      time:offer=>offer.issued_at
+    });
+    return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">保存済み見積なし</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${confirmationHistory}</div>`;
   })+`<div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
 async function openDeskCommercial(){
