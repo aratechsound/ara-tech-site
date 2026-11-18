@@ -1338,9 +1338,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       }
     } catch (error) {
       const failure = deliveryFailureDetails(error, deliveryTrace);
+      const providerEvidence = sent || deliveryTrace.accepted_reply;
       const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
-        p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
+        p_message: providerEvidence?.gmail_message_id || null, p_thread: providerEvidence?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
         p_delivery_state: failure.deliveryState, p_failure_phase: failure.phase,
         p_failure_code: failure.failureCode, p_safe_message: failure.safeMessage,

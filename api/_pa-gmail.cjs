@@ -1057,6 +1057,12 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     const sent = await response.json();
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
     if (!validGmailId(sent?.id)) throw new Error("gmail_send_invalid");
+    if (typeof sent.id === "string" && sent.threadId === preview.gmail_thread_id) {
+        // Keep the provider's exact pair available if the audit or sync fails.
+        updateDeliveryTrace(deliveryTrace, {
+            accepted_reply: { gmail_message_id: sent.id, gmail_thread_id: sent.threadId }
+        });
+    }
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",

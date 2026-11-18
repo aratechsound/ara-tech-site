@@ -50,11 +50,56 @@ async function verifyUnknown(f, responseStatus, invalidateRecord = false) {
     assert.equal(row.state,'unknown');
     assert.equal(row.delivery_state,'unknown_after_provider_start');
     assert.equal(row.provider_http_status,responseStatus);
+    assert.equal(row.provider_message_id,null);
+    assert.equal(row.provider_thread_id,null);
   }
   assert.equal(await requiresReview(f,id),true);
   await assert.rejects(() => f.service.dispatch({job_id:id},f.actor), replayRejected);
   assert.deepEqual(await saved(f,id),row);
   assert.equal(f.state.sendCount,1);
+}
+
+async function verifyAcceptedReplyEvidence(f, { failure, matchingThread = true }) {
+  const id = await seedEstimate(f);
+  const service = createService({ fetchImpl: async (url, options) => {
+    const endpoint = new URL(url);
+    const sending = endpoint.hostname === 'gmail.googleapis.com' && endpoint.pathname.endsWith('/messages/send');
+    if (f.state.sendCount && failure === 'audit' &&
+      endpoint.pathname === '/rest/v1/pa_inquiry_audit' && options?.method === 'POST') {
+      return new Response('{}', {status: 503});
+    }
+    const response = await f.fetchImpl(url, options);
+    if (sending && !matchingThread) {
+      return Response.json({ id: 'sent_contract_1', threadId: 'other_thread' });
+    }
+    return response;
+  }});
+  if (failure === 'sync') {
+    f.state.failPostSendRead = true;
+    f.state.failPostSendReadAfter = 0;
+  }
+
+  await assert.rejects(() => service.dispatch({ job_id: id }, f.actor), /mail_outcome_unknown/);
+  const row = await saved(f, id);
+  assert.equal(row.state, 'unknown');
+  assert.equal(row.delivery_state, 'unknown_after_provider_start');
+  assert.equal(row.provider_response_received, true);
+  assert.equal(row.provider_http_status, 200);
+  assert.equal(row.provider_message_id, matchingThread ? 'sent_contract_1' : null);
+  assert.equal(row.provider_thread_id, matchingThread ? 'thread_123' : null);
+  assert.equal(await requiresReview(f, id), true);
+  const snapshot = await f.service.snapshot(f.inquiryId);
+  assert.equal(snapshot.estimates[0].delivery.state, 'unknown');
+  await assert.rejects(() => f.service.dispatch({ job_id: id }, f.actor), replayRejected);
+  assert.deepEqual(await saved(f, id), row);
+  assert.equal(f.state.sendCount, 1);
+
+  if (failure === 'audit' && matchingThread) {
+    await f.db.exec(operation('-rollback'));
+    await assert.rejects(() => claim(f, id), replayRejected);
+    assert.deepEqual(await saved(f, id), row);
+    assert.equal(f.state.sendCount, 1);
+  }
 }
 
 async function verifyHistorical(f) {
@@ -155,6 +200,9 @@ async function verifyDirectConfirmationAfterRejection(f) {
 
 async function main() {
   global.fetch = async () => { throw Error('LIVE_NETWORK_FORBIDDEN'); };
+  await run(f => verifyAcceptedReplyEvidence(f, { failure: 'audit' }));
+  await run(f => verifyAcceptedReplyEvidence(f, { failure: 'sync' }));
+  await run(f => verifyAcceptedReplyEvidence(f, { failure: 'audit', matchingThread: false }));
   await run(f => verifyUnknown(f,503));
   await run(f => verifyUnknown(f,200));
   await run(f => verifyUnknown(f,503,true));
@@ -163,6 +211,6 @@ async function main() {
   await run(verifyDefiniteFailure);
   await run(verifyDirectConfirmationRace);
   await run(verifyDirectConfirmationAfterRejection);
-  console.log('PASS commercial outbox: ambiguous 503 and malformed 200 stay UNKNOWN, failed diagnostic writes and historical ambiguous attempts cannot replay, direct confirmation cannot supersede an ambiguous estimate, definite pre-provider and 400 failures can retry, rollback refuses unresolved attempts, real Gmail 0');
+  console.log('PASS commercial outbox: accepted matching IDs survive audit and sync failures while UNKNOWN prevents replay, mismatched and malformed responses log no IDs, historical ambiguous attempts and interrupted leases cannot replay, definite failures can retry, rollback refuses unresolved attempts, real Gmail 0');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
