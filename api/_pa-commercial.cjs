@@ -13,6 +13,7 @@ const RECEIPT_TEMPLATE_VERSION = 'PA-RECEIPT-V4.1';
 const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const LEGACY_CONFIRMATION = 'LEGACY';
+const definitiveGmailRejections = new Set([400, 401, 403, 404, 413, 422, 429]);
 const confirmationMode = (value) => {
   const mode = value == null ? LEGACY_CONFIRMATION : value;
   if (![LEGACY_CONFIRMATION, DIRECT_CONFIRM_WITH_ESTIMATE].includes(mode)) throw Error('invalid_contract');
@@ -260,9 +261,10 @@ const deliveryFailureDetails = (error, trace = {}) => {
   const providerHttpStatus = Number.isInteger(trace.provider_http_status)
     ? trace.provider_http_status
     : Number(failureCode.match(/^gmail_send_([1-5][0-9]{2})$/u)?.[1]) || null;
+  const rejected = providerResponseReceived && definitiveGmailRejections.has(providerHttpStatus);
   const deliveryState = !providerRequestStarted
     ? 'failed_before_provider'
-    : providerResponseReceived ? 'failed_after_provider_response' : 'unknown_after_provider_start';
+    : rejected ? 'failed_after_provider_response' : 'unknown_after_provider_start';
   const state = deliveryState === 'unknown_after_provider_start' ? 'unknown' : 'failed';
   const safeMessages = {
     invalid_confirmation: '送信内容の確認情報と添付ファイルが一致しません。',
@@ -271,10 +273,9 @@ const deliveryFailureDetails = (error, trace = {}) => {
     mail_adapter_not_configured: 'メール配送設定が完了していません。',
     invalid_production_e2e_test: 'Production TEST配送の固定条件と一致しません。'
   };
-  const safeMessage = safeMessages[failureCode]
+  const safeMessage = deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : safeMessages[failureCode]
     || (failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。'
-      : failureCode.startsWith('gmail_send_') ? 'Gmail APIが送信リクエストを受理しませんでした。'
-        : deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : 'メール配送開始前に失敗しました。');
+      : rejected ? 'Gmail APIが送信リクエストを受理しませんでした。' : 'メール配送開始前に失敗しました。');
   const phase = /^[a-z][a-z0-9_]{0,99}$/u.test(String(trace.phase || '')) ? trace.phase : 'dispatch';
   return { state, deliveryState, failureCode, safeMessage, phase, providerRequestStarted, providerResponseReceived, providerHttpStatus };
 };
@@ -1320,16 +1321,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         }, fetchImpl);
       }
     } catch (error) {
-      let failure = deliveryFailureDetails(error, deliveryTrace);
-      if (job.reply_binding?.confirmation_mode === DIRECT_CONFIRM_WITH_ESTIMATE
-        && deliveryTrace.provider_request_started
-        && (deliveryTrace.provider_http_status >= 500
-          || (deliveryTrace.provider_http_status >= 200 && deliveryTrace.provider_http_status < 300))) {
-        // A successful provider response followed by parsing/audit/sync failure
-        // may already have delivered this mail. Never make it retryable.
-        failure = { ...failure, state: 'unknown', deliveryState: 'unknown_after_provider_start' };
-      }
-      await finishOutbox({
+      const failure = deliveryFailureDetails(error, deliveryTrace);
+      const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
         p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
@@ -1338,6 +1331,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
+      if (failure.state === 'unknown') {
+        // A failed diagnostic write cannot make a started provider request safe to repeat.
+        await finish.catch(() => null);
+        throw Error('mail_outcome_unknown');
+      }
+      await finish;
       throw error;
     }
     try {
