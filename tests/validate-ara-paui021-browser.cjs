@@ -5,7 +5,9 @@ const root=path.resolve(__dirname,'..');
 (async()=>{
  const server=http.createServer((req,res)=>{const name=path.join(root,new URL(req.url,'http://localhost').pathname);if(!name.startsWith(root+path.sep)){res.writeHead(403).end();return;}try{res.setHeader('content-type',name.endsWith('.mjs')?'text/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(name));}catch{res.writeHead(404).end();}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
+ // Chromium needs a UTF-8 filename locale; the CI container sorts with LC_ALL=C.
+ const env=process.platform==='linux'?{...process.env,LC_ALL:'C.UTF-8'}:process.env;
+ const browser=await chromium.launch({headless:true,env,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
   const page=await browser.newPage();
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
@@ -29,31 +31,80 @@ const root=path.resolve(__dirname,'..');
   assert.equal(result.long.text.length,60000);assert(result.long.quoted.includes('quote'));assert(result.empty.empty);
   assert.deepEqual(result.names,Array.from({length:6},(_,i)=>'日本語'+i+'.png'));
   console.log('PASS HTML inert text, full body, quotation, empty, Japanese filenames, six attachments in original order');
-  await page.evaluate(async()=>{
+  const pdf=await page.evaluate(async()=>{
    const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents 5 0 R >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Contents 6 0 R >>','<< /Length 0 >>\nstream\n\nendstream','<< /Length 0 >>\nstream\n\nendstream'];
    let pdf='%PDF-1.4\n',offsets=[0];for(let i=0;i<objects.length;i++){offsets.push(pdf.length);pdf+=(i+1)+' 0 obj\n'+objects[i]+'\nendobj\n';}
    const xref=pdf.length;pdf+='xref\n0 7\n0000000000 65535 f \n'+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
    const {createGallery}=await import('/pa-ui/js/gallery.mjs');
-   const g=createGallery({isCurrent:()=>true,requestBlob:async()=>new Blob([pdf],{type:'application/pdf'})});
+   let reads=0;
+   const g=createGallery({isCurrent:()=>true,requestBlob:async()=>{
+    if(++reads===1)throw {status:503,code:'read_unavailable'};
+    return new Blob([pdf],{type:'application/pdf'});
+   }});
    await g.openPreview({key:'two-page',asset_id:'a',mime_type:'application/pdf',filename:'日本語2ページ.pdf'});
+   return pdf;
   });
+  await page.getByRole('button',{name:'原本を再取得',exact:true}).click();
+  await page.locator('dialog canvas').waitFor();
   assert.equal(await page.locator('dialog canvas').count(),1);
+  const downloadLink=page.getByRole('link',{name:'原本をダウンロード',exact:true});
+  await downloadLink.waitFor({timeout:3000});
+  const [download]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
+  assert.equal(download.suggestedFilename(),'日本語2ページ.pdf');
+  assert.deepEqual(fs.readFileSync(await download.path()),Buffer.from(pdf));
   await page.getByRole('button',{name:'次のページ',exact:true}).click();
   await page.getByText('2 / 2ページ · 100%',{exact:true}).waitFor();
   await page.getByRole('button',{name:'拡大',exact:true}).click();
   await page.getByText('2 / 2ページ · 125%',{exact:true}).waitFor();
   await page.getByRole('button',{name:'閉じる',exact:true}).click();
-  console.log('PASS real PDF.js two-page render, page navigation and zoom');
-  const C='11111111-1111-4111-8111-111111111111',errors=[];page.on('pageerror',e=>errors.push(e.message));
+  assert.equal(await downloadLink.count(),0);
+  console.log('PASS explicit PDF retry after a temporary read failure, two-page render, zoom and exact Japanese original download');
+  const C='11111111-1111-4111-8111-111111111111',D='22222222-2222-4222-8222-222222222222';
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX8sAAAAASUVORK5CYII=','base64');
+  const reads=[];
+  let transientReads=0;
+  let releasePayments,releaseCommercial,releaseMaterials,failOtherMaterials;
+  const paymentsPending=new Promise(resolve=>{releasePayments=resolve;});
+  const commercialPending=new Promise(resolve=>{releaseCommercial=resolve;});
+  const materialsPending=new Promise(resolve=>{releaseMaterials=resolve;});
+  const otherMaterialsPending=new Promise(resolve=>{failOtherMaterials=resolve;});
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const session={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>session,current:async()=>session,subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
-  await page.route('**/api/pa-workspace-read?**',r=>{
+  await page.route('**/api/pa-workspace-read?**',async r=>{
    const p=new URL(r.request().url()).searchParams.get('path');let value=[];
-   if(p==='/data/cases')value={cases:[{id:C,event_name:'Fixture Event',inquiry_number:'PA-20261002-00015',status:'new'}],progress:[]};
-   else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
-   else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
+   reads.push({path:p,method:r.request().method()});
+   if(p==='/data/cases')value={cases:[
+    {id:C,event_name:'Fixture Event',inquiry_number:'PA-20261002-00015',status:'new'},
+    {id:D,event_name:'Other Fixture Event',inquiry_number:'PA-20261002-00016',status:'new'}
+   ],progress:[]};
+   else if(p==='/data/commercial/'+D)value={estimates:[],offers:[],documents:[{id:'second-document',original_filename:'別案件の原本.pdf',mime_type:'application/pdf'}],billings:[]};
+   else if(p==='/data/materials/'+D){await otherMaterialsPending;return r.fulfill({status:503,json:{ok:false,code:'read_unavailable'}});}
+   else if(p.startsWith('/data/commercial/')){
+    await commercialPending;
+    value={estimates:[],offers:[],documents:[{id:'fixture-document',original_filename:'商務原本.pdf',mime_type:'application/pdf'}],billings:[]};
+   }
+   else if(p.startsWith('/data/materials/')){
+    await materialsPending;
+    value={cards:[],photos:[
+     {id:'fixture-png',display_filename:'現場写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
+     {id:'fixture-transient',display_filename:'再取得する写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
+     {id:'fixture-denied',display_filename:'閲覧不可.png',mime_type:'image/png',source_type:'gmail_attachment'}
+    ]};
+   }
+   else if(p==='/data/material/'+C+'/photo/fixture-png')return r.fulfill({contentType:'image/png',body:png});
+   else if(p==='/data/document/'+C+'/fixture-document')return r.fulfill({contentType:'application/pdf',body:pdf});
+   else if(p==='/data/document/'+D+'/second-document')return r.fulfill({contentType:'application/pdf',body:pdf});
+   else if(p==='/data/material/'+C+'/photo/fixture-transient'){
+    transientReads++;
+    return transientReads<3
+      ?r.fulfill({status:503,json:{ok:false,code:'provider_read_failed'}})
+      :r.fulfill({contentType:'image/png',body:png});
+   }
+   else if(p==='/data/material/'+C+'/photo/fixture-denied')return r.fulfill({status:403,json:{ok:false,code:'acl_denied'}});
    else if(p.startsWith('/data/mail/'))value=[{gmail_message_id:'mail1',inquiry_id:C,direction:'inbound',subject:'Fixture mail',attachment_metadata:[]}];
    else if(p.startsWith('/data/mail-body/'))value={gmail_message_id:'mail1',body_text:'Full body '.repeat(200)+'\n> quoted history',body_state:'ready'};
    else if(p.startsWith('/data/sent-estimates/'))value={messages:[{gmail_message_id:'sent1',inquiry_id:C,subject:'Fixture sent estimate',sent_at:'2026-10-09T00:00:00Z',to_addresses:['fixture@example.invalid'],attachment_metadata:[],history_only:true,validity:'unknown'}],unknown:[]};
+   if(p.endsWith('/payments'))await paymentsPending;
    r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:value})});
   });
   await page.reload();await page.locator('[data-case="'+C+'"]').click();
@@ -69,5 +120,66 @@ const root=path.resolve(__dirname,'..');
   assert(body.length>650);assert.equal(body.display,'block');assert.equal(body.overflow,'visible');
   assert.equal(await page.locator('[data-quoted-body]').count(),1);
   assert.deepEqual(errors,[]);console.log('PASS fetched full body visibly expands beyond three-line excerpt and separates quotation');
+  await page.locator('[data-tab="documents"]').click();
+  const materialSearch=page.getByRole('searchbox',{name:'資料名で検索'});
+  await materialSearch.fill('現場');
+  releaseMaterials();
+  await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).click();
+  await downloadLink.waitFor();
+  const imageReads=reads.filter(e=>e.path.endsWith('/fixture-png')).length;
+  releasePayments();
+  await page.waitForFunction(()=>[...document.querySelectorAll('#inspector .label-pair')]
+    .some(row=>row.querySelector('span')?.textContent==='入金'&&row.querySelector('b')?.textContent==='0記録'));
+  assert.equal(await downloadLink.isVisible(),true,'An unrelated case response keeps the active material preview open');
+  assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Unrelated case data does not re-fetch the visible original');
+  releaseCommercial();
+  await page.waitForFunction(()=>[...document.querySelectorAll('#inspector .label-pair')]
+    .some(row=>row.querySelector('span')?.textContent==='見積'&&row.querySelector('b')?.textContent==='保存済み記録なし'));
+  assert.equal(await downloadLink.isVisible(),true,'The commercial index must keep the portal original open');
+  const [imageDownload]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
+  assert.equal(imageDownload.suggestedFilename(),'現場写真.png');
+  assert.deepEqual(fs.readFileSync(await imageDownload.path()),png);
+  assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Save reuses the inspected bytes');
+  await page.keyboard.press('Escape');
+  await page.getByText('商務原本の索引を取得中…',{exact:true}).waitFor({state:'hidden'});
+  assert.equal(await materialSearch.inputValue(),'現場','Applying the pending index retains the search term');
+  assert.equal(await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).evaluate(node=>document.activeElement===node),true);
+  await materialSearch.clear();
+  await page.getByRole('button',{name:'商務原本.pdf の拡大プレビュー',exact:true}).waitFor();
+  const transient=page.getByRole('button',{name:'再取得する写真.png の拡大プレビュー',exact:true});
+  await transient.locator('.material-error').waitFor();
+  assert.equal(transientReads,1,'Thumbnail failure alone must not retry');
+  await transient.click();
+  await page.locator('dialog .preview-content').getByText('Gmail原本の読取に失敗しました',{exact:true}).waitFor();
+  assert.equal(transientReads,2,'Opening the original after a failed thumbnail must make a fresh read');
+  assert.equal(await downloadLink.count(),0);
+  await page.getByRole('button',{name:'原本を再取得',exact:true}).click();
+  await downloadLink.waitFor();
+  const [retriedDownload]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
+  assert.equal(retriedDownload.suggestedFilename(),'再取得する写真.png');
+  assert.deepEqual(fs.readFileSync(await retriedDownload.path()),png);
+  assert.equal(transientReads,3,'Saving a recovered original reuses the successful read');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'閲覧不可.png の拡大プレビュー',exact:true}).click();
+  await page.locator('dialog .preview-content').getByText(/閲覧拒否/).waitFor();
+  assert.equal(await downloadLink.count(),0);
+  assert.equal(await page.getByRole('button',{name:'原本を再取得',exact:true}).count(),0);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-case="'+D+'"]').click();
+  await page.locator('[data-tab="documents"]').click();
+  assert.equal(await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).count(),0);
+  await page.getByRole('button',{name:'別案件の原本.pdf の拡大プレビュー',exact:true}).click();
+  await downloadLink.waitFor();
+  await page.getByRole('button',{name:'次のページ',exact:true}).click();
+  const secondPage=page.getByRole('dialog').getByLabel('PDF 2ページ');
+  await secondPage.waitFor();
+  const otherResponse=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/materials/'+D);
+  failOtherMaterials();
+  assert.equal((await otherResponse).status(),503);
+  await page.getByRole('button',{name:'閉じる',exact:true}).click();
+  await page.locator('#material-index-status').getByText(/資料ポータルの索引/).waitFor();
+  assert.equal(await page.locator('#file-count').textContent(),'取得済み 1資料 / 一部未取得');
+  assert(reads.every(entry=>entry.method==='GET'));
+  assert.deepEqual(errors,[]);console.log('PASS CASE DESK document indexes preserve independent original previews, search and focus; original retry, ACL denial and exact Japanese downloads remain read-only');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

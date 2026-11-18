@@ -8,16 +8,42 @@ const root=path.resolve(__dirname,'..');
  const browser=await chromium.launch({headless:true,...(process.env.PAUI021_BROWSER?{executablePath:process.env.PAUI021_BROWSER}:{})});
  try{
  const origin=process.env.PAUI024_PREVIEW||'http://127.0.0.1:'+server.address().port;
- const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false;
+ const page=await browser.newPage({viewport:{width:1440,height:900},timezoneId:'UTC'}),errors=[],counts={},methods=[];let active=0,maxActive=0,scheduleFixture=false,closureFixture=null,formalFixture=null;
  page.on('pageerror',e=>errors.push(e.message));
  const C='11111111-1111-4111-8111-111111111111';
+ const closedAt='2026-11-13T05:00:00.321456+00:00';
+ const attestation={action:'owner_payment_completion_confirmed',details:{confirmation_source:'owner_attestation'},occurred_at:closedAt};
+ const ledger={action:'payment_confirmed_and_closed_v5',occurred_at:closedAt};
  const source='お世話になっております。\nARA-TECHの荒殿です。\nご連絡ありがとうございます。\n今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。\n11月1日、2台、雨天中止の条件です。\n続きの原文です。\n--\n署名\n> 古いメール本文';
- await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
+ const gmailPosts=[];
+ let threadAlreadyLinked=false;
+ await page.route('**/api/pa-gmail',r=>{
+   const request=r.request();
+   if(request.method()!=='POST')return r.abort();
+   const input=request.postDataJSON();
+   gmailPosts.push(input);
+   return r.fulfill({json:{ok:input.action==='manual_link',result:{inquiry_id:C,gmail_thread_id:'thread_fixture'}}});
+ });
+ await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const owner={user:{id:'fixture-owner'},access_token:'fixture-only'};export const workspaceAuth={restore:async()=>owner,current:async()=>owner,logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
- if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:[]};
- else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
+ if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:closureFixture?'closed':formalFixture?'waiting_customer_reply':'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:closureFixture?[{inquiry_id:C,close_reason:'payment_received',closed_at:closedAt}]:
+   formalFixture?.progress?[{inquiry_id:C,...formalFixture.progress}]:[]};
+ else if(p==='/data/case/'+C+'/audit'&&closureFixture){
+   if(closureFixture==='failed')return r.fulfill({status:503,json:{ok:false,error:'read_unavailable'}});
+   const prior={...attestation,occurred_at:'2026-11-13T05:00:00.321455+00:00'};
+   if(closureFixture==='attested')value=[attestation];
+   else if(closureFixture==='ledger')value=[ledger,prior];
+   else if(closureFixture==='legacy-ledger')value=[{...ledger,action:'payment_confirmed_and_closed'}];
+   else if(closureFixture==='conflict')value=[attestation,ledger];
+   else value=[prior];
+ }
+ else if(p.startsWith('/data/commercial/')){
+   if(formalFixture?.error)return r.fulfill({status:503,json:{ok:false,code:'read_unavailable'}});
+   value={estimates:[],offers:formalFixture?.offers||[],documents:[],billings:[],read_projection:true};
+ }
  else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
+ else if(p.startsWith('/data/sent-estimates/'))value={messages:[],unknown:[]};
  else if(p==='/data/case/'+C+'/tokens')value=[{issued_at:'2026-11-12T23:00:00Z',expires_at:'2026-11-13T23:00:00Z',answered_at:'2026-11-13T05:00:00Z'}];
  else if(p==='/data/case/'+C+'/responses')value=[{decision:'agree',submitted_at:'2026-11-13T05:00:00Z'}];
  else if(scheduleFixture&&p==='/data/case/'+C+'/deliveries')value=[
@@ -25,10 +51,104 @@ const root=path.resolve(__dirname,'..');
   {id:'request',inquiry_id:C,message_type:'schedule_request',status:'sent',sent_at:'2026-11-12T23:00:00Z'}
  ];
  else if(p==='/data/mail/'+C)value=[{gmail_message_id:'purpose',inquiry_id:C,direction:'inbound',subject:'用件抜粋・架空検証',snippet:'お世話になっております。',attachment_metadata:[]},{gmail_message_id:'html',inquiry_id:C,direction:'outbound',subject:'HTML本文・架空検証',attachment_metadata:[]}];
+ else if(p==='/data/mail-candidates/'+C)value={customer_email:'fixture@example.invalid',matching_case_count:1,candidates:[{gmail_thread_id:'thread_fixture',address_match:true,subject:'隔離メール候補'}]};
+ else if(p==='/data/mail-thread-preview/'+C+'/thread_fixture')value={gmail_thread_id:'thread_fixture',messages:[],target_indexed_count:0,target_missing_ids:[],sync_thread_ids:['thread_fixture'],sync_message_count:0,sync_attachment_count:0,preflight_complete:true,already_linked:threadAlreadyLinked};
+ else if(p==='/data/mail-live/'+C)value={messages:[],status:'no_thread_links'};
  else if(p.startsWith('/data/mail-body/')){const id=p.split('/').pop();counts[id]=(counts[id]||0)+1;active++;maxActive=Math.max(maxActive,active);await new Promise(resolve=>setTimeout(resolve,250));active--;value={gmail_message_id:id,inquiry_id:C,...(id==='html'?{body_html:'<p>Hello!</p><p>Thank you for your email.</p><p>Budget JPY 110,000; 2 units on 2026/11/01.</p><img src="https://invalid.example/tracker"><script>window.paui024Danger=true</script><blockquote>Old budget</blockquote>'}:{body_text:source})};}
  await r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:value})});
  });
- await page.goto(origin+'/pa-admin.html');await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();
+ let catalogReads=0,finishFirstCatalogRead;
+ const holdCatalog=new Promise(resolve=>{finishFirstCatalogRead=resolve;});
+ await page.route('**/pa-ui/features.json',async route=>{
+   if(++catalogReads!==1)return route.continue();
+   await holdCatalog;
+   return route.fulfill({status:503,json:{}});
+ });
+ await page.goto(origin+'/pa-admin.html');await page.locator('[data-case="'+C+'"]').click();
+ const openMore=page.locator('#open-more');
+ await openMore.focus();
+ await page.keyboard.press('Enter');
+ await page.getByRole('dialog',{name:'その他の管理機能',exact:true}).waitFor();
+ const backgroundFocused=await page.locator('#features-trigger').evaluate(el=>{el.focus();return document.activeElement===el;});
+ assert.equal(backgroundFocused,false,'The open guide excludes the background from focus');
+ await page.keyboard.press('Tab');
+ assert.equal(await page.locator('#more-features').evaluate(el=>el===document.activeElement),true);
+ await page.keyboard.press('Escape');
+ await page.getByRole('dialog',{name:'その他の管理機能',exact:true}).waitFor({state:'hidden'});
+ assert.equal(await openMore.evaluate(el=>el===document.activeElement),true,'Escape returns focus to the guide trigger');
+ await page.keyboard.press('Enter');
+ await page.locator('#more-features').click();
+ const summary=page.locator('#feature-summary');
+ await summary.getByText('機能一覧を取得中…',{exact:true}).waitFor({timeout:3000});
+ finishFirstCatalogRead();
+ await summary.getByText('機能一覧を取得できませんでした。',{exact:true}).waitFor({timeout:3000});
+ await page.getByRole('button',{name:'機能一覧を再取得',exact:true}).click();
+ await page.locator('#feature-summary').getByText('表示 103件 / 全 103件').waitFor();
+ assert.equal(catalogReads,2,'The guide recovers in place after an explicit retry');
+ const feature=page.locator('.feature').filter({hasText:'PAUI-F-006'});
+ assert.match(await feature.innerText(),/新UIから利用可能/u);
+ assert.match(await page.locator('.feature').filter({hasText:'PAUI-F-011'}).innerText(),/現時点で無効/u);
+ await feature.getByRole('button',{name:'対応を見る ›'}).click();
+ const guide=page.locator('#modal-content');
+ await guide.getByText('CASE DESKの操作場所',{exact:true}).waitFor();
+ assert.match(await guide.innerText(),/入金を記録/u);
+ assert.equal(await guide.locator('[data-legacy]').count(),0);
+ await page.locator('#modal-close-top').click();
+ await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ for(const id of ['PAUI-C-002','PAUI-C-004','PAUI-C-006']){
+   await page.locator('#features-trigger').click();
+   await page.locator('[data-feature="'+id+'"]').click();
+   await guide.getByText('CASE DESKの操作場所',{exact:true}).waitFor();
+   assert.equal(await guide.locator('[data-legacy]').count(),0);
+   await page.locator('#modal-close-top').click();
+   await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ }
+ const availableGuides=await page.evaluate(async()=>{
+   const entries=await fetch('/pa-ui/features.json').then(response=>response.json());
+   return entries.filter(entry=>entry.status==='新UIから利用可能').map(entry=>({id:entry.id,control:entry.current_control||''}));
+ });
+ assert.equal(availableGuides.length,38);
+ assert.deepEqual(availableGuides.filter(entry=>!entry.control).map(entry=>entry.id),[],'Every available item needs a current CASE DESK control');
+ const showGuide=async id=>{
+   await page.locator('#features-trigger').click();
+   await page.locator('[data-feature="'+id+'"]').click();
+   await page.getByRole('dialog',{name:new RegExp(id)}).waitFor();
+   return guide;
+ };
+ const currentControls=[
+   ['PAUI-A-004','受付順'],['PAUI-A-005','開催日順'],['PAUI-A-006','詳細条件'],['PAUI-A-007','案件一覧の最下部'],
+   ['PAUI-A-009','正式確認の履歴'],['PAUI-G-002','資料ポータル'],['PAUI-H-001','ログアウト']
+ ];
+ for(const [id,label] of currentControls){
+   await showGuide(id);
+   assert((await guide.innerText()).includes(label));
+   assert.equal(await guide.locator('[data-legacy]').count(),0);
+   if(id==='PAUI-H-001')assert((await guide.innerText()).includes('既存の管理者セッションを復元します'));
+   await page.locator('#modal-close-top').click();
+   await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ }
+ assert.equal(await page.locator('#open-portal').getAttribute('href'),'/pa/cases/'+C+'/portal');
+ for(const [id,status] of [['PAUI-F-011','現時点で無効'],['PAUI-H-002','内部機能']]){
+   await showGuide(id);
+   assert((await guide.innerText()).includes(status));
+   assert.equal(await guide.locator('[data-legacy]').count(),0);
+   await page.locator('#modal-close-top').click();
+   await page.getByRole('heading',{name:'請求状態',exact:true}).waitFor();
+ }
+ for(const id of ['PAUI-A-010','PAUI-B-003']){
+   await showGuide(id);
+   assert((await guide.innerText()).includes('次に必要な対応'));
+   await page.locator('#modal-close-top').click();
+   await page.getByText('次に必要な対応',{exact:true}).waitFor();
+   assert.equal(await page.locator('.workflow span').count(),14);
+ }
+ await showGuide('PAUI-H-004');
+ assert((await guide.innerText()).includes('最近の動き'));
+ await page.locator('#modal-close-top').click();
+ await page.getByRole('heading',{name:'案件・工程・メール監査',exact:true}).waitFor();
+ assert.equal(gmailPosts.length,0,'Guide entries cannot start any mail action');
+ console.log('PASS CASE DESK catalog locations cover all 38 available features; global and informational guides leave the selected tab in place; delayed load and retry recover in place');
+ await page.getByRole('button',{name:'やり取り',exact:true}).click();
  const card=page.locator('[data-message="purpose"]'),body=card.locator('.mail-excerpt');
  await page.waitForFunction(()=>document.querySelector('[data-message="purpose"] .mail-excerpt').textContent.startsWith('今回は11万円'));
  assert.equal(await body.textContent(),'今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。\n11月1日、2台、雨天中止の条件です。');assert.equal(counts.purpose,1);assert(maxActive<=2);
@@ -42,15 +162,107 @@ const root=path.resolve(__dirname,'..');
  if(process.env.PAUI024_SCREENSHOT)await page.screenshot({path:process.env.PAUI024_SCREENSHOT});
  for(const width of [760,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'small screen horizontal fit');assert.equal(await bg('.top'),'rgb(0, 123, 255)');await card.getByRole('button',{name:'全文を表示',exact:true}).click();assert.equal(await body.evaluate(n=>getComputedStyle(n).overflowY),'visible');await card.getByRole('button',{name:'閉じる',exact:true}).click();}
  if(process.env.PAUI024_SMALL_SCREENSHOT)await page.screenshot({path:process.env.PAUI024_SMALL_SCREENSHOT,fullPage:true});
+ const featureTrigger=page.locator('#features-trigger');
+ await featureTrigger.focus();
+ await page.keyboard.press('Enter');
+ await page.getByRole('dialog',{name:'既存103機能｜対応状況',exact:true}).waitFor();
+ assert.equal(await openMore.evaluate(el=>{el.focus();return document.activeElement===el;}),false,'The mobile features overlay excludes the background from focus');
+ await page.keyboard.press('Tab');
+ assert.equal(await page.locator('#feature-search').evaluate(el=>el===document.activeElement),true);
+ await page.keyboard.press('Escape');
+ await page.getByRole('dialog',{name:'既存103機能｜対応状況',exact:true}).waitFor({state:'hidden'});
+ assert.equal(await featureTrigger.evaluate(el=>el===document.activeElement),true);
+ await showGuide('PAUI-H-001');
+ assert((await guide.innerText()).includes('既存の管理者セッションを復元します'));
+ await page.keyboard.press('Escape');
+ assert.equal(await page.locator('[data-tab="conversation"]').getAttribute('aria-selected'),'true');
  scheduleFixture=true;
  await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
  await page.locator('#open-schedule').click();
+ assert.equal(await page.locator('#open-portal').isHidden(),true);
  await page.getByText('日程確定の通知',{exact:true}).waitFor();
  assert.equal(await page.getByText('配送結果未確定 / 再送前に履歴を確認',{exact:true}).count(),1);
  assert.equal(await page.getByText('日程調整の案内',{exact:true}).count(),1);
  assert.match(await page.locator('.record').filter({hasText:'日程確定の通知'}).innerText(),/2026\/11\/15 8:55:00 JST/u);
  assert.equal(await page.getByText('回答済み・期限切れ',{exact:true}).count(),1);
  assert.equal(await page.getByText('条件に同意し、日程調整を依頼',{exact:true}).count(),1);
- assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: white logo, neutral panels, safe text, full/quote, and schedule JST/delivery failure/read-only');
+ for(const [fixture,expected] of [
+   ['attested','Owner申告で完了'],
+   ['ledger','入金記録に基づく完了'],
+   ['legacy-ledger','入金記録に基づく完了'],
+   ['stale','今回の完了の根拠を確認できる監査記録がありません'],
+   ['conflict','今回の完了の根拠を確認できる監査記録がありません'],
+   ['failed',null]
+ ]){
+   closureFixture=fixture;
+   await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
+   await page.getByRole('button',{name:'請求・入金',exact:true}).click();
+   const basis=page.locator('.group').filter({has:page.getByRole('heading',{name:'完了の根拠',exact:true})});
+   if(expected)await basis.getByText(expected,{exact:true}).waitFor();
+   else await basis.locator('.read-error').waitFor();
+ }
+ closureFixture=null;
+ await page.setViewportSize({width:1440,height:900});
+ const firstOffer={id:'offer-1',version:1,issued_at:'2026-11-12T10:00:00Z',expires_at:'2026-11-19T10:00:00Z'};
+ const secondOffer={...firstOffer,id:'offer-2',version:2};
+ const orderSummary=page.locator('#inspector .label-pair').filter({has:page.getByText('正式受注',{exact:true})});
+ for(const [fixture,label] of [
+   [{offers:[firstOffer,secondOffer],progress:{formal_contract_id:firstOffer.id}},'顧客同意の記録あり'],
+   [{offers:[firstOffer],progress:{estimate_approved_on:'2026-11-12',booking_confirmed_on:'2026-11-13'}},'旧工程に見積承認・予約確定あり'],
+   [{offers:[firstOffer]},'発行記録あり・同意未確認'],
+   [{offers:[]},'保存済み発行記録なし'],
+   [{error:true},'発行記録を取得できません']
+ ]){
+   formalFixture=fixture;
+   await page.goto(origin+'/pa-admin.html?case='+C+'&mail-view=readonly');
+   await orderSummary.getByText(label,{exact:true}).waitFor({timeout:3000});
+   if(fixture.progress?.formal_contract_id){
+     await page.setViewportSize({width:390,height:844});
+     await page.getByRole('button',{name:'見積・受注',exact:true}).click();
+     await page.getByText('版 1 / 顧客同意の記録あり',{exact:true}).waitFor({timeout:3000});
+     await page.getByText('版 2 / 発行記録あり・同意未確認',{exact:true}).waitFor({timeout:3000});
+     await page.setViewportSize({width:1440,height:900});
+   }
+ }
+ for(const width of [1440,390]){
+   await page.setViewportSize({width,height:900});
+   await page.goto(origin+'/pa-admin.html?case='+C+'&tab=conversation&mail-view=readonly');
+   await page.locator('[data-mail-sync-state="readonly"]').waitFor();
+   assert.equal(await page.locator('[data-legacy]').count(),0);
+   assert.equal(await page.locator('#open-portal').getAttribute('href'),null);
+   await page.locator('#open-more').click();
+   const settings=page.getByRole('dialog',{name:'その他の管理機能',exact:true});
+   assert.equal(await settings.locator('[data-legacy]').count(),0);
+   await page.keyboard.press('Escape');
+   await page.getByRole('button',{name:'顧客メール候補を確認',exact:true}).click();
+   await page.getByRole('button',{name:/隔離メール候補/u}).click();
+   await page.getByText('候補の確認は読み取り専用です。',{exact:true}).waitFor();
+   assert.equal(await page.locator('#thread-link-confirm,#thread-owner-approved').count(),0);
+   await page.keyboard.press('Escape');
+   await page.getByRole('button',{name:'取込せず原本を確認',exact:true}).click();
+   await page.getByText(/承認済みスレッドなし/u).waitFor();
+ }
+ threadAlreadyLinked=true;
+ await page.getByRole('button',{name:'顧客メール候補を確認',exact:true}).click();
+ await page.getByRole('button',{name:/隔離メール候補/u}).click();
+ await page.getByRole('button',{name:'最新メールを取得',exact:true}).click();
+ await page.locator('#modal-wrap').waitFor({state:'hidden'});
+ await page.getByText(/承認済みスレッドなし/u).waitFor();
+ assert.equal(gmailPosts.length,0);
+ console.log('PASS CASE DESK read-only Gmail candidate preview, original read and legacy controls on both widths; Gmail POST 0');
+ threadAlreadyLinked=false;
+ await page.goto(origin+'/pa-admin.html?case='+C+'&tab=conversation');
+ await page.getByRole('button',{name:'顧客メールを関連付け',exact:true}).click();
+ await page.getByRole('button',{name:/隔離メール候補/u}).click();
+ await page.locator('#thread-link-confirm').waitFor();
+ assert.equal(await page.locator('#thread-link-confirm').isDisabled(),true);
+ assert.equal(gmailPosts.length,0);
+ await page.locator('#thread-owner-approved').check();
+ const posted=page.waitForResponse(response=>response.url().endsWith('/api/pa-gmail')&&response.request().postDataJSON()?.action==='manual_link');
+ await page.locator('#thread-link-confirm').click();
+ await posted;
+ assert.deepEqual(gmailPosts,[{action:'manual_link',inquiry_id:C,gmail_thread_id:'thread_fixture',conversation_role:'secondary_conversation'}]);
+ console.log('PASS CASE DESK normal mode manual link sends exactly one simulated write after approval');
+ assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: safe mail, schedule, payment provenance, feature catalog, guide keyboard operations, and saved formal-order evidence');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
