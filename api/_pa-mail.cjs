@@ -1005,6 +1005,30 @@ const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
     }));
 };
 
+const SCHEDULE_FORM_URL = /^https:\/\/ara-tech\.cc\/pa-schedule-confirm\.html\?token=([A-Za-z0-9_-]{43,128})$/u;
+const scheduleUrlInMessage = body => {
+    const links = String(body || "").match(/https?:\/\/[^\s<>"']+/giu) || [];
+    const forms = [...new Set(links.filter(link => /\/pa-schedule-confirm\.html(?=[?#]|$)/iu.test(link)))];
+    if (forms.length !== 1 || !SCHEDULE_FORM_URL.test(forms[0])) throw new Error("invalid_schedule_message");
+    return forms[0];
+};
+const requireOpenScheduleToken = async (inquiryId, url, fetchImpl) => {
+    const token = SCHEDULE_FORM_URL.exec(url)?.[1];
+    const digest = crypto.createHash("sha256").update(token).digest("hex");
+    const parameters = new URLSearchParams({
+        inquiry_id: `eq.${inquiryId}`,
+        token_hash: `eq.\\x${digest}`,
+        select: "inquiry_id,expires_at,revoked_at,answered_at",
+        limit: "2"
+    });
+    const rows = await supabaseRequest(`/rest/v1/pa_schedule_tokens?${parameters}`, {}, fetchImpl);
+    const tokenRow = rows?.[0];
+    if (!Array.isArray(rows) || rows.length !== 1 || tokenRow.inquiry_id !== inquiryId
+        || tokenRow.revoked_at != null || tokenRow.answered_at != null || !(Date.parse(tokenRow.expires_at) > Date.now())) {
+        throw new Error("schedule_token_not_available");
+    }
+};
+
 const createScheduleDelivery = async ({
     inquiry,
     subject,
@@ -1026,19 +1050,37 @@ const createScheduleDelivery = async ({
         throw new Error("schedule_not_allowed");
     }
     const safeUrl = String(scheduleUrl || "").trim();
-    if (!/^https:\/\/ara-tech\.cc\/pa-schedule-confirm\.html\?token=[A-Za-z0-9_-]{43,128}$/u.test(safeUrl)) {
+    if (!SCHEDULE_FORM_URL.test(safeUrl)) {
         throw new Error("invalid_schedule_url");
     }
     const safeSubject = cleanHeader(subject, 240);
     const safeBodyInput = cleanBody(body);
     const safeBody = normalizeCustomerBody(safeBodyInput);
-    if (!safeSubject.includes(inquiry.inquiry_number) || !safeBody.includes(safeUrl)) {
+    if (!safeSubject.includes(inquiry.inquiry_number) || scheduleUrlInMessage(safeBody) !== safeUrl) {
         throw new Error("invalid_schedule_message");
+    }
+    const dedupeKey = `schedule:${inquiry.id}:${operationKey.toLowerCase()}`;
+    try {
+        await requireOpenScheduleToken(inquiry.id, safeUrl, fetchImpl);
+    } catch (error) {
+        if (error.message !== "schedule_token_not_available") throw error;
+        // A replay may arrive after the customer has already answered. Return
+        // the recorded delivery without creating a new attempt.
+        const parameters = new URLSearchParams({
+            inquiry_id: `eq.${inquiry.id}`, dedupe_key: `eq.${dedupeKey}`,
+            message_type: "eq.schedule_request", attempt_number: "eq.1", select: "*", limit: "2"
+        });
+        const existing = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
+        const recorded = existing?.[0];
+        if (existing?.length === 1 && recorded.inquiry_id === inquiry.id
+            && recorded.subject === safeSubject && recorded.body === normalizeCustomerBody(safeBody)
+            && recorded.recipient === cleanHeader(inquiry.email)) return recorded;
+        throw error;
     }
     return createAndDeliver({
         inquiry_id: inquiry.id,
         message_type: "schedule_request",
-        dedupe_key: `schedule:${inquiry.id}:${operationKey.toLowerCase()}`,
+        dedupe_key: dedupeKey,
         attempt_number: 1,
         is_retry: false,
         recipient: inquiry.email,
@@ -1234,6 +1276,10 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
     if (!isUuid(actorUserId)) throw new Error("invalid_operation");
     const previous = await getDelivery(deliveryId, fetchImpl);
     if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
+    if (previous.message_type === "schedule_request") {
+        if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
+        await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
+    }
 
     const successLookup = new URLSearchParams({
         dedupe_key: `eq.${previous.dedupe_key}`,
