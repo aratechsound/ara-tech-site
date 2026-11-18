@@ -403,6 +403,24 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
             result={gmail_message_id:message.gmail_message_id,body_text:fresh.body_text,body_html:fresh.body_html,body_state:fresh.body_text||fresh.body_html?'ready':'empty',source:'gmail'};
           }
         }
+        else if(segments.length===4&&segments[1]==='mail-intake-reply'){
+          const id=assertId(segments[2]),deliveryId=assertId(segments[3]);
+          const cases=await rows('pa_inquiries',{id:'eq.'+id,deleted_at:'is.null',
+            select:'id,email,submission_source,status',limit:2},token);
+          if(cases.length!==1||cases[0].id!==id)throw new ReadError('case_not_readable',403);
+          const {readIntakeReplyContext}=require('./_pa-gmail.cjs');
+          try {
+            const context=await readIntakeReplyContext({inquiry:cases[0],deliveryId,
+              readRows:(table,query)=>rows(table,Object.fromEntries(query),token),
+              readMessage:messageId=>providerRead(()=>provider.message(messageId))});
+            result={context,read_only:true,sample_html:require('./_pa-mail.cjs').buildCustomerHtml('表示確認用のサンプル本文です。')};
+          } catch(error) {
+            if(['intake_follow_up_not_linkable','reply_target_unavailable','ambiguous_thread_link','primary_conversation_exists','reply_attribution_conflict'].includes(error.message)){
+              throw new ReadError('intake_follow_up_not_linkable',409);
+            }
+            throw error;
+          }
+        }
         else if(segments.length===4&&segments[1]==='mail-delivery-html'){
           const id=assertId(segments[2]),deliveryId=assertId(segments[3]);
           await readableCase(id,token);
