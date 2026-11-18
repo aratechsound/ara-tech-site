@@ -89,7 +89,7 @@ const caseCalendar=createCaseCalendar({displayText:privateText,onSelect:async id
 const caseNames=createCaseNameView();
 let mailGalleries=[];
 function disposePreviews(){replyComposer?.detach();bodyView.detach();gallery?.dispose();gallery=null;for(const g of mailGalleries)g.dispose();mailGalleries=[];}
-function clearDetail(){detail.commercialPanel?.controller.abort();replyState?.setCase(null);htmlView.close();caseBasicsEditor.close();caseCalendar.close();closeInfo();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
+function clearDetail(){bodyView.clear();detail.commercialPanel?.controller.abort();replyState?.setCase(null);htmlView.close();caseBasicsEditor.close();caseCalendar.close();closeInfo();disposePreviews();detail={};central.replaceChildren();$('inspector').replaceChildren();}
 function renderCounts(){
   const counts=reviewCounts(cases);
   $('global-unread').textContent=cases.length&&cases.some(c=>c.attentionLoaded)?String(counts.needsReview):'—';
@@ -439,19 +439,22 @@ const deliveredHtml = row => row.status==='sent'&&deliveryOutcome(row)==='送信
   ['customer_receipt',followUpType].includes(row.message_type);
 const historyHtmlButton = '<button type="button" class="lightbtn body-read" data-history-mail-html>HTML本文を表示</button>';
 
+function mailCardText({entry,dir,label,badges='',from,to,cc,subject,attachments,body,controls=''}) {
+  const address = '差出人 '+from+' / 宛先 '+to+(cc?' / CC '+cc:'');
+  return '<div class="mail-heading"><span class="mail-direction '+dir+'">'+escape(label)+'</span>'+badges+
+    '<time>'+escape(timelineDate(entry.at))+'</time><span class="mail-attachment-count">添付 '+attachments+'</span></div>'+
+    '<div class="mail-address" title="'+escape(address)+'">差出人 '+escape(from)+'<br>宛先 '+escape(to)+(cc?'<br>CC '+escape(cc):'')+'</div>'+
+    '<strong class="mail-subject">'+escape(subject)+'</strong><p class="mail-excerpt">'+body+'</p>'+
+    '<button type="button" class="lightbtn body-read" data-body-read aria-expanded="false">全文を表示</button>'+controls;
+}
+const followUpBody = entry => entry.deliveries.find(row=>row.message_type===followUpType && row.status==='sent')?.body;
+
 function deliveryEntry(entry) {
   const row = entry.deliveries[0];
-  const label = deliveryLabel(row);
-  const outcome = deliveryOutcome(row);
-  const heading = `${escape(label)}・${escape(outcome)} <time>${escape(timelineDate(entry.at))}</time>`;
-  const content = `<div class="mail-address">差出人 ARA-TECH<br>宛先 ${escape(row.recipient || '未取得')}</div>
-    <strong class="mail-subject">${escape(row.subject || '件名未取得')}</strong>
-    ${row.body ? '<p class="timeline-body">' + tx(row.body) + '</p>' : '<p class="hint">配送記録の件名と結果を表示</p>'}
-    ${deliveredHtml(row)?historyHtmlButton:''}<p class="hint">添付情報未取得</p>${deliveryAttempts(entry.deliveries)}`;
-  const inner = label === '内部通知'
-    ? `<details><summary>${heading}</summary>${content}</details>`
-    : `<div class="mail-heading">${heading}</div>${content}`;
-  return `<article class="mail-row no-attachments sent" data-timeline-kind="delivery" data-delivery-id="${escape(row.id)}"><div class="mail-text">${inner}</div></article>`;
+  const content = mailCardText({entry,dir:'sent',label:deliveryLabel(row)+'・'+deliveryOutcome(row),
+    from:'ARA-TECH',to:row.recipient||'未取得',subject:row.subject||'件名未取得',attachments:'未取得',
+    body:tx(row.body||''),controls:deliveredHtml(row)?historyHtmlButton:''});
+  return `<article class="mail-row no-attachments sent" data-timeline-kind="delivery" data-delivery-id="${escape(row.id)}"><div class="mail-text">${content}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 
 function renderConversationTimeline(inquiry) {
@@ -480,10 +483,18 @@ function renderTimelineMail(entry, isNew) {
   const delivery = entry.deliveries[0];
   const label = delivery ? deliveryLabel(delivery) + '・' + deliveryOutcome(delivery)
     : inbound ? 'お客様からのメール' : dir === 'sent' ? 'ARA-TECHからの送信' : '方向未取得';
-  const followUpBody = entry.deliveries.find(row=>row.message_type===followUpType && row.status==='sent')?.body;
-  const body = followUpBody || savedExcerpt(r);
   const atts = mailAttachments(r);
-  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${dir==='sent'?historyHtmlButton:''}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
+  const badges = (isNew?'<span class="tiny new">NEW・要確認</span>':'')+
+    (r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':'');
+  const reply = inbound && detail.deliveries?.state==='ready'
+    ? '<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+
+      (r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>'
+    : '';
+  const content = mailCardText({entry,dir,label,badges,from:r.from_address||'未取得',to:addresses(r.to_addresses),
+    cc:r.cc_addresses?.length?addresses(r.cc_addresses):'',subject:r.subject||'件名未提供',
+    attachments:Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得',
+    body:escape(savedExcerpt({body_text:followUpBody(entry)})||savedExcerpt(r)),controls:(dir==='sent'?historyHtmlButton:'')+reply});
+  return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text">${content}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
 function commercialControls(c,label){
   if(passiveMail||c?.case_type!=='PA_EVENT'||isClosedCase(c)||c.status==='on_hold'||c.progress?.is_on_hold)return '';
@@ -652,8 +663,17 @@ function documents(){
 function renderMailPreviews(){
   const id=selected,epoch=selectionEpoch;
   const containers=new Map([...central.querySelectorAll('[data-message]')].map(node=>[node.dataset.message,node]));
-  for(const {message:row} of conversationEntries(current())){
-    if(!row)continue;
+  const deliveries=new Map([...central.querySelectorAll('[data-delivery-id]')].map(node=>[node.dataset.deliveryId,node]));
+  const valid=()=>selected===id&&selectionEpoch===epoch&&tab==='conversation';
+  for(const entry of conversationEntries(current())){
+    if(entry.kind==='form')continue;
+    const row=entry.message;
+    if(!row){
+      const delivery=entry.deliveries[0];
+      const container=deliveries.get(delivery.id);
+      if(container)bodyView.mount(container,id,null,valid,{delivery,displayText:privateText});
+      continue;
+    }
     const container=containers.get(row.gmail_message_id);
     if(!container)continue;
     const items=mailAttachments(row),strip=container.querySelector('[data-attachments]');
@@ -661,7 +681,7 @@ function renderMailPreviews(){
       const g=createMailAttachmentCarousel({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='conversation',requestBlob:item=>api(item.read_route==='live'?'/data/mail-live-attachment/'+id+'/'+encodeURIComponent(item.gmail_thread_id)+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id):'/data/mail-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
       mailGalleries.push(g);g.mount(strip,items);
     }
-    bodyView.mount(container,id,row,()=>selected===id&&selectionEpoch===epoch&&tab==='conversation');
+    bodyView.mount(container,id,row,valid,{fallback:followUpBody(entry)});
   }
 }
 function renderGallery(){
@@ -873,7 +893,7 @@ function signOut(callAuth=true){
   manualIntake.close();$('drawer-wrap').close();$('manual-intake-status').textContent='';
   for(const controller of replyRequests)controller.abort();replyRequests.clear();
   for(const controller of mailSyncRequests)controller.abort();mailSyncRequests.clear();
-  abortRequests();caseMailSync?.clear();bodyView.clear();clearDetail();replyState?.clearAuth();
+  abortRequests();caseMailSync?.clear();clearDetail();replyState?.clearAuth();
   $('modal-content').replaceChildren();$('modal-title').textContent='';
   resetCaseFilters();updateFilters();renderList();render();
   $('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;

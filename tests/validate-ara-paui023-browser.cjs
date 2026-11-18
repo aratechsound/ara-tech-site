@@ -81,7 +81,7 @@ const root=path.resolve(__dirname,'..');
  await card(1).getByRole('button',{name:'全文を表示',exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-message="m1"] .mail-excerpt').textContent.includes('本文 m1'));
  assert(maxActive<=2);assert.equal(counts.m17,undefined);
  await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).waitFor();
- assert((await card(0).locator('.mail-excerpt').innerText()).length>650);await card(0).locator('[data-quoted-body] summary').click();assert(await card(0).locator('[data-quoted-body]').evaluate(n=>n.open));
+ assert((await card(0).locator('.mail-excerpt').innerText()).length>650);assert(await card(0).locator('[data-quoted-body]').evaluate(n=>n.open));await card(0).locator('[data-quoted-body] summary').click();assert.equal(await card(0).locator('[data-quoted-body]').evaluate(n=>n.open),false);
  await card(0).getByRole('button',{name:'閉じる',exact:true}).click();assert.equal(await card(0).locator('[data-quoted-body]').evaluate(n=>n.open),false);
  const before=counts.m0;await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).click();assert.equal(counts.m0,before);
  assert.equal(await card(1).getByRole('button',{name:'全文を表示',exact:true}).count(),1);

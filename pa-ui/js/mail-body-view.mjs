@@ -1,10 +1,9 @@
 import {fullBody,savedExcerpt} from './mail-model.mjs';
-import {purposeExcerpt} from './mail-purpose.mjs';
 
 // Private session memory only. Keys bind case and message; no storage or HTML mount.
 export function createMailBodyView({request,isAuthenticated,limit=2}) {
   const cache=new Map();let generation=0,active=0,queue=[],observer=null;
-  const key=(id,row)=>JSON.stringify([id,row.gmail_message_id]);
+  const key=(id,row,delivery)=>JSON.stringify(row?[id,'mail',row.gmail_message_id]:[id,'delivery',delivery.id]);
   function pump(){
     while(active<limit&&queue.length){
       const job=queue.shift();
@@ -13,7 +12,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       Promise.resolve().then(()=>request(job.id,job.row)).then(result=>{
         if(job.generation!==generation||!isAuthenticated())return;
         if(result.gmail_message_id!==job.row.gmail_message_id || (result.inquiry_id&&result.inquiry_id!==job.id))throw {status:403,code:'mail_binding_mismatch'};
-        job.entry.parts=fullBody(result);job.entry.state='ready';
+        job.entry.parts=fullBody(result);job.entry.preview=savedExcerpt(result);job.entry.state='ready';
       }).catch(error=>{if(job.generation===generation){job.entry.state='error';job.entry.error=error;}})
         .finally(()=>{active--;if(job.generation===generation)job.entry.notify();job.resolve();pump();});
     }
@@ -23,35 +22,54 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
     entry.state='queued';entry.promise=new Promise(resolve=>queue.push({id,row,entry,valid,key:key(id,row),generation,resolve}));entry.notify();pump();return entry.promise;
   }
   function detach(){observer?.disconnect();observer=null;for(const e of cache.values())e.notify=()=>{};}
-  function mount(container,id,row,valid){
-    const k=key(id,row);let entry=cache.get(k);
-    if(!entry){entry={state:row.body_text||row.body_html?'ready':'idle',parts:row.body_text||row.body_html?fullBody(row):null,expanded:false,quoteOpen:false,notify:()=>{}};cache.set(k,entry);}
-    const body=container.querySelector('.mail-excerpt, .timeline-body');
+  function mount(container,id,row,valid,{delivery,fallback,displayText=value=>value}={}){
+    const body=container.querySelector('.mail-excerpt');
     const button=container.querySelector('[data-body-read]');
-    if (!body || !button) return;
-    const savedDeliveryBody = body.classList.contains('timeline-body') ? body.textContent : '';
+    if(!body||!button)return;
+    const k=key(id,row,delivery);
+    let entry=cache.get(k);
+    if(!entry){
+      const saved=row||{body_text:delivery.body};
+      const ready=!row||Boolean(saved.body_text||saved.body_html);
+      entry={state:ready?'ready':'idle',parts:ready?fullBody(saved):null,preview:savedExcerpt(saved),
+        expanded:false,quoteOpen:false,notify:()=>{}};
+      cache.set(k,entry);
+    }
+    const savedDelivery={body_text:fallback};
+    const storedPreview=savedExcerpt(savedDelivery);
+    const fallbackParts=storedPreview?fullBody(savedDelivery):null;
     const quoted=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');
-    quoted.dataset.quotedBody='true';summary.textContent='引用部分を表示';quoted.append(summary,text);body.after(quoted);
-    quoted.addEventListener('toggle',()=>{entry.quoteOpen=quoted.open;});
+    quoted.dataset.quotedBody='true';summary.textContent='引用部分';quoted.append(summary,text);body.after(quoted);
+    quoted.addEventListener('toggle',()=>{if(!quoted.hidden)entry.quoteOpen=quoted.open;});
     function draw(){
       if(!valid()||!container.isConnected)return;
-      const failed=entry.state==='error',parts=entry.parts,busy=['loading','queued'].includes(entry.state);
-      body.classList.toggle('expanded',entry.expanded&&!!parts);body.classList.toggle('unavailable',failed);
-      body.textContent=!entry.expanded&&savedDeliveryBody?savedDeliveryBody:
-        failed?(entry.error?.status===401||entry.error?.status===403?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます'):
-        parts?(parts.empty?'取得成功 / 空本文':entry.expanded?parts.text||'新規本文なし（引用のみ）':purposeExcerpt(parts.text)||'新規本文なし（引用のみ）'):
-        savedExcerpt(row)||(busy?'本文を取得中…':'表示時に本文を取得します…');
-      button.textContent=busy?'本文を取得中…':failed?'本文を再取得':entry.expanded?'閉じる':'全文を表示';button.disabled=busy;
-      button.setAttribute('aria-expanded',String(entry.expanded));
-      text.textContent=parts?.quoted||'';quoted.hidden=!(entry.expanded&&parts?.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
+      const failed=entry.state==='error',parts=entry.parts?.empty&&fallbackParts?fallbackParts:entry.parts;
+      const busy=['loading','queued'].includes(entry.state);
+      const expanded=entry.expanded&&parts&&!parts.empty;
+      body.classList.toggle('expanded',Boolean(expanded));
+      body.classList.toggle('unavailable',failed);
+      if(expanded)body.textContent=displayText(parts.text);
+      else if(failed&&!storedPreview)body.textContent=entry.error?.status===401||entry.error?.status===403
+        ?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます';
+      else body.textContent=displayText(storedPreview||entry.preview)||
+        (parts?'取得成功 / 空本文':busy?'本文を取得中…':'表示時に本文を取得します…');
+      button.textContent=busy?'本文を取得中…':failed?'本文を再取得':expanded?'閉じる':'全文を表示';
+      button.disabled=busy;
+      button.hidden=Boolean(parts?.empty);
+      button.setAttribute('aria-expanded',String(Boolean(expanded)));
+      text.textContent=expanded?displayText(parts.quoted):'';
+      quoted.hidden=!(expanded&&parts.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
     }
     entry.notify=draw;draw();
     button.onclick=async()=>{
       if(!valid())return;
       if(entry.state==='error'){await load(id,row,entry,valid);return;}
       if(!entry.parts)await load(id,row,entry,valid);
-      if(!valid()||entry.state!=='ready')return;
-      entry.expanded=!entry.expanded;if(!entry.expanded)entry.quoteOpen=false;draw();
+      if(!valid()||entry.state!=='ready'||cache.get(k)!==entry)return;
+      if(entry.parts.empty&&!fallbackParts)return;
+      entry.expanded=!entry.expanded;
+      entry.quoteOpen=entry.expanded;
+      entry.notify();
     };
     if(entry.state==='idle'){
       observer??=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){observer.unobserve(e.target);e.target._loadBody?.();}},{rootMargin:'160px'});
