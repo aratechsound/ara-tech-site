@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { PDFDocument, PDFArray, decodePDFRawStream } = require('pdf-lib');
 const { createFixture } = require('./helpers/pa-contract-fixture.cjs');
-const { read } = require('./helpers/pa-estimate-fixture.cjs');
+const { read, readCommercialOutboxGuard } = require('./helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../api/_pa-commercial.cjs');
 const { createService: contractService } = require('../api/_pa-contract.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
 const MODE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const MIGRATION = '20261008090000_pam025_direct_confirmation_with_estimate.sql';
-async function setup({ transport, migrate = true } = {}) {
+async function setup({ transport, migrate = true, retryGuard = true } = {}) {
   const f = await createFixture();
   process.env.PA_COMMERCIAL_OUTBOX_KEY = '88'.repeat(32);
   process.env.PA_MAIL_ADAPTER = 'gmail';
@@ -24,6 +24,7 @@ async function setup({ transport, migrate = true } = {}) {
   await f.db.exec(r7.slice(0, cut) + '\ncommit;');
   await f.db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
   if (migrate) await f.db.exec(read(MIGRATION));
+  if (retryGuard) await f.db.exec(readCommercialOutboxGuard());
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
     const response = await f.fetchImpl(url, options);

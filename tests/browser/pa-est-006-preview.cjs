@@ -6,7 +6,7 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const { createFixture } = require('../helpers/pa-contract-fixture.cjs');
 const { setup, MODE } = require('../validate-pam-025-direct-confirmation.cjs');
-const { read } = require('../helpers/pa-estimate-fixture.cjs');
+const { read, readCommercialOutboxGuard } = require('../helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../../api/_pa-commercial.cjs');
 const { createHandler } = require('../../api/_pa-commercial-handler.cjs');
 const { sha } = require('../../api/_pa-contract-pdf.cjs');
@@ -43,6 +43,7 @@ async function main() {
             + read('20260914170000_pa_est_007r1_production_e2e.sql') + '\n'
             + r7.slice(0, r7Cut) + '\ncommit;\n'
             + read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
+        await fixture.db.exec(readCommercialOutboxGuard());
         const service = createService({ fetchImpl: fixture.fetchImpl, sendTransport: async (job) => ({ gmail_message_id: `fake-${job.id}`, gmail_thread_id: 'thread_123' }) });
         const estimate = await service.issueEstimate({ case_id: fixture.inquiryId, expected_revision: 0, expected_current: null, operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(), filename: '見積書 2026.09.11 龍姫湖まつり（改訂）.pdf', content_base64: fixture.quote.toString('base64'), sha256: sha(fixture.quote), amount_minor: 198550, currency: 'JPY', tax_basis: 'tax_included', conditions: { source: 'pa-est-006-browser' }, source_kind: 'managed_send', source_sent_at: '2026-09-11T12:00:00Z', body: '見積書を送付します。', cc_addresses: [] }, { id: fixture.actorId });
         await service.dispatch({ job_id: estimate.outbox_id }, { id: fixture.actorId });

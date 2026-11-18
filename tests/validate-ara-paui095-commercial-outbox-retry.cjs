@@ -16,7 +16,6 @@ const replayRejected = /outbox_unknown_requires_reconciliation/;
 async function run(check) {
   const f = await setup();
   try {
-    await f.db.exec(operation(''));
     await check(f);
   } finally {
     await f.db.close();
@@ -198,8 +197,82 @@ async function verifyDirectConfirmationAfterRejection(f) {
   assert.equal(f.state.sendCount,2);
 }
 
+async function verifyMixedVersion() {
+  const f = await setup({ retryGuard: false });
+  try {
+    const id = await seedEstimate(f);
+    const initial = await saved(f, id);
+    await assert.rejects(() => f.service.dispatch({ job_id: id }, f.actor), /outbox_retry_guard_unavailable/);
+    assert.deepEqual(await saved(f, id), initial);
+
+    const preview = await f.service.confirmationPreview({ case_id: f.inquiryId, confirmation_mode: MODE }, f.actor);
+    await assert.rejects(() => f.service.issueDirectConfirmationAndSend({
+      case_id: f.inquiryId, confirmation_mode: MODE, preview_fingerprint: preview.fingerprint, operation_id: randomUUID()
+    }, f.actor), /outbox_retry_guard_unavailable/);
+    assert.equal((await f.service.snapshot(f.inquiryId)).offers.length, 0);
+
+    const lease = randomUUID();
+    await claim(f, id, lease);
+    await f.db.query("update public.pa_commercial_outbox set lease_expires_at=now()-interval '1 minute' where id=$1", [id]);
+    const expired = await saved(f, id);
+    await assert.rejects(() => f.service.dispatch({ job_id: id }, f.actor), /outbox_retry_guard_unavailable/);
+    assert.deepEqual(await saved(f, id), expired);
+    await f.db.query(`select public.pa_v5_outbox_finish_v2(
+      $1,$2,$3,'failed',null,null,'gmail_send_503','failed_after_provider_response',
+      'gmail_api_response','gmail_send_503','Fixture legacy classification',true,true,503)`, [f.actorId, id, lease]);
+    const ambiguous = await saved(f, id);
+    await assert.rejects(() => f.service.dispatch({ job_id: id }, f.actor), /outbox_retry_guard_unavailable/);
+    assert.deepEqual(await saved(f, id), ambiguous);
+    assert.equal(f.state.sendCount, 0);
+
+    await f.db.exec(operation(''));
+    await assert.rejects(() => claim(f, id), replayRejected);
+    await assert.rejects(() => f.service.dispatch({ job_id: id }, f.actor), replayRejected);
+    assert.deepEqual(await saved(f, id), ambiguous);
+    console.log('PASS mixed versions stop dispatch with missing guard and block legacy claims after install, mock sends 0');
+  } finally {
+    await f.db.close();
+  }
+}
+
+async function verifyLegacyUnknownRollback() {
+  const f = await setup({ retryGuard: false });
+  try {
+    const id = randomUUID();
+    await f.db.query(`insert into public.pa_commercial_outbox
+      (id,inquiry_id,operation_id,job_kind,aggregate_id,state,delivery_state,recipient,subject,body_text,reply_binding,
+        last_error_code,attempt_count)
+      values($1,$2,$3,'confirmation',$4,'unknown',null,'fixture@example.invalid','Fixture','Fixture','{}','mail_outcome_unknown',1)`,
+    [id, f.inquiryId, randomUUID(), randomUUID()]);
+    const before = await saved(f, id);
+    await assert.rejects(() => claim(f, id), replayRejected);
+    await f.db.exec(operation(''));
+    await assert.rejects(() => f.db.query('select public.pa_v5_claim_guarded_outbox($1,$2,$3)', [f.actorId, id, randomUUID()]), replayRejected);
+    await assert.rejects(() => claim(f, id), replayRejected);
+    assert.deepEqual(await saved(f, id), before);
+    assert.equal(await requiresReview(f, id), true);
+    const { rows: [access] } = await f.db.query(`select
+      has_function_privilege('anon','public.pa_v5_claim_guarded_outbox(uuid,uuid,uuid)','execute') as anon,
+      has_function_privilege('authenticated','public.pa_v5_claim_guarded_outbox(uuid,uuid,uuid)','execute') as authenticated,
+      has_function_privilege('service_role','public.pa_v5_claim_guarded_outbox(uuid,uuid,uuid)','execute') as service`);
+    assert.deepEqual(access, {anon:false,authenticated:false,service:true});
+    await f.db.exec('alter table public.pa_commercial_outbox disable trigger pa_commercial_outbox_retry_guard');
+    await assert.rejects(() => f.db.query('select public.pa_v5_claim_guarded_outbox($1,$2,$3)', [f.actorId, id, randomUUID()]), /outbox_retry_guard_unavailable/);
+    await f.db.exec('alter table public.pa_commercial_outbox enable trigger pa_commercial_outbox_retry_guard');
+    await f.db.exec(operation('-rollback'));
+    await assert.rejects(() => claim(f, id), replayRejected);
+    assert.deepEqual(await saved(f, id), before);
+    assert.equal(f.state.sendCount, 0);
+    console.log('PASS preexisting confirmation UNKNOWN, with null diagnostic state, survives apply and rollback unchanged');
+  } finally {
+    await f.db.close();
+  }
+}
+
 async function main() {
   global.fetch = async () => { throw Error('LIVE_NETWORK_FORBIDDEN'); };
+  await verifyMixedVersion();
+  await verifyLegacyUnknownRollback();
   await run(f => verifyAcceptedReplyEvidence(f, { failure: 'audit' }));
   await run(f => verifyAcceptedReplyEvidence(f, { failure: 'sync' }));
   await run(f => verifyAcceptedReplyEvidence(f, { failure: 'audit', matchingThread: false }));

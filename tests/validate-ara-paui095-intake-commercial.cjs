@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { PDFDocument } = require('pdf-lib');
 const { createFixture } = require('./helpers/ara-case-fixture.cjs');
-const { read } = require('./helpers/pa-estimate-fixture.cjs');
+const { read, readCommercialOutboxGuard } = require('./helpers/pa-estimate-fixture.cjs');
 const publicIntake = require('../api/pa-inquiry.js');
 const { getInquiry, sendContentHearingAndFinalize } = require('../api/_pa-mail.cjs');
 const { linkIntakeFollowUp, syncCase } = require('../api/_pa-gmail.cjs');
@@ -92,6 +92,7 @@ async function installCommercialMigrations(db) {
   await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
   await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
   await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+  await db.exec(readCommercialOutboxGuard());
 }
 
 async function main() {
