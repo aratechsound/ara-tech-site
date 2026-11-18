@@ -33,10 +33,14 @@ begin
     raise exception 'case_unavailable';
   end if;
 
-  update public.pa_case_progress
-    set current_step=13,close_reason=null,closed_from_step=null,closed_at=null,updated_at=now(),updated_by=p_actor
-    where inquiry_id=p_case;
+  -- Clear the paid-close marker before the generic status guard runs.
+  update public.pa_case_progress set close_reason=null where inquiry_id=p_case;
   update public.pa_inquiries set status='schedule_confirmed' where id=p_case;
+  -- The status trigger recalculates from legacy milestones. A commercial reopen
+  -- resumes at payment review even when those milestones were skipped.
+  update public.pa_case_progress
+    set current_step=13,closed_from_step=null,closed_at=null,updated_at=now(),updated_by=p_actor
+    where inquiry_id=p_case;
   update public.pa_billings set state='open',updated_at=now() where inquiry_id=p_case and state='paid';
   update public.pa_case_commercial_state
     set closed_operation_id=null,reopen_operation_id=p_operation,reopened_at=now(),revision=revision+1,

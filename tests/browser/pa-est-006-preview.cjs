@@ -397,6 +397,10 @@ async function main() {
         assert.equal(reopenedView.case_status, 'schedule_confirmed');
         assert.equal(reopenedView.state.closed_operation_id, null);
         assert.equal(reopenedView.billings[0].state, 'open');
+        const { rows: reopenedProgress } = await f.db.query(
+            'select current_step, closed_at from pa_case_progress where inquiry_id=$1', [case_id]
+        );
+        assert.deepEqual(reopenedProgress, [{ current_step: 13, closed_at: null }]);
         assert.deepEqual((await f.db.query('select id,amount from pa_payment_records where billing_id=$1 order by payment_date', [bill.id])).rows, ledger);
         assert.deepEqual((await f.db.query('select * from pa_contracts where inquiry_id=$1', [case_id])).rows, originalContract);
         const replay = await f.service.reopen(reopenResponse.request().postDataJSON(), f.actor);
