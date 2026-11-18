@@ -17,6 +17,7 @@ let estimateEntryOpening = false;
 let activeWorkspaceContext = null;
 let confirmationPreviewOpening = false;
 const DIRECT_CONFIRM_WITH_ESTIMATE = "DIRECT_CONFIRM_WITH_ESTIMATE";
+const DIRECT_CONFIRM_LINK_ONLY = "DIRECT_CONFIRM_LINK_ONLY";
 
 const byId = (id) => document.getElementById(id);
 const element = (tag, className, text) => {
@@ -425,7 +426,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
     confirmationPreviewOpening = true;
     const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
     const replacementMode = !issuedMode && Boolean(replacementConfirmation?.offer_id && replacementConfirmation?.version);
-    const directMode = !issuedMode && !replacementMode && confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE;
+    const linkOnly = confirmationMode === DIRECT_CONFIRM_LINK_ONLY;
+    const directMode = !issuedMode && !replacementMode && (confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE || linkOnly);
     const caseId = context.getCurrentCase().id;
     const dialog = element("dialog", "pa-confirmation-preview-dialog");
     const privacy = context.privacy;
@@ -453,7 +455,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
             ? `正式受注確認 #${issuedConfirmation.version}は発行済みです。案内メールはまだ送信されていません。`
             : replacementMode
                 ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい確認を同じ見積で準備します。案内メールは送信しません。`
-                : directMode ? "見積書原本と正式受注確認URLを同じメールで提示します。お客様にはページ上で条件への同意と正式依頼をお願いします。まだ発行・送信していません。" : "まだ正式受注確認は発行・送信されていません。")
+                : linkOnly ? "正式受注確認URLをメールでご案内し、見積書原本は確認ページで提示します。"
+                    : directMode ? "見積書原本と正式受注確認URLを同じメールで提示します。お客様にはページ上で条件への同意と正式依頼をお願いします。まだ発行・送信していません。" : "まだ正式受注確認は発行・送信されていません。")
     );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
     const revealButton = privacy ? createRevealButton() : null;
@@ -484,9 +487,13 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                 ? `${honorific(model.recipient.customer_name)}へ正式受注確認 #${model.confirmation_version}の案内メールを送信します。`
                 : replacementMode
                     ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい専用URLと送信待ちメールを原子的に準備します。この操作では案内メールを送信しません。`
-                    : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
+                    : linkOnly ? "正式受注確認を発行し、専用URLを送信します。見積書原本は確認ページで提示します。"
+                        : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
         );
-        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", amount(model.estimate)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
+        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", amount(model.estimate)); pair(facts, "送信先", model.recipient.to);
+        if (model.email.attachment_count === 0) pair(facts, "メール添付", "なし（確認ページで提示）");
+        else if (model.email.attachment_count === 1) pair(facts, "メール添付", model.estimate.original_filename);
+        wrap.append(facts);
         if (privacy) wrap.append(createRevealButton());
         const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode || directMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
         actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
@@ -529,7 +536,10 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
         const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; setFrame(customerFrame, "src", "/pa-contract.html?mode=admin-pre-issue"); customer.append(customerFrame);
         const onMessage = (event) => { if (event.origin === location.origin && event.source === customerFrame.contentWindow && event.data?.type === "pa-contract-preview-ready") customerFrame.contentWindow.postMessage({ type: "pa-contract-preview-model", snapshot: model.customer_snapshot }, location.origin); };
         window.addEventListener("message", onMessage); dialog.addEventListener("close", () => window.removeEventListener("message", onMessage), { once: true });
-        const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject); email.append(emailFacts);
+        const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject);
+        if (model.email.attachment_count === 0) pair(emailFacts, "添付", "なし（確認ページで提示）");
+        else if (model.email.attachment_count === 1) pair(emailFacts, "添付", model.estimate.original_filename);
+        email.append(emailFacts);
         const emailColumns = element("div", "pa-confirmation-preview__two-column"), htmlWrap = element("article", ""), textWrap = element("article", ""), emailFrame = element("iframe", "pa-confirmation-preview__email");
         emailFrame.title = "発行案内メールHTML本文"; emailFrame.setAttribute("sandbox", ""); setFrame(emailFrame, "srcdoc", model.email.html); htmlWrap.append(element("h4", "", "HTML本文"), emailFrame); textWrap.append(element("h4", "", "plain text本文"), element("pre", "pa-confirmation-preview__mail-text", textValue(model.email.body))); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
         const receipt = section("承認後に生成される正式受注確認書"); receipt.append(element("p", "pa-confirmation-preview__note", `${model.versions.receipt}／Page 1・2 + Page 3以降は現在の正規見積原本。確認者・成立日時はお客様承認時に自動記録されます。`));
@@ -544,9 +554,10 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
             let phase = "dialog", retryBlocked = false;
             try {
                 if (!await finalDialog(model)) return;
-                phase = issuedMode ? "dispatch" : "issue";
-                finalButton.textContent = issuedMode ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
-                if (issuedMode) await api(context, "dispatch_outbox", {
+                phase = issuedMode || directMode ? "dispatch" : "issue";
+                finalButton.textContent = phase === "dispatch" ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
+                let result;
+                if (issuedMode) result = await api(context, "dispatch_outbox", {
                     job_id: model.outbox_id, offer_id: model.offer_id,
                     preview_fingerprint: model.fingerprint
                 });
@@ -558,14 +569,15 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                         expected_old_version: replacementConfirmation.version,
                         reason: "Owner判断による旧確認終了・同一見積で再発行"
                     });
-                    else await api(context, directMode ? "issue_direct_confirmation_and_send" : "issue_confirmation", { confirmation_mode: model.confirmation_mode, preview_fingerprint: model.fingerprint, operation_id: operationId });
+                    else result = await api(context, directMode ? "issue_direct_confirmation_and_send" : "issue_confirmation", { confirmation_mode: model.confirmation_mode, preview_fingerprint: model.fingerprint, operation_id: operationId });
                 }
+                if (phase === "dispatch" && (result?.state !== "sent" || !result.provider_message_id)) throw Error("mail_outcome_unknown");
                 dialog.close(); await context.refreshCommercial();
             } catch (error) {
                 if (phase === "dialog") { dialogError.textContent = "最終確認画面を開けませんでした。内容を再取得してもう一度お試しください。"; dialogError.classList.remove("hidden"); }
                 else { retryBlocked = true; const stale = error.message === "stale_confirmation_preview"; status.textContent = stale ? "プレビュー後に内容が変更されています。もう一度内容をご確認ください。" : "発行または案内の結果を確認できません。状態を更新して履歴をご確認ください。"; status.className = stale ? "pa-confirmation-preview__stale" : "pa-confirmation-preview__error"; body.prepend(status); if (stale) { preview = null; checkbox.checked = false; } }
             } finally {
-                busy = false; checkbox.disabled = false; finalButton.removeAttribute("aria-busy"); finalButton.disabled = retryBlocked || !checkbox.checked || model !== preview; finalButton.textContent = actionLabel; if (phase === "dialog" && dialog.open && finalButton.isConnected) finalButton.focus();
+                busy = false; checkbox.disabled = retryBlocked; finalButton.removeAttribute("aria-busy"); finalButton.disabled = retryBlocked || !checkbox.checked || model !== preview; finalButton.textContent = actionLabel; if (phase === "dialog" && dialog.open && finalButton.isConnected) finalButton.focus();
             }
         }, "button button--small");
         finalButton.disabled = true; checkbox.addEventListener("change", () => { finalButton.disabled = !checkbox.checked || !preview || busy; }); gate.append(identity, checkLabel, dialogError, finalButton);
@@ -658,8 +670,9 @@ export async function renderDeskConfirmationActions(root, context) {
             if (current.delivery?.state === "sent") {
                 action("正式受注確認を発行準備", () => openConfirmationPreview(context));
             } else {
-                action("正式受注確認として送信", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE));
+                action("正式受注確認を送る（見積PDFを添付）", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE));
             }
+            action("正式受注確認を送る（メール添付なし）", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_LINK_ONLY));
         } else if (active.estimate_revision_id === current.id) {
             if (delivery?.state === "queued") {
                 action("正式受注確認を送る", () => openConfirmationPreview(context, {

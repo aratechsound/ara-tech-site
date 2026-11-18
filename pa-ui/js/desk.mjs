@@ -526,7 +526,7 @@ async function openDeskCommercial(){
   const stillCurrent=()=>!controller.signal.aborted&&epoch===selectionEpoch&&selected===c.id
     &&tab===activeTab&&session?.user?.id===owner;
   try{
-    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-desk-pdf-mail');
+    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-confirmation-link-only');
     if(!stillCurrent())return;
     const renderActions=activeTab==='invoice'?renderDeskBillingActions:renderDeskConfirmationActions;
     await renderActions(panel,{
