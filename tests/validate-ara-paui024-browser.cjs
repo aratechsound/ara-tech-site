@@ -24,7 +24,7 @@ const root=path.resolve(__dirname,'..');
    gmailPosts.push(input);
    return r.fulfill({json:{ok:input.action==='manual_link',result:{inquiry_id:C,gmail_thread_id:'thread_fixture'}}});
  });
- await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
+ await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const owner={user:{id:'fixture-owner'},access_token:'fixture-only'};export const workspaceAuth={restore:async()=>owner,current:async()=>owner,logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
  if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:closureFixture?'closed':formalFixture?'waiting_customer_reply':'new',case_type:'PA_EVENT',event_date:'2026-11-01'}],progress:closureFixture?[{inquiry_id:C,close_reason:'payment_received',closed_at:closedAt}]:

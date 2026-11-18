@@ -836,12 +836,17 @@ $('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeIn
 window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
 threadLink=createThreadLink({readOnly:passiveMail,read:api,open:openInfo,close:closeInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
-  write:async input=>{
+  write:async (input,beginDispatch)=>{
     if(passiveMail)throw new ReadFailure('mail_readonly',403);
-    if(!session||input.action!=='manual_link'||input.inquiry_id!==selected)throw new ReadFailure('login_required',401);
-    session=await workspaceAuth.current();
-    if(input.inquiry_id!==selected||!session)throw new ReadFailure('case_changed',409);
-    const response=await fetch('/api/pa-gmail',{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},body:JSON.stringify(input)});
+    const owner=session?.user?.id;
+    if(!owner||input.action!=='manual_link')throw new ReadFailure('login_required',401);
+    const sameContext=()=>owner===session?.user?.id&&input.inquiry_id===selected&&tab==='conversation';
+    if(!sameContext())throw new ReadFailure('case_changed',409);
+    const fresh=await workspaceAuth.current();
+    if(fresh?.user?.id!==owner||!fresh.access_token)throw new ReadFailure('login_required',401);
+    if(!sameContext()||!beginDispatch())throw new ReadFailure('case_changed',409);
+    session=fresh;
+    const response=await fetch('/api/pa-gmail',{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+fresh.access_token,'Content-Type':'application/json'},body:JSON.stringify(input)});
     const data=await response.json();if(!response.ok||data.ok!==true)throw new ReadFailure(data.code||'write_outcome_unknown',response.status);return data.result;
   }});
 // The regular authenticated reply API is the only write transport here.
