@@ -28,7 +28,7 @@ const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>legacy&&passiveMail?'':`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
 let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
-const requests=new Set(),mailSyncRequests=new Set(),replyRequests=new Set();let threadLink=null,replyState=null,replyComposer=null,caseMailSync=null,caseLoad=null,mailViewEpoch=0;
+const requests=new Set(),mailSyncRequests=new Set(),replyRequests=new Set();let threadLink=null,replyState=null,replyComposer=null,caseMailSync=null,caseLoad=null;
 // Explicit passive mail viewing for audits: no mail POST or auto-import.
 const passiveMail=new URL(location.href).searchParams.get('mail-view')==='readonly';
 class ReadFailure extends Error{constructor(code,status){super(code);this.code=code;this.status=status;}}
@@ -674,21 +674,36 @@ async function loadSurface(name,url,epoch){
 function discoverMail(){if(current()&&detail.mailCandidates?.state!=='loading')void loadSurface('mailCandidates','/data/mail-candidates/'+selected,selectionEpoch);}
 async function checkLiveMail(){
   if(!current()||detail.liveMail?.state==='loading'||replyState.pending(selected))return;
+  const id=selected,initialLoad=caseLoad;
+  const pending={state:'loading'};
+  detail.liveMail=pending;
   discoverMail();
-  const id=selected,epoch=selectionEpoch,viewEpoch=mailViewEpoch;detail.liveMail={state:'loading'};render();
-  try{const value=await api('/data/mail-live/'+id);if(epoch!==selectionEpoch||id!==selected||viewEpoch!==mailViewEpoch)return;
+  if(tab==='conversation')render();
+  // A completed sync or verified send clears the live view. A late response
+  // belongs to its original loading state, even if another live read has begun.
+  try{
+    if(initialLoad?.id===id&&initialLoad.epoch===selectionEpoch)await initialLoad.messages;
+    if(detail.liveMail!==pending)return;
+    const value=await api('/data/mail-live/'+id);
+    if(detail.liveMail!==pending)return;
     if(!value||!Array.isArray(value.messages)||value.messages.some(m=>m.inquiry_id!==id))throw new ReadFailure('mail_binding_mismatch',403);
-    disposePreviews();bodyView.clear();detail.liveMail={state:'ready',value};detail.messages={state:'ready',value:value.messages};
-  }catch(error){if(epoch!==selectionEpoch||id!==selected)return;detail.liveMail={state:'error',error};}
-  render();
+    bodyView.clear();
+    detail.liveMail={state:'ready',value};
+    detail.messages={state:'ready',value:value.messages};
+  }catch(error){
+    if(detail.liveMail!==pending)return;
+    detail.liveMail={state:'error',error};
+  }
+  if(tab==='conversation')render();
 }
 async function selectCase(id,{restoreTab=false}={}){
   if(!cases.some(c=>c.id===id))return;
   ++selectionEpoch;abortRequests();clearDetail();selected=id;replyState.setCase(id);tab=restoreTab&&new URL(location.href).searchParams.get('tab')==='conversation'?'conversation':'overview';persistCaseView();const epoch=selectionEpoch;
   renderList();render();
   // Read surfaces first. Restored conversation view then runs only its linked-case sync.
-  const promise=Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([loadSurface('messages','/data/mail/'+id,epoch),loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
-  caseLoad={id,epoch,promise};await promise;if(epoch===selectionEpoch){await replyState.resumeSent();if(tab==='conversation')void syncSelectedMail();}
+  const messages=loadSurface('messages','/data/mail/'+id,epoch);
+  const promise=Promise.all(['tokens','responses','audit','deliveries','payments','links'].map(name=>loadSurface(name,'/data/case/'+id+'/'+name,epoch)).concat([messages,loadSurface('commercial','/data/commercial/'+id,epoch),loadSurface('materials','/data/materials/'+id,epoch)]));
+  caseLoad={id,epoch,promise,messages};await promise;if(epoch===selectionEpoch){await replyState.resumeSent();if(tab==='conversation')void syncSelectedMail();}
 }
 async function refresh({openCaseId}={}){
   ++selectionEpoch;const epoch=++listEpoch;abortRequests();clearDetail();selected=null;cases=[];listError=null;attentionError=null;
@@ -864,7 +879,7 @@ replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(at
     const [messages,links]=await Promise.all([api('/data/mail/'+id,{track:replyRequests}),api('/data/case/'+id+'/links',{track:replyRequests})]);
     if(session?.user?.id!==owner)throw Error('login_required');return {messages,links};
   },
-  applySent:(id,value,receipt)=>{if(id!==selected)return;mailViewEpoch++;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();
+  applySent:(id,value,receipt)=>{if(id!==selected)return;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();
     requestAnimationFrame(()=>{if(id!==selected||tab!=='conversation'||replyState.get().phase!=='sent'||replyState.get().receipt?.messageId!==receipt.messageId)return;
       $('reply-composer-host')?.querySelector('[data-reply-notice]')?.scrollIntoView({block:'start'});
       central.querySelector('[data-message="'+receipt.messageId+'"]')?.scrollIntoView({block:'nearest'});
