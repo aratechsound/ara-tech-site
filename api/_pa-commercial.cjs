@@ -14,6 +14,16 @@ const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const LEGACY_CONFIRMATION = 'LEGACY';
 const definitiveGmailRejections = new Set([400, 401, 403, 404, 413, 422, 429]);
+function outboxNeedsReconciliation(job, now) {
+  if (job.state === 'unknown' || job.delivery_state === 'unknown_after_provider_start') return true;
+  if (job.state === 'processing') return !(Date.parse(job.lease_expires_at) > now);
+  if (job.state !== 'failed') return false;
+  const beforeProvider = job.delivery_state === 'failed_before_provider' && job.provider_request_started === false
+    && job.provider_response_received === false && job.provider_http_status == null;
+  const explicitRejection = job.delivery_state === 'failed_after_provider_response' && job.provider_request_started === true
+    && job.provider_response_received === true && definitiveGmailRejections.has(job.provider_http_status);
+  return !beforeProvider && !explicitRejection;
+}
 const confirmationMode = (value) => {
   const mode = value == null ? LEGACY_CONFIRMATION : value;
   if (![LEGACY_CONFIRMATION, DIRECT_CONFIRM_WITH_ESTIMATE].includes(mode)) throw Error('invalid_contract');
@@ -505,7 +515,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     ]) : [[], []];
     const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
-    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => item);
+    const observedAt = Date.now();
+    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => ({
+      ...item, requires_reconciliation: outboxNeedsReconciliation(item, observedAt)
+    }));
+    const invoicesToReconcile = new Set(safeOutbox.filter(job => job.job_kind === 'invoice' && job.requires_reconciliation)
+      .map(job => job.aggregate_id));
     return {
       case_status: inquiry.status,
       state: effectiveState,
@@ -514,7 +529,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
-      outbox: safeOutbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
+      outbox: safeOutbox,
+      billings: billings.map(item => ({ ...item, invoice_requires_reconciliation: item.invoice_policy === 'separate_pdf' && invoicesToReconcile.has(item.id) })),
+      payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
       confirmation_preflight: {
         event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
