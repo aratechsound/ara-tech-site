@@ -8,6 +8,8 @@ const {
     finalizeContentHearingDelivery,
     finalizeScheduleResult,
     getInquiry,
+    previewScheduleMail,
+    previewScheduleRetry,
     resultForMessageType,
     retryDelivery,
     safeErrorCode,
@@ -64,6 +66,12 @@ const sendJson = (response, status, payload) => {
     return response.status(status).json(payload);
 };
 
+const checkScheduleRecipient = (inquiry, input) => {
+    if (!input.expected_recipient || input.expected_recipient !== String(inquiry.email || "").trim()) {
+        throw new Error("schedule_recipient_changed");
+    }
+};
+
 const paMailHandler = async (request, response) => {
     if (request.method !== "POST") {
         response.setHeader("Allow", "POST");
@@ -87,6 +95,21 @@ const paMailHandler = async (request, response) => {
             assertContentHearingMessage(subject, body);
             return sendJson(response, 200, { ok: true, html: buildCustomerHtml(body) });
         }
+        if (input.action === "preview_schedule") {
+            const inquiry = await getInquiry(input.inquiry_id);
+            checkScheduleRecipient(inquiry, input);
+            const html = await previewScheduleMail({
+                inquiry, kind: input.kind, subject: input.subject, body: input.body,
+                scheduleUrl: input.schedule_url, result: input.result
+            });
+            return sendJson(response, 200, { ok: true, html });
+        }
+        if (input.action === "preview_schedule_retry") {
+            const inquiry = await getInquiry(input.inquiry_id);
+            checkScheduleRecipient(inquiry, input);
+            const preview = await previewScheduleRetry({inquiry,deliveryId:input.delivery_id,expectedSnapshot:input.expected_snapshot});
+            return sendJson(response, 200, {ok:true,...preview});
+        }
         const rateLimitPolicy = RATE_LIMIT_POLICY_BY_ACTION[input.action];
         if (!rateLimitPolicy) throw new Error("invalid_action");
         const rate = await checkRateLimit({
@@ -99,6 +122,12 @@ const paMailHandler = async (request, response) => {
             return sendJson(response, 429, { ok: false, code: "rate_limited" });
         }
         const inquiry = await getInquiry(input.inquiry_id);
+        if (["send_schedule", "send_result", "retry"].includes(input.action) && Object.hasOwn(input, "expected_recipient")) {
+            checkScheduleRecipient(inquiry, input);
+        }
+        if (input.action === "retry" && Object.hasOwn(input, "expected_recipient") && !/^[a-f0-9]{64}$/u.test(input.expected_snapshot || "")) {
+            throw new Error("schedule_retry_changed");
+        }
         let delivery;
         let caseState = null;
         if (input.action === "send_content_hearing") {
@@ -140,6 +169,7 @@ const paMailHandler = async (request, response) => {
             delivery = await retryDelivery({
                 deliveryId: input.delivery_id,
                 inquiry,
+                expectedSnapshot: input.expected_snapshot,
                 actorUserId: user.id
             });
             const result = resultForMessageType(delivery.message_type);
@@ -163,6 +193,7 @@ const paMailHandler = async (request, response) => {
             ok: delivery.status === "sent",
             delivery: {
                 id: delivery.id,
+                dedupe_key: delivery.dedupe_key,
                 message_type: delivery.message_type,
                 recipient: delivery.recipient,
                 subject: delivery.subject,
@@ -180,7 +211,10 @@ const paMailHandler = async (request, response) => {
     } catch (error) {
         const code = String(error?.message || "");
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
-        if (code === "schedule_token_not_available") return sendJson(response, 409, { ok: false, code });
+        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists", "schedule_recipient_changed", "schedule_retry_changed"].includes(code)) {
+            return sendJson(response, 409, { ok: false, code });
+        }
+        if (code === "mail_outcome_unknown") return sendJson(response, 409, { ok: false, code });
         if ([
             "invalid_input",
             "invalid_action",

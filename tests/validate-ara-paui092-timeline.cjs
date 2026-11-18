@@ -19,7 +19,9 @@ async function verify() {
   assert.deepEqual(merged.map(x => x.key), ['mail:reply', 'mail:internal', 'mail:receipt', 'form']);
   assert.equal(merged[2].deliveries.length, 2);
   assert.deepEqual(merged.filter(customerInbound).map(x => x.message.gmail_message_id), ['reply']);
-  assert.equal(deliveryOutcome({status:'failed'}), '送信失敗');
+  assert.equal(deliveryOutcome({status:'failed',error_summary:'gmail_send_400'}), '送信失敗');
+  assert.equal(deliveryOutcome({status:'failed'}), '配送結果未確定');
+  assert.equal(deliveryOutcome({status:'failed',error_summary:'gmail_send_503'}), '配送結果未確定');
   assert.equal(deliveryOutcome({status:'failed', error_summary:'mail_outcome_unknown'}), '配送結果未確定');
   assert.equal(deliveryOutcome({status:'sending'}), '配送結果未確定');
   assert.match(timelineDate(inquiry.received_at), /10:58:49 JST$/);
