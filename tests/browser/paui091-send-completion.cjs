@@ -5,11 +5,13 @@ const {chromium}=require('playwright'),{createFixture}=require('../helpers/ara-c
 const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 (async()=>{
  const f=await createFixture(),{syncCase,replyContext,replyPreview,sendReply,normalizeMessage}=require('../../api/_pa-gmail.cjs');
+ const {values,pdf}=await import('../paui027-fixture.mjs');
  await f.db.query("insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status) values($1,'PA-FIXTURE-A','Fixture A','customer@example.invalid','AV_INSTALL','new_inquiry'),($2,'PA-FIXTURE-B','Fixture B','other@example.invalid','AV_INSTALL','new_inquiry')",[A,B]);
  await f.db.query("insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,'thread_1','manual','primary_conversation')",[A]);
  await f.db.query("update pa_inquiries set submission_source='public_form', submission_key=id, venue='Fixture Park', request_summary='PA timeline fixture' where id=$1",[B]);
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
+ let rejectNextLiveRead;
  const posts=[],intakePosts=[],provider=[],checks=[];
  let followUpDelivery, failFollowUpRead=false, unknownFollowUp=false, indexFollowUp=false;
  const transport=async(url,opts={})=>{
@@ -25,7 +27,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const protectedBefore=(await f.db.query('select to_jsonb(i) row from pa_inquiries i order by id')).rows;
  const linksBefore=(await f.db.query('select to_jsonb(l) row from pa_gmail_thread_links l order by id')).rows;
  const metadata=async id=>{const row=(await f.db.query('select state from paui041_mail_sync_state where inquiry_id=$1',[id])).rows[0],s=row?.state?.linked_sync;return {inquiry_id:id,scope:'existing_linked_threads',complete:Boolean(s?.complete),last_success_at:s?.checked_at||null,thread_ids:s?.thread_ids||[],message_count:s?.message_count||0};};
- const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);`;
+ const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},async login(){active=true;return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);`;
  const server=http.createServer(async(req,res)=>{try{
   const u=new URL(req.url,'http://localhost'),json=(v,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(v));};
   if(u.pathname==='/pa-ui/js/integration.mjs'){res.writeHead(200,{'content-type':'text/javascript'});return res.end(integration);}
@@ -86,11 +88,20 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    }
    else if(parts[2]==='mail-live'){
     if(parts[3]===B)return json({ok:false,code:'fixture_gmail_unavailable'},503);
+    const rejectLive=rejectNextLiveRead;
+    rejectNextLiveRead=null;
+    if(rejectLive){
+     await new Promise(resolve=>rejectLive(resolve));
+     return json({ok:false,code:'fixture_live_read_failed'},503);
+    }
     result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
    }
    else if(parts[2]==='mail-body'){const m=normalizeMessage(f.state.messages.get(parts[4]));result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_html:m.body_html||'',body_state:'ready',attachments:[]};}
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};
-   else if(parts[2]==='sent-estimates')result={messages:[],unknown:[]};
+   else if(parts[2]==='sent-estimates')result=values[route]??{messages:[],unknown:[]};
+   else if(route==='/data/sent-estimate-attachment/'+A+'/quote/quote1'){
+    res.writeHead(200,{'content-type':'application/pdf'});return res.end(pdf());
+   }
    else if(parts[2]==='commercial')result={estimates:[],offers:[],billings:[]};else if(parts[2]==='materials')result={cards:[],photos:[]};return json({ok:true,result});
   }
   const file=path.resolve(root,'.'+(u.pathname==='/'?'/pa-admin.html':u.pathname));if(!file.startsWith(root+path.sep)||!fs.existsSync(file)){res.writeHead(404);return res.end();}
@@ -119,7 +130,25 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const page=await pageAt({width:390,height:844});await draft(page,'Known receipt survives reload');await approve(page);const before=sendCount();failRead=true;await page.locator('[data-reply-send]').click();await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();await page.reload();await page.waitForLoadState('networkidle');await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();failRead=false;await page.locator('[data-reply-recheck]').click();await page.getByText('送信しました',{exact:true}).waitFor();assert.equal(sendCount(),before+1);assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);await page.locator('[data-reply-message="source"]').click();assert.equal(await page.locator('[data-reply-body]').inputValue(),'');assert.deepEqual(page.errors,[]);checks.push({known_sent_reload_recovers_by_reads_only:true});await page.close();
   }
   {
-   const page=await pageAt({width:1440,height:1000});await draft(page,'Auth lost while waiting for response');await approve(page);const before=sendCount();holdSend=true;releaseSend=null;await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.evaluate(()=>window.revokeSendFixture());holdSend=false;releaseSend();await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(sendCount(),before+1);assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.deepEqual(page.errors,[]);checks.push({auth_lost_after_known_send_stays_unverified:true,no_resend:true});await page.close();
+   const page=await pageAt({width:1440,height:1000});await draft(page,'Auth lost while waiting for response');await approve(page);const before=sendCount();holdSend=true;releaseSend=null;
+   await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.evaluate(()=>window.revokeSendFixture());holdSend=false;releaseSend();
+   await page.getByText('セッションまたは管理者権限を確認できません。再認証してください。',{exact:true}).waitFor();
+   assert.equal(await page.locator('[data-case],[data-message]').count(),0);
+   assert.equal(await page.locator('.reply-composer').isVisible(),false);
+   assert.equal(sendCount(),before+1);
+   failRead=true;
+   await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');
+   await page.locator('#login-form input[name="password"]').fill('fixture-only');
+   await page.locator('#login-form button').click();
+   await page.waitForLoadState('networkidle');
+   await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();
+   assert.equal(await page.locator('.reply-composer').isVisible(),false);
+   assert.equal(await page.locator('[data-reply-send]').isDisabled(),true);
+   failRead=false;await page.locator('[data-reply-recheck]').click();
+   await page.getByText('送信しました',{exact:true}).waitFor();
+   assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+   assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);
+   checks.push({auth_lost_after_known_send_hides_private_data:true,known_receipt_recovers_after_login:true,no_resend:true});await page.close();
   }
   // Reproduce Owner's old close/tab-switch workaround, now on a forced read failure.
   {
@@ -127,6 +156,30 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
   }
   {
    const page=await pageAt({width:1440,height:1000});holdSync=true;releaseSync=null;await page.locator('[data-action="mail-sync"]').click();await waitForRelease('sync');await draft(page,'Send during old auto sync');await approve(page);await page.locator('[data-reply-send]').click();await page.getByText('送信済みです。履歴を確認中…',{exact:true}).first().waitFor();assert.equal(await page.locator('.reply-composer').isVisible(),true);holdSync=false;releaseSync();await page.getByText('送信しました',{exact:true}).waitFor();assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);assert.deepEqual(page.errors,[]);checks.push({old_auto_sync_flight_waited:true,no_stale_overwrite:true});await page.close();
+  }
+  {
+   const page=await pageAt({width:1440,height:1000});
+   const liveStarted=new Promise(started=>{rejectNextLiveRead=started;});
+   await page.getByRole('button',{name:'取込せず原本を確認',exact:true}).click();
+   const failLive=await liveStarted;
+   try{
+    await draft(page,'Send during a delayed Gmail read');
+    await approve(page);
+    const before=sendCount();
+    await page.locator('[data-reply-send]').click();
+    const notice=page.getByText('送信しました',{exact:true});
+    await notice.waitFor();
+    const response=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/mail-live/'+A);
+    failLive();
+    await response;
+    await page.waitForLoadState('networkidle');
+    assert.equal(await notice.count(),1);
+    assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+    assert.equal(await page.getByText('Gmail取得失敗 / 最新は未確認',{exact:true}).count(),0);
+    assert.equal(sendCount(),before+1);
+    assert.deepEqual(page.errors,[]);
+    checks.push({late_gmail_error_after_verified_send_ignored:true});
+   }finally{failLive();await page.close();}
   }
   {
    const page=await pageAt({width:390,height:844});
@@ -200,6 +253,35 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.deepEqual(page.errors,[]);
    checks.push({case_switch_late_send_isolated:true,mobile:true,form_delivery_timeline:true,gmail_read_failure_preserves_timeline:true});
    await page.close();
+  }
+  {
+   const page=await pageAt({width:390,height:844});
+   await draft(page,'Reply completes while reading an original');await approve(page);
+   const before=sendCount();
+   holdSend=true;releaseSend=null;
+   await page.locator('[data-reply-send]').click();
+   await waitForRelease('send');
+   try{
+    await page.locator('[data-tab="estimate"]').click();
+    await page.getByRole('button',{name:'見積書_Gmail.pdf の拡大プレビュー',exact:true}).click();
+    const preview=page.locator('dialog[open].pa-material-preview-dialog');
+    await preview.getByRole('button',{name:'次のページ',exact:true}).click();
+    await preview.locator('canvas[aria-label="PDF 2ページ"]').waitFor();
+    const readback=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/mail/'+A);
+    holdSend=false;releaseSend();
+    await readback;
+    await page.waitForLoadState('networkidle');
+    assert(await preview.locator('canvas[aria-label="PDF 2ページ"]').isVisible(),'Verified reply readback replaced the open estimate preview');
+    assert(await preview.getByRole('link',{name:'原本をダウンロード',exact:true}).isVisible());
+    await preview.getByRole('button',{name:'閉じる',exact:true}).click();
+    await page.locator('[data-tab="conversation"]').click();
+    await page.getByText('送信しました',{exact:true}).waitFor();
+    assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+    assert.equal(sendCount(),before+1);
+    assert.deepEqual(page.errors,[]);
+    checks.push({verified_reply_preserves_other_pane:true,mobile:true,no_resend:true});
+    console.log('PASS verified reply preserves open estimate preview and appears once on return to conversation');
+   }finally{holdSend=false;releaseSend();await page.close();}
   }
   {
    const page=await pageAt({width:390,height:844});await draft(page,'Lost send response');await approve(page);loseReply=true;const before=sendCount();await page.locator('[data-reply-send]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-status]').textContent.includes('UNKNOWN'));assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);await page.locator('[data-reply-history]').click();assert.equal(sendCount(),before+1);loseReply=false;await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Do not resend after reload');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({unknown_stays_open:true,unknown_reload_no_resend:true});await page.close();
