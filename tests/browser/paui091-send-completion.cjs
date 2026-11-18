@@ -10,6 +10,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  await f.db.query("update pa_inquiries set submission_source='public_form', submission_key=id, venue='Fixture Park', request_summary='PA timeline fixture' where id=$1",[B]);
  const inbound=f.raw('source','thread_1');f.state.messages.set(inbound.id,inbound);f.state.threadMessages.set('thread_1',[inbound]);
  let outgoingBody='',latestSent=null,failRead=false,duplicateRead=false,loseReply=false,holdSend=false,releaseSend,holdSync=false,releaseSync;
+ let rejectNextLiveRead;
  const posts=[],intakePosts=[],provider=[],checks=[];
  let followUpDelivery, failFollowUpRead=false, unknownFollowUp=false, indexFollowUp=false;
  const transport=async(url,opts={})=>{
@@ -86,6 +87,12 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    }
    else if(parts[2]==='mail-live'){
     if(parts[3]===B)return json({ok:false,code:'fixture_gmail_unavailable'},503);
+    const rejectLive=rejectNextLiveRead;
+    rejectNextLiveRead=null;
+    if(rejectLive){
+     await new Promise(resolve=>rejectLive(resolve));
+     return json({ok:false,code:'fixture_live_read_failed'},503);
+    }
     result={messages:(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows,status:'linked_threads_current'};
    }
    else if(parts[2]==='mail-body'){const m=normalizeMessage(f.state.messages.get(parts[4]));result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_html:m.body_html||'',body_state:'ready',attachments:[]};}
@@ -127,6 +134,30 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
   }
   {
    const page=await pageAt({width:1440,height:1000});holdSync=true;releaseSync=null;await page.locator('[data-action="mail-sync"]').click();await waitForRelease('sync');await draft(page,'Send during old auto sync');await approve(page);await page.locator('[data-reply-send]').click();await page.getByText('送信済みです。履歴を確認中…',{exact:true}).first().waitFor();assert.equal(await page.locator('.reply-composer').isVisible(),true);holdSync=false;releaseSync();await page.getByText('送信しました',{exact:true}).waitFor();assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);assert.deepEqual(page.errors,[]);checks.push({old_auto_sync_flight_waited:true,no_stale_overwrite:true});await page.close();
+  }
+  {
+   const page=await pageAt({width:1440,height:1000});
+   const liveStarted=new Promise(started=>{rejectNextLiveRead=started;});
+   await page.getByRole('button',{name:'取込せず原本を確認',exact:true}).click();
+   const failLive=await liveStarted;
+   try{
+    await draft(page,'Send during a delayed Gmail read');
+    await approve(page);
+    const before=sendCount();
+    await page.locator('[data-reply-send]').click();
+    const notice=page.getByText('送信しました',{exact:true});
+    await notice.waitFor();
+    const response=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/mail-live/'+A);
+    failLive();
+    await response;
+    await page.waitForLoadState('networkidle');
+    assert.equal(await notice.count(),1);
+    assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+    assert.equal(await page.getByText('Gmail取得失敗 / 最新は未確認',{exact:true}).count(),0);
+    assert.equal(sendCount(),before+1);
+    assert.deepEqual(page.errors,[]);
+    checks.push({late_gmail_error_after_verified_send_ignored:true});
+   }finally{failLive();await page.close();}
   }
   {
    const page=await pageAt({width:390,height:844});

@@ -10,6 +10,8 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const old=f.raw('old_sent','thread_1','aratechsound@gmail.com','previous outbound'),older=f.raw('older_received','thread_2'),first=f.raw('new_received_1','thread_1','customer@example.invalid','First new reply body.');
  old.labelIds=['SENT'];old.payload.headers.find(h=>h.name==='To').value='customer@example.invalid';older.internalDate=String(Number(old.internalDate)-10000);first.internalDate=String(Number(old.internalDate)+10000);first.labelIds=['UNREAD','INBOX'];
  let fail=false,paused=false,releaseSync,startSync;const started=new Promise(r=>{startSync=r;}),posts=[],providerCalls=[];
+ let heldLive,heldIndex,providerOnlyMail;
+ const readsWhileRestoring=[];
  f.state.threadMessages.set('thread_1',[old]);f.state.threadMessages.set('thread_2',[older]);for(const m of [old,older,first])f.state.messages.set(m.id,m);
  const transport=async(url,opts={})=>{providerCalls.push({url,method:opts.method||'GET'});if(fail&&url.includes('/threads/thread_1?'))throw Error('fixture_provider_failure');if(url.includes('/rpc/paui041_record_linked_sync')){const x=JSON.parse(opts.body);await f.db.query('select paui041_record_linked_sync($1,$2,$3,$4)',[x.p_case,x.p_actor,JSON.stringify(x.p_threads),JSON.stringify(x.p_messages)]);return {ok:true,json:async()=>null};}return f.fetchImpl(url,opts);};
  await syncCase({inquiryId:A,actorId:f.actor,linkedOnly:true},transport);assert.equal((await f.db.query('select attention_state from pa_case_mail_attention where inquiry_id=$1',[A])).rows[0].attention_state,'waiting_customer');
@@ -28,7 +30,27 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    if(route==='/data/cases')result={cases:(await f.db.query('select * from pa_inquiries order by id')).rows,progress:[]};
    else if(route==='/data/attention')result=(await f.db.query('select * from pa_case_mail_attention')).rows;
    else if(parts[2]==='case'){const id=parts[3];if(parts[4]==='links')result=(await f.db.query('select * from pa_gmail_thread_links where inquiry_id=$1',[id])).rows;else if(parts[4]==='attention')result=(await f.db.query('select * from pa_case_mail_attention where inquiry_id=$1',[id])).rows;else if(parts[4]==='mail-sync')result=await metadata(id);}
-   else if(parts[2]==='mail')result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;
+   else if(parts[2]==='mail'){
+    result=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1 order by greatest(received_at,sent_at) desc',[parts[3]])).rows;
+    const hold=heldIndex;
+    if(hold){
+     heldIndex=null;
+     await new Promise(resolve=>hold(resolve));
+     readsWhileRestoring.push('index_response');
+    }
+   }
+   else if(parts[2]==='mail-live'){
+    const hold=heldLive;
+    heldLive=null;
+    const messages=(await f.db.query('select * from pa_gmail_message_index where inquiry_id=$1',[parts[3]])).rows;
+    if(providerOnlyMail){
+     readsWhileRestoring.push('live_read');
+     messages.push(providerOnlyMail);
+    }
+    if(hold)await new Promise(resolve=>hold.started(resolve));
+    if(hold?.fail)return json({ok:false,code:'fixture_live_read_failed'},503);
+    result={messages,status:'linked_threads_current'};
+   }
    else if(parts[2]==='mail-body'){const raw=f.state.messages.get(parts[4]),m=normalizeMessage(raw);result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_state:'ready'};}
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};else if(parts[2]==='commercial')result={estimates:[],documents:[],offers:[],billings:[]};else if(parts[2]==='materials')result={cards:[],photos:[]};return json({ok:true,result});
   }
@@ -46,7 +68,53 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
   await page.locator('[data-reply-message="new_received_2"]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-source]').textContent.includes('new_received_2'));await page.locator('[data-reply-body]').fill('');
   await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();assert.equal(new URL(page.url()).searchParams.get('tab'),'conversation');assert.equal((await f.db.query('select count(*)::int n from pa_gmail_message_index')).rows[0].n,4);
   const priorSuccess=await page.locator('[data-mail-sync-success]').innerText();fail=true;await page.locator('[data-action="mail-sync"]').click();await page.locator('[data-mail-sync-state="error"]').waitFor();assert.equal(await page.locator('[data-message="new_received_2"]').count(),1);assert.equal(await page.locator('[data-mail-sync-success]').innerText(),priorSuccess);const failedPosts=posts.length;await page.waitForTimeout(150);assert.equal(posts.length,failedPosts,'no retry loop');
-  fail=false;await page.locator('[data-action="mail-sync"]').click();await page.locator('[data-mail-sync-state="success"]').waitFor();await page.setViewportSize({width:390,height:844});await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);await page.locator('[data-reply-message="new_received_2"]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-to]').value==='customer@example.invalid');
+  fail=false;await page.locator('[data-action="mail-sync"]').click();await page.locator('[data-mail-sync-state="success"]').waitFor();
+  for(const deferredFailure of [false,true]){
+   const liveStarted=new Promise(started=>{heldLive={started,fail:deferredFailure};});
+   await page.getByRole('button',{name:'取込せず原本を確認',exact:true}).click();
+   const finishLive=await liveStarted;
+   try{
+    const messageId=deferredFailure?'during_failed_live_read':'during_slow_live_read';
+    const arriving=f.raw(messageId,'thread_1','customer@example.invalid','Customer reply during an earlier live read');
+    arriving.internalDate=String(Number(second.internalDate)+(deferredFailure?20000:10000));
+    arriving.labelIds=['INBOX','UNREAD'];
+    f.state.messages.set(arriving.id,arriving);
+    f.state.threadMessages.get('thread_1').push(arriving);
+    const beforeSync=posts.filter(p=>p.action==='sync').length;
+    await page.locator('[data-action="mail-sync"]').click();
+    await page.locator('[data-mail-sync-state="success"]').waitFor();
+    const currentRow=page.locator('[data-message="'+messageId+'"]');
+    await currentRow.waitFor();
+    const response=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/mail-live/'+A);
+    finishLive();
+    await response;
+    await page.waitForLoadState('networkidle');
+    assert.equal(await currentRow.count(),1,'late Gmail read cannot remove a newer indexed reply');
+    assert.equal(await page.getByText('Gmail取得失敗 / 最新は未確認',{exact:true}).count(),0,'obsolete read errors must not overwrite current status');
+    assert.equal(posts.filter(p=>p.action==='sync').length,beforeSync+1);
+    console.log(JSON.stringify({lateOriginalRead:deferredFailure?'failure':'success',indexedReplyPreserved:true,unneededSyncPosts:0}));
+   }finally{finishLive();}
+  }
+  const readonly=await browser.newPage({viewport:{width:390,height:844}});
+  await readonly.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
+  const indexedReadStarted=new Promise(started=>{heldIndex=started;});
+  providerOnlyMail={inquiry_id:A,gmail_message_id:'live_only_after_restore',gmail_thread_id:'thread_1',
+   direction:'inbound',received_at:new Date().toISOString(),subject:'Read-only Gmail original',body_text:'Fresh original',index_state:'not_indexed'};
+  const preRestorePosts=posts.length;
+  await readonly.goto('http://127.0.0.1:'+server.address().port+'/?case='+A+'&tab=conversation&mail-view=readonly');
+  const finishIndex=await indexedReadStarted;
+  try{
+   const liveButton=readonly.getByRole('button',{name:'取込せず原本を確認',exact:true});
+   await liveButton.click();
+   assert.equal(await liveButton.isDisabled(),true);
+   finishIndex();
+   await readonly.locator('[data-message="live_only_after_restore"]').waitFor();
+   await readonly.locator('[data-message="during_slow_live_read"]').waitFor();
+   assert.deepEqual(readsWhileRestoring,['index_response','live_read']);
+   assert.equal(posts.length,preRestorePosts,'readonly restoration and original read are GET only');
+   console.log('PASS CASE DESK opens the Gmail original after its initial index read, with no write');
+  }finally{finishIndex();await readonly.close();providerOnlyMail=null;}
+  await page.setViewportSize({width:390,height:844});await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);await page.locator('[data-reply-message="new_received_2"]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-to]').value==='customer@example.invalid');
   const beforeRevoke=posts.length;await page.evaluate(()=>window.revokeAutoFixture());await page.locator('[data-action="mail-sync"]').click();await page.locator('#login-screen').waitFor({state:'visible'});assert.equal(posts.length,beforeRevoke);
   assert.deepEqual(errors,[]);assert.deepEqual((await f.db.query('select to_jsonb(i) row from pa_inquiries i order by id')).rows,protectedBefore.rows);assert.deepEqual((await f.db.query('select to_jsonb(t) row from pa_gmail_thread_links t order by id')).rows,linkedBefore.rows);assert.equal((await f.db.query('select count(*)::int n from pa_gmail_message_index where inquiry_id=$1',[B])).rows[0].n,0);assert.equal(f.state.sendCount,0);
   assert(providerCalls.filter(c=>c.url.includes('gmail.googleapis.com')).every(c=>c.method==='GET'&&!c.url.includes('/messages?')));assert.equal((await f.db.query('select count(*)::int n from pa_gmail_message_index where gmail_message_id=$1',['new_received_2'])).rows[0].n,1);
