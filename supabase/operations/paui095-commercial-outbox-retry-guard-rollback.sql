@@ -20,7 +20,11 @@ begin
 end
 $guard$;
 
+drop function public.pa_v5_claim_guarded_outbox(uuid, uuid, uuid);
+drop function public.pa_v5_assert_outbox_retry_guard();
 drop trigger pa_commercial_outbox_retry_guard on public.pa_commercial_outbox;
 drop function public.pa_guard_commercial_outbox_retry();
+
+notify pgrst, 'reload schema';
 
 commit;

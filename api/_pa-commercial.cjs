@@ -112,7 +112,7 @@ const SAFE = new Set([
   'invalid_confirmation_replacement', 'replacement_target_changed', 'confirmation_delivery_in_progress',
   'confirmation_send_owner_approval_required', 'confirmation_send_authority_changed',
   'revoke_reason_required', 'invalid_revision_start', 'outbox_not_found', 'outbox_busy',
-  'outbox_unknown_requires_reconciliation', 'outbox_lease_changed', 'invalid_outbox_result',
+  'outbox_unknown_requires_reconciliation', 'outbox_retry_guard_unavailable', 'outbox_lease_changed', 'invalid_outbox_result',
   'mail_outcome_unknown',
   'invalid_settlement', 'settlement_not_ready', 'contract_not_found', 'invalid_billing',
   'invalid_billing_mail', 'due_date_evidence_required', 'invoice_document_not_allowed',
@@ -456,6 +456,20 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     return response.status === 204 ? null : response.json();
   };
   const rpc = (name, input) => db('rpc/' + name, { method: 'POST', body: JSON.stringify(input) });
+  // A missing or unverified guard is a deployment mismatch. Never use the
+  // prior claim RPC as a fallback for a mail dispatch.
+  const guardedOutboxRpc = async (name, input) => {
+    try { return await rpc(name, input); }
+    catch (error) {
+      if (error.message === 'service_unavailable') throw Error('outbox_retry_guard_unavailable');
+      throw error;
+    }
+  };
+  const requireOutboxGuard = async () => {
+    if (await guardedOutboxRpc('pa_v5_assert_outbox_retry_guard', {}) !== true) {
+      throw Error('outbox_retry_guard_unavailable');
+    }
+  };
   const finishOutbox = async (input) => {
     try { return await rpc('pa_v5_outbox_finish_v2', input); }
     catch (error) {
@@ -971,6 +985,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
 
   async function issueDirectConfirmationAndSend(input, actor) {
     if (!isDirectConfirmation(input.confirmation_mode)) throw Error('invalid_contract');
+    await requireOutboxGuard();
     const issued = await issueConfirmation(input, actor);
     // A repeated final operation reports the existing outcome, including unknown.
     // Only a separate, newly approved send operation may retry a definite failure.
@@ -1303,7 +1318,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       });
     }
     const lease = crypto.randomUUID();
-    const claimed = await rpc('pa_v5_outbox_claim', { p_actor: actor.id, p_job: jobId, p_lease: lease });
+    const claimed = await guardedOutboxRpc('pa_v5_claim_guarded_outbox', { p_actor: actor.id, p_job: jobId, p_lease: lease });
     if (claimed?.state === 'cancelled') return claimed;
     if (claimed?.already_committed && claimed.state === 'sent') {
       const completed = await one('pa_commercial_outbox', { id: 'eq.' + jobId, select: 'provider_message_id' });

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { PDFDocument, PDFArray, decodePDFRawStream } = require('pdf-lib');
 const { createFixture } = require('./helpers/pa-contract-fixture.cjs');
-const { read } = require('./helpers/pa-estimate-fixture.cjs');
+const { read, readCommercialOutboxGuard } = require('./helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../api/_pa-commercial.cjs');
 const { createService: contractService } = require('../api/_pa-contract.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
@@ -14,7 +14,7 @@ const MIGRATION = '20261008090000_pam025_direct_confirmation_with_estimate.sql';
 const ESTIMATE_CONFIRMATION_GUARD = '20261117183629_paui095_preserve_active_confirmation_on_estimate.sql';
 const ESTIMATE_RECOVERY_GUARD = '20261117184848_paui095_guard_current_estimate_recovery.sql';
 const LINK_MIGRATION = '20261117165312_paui095_confirmation_link_only.sql';
-async function setup({ transport, migrate = true, linkOnly = migrate } = {}) {
+async function setup({ transport, migrate = true, linkOnly = migrate, retryGuard = true } = {}) {
   const f = await createFixture();
   process.env.PA_COMMERCIAL_OUTBOX_KEY = '88'.repeat(32);
   process.env.PA_MAIL_ADAPTER = 'gmail';
@@ -41,6 +41,7 @@ async function setup({ transport, migrate = true, linkOnly = migrate } = {}) {
     assert.deepEqual(currentAcl.rows, previousAcl.rows);
   }
   if (linkOnly) await f.db.exec(read(LINK_MIGRATION));
+  if (retryGuard) await f.db.exec(readCommercialOutboxGuard());
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
     const response = await f.fetchImpl(url, options);
