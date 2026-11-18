@@ -25,7 +25,7 @@ const addresses=v=>Array.isArray(v)?v.join(', '):String(v||'未取得');
 const date=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '未提供';return new Date(value).toLocaleString('ja-JP');};
 const shortDate=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '未定';return new Date(value).toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'});};
 const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
-const button=(text,act,style='',legacy=false)=>`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
+const button=(text,act,style='',legacy=false)=>legacy&&passiveMail?'':`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
 let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
 const requests=new Set(),mailSyncRequests=new Set(),replyRequests=new Set();let threadLink=null,replyState=null,replyComposer=null,caseMailSync=null,caseLoad=null,mailViewEpoch=0;
@@ -120,7 +120,8 @@ function renderHeader(){
   $('head-meta').innerHTML=c?`<span>開催 <b>${tx(eventDate(c)||'未定')}</b></span><span>会場 <b>${tx(c.venue||'未設定')}</b></span>`:'';
   $('open-schedule').disabled=!c;
   const portal=$('open-portal');
-  if(c){portal.href='/pa/cases/'+encodeURIComponent(c.id)+'/portal';portal.removeAttribute('aria-disabled');portal.title='既存の案件別管理者ポータルを新しいタブで開く';}
+  portal.hidden=passiveMail;
+  if(c&&!passiveMail){portal.href='/pa/cases/'+encodeURIComponent(c.id)+'/portal';portal.removeAttribute('aria-disabled');portal.title='既存の案件別管理者ポータルを新しいタブで開く';}
   else{portal.removeAttribute('href');portal.setAttribute('aria-disabled','true');}
   document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.disabled=!c;b.setAttribute('aria-selected',String(b.dataset.tab===tab));});
   renderCounts();
@@ -179,7 +180,7 @@ function overview(c){
   return `<div class="brief ${a.needsReview===true?'warn':''}"><div><span class="kicker">次に必要な対応</span><strong>${tx(next)}</strong><small>${escape(a.label)}</small></div>${button('やり取りを確認','conversation','blue')}</div><div class="group"><h2 class="sectiontitle">案件の基本情報 <small>開催日・会場は上部に表示</small></h2>${canEditCaseBasics(c)?button('基本情報を編集','case-basics','quiet'):''}${detail.caseBasicsSaved?'<p class="notice" role="status">基本情報を保存しました。</p>':''}<div class="facts">${fact('本番時間',p.confirmed_event_time||c.event_time)}${fact('顧客',c.organization_name||c.customer_name||c.contact_name)}${c.organization_name?fact('お客様・担当者',c.customer_name||c.contact_name):''}${fact('案件種別',c.case_type)}${fact('担当',p.assigned_to||p.owner_name||c.assigned_to)}${fact('連絡先',c.email)}${fact('電話',c.phone)}</div><div class="stage-info">${tx(c.request_summary||'依頼概要未提供')}</div><div class="workflow">${STEPS.map((s,i)=>`<span class="${step===i+1?'current':step>i+1?'done':''}">${i+1} ${escape(s)}</span>`).join('')}</div><div class="stage-info">工程 ${Number.isInteger(step)&&step>0&&step<=14?step+' / 14':'未取得'}${p.is_on_hold?' / 保留':''}</div></div><div class="group"><h2 class="sectiontitle">最近の動き <button class="lightbtn" data-action="history">履歴を表示 ›</button></h2>${readBlock('audit','監査履歴',rows=>rowsHtml(rows.slice(0,4),{title:r=>r.action,time:r=>r.occurred_at}))}</div>${attentionError?errorBlock(attentionError,'新着状態'):''}`;
 }
 function syncStatusHtml(){
-  if(passiveMail)return '<strong data-mail-sync-state="readonly">メール閲覧モード：保存済み履歴を表示しています。自動取込・メール送信は停止中です。</strong>';
+  if(passiveMail)return '<strong data-mail-sync-state="readonly">メール閲覧モード：保存済み履歴とGmailの候補・原本を確認できます。</strong>';
   const state=caseMailSync.get(selected),labels={idle:'保存済みメールを読み込み後、この案件を同期します。',syncing:'この案件の最新メールを同期中…',success:'同期完了：関連付け済みスレッドの最新メールを反映しました。',unlinked:'関連付け済みスレッドがありません。顧客メールを関連付けてください。',error:'同期失敗：最新は未確認です。保存済みメールを保持しています。'};
   const pending=detail.intakeThreadLink==='pending', disabled=state.promise||replyState?.pending(selected)||pending;
   const followUp=unlinkedIntakeFollowUp();
@@ -230,7 +231,9 @@ function conversation(c){
   const live=detail.liveMail,candidates=detail.mailCandidates;
   const labels={no_thread_links:'承認済みスレッドなし / 未紐付けメールは未確認',partial_unknown:'Gmail取得・帰属照合が一部失敗 / 最新は未確認',index_gap:'索引未更新あり / 承認済みスレッドから表示',linked_threads_current:'承認済みスレッドの索引に欠落なし'};
   const status=live?.state==='ready'?labels[live.value.status]||'取得状態UNKNOWN':live?.state==='loading'?'Gmailを読取確認中…':live?.state==='error'?'Gmail取得失敗 / 最新は未確認':'保存済みメール（最新照合は上の同期状態を確認）';
-  return `<div class="toolbar">${flag('purple','メール・やり取り')}${flag(attention(c).needsReview===true?'red':'blue',attention(c).label)}${button('確認済みにする','mark-read','quiet',true)}</div><h2 class="sectiontitle">メール <small>閲覧で既読にしません</small></h2><div class="group" role="status" id="case-mail-sync">${syncStatusHtml()}</div><div class="group"><strong>${escape(status)}</strong><p class="hint">${passiveMail?'保存済みメールの閲覧モードです。':'やり取りを開くと、この案件に関連付け済みのスレッドを取り込みます。'}別スレッドは「顧客メールを関連付け」から確認できます。同期ではGmailを既読・確認済みにはしません。</p><button class="action quiet" data-action="mail-live" ${live?.state==='loading'?'disabled':''}>取込せず原本を確認</button><button class="action quiet" data-action="mail-link">顧客メールを関連付け</button>${live?.state==='ready'?'<small>確認 '+escape(date(live.value.checked_at))+' / DB保存なし</small>':''}${live?.state==='error'?errorBlock(live.error,'Gmail'):''}</div>${candidates?.state==='ready'?'<p class="hint">顧客メール候補 '+(candidates.value.candidates||[]).length+'スレッド / 同じ顧客アドレスの案件 '+candidates.value.matching_case_count+'件</p>':candidates?.state==='error'?errorBlock(candidates.error,'顧客メール候補'):'<p class="hint">顧客メール候補を確認中…</p>'}<div id="reply-composer-host"></div>${renderConversationTimeline(c)}`;
+  const linkLabel=passiveMail?'顧客メール候補を確認':'顧客メールを関連付け';
+  const syncHint=passiveMail?'検索・原本確認は読み取り専用です。':'やり取りを開くと、この案件に関連付け済みのスレッドを取り込みます。同期ではGmailを既読・確認済みにはしません。';
+  return `<div class="toolbar">${flag('purple','メール・やり取り')}${flag(attention(c).needsReview===true?'red':'blue',attention(c).label)}${button('確認済みにする','mark-read','quiet',true)}</div><h2 class="sectiontitle">メール <small>閲覧で既読にしません</small></h2><div class="group" role="status" id="case-mail-sync">${syncStatusHtml()}</div><div class="group"><strong>${escape(status)}</strong><p class="hint">${syncHint}</p><button class="action quiet" data-action="mail-live" ${live?.state==='loading'?'disabled':''}>取込せず原本を確認</button><button class="action quiet" data-action="mail-link">${linkLabel}</button>${live?.state==='ready'?'<small>確認 '+escape(date(live.value.checked_at))+' / DB保存なし</small>':''}${live?.state==='error'?errorBlock(live.error,'Gmail'):''}</div>${candidates?.state==='ready'?'<p class="hint">顧客メール候補 '+(candidates.value.candidates||[]).length+'スレッド / 同じ顧客アドレスの案件 '+candidates.value.matching_case_count+'件</p>':candidates?.state==='error'?errorBlock(candidates.error,'顧客メール候補'):'<p class="hint">顧客メール候補を確認中…</p>'}<div id="reply-composer-host"></div>${renderConversationTimeline(c)}`;
 }
 
 function conversationEntries(inquiry) {
@@ -637,7 +640,7 @@ function renderGallery(){
   gallery.mount($('material-grid'),filtered);
   $('material-search').oninput=()=>{resetPrivacy();renderGallery();};
 }
-function openLegacy(){if(current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
+function openLegacy(){if(!passiveMail&&current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
 function render(){
   const intakeFocus = detail.intakeComposer?.contains(document.activeElement) ? document.activeElement : null;
   resetPrivacy();disposePreviews();renderHeader();renderInspector();
@@ -645,7 +648,7 @@ function render(){
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
   if(detail.commercialPanel) ($('commercial-actions-host')||central).append(detail.commercialPanel.panel);
-  central.insertAdjacentHTML('beforeend','<div class="inlinebtns"><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button></div>');
+  if(!passiveMail)central.insertAdjacentHTML('beforeend','<div class="inlinebtns">'+button('既存の業務操作を開く','','quiet',true)+'</div>');
   if(tab==='documents')renderGallery();
   if(tab==='estimate'&&!detail.sentEstimates)loadSurface('sentEstimates','/data/sent-estimates/'+selected,selectionEpoch);
   if(tab==='conversation'){
@@ -730,7 +733,7 @@ function featureJump(id){
   if(current()&&f.target!=='conversation')setTab(f.target||'overview');
   const entry=f.current_control
     ?`<p><strong>CASE DESKの操作場所</strong><br>${escape(f.current_control)}</p>`
-    :`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
+    :passiveMail?'':`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
   openInfo(f.id+' '+f.name,entry+`<p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);
 }
 function openInfo(title,html){
@@ -807,7 +810,8 @@ $('new-case').onclick=()=>{
     }
   });
 };
-$('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div><button class="action quiet" data-legacy>既存の業務操作を開く ↗</button><p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>`);
+$('open-more').onclick=()=>openInfo('その他の管理機能',`<div class="inlinebtns"><button class="action quiet" id="more-features">103機能の対応状況</button></div>`+
+  (passiveMail?'':button('既存の業務操作を開く','','quiet',true)+'<p class="hint">更新・送信・発行は既存画面で内容を確認して操作してください。</p>'));
 document.addEventListener('click',e=>{if(e.target.closest('#more-features')){closeInfo();openDrawer();}});
 $('features-trigger').onclick=openDrawer;$('feature-search').oninput=renderFeatures;$('feature-place').onchange=renderFeatures;$('feature-status').onchange=renderFeatures;
 $('drawer-close').onclick=()=>$('drawer-wrap').close();
@@ -815,9 +819,10 @@ function closeInfo(){threadLink?.reset();$('modal-wrap').close();resetPrivacy();
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 $('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeInfo();});
 window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
-threadLink=createThreadLink({read:api,open:openInfo,close:closeInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
+threadLink=createThreadLink({readOnly:passiveMail,read:api,open:openInfo,close:closeInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async input=>{
+    if(passiveMail)throw new ReadFailure('mail_readonly',403);
     if(!session||input.action!=='manual_link'||input.inquiry_id!==selected)throw new ReadFailure('login_required',401);
     session=await workspaceAuth.current();
     if(input.inquiry_id!==selected||!session)throw new ReadFailure('case_changed',409);

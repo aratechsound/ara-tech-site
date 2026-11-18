@@ -15,6 +15,15 @@ const root=path.resolve(__dirname,'..');
  const attestation={action:'owner_payment_completion_confirmed',details:{confirmation_source:'owner_attestation'},occurred_at:closedAt};
  const ledger={action:'payment_confirmed_and_closed_v5',occurred_at:closedAt};
  const source='お世話になっております。\nARA-TECHの荒殿です。\nご連絡ありがとうございます。\n今回は11万円のご予算に合わせ、\n音響のみの構成をご提案しました。\n11月1日、2台、雨天中止の条件です。\n続きの原文です。\n--\n署名\n> 古いメール本文';
+ const gmailPosts=[];
+ let threadAlreadyLinked=false;
+ await page.route('**/api/pa-gmail',r=>{
+   const request=r.request();
+   if(request.method()!=='POST')return r.abort();
+   const input=request.postDataJSON();
+   gmailPosts.push(input);
+   return r.fulfill({json:{ok:input.action==='manual_link',result:{inquiry_id:C,gmail_thread_id:'thread_fixture'}}});
+ });
  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only'}),current:async()=>({access_token:'fixture-only'}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
@@ -42,6 +51,9 @@ const root=path.resolve(__dirname,'..');
   {id:'request',inquiry_id:C,message_type:'schedule_request',status:'sent',sent_at:'2026-11-12T23:00:00Z'}
  ];
  else if(p==='/data/mail/'+C)value=[{gmail_message_id:'purpose',inquiry_id:C,direction:'inbound',subject:'用件抜粋・架空検証',snippet:'お世話になっております。',attachment_metadata:[]},{gmail_message_id:'html',inquiry_id:C,direction:'outbound',subject:'HTML本文・架空検証',attachment_metadata:[]}];
+ else if(p==='/data/mail-candidates/'+C)value={customer_email:'fixture@example.invalid',matching_case_count:1,candidates:[{gmail_thread_id:'thread_fixture',address_match:true,subject:'隔離メール候補'}]};
+ else if(p==='/data/mail-thread-preview/'+C+'/thread_fixture')value={gmail_thread_id:'thread_fixture',messages:[],target_indexed_count:0,target_missing_ids:[],sync_thread_ids:['thread_fixture'],sync_message_count:0,sync_attachment_count:0,preflight_complete:true,already_linked:threadAlreadyLinked};
+ else if(p==='/data/mail-live/'+C)value={messages:[],status:'no_thread_links'};
  else if(p.startsWith('/data/mail-body/')){const id=p.split('/').pop();counts[id]=(counts[id]||0)+1;active++;maxActive=Math.max(maxActive,active);await new Promise(resolve=>setTimeout(resolve,250));active--;value={gmail_message_id:id,inquiry_id:C,...(id==='html'?{body_html:'<p>Hello!</p><p>Thank you for your email.</p><p>Budget JPY 110,000; 2 units on 2026/11/01.</p><img src="https://invalid.example/tracker"><script>window.paui024Danger=true</script><blockquote>Old budget</blockquote>'}:{body_text:source})};}
  await r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,result:value})});
  });
@@ -149,6 +161,45 @@ const root=path.resolve(__dirname,'..');
      await page.setViewportSize({width:1440,height:900});
    }
  }
+ for(const width of [1440,390]){
+   await page.setViewportSize({width,height:900});
+   await page.goto(origin+'/pa-admin.html?case='+C+'&tab=conversation&mail-view=readonly');
+   await page.locator('[data-mail-sync-state="readonly"]').waitFor();
+   assert.equal(await page.locator('[data-legacy]').count(),0);
+   assert.equal(await page.locator('#open-portal').getAttribute('href'),null);
+   await page.locator('#open-more').click();
+   const settings=page.getByRole('dialog',{name:'その他の管理機能',exact:true});
+   assert.equal(await settings.locator('[data-legacy]').count(),0);
+   await page.keyboard.press('Escape');
+   await page.getByRole('button',{name:'顧客メール候補を確認',exact:true}).click();
+   await page.getByRole('button',{name:/隔離メール候補/u}).click();
+   await page.getByText('候補の確認は読み取り専用です。',{exact:true}).waitFor();
+   assert.equal(await page.locator('#thread-link-confirm,#thread-owner-approved').count(),0);
+   await page.keyboard.press('Escape');
+   await page.getByRole('button',{name:'取込せず原本を確認',exact:true}).click();
+   await page.getByText(/承認済みスレッドなし/u).waitFor();
+ }
+ threadAlreadyLinked=true;
+ await page.getByRole('button',{name:'顧客メール候補を確認',exact:true}).click();
+ await page.getByRole('button',{name:/隔離メール候補/u}).click();
+ await page.getByRole('button',{name:'最新メールを取得',exact:true}).click();
+ await page.locator('#modal-wrap').waitFor({state:'hidden'});
+ await page.getByText(/承認済みスレッドなし/u).waitFor();
+ assert.equal(gmailPosts.length,0);
+ console.log('PASS CASE DESK read-only Gmail candidate preview, original read and legacy controls on both widths; Gmail POST 0');
+ threadAlreadyLinked=false;
+ await page.goto(origin+'/pa-admin.html?case='+C+'&tab=conversation');
+ await page.getByRole('button',{name:'顧客メールを関連付け',exact:true}).click();
+ await page.getByRole('button',{name:/隔離メール候補/u}).click();
+ await page.locator('#thread-link-confirm').waitFor();
+ assert.equal(await page.locator('#thread-link-confirm').isDisabled(),true);
+ assert.equal(gmailPosts.length,0);
+ await page.locator('#thread-owner-approved').check();
+ const posted=page.waitForResponse(response=>response.url().endsWith('/api/pa-gmail')&&response.request().postDataJSON()?.action==='manual_link');
+ await page.locator('#thread-link-confirm').click();
+ await posted;
+ assert.deepEqual(gmailPosts,[{action:'manual_link',inquiry_id:C,gmail_thread_id:'thread_fixture',conversation_role:'secondary_conversation'}]);
+ console.log('PASS CASE DESK normal mode manual link sends exactly one simulated write after approval');
  assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));console.log('PASS brand black 1440x900/760/390: safe mail, schedule, payment provenance, feature catalog, guide keyboard operations, and saved formal-order evidence');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
