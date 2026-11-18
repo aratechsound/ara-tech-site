@@ -14,7 +14,7 @@ const root=path.resolve(__dirname,'..');
  const authReads=[];
  const integration=`
  const account=id=>({user:{id},access_token:'fixture-'+id,expires_at:9999999999});
- let session=account('first'),listener,delayRestore=!!window.fixtureDelayInitialRestore,releaseRestore;
+ let session=account('first'),listener,delayRestore=!!window.fixtureDelayInitialRestore,releaseRestore,currentReads=0;
  export const workspaceAuth={
    async restore(){
      const snapshot=session;
@@ -22,7 +22,7 @@ const root=path.resolve(__dirname,'..');
      delayRestore=false;
      return new Promise(resolve=>{releaseRestore=()=>resolve(snapshot);});
    },
-   current:async()=>session,logout:async()=>{session=null;listener?.('SIGNED_OUT',null);},
+   current:async()=>{currentReads++;return session;},logout:async()=>{session=null;listener?.('SIGNED_OUT',null);},
    login:async email=>{session=account(email.startsWith('second@')?'second':'first');listener?.('SIGNED_IN',session);return session;},
    subscribe:callback=>{listener=callback;}
  };
@@ -30,6 +30,7 @@ const root=path.resolve(__dirname,'..');
    change(id,event){session=account(id);if(event)listener(event,session);},
    delay(){delayRestore=true;},pending:()=>!!releaseRestore,
    release(){releaseRestore();releaseRestore=null;},
+   currentReads:()=>currentReads,
    expire(){listener('TOKEN_REFRESHED',{...session,expires_at:1});}
  };
  export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);
@@ -148,8 +149,14 @@ const root=path.resolve(__dirname,'..');
  assert(await workspace.isVisible());assert.equal(await secondCase.count(),0);
 
  const secondReads=authReads.filter(row=>row.authorization==='Bearer fixture-second').length;
- await page.evaluate(()=>{window.fixtureSession.expire();window.fixtureSession.change('second');});
- await page.locator('#refresh-cases').click();await waitForClearedWorkspace();
+ const refreshReads=await page.evaluate(()=>{
+  const before=window.fixtureSession.currentReads();
+  window.fixtureSession.expire();window.fixtureSession.change('second');
+  document.querySelector('#refresh-cases').click();
+  return window.fixtureSession.currentReads()-before;
+ });
+ assert(refreshReads>0,'The case refresh invokes the expired-session path before window focus can reconcile it');
+ await waitForClearedWorkspace();
  assert.equal(authReads.filter(row=>row.authorization==='Bearer fixture-second').length,secondReads);
  await login('second');await secondCase.waitFor();
  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
