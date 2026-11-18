@@ -480,8 +480,8 @@ function commercialControls(c,label){
   if(passiveMail||c?.case_type!=='PA_EVENT'||isClosedCase(c)||c.status==='on_hold'||c.progress?.is_on_hold)return '';
   return `<div class="inlinebtns">${button(label,'commercial-actions','quiet')}</div><div id="commercial-actions-host"></div>`;
 }
-function estimate(c){
-  return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2>`+readBlock('commercial','商務・原本',s=>{
+function estimateCommercial(c){
+  return readBlock('commercial','商務・原本',s=>{
     const estimates=s.estimates||[],offers=s.offers||[],acceptedId=c.progress?.formal_contract_id;
     const confirmationHistory=rowsHtml(offers,{
       title:offer=>'版 '+offer.version+' / '+(acceptedId&&offer.id===acceptedId?acceptedOfferLabel:unconfirmedOfferLabel),
@@ -489,7 +489,15 @@ function estimate(c){
       time:offer=>offer.issued_at
     });
     return `<div class="tablewrap"><table class="table"><thead><tr><th>見積版 / 発行</th><th>金額</th><th>送達</th></tr></thead><tbody>${estimates.map(e=>`<tr><td>版 ${tx(e.revision_number)} / ${tx(date(e.issued_at))}</td><td>${escape(privateMoney(e.amount_minor,e.currency||'JPY'))}</td><td>${tx(e.delivery?.state||'未取得')}</td></tr>`).join('')||'<tr><td colspan="3">保存済み見積なし</td></tr>'}</tbody></table></div><div class="group"><h2 class="sectiontitle">正式確認の履歴</h2>${confirmationHistory}</div>`;
-  })+`<div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p>${readBlock('sentEstimates','Gmail送信履歴',s=>rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+(s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''))}<div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  });
+}
+function sentEstimateHistory(){
+  return readBlock('sentEstimates','Gmail送信履歴',s=>
+    rowsHtml(s.messages||[],{title:r=>r.subject,time:r=>r.sent_at,body:r=>'宛先 '+addresses(r.to_addresses)})+
+    (s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''));
+}
+function estimate(c){
+  return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2><div id="estimate-commercial">${estimateCommercial(c)}</div><div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p><div id="sent-estimate-history">${sentEstimateHistory()}</div><div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
 async function openDeskCommercial(){
   const c=current(),epoch=selectionEpoch,owner=session?.user?.id;
@@ -667,6 +675,14 @@ function renderGallery(){
   $('material-search').oninput=()=>{resetPrivacy();renderGallery();};
 }
 function openLegacy(){if(!passiveMail&&current())window.open(legacyUrl(selected), '_blank', 'noopener,noreferrer');}
+function renderSentEstimateGallery(){
+  const id=selected,epoch=selectionEpoch,messages=getRows('sentEstimates')?.messages;
+  gallery?.dispose();gallery=null;
+  if(!messages)return;
+  gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',
+    requestBlob:item=>api('/data/sent-estimate-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
+  gallery.mount($('sent-estimate-grid'),messages.flatMap(mailAttachments),{compact:true,showSource:true});
+}
 function render(){
   const intakeFocus = detail.intakeComposer?.contains(document.activeElement) ? document.activeElement : null;
   resetPrivacy();disposePreviews();renderHeader();renderInspector();
@@ -682,11 +698,7 @@ function render(){
     if (detail.intakeComposer) $('intake-composer-host')?.append(detail.intakeComposer);
     intakeFocus?.focus({preventScroll:true});
   }
-  if(tab==='estimate'&&detail.sentEstimates?.state==='ready'){
-    const id=selected,epoch=selectionEpoch,items=detail.sentEstimates.value.messages.flatMap(mailAttachments);
-    gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='estimate',requestBlob:item=>api('/data/sent-estimate-attachment/'+id+'/'+encodeURIComponent(item.message_id)+'/'+encodeURIComponent(item.asset_id),{blob:true})});
-    gallery.mount($('sent-estimate-grid'),items,{compact:true,showSource:true});
-  }
+  if(tab==='estimate')renderSentEstimateGallery();
 }
 async function loadSurface(name,url,epoch){
   if(epoch!==selectionEpoch)return;
@@ -706,6 +718,19 @@ async function loadSurface(name,url,epoch){
     // the grid until it closes. A refresh of its own index must still replace it.
     if(previewSource&&previewSource!==updatedSource){detail.materialIndexPending=true;return;}
     renderGallery();
+    return;
+  }
+  if(tab==='estimate'){
+    renderInspector();
+    // Commercial facts and Gmail history finish independently. Keep their
+    // controls and the open Gmail original mounted while other reads resolve.
+    if(name==='commercial'){
+      resetPrivacy();
+      $('estimate-commercial').innerHTML=estimateCommercial(current());
+    }else if(name==='sentEstimates'){
+      $('sent-estimate-history').innerHTML=sentEstimateHistory();
+      renderSentEstimateGallery();
+    }
     return;
   }
   render();
