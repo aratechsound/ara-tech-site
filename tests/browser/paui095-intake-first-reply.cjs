@@ -10,6 +10,9 @@ const publicIntake = require('../../api/pa-inquiry.js');
 const paMail = require('../../api/pa-mail.js');
 const paGmail = require('../../api/pa-gmail.js');
 const { normalizeMessage } = require('../../api/_pa-gmail.cjs');
+const { createReadHandler } = require('../../api/_pa-workspace-read.cjs');
+const { createProvider } = require('../../api/_pa-workspace-gmail.cjs');
+const { verifyIntakeThreadReply } = require('./paui098-thread-reply.cjs');
 const { createHandler: createCommercialHandler } = require('../../api/_pa-commercial-handler.cjs');
 const { createHandler: createContractHandler } = require('../../api/pa-contract.js');
 const { createService: createCommercialService, decryptSecret } = require('../../api/_pa-commercial.cjs');
@@ -18,6 +21,8 @@ const { sha } = require('../../api/_pa-contract-pdf.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const email = 'public-customer@example.invalid';
+const intakeReplyWidth = Number(process.argv.find(arg=>arg.startsWith('--paui098='))?.split('=')[1]||0);
+const readonlyToken = 'fixture-admin-workspace-proof';
 const eventName = 'ブラウザ総合検証の合成イベント';
 const replyBody = 'お問い合わせありがとうございます。会場について確認します。';
 const incomingBody = 'ご返信ありがとうございます。見積書をお願いします。';
@@ -210,6 +215,19 @@ async function main() {
   const transport = caseTransport(fixture);
   const oldFetch = global.fetch;
   global.fetch = transport.fetchImpl;
+  const readonlyHandler = createReadHandler({
+    key:'sb_publishable_fixture',
+    provider:createProvider(transport.fetchImpl),
+    fetchImpl:async (target,options)=>{
+      const source=new URL(target);
+      assert.equal(source.origin,'https://kogbnremsouajxxsgxro.supabase.co');
+      assert.equal(options.method,'GET');
+      assert.equal(options.headers.authorization,'Bearer '+readonlyToken);
+      return fixture.fetchImpl('https://fixture.invalid'+source.pathname+source.search,{
+        ...options,headers:{...options.headers,authorization:'Bearer fixture-admin'}
+      });
+    }
+  });
   const syncCalls = [];
   const serverErrors = [];
   const rows = async (statement, args) => (await db.query(statement, args)).rows;
@@ -284,7 +302,11 @@ async function main() {
       }
       if (url.pathname === '/api/pa-workspace-read') {
         assert.equal(request.method, 'GET');
-        assert.equal(request.headers.authorization, 'Bearer fixture-admin');
+        if(intakeReplyWidth&&url.searchParams.get('path')?.startsWith('/data/mail-intake-reply/')){
+          return readonlyHandler(request,response);
+        }
+        const auth=request.headers.authorization;
+        assert(auth==='Bearer fixture-admin'||intakeReplyWidth&&auth==='Bearer '+readonlyToken);
         return jsonAdapter(response).json({ ok: true, result: await readProjection(url.searchParams.get('path')) });
       }
       const file = path.resolve(root, '.' + decodeURIComponent(url.pathname));
@@ -310,13 +332,14 @@ async function main() {
     browser = await chromium.launch({
       headless: true, ...(process.env.PA_CHROME_EXECUTABLE ? { executablePath: process.env.PA_CHROME_EXECUTABLE } : {})
     });
-    const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.route('**/*', route =>
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await context.route(origin + '/pa-ui/js/integration.mjs', route => route.fulfill({
       contentType: 'text/javascript',
       body: `
-        const session={user:{id:${JSON.stringify(actor)}},access_token:'fixture-admin',expires_at:9999999999};
+        const readonly=${Boolean(intakeReplyWidth)}&&new URL(location.href).searchParams.get('mail-view')==='readonly';
+        const session={user:{id:${JSON.stringify(actor)}},access_token:readonly?'${readonlyToken}':'fixture-admin',expires_at:9999999999};
         export const workspaceAuth={restore:async()=>session,current:async()=>session};
         export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);
         export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);
@@ -377,6 +400,14 @@ async function main() {
     assert.equal((await rows('select status from pa_inquiries where id=$1', [inquiry.id]))[0].status, 'waiting_customer_reply');
     await page.locator('[data-delivery-id="' + delivery.id + '"]').getByText(replyBody, { exact: false }).waitFor();
 
+    if(intakeReplyWidth){
+      assert([1440,390].includes(intakeReplyWidth));
+      await page.setViewportSize({width:intakeReplyWidth,height:900});
+      await verifyIntakeThreadReply({page,context,origin,inquiry,delivery,followUp,rows,state,transport,requests:syncCalls});
+      assert.deepEqual(serverErrors,[]);
+      assert.deepEqual(pageErrors,[]);
+      return;
+    }
     const inbound = fixture.raw('fixture_browser_customer_reply', followUp.threadId, email, incomingBody);
     state.messages.set(inbound.id, inbound);
     state.threadMessages.get(followUp.threadId).push(inbound);

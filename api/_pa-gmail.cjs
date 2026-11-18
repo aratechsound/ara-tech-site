@@ -328,35 +328,78 @@ const exactDelivery = (deliveries, messageType) => {
     const matches = deliveries.filter((delivery) => delivery.message_type === messageType);
     return matches.length === 1 ? matches[0] : null;
 };
-// Owner-initiated recovery limited to the already-sent first reply for this intake.
+// Shared authority for the exact, already-sent first follow-up. Reads use
+// either the normal mail service or the authenticated workspace projection.
+const readIntakeFollowUp = async ({ inquiry, deliveryId, readRows, readMessage }) => {
+    const inquiryId = inquiry?.id;
+    const customer = String(inquiry?.email || "").trim();
+    if (!isUuid(inquiryId) || !isUuid(deliveryId) || inquiry.submission_source !== "public_form"
+        || inquiry.deleted_at || ["closed", "cancelled", "declined", "schedule_unavailable"].includes(inquiry.status)
+        || !EMAIL.test(customer)) throw new Error("intake_follow_up_not_linkable");
+    const [deliveries, progress] = await Promise.all([
+        readRows("pa_email_deliveries", new URLSearchParams({
+            inquiry_id: `eq.${inquiryId}`, message_type: "eq.content_hearing_follow_up", status: "eq.sent", limit: "2",
+            select: "id,inquiry_id,recipient,subject,sent_at,gmail_message_id,gmail_thread_id,error_summary,message_type,status"
+        })),
+        readRows("pa_case_progress", new URLSearchParams({inquiry_id:`eq.${inquiryId}`, select:"inquiry_id,closed_at", limit:"2"}))
+    ]);
+    const delivery = deliveries?.[0];
+    if (deliveries?.length !== 1 || delivery?.id !== deliveryId || delivery.inquiry_id !== inquiryId
+        || delivery.message_type!=="content_hearing_follow_up" || delivery.status!=="sent"
+        || delivery.error_summary || !sameAddress(delivery.recipient, customer) || !delivery.subject?.trim()
+        || !validGmailId(delivery.gmail_message_id) || !validGmailId(delivery.gmail_thread_id)
+        || !Number.isFinite(Date.parse(delivery.sent_at)) || !Array.isArray(progress) || progress.length > 1
+        || progress.some(row => row.inquiry_id !== inquiryId || row.closed_at)) {
+        throw new Error("intake_follow_up_not_linkable");
+    }
+    const raw = await readMessage(delivery.gmail_message_id);
+    const internalDate = Number(raw?.internalDate);
+    if (raw?.threadId !== delivery.gmail_thread_id || !Array.isArray(raw.labelIds) || !raw.labelIds.includes("SENT")
+        || raw.labelIds.some(label => ["DRAFT", "TRASH", "SPAM"].includes(label))
+        || !Number.isFinite(internalDate) || internalDate <= 0 || !deliveryMatchesMessage(delivery, raw)) {
+        throw new Error("intake_follow_up_not_linkable");
+    }
+    const source = normalizeMessage(raw);
+    if (!Number.isFinite(Date.parse(source.occurred_at)) || source.to_addresses.length !== 1 || source.cc_addresses.length !== 0
+        || !sameAddress(guardReplySource(inquiry, source), customer)) throw new Error("intake_follow_up_not_linkable");
+
+    const [owners, primaries, indexes] = await Promise.all([
+        readRows("pa_gmail_thread_links", new URLSearchParams({gmail_thread_id:`eq.${source.thread_id}`,select:"*",limit:"2"})),
+        readRows("pa_gmail_thread_links", new URLSearchParams({inquiry_id:`eq.${inquiryId}`,conversation_role:"eq.primary_conversation",select:"inquiry_id,gmail_thread_id",limit:"2"})),
+        readRows("pa_gmail_message_index", new URLSearchParams({gmail_message_id:`eq.${source.id}`,select:"inquiry_id,gmail_message_id,gmail_thread_id",limit:"2"}))
+    ]);
+    if (!Array.isArray(owners) || owners.length > 1 || owners.some(row=>row.inquiry_id!==inquiryId||row.gmail_thread_id!==source.thread_id)) {
+        throw new Error("ambiguous_thread_link");
+    }
+    if (!Array.isArray(primaries) || primaries.length > 1 ||
+        primaries.some(row=>row.inquiry_id!==inquiryId||(!owners.length&&row.gmail_thread_id!==source.thread_id))) {
+        throw new Error("primary_conversation_exists");
+    }
+    // The exact delivery can establish the original sent message before its
+    // first index refresh. A conflicting global index can never be repaired here.
+    if (!Array.isArray(indexes) || indexes.length > 1 ||
+        indexes.some(row=>row.inquiry_id!==inquiryId||row.gmail_message_id!==source.id||row.gmail_thread_id!==source.thread_id)) {
+        throw new Error("reply_attribution_conflict");
+    }
+    const authorityHash = crypto.createHash("sha256").update(JSON.stringify([delivery.id,delivery.sent_at,
+        delivery.subject,customer.toLowerCase(),replySourceHash(source)])).digest("hex");
+    return { delivery, source, link: owners[0] || null, authorityHash };
+};
+const intakeFollowUpProof = ({inquiry, deliveryId, readMessage}, fetchImpl) => readIntakeFollowUp({
+    inquiry, deliveryId, readRows:(table,query)=>selectRows(table,query,fetchImpl),
+    readMessage:readMessage || (messageId=>gmailMessage(messageId,fetchImpl))
+});
+const bindIntakeFollowUp = ({ inquiryId, source, actorId }, fetchImpl) => linkThread({
+    inquiryId, threadId: source.thread_id, source: "gmail_message_id",
+    role: "primary_conversation", actorId, preserveExisting: true
+}, fetchImpl);
+// The existing Owner action and the final reply use the same verified binding.
 const linkIntakeFollowUp = async ({ inquiryId, deliveryId, actorId }, fetchImpl = fetch) => {
     if (![inquiryId, deliveryId, actorId].every(isUuid)) throw new Error("invalid_input");
-    const inquiry = await getInquiry(inquiryId, fetchImpl);
-    if (inquiry.id !== inquiryId || inquiry.submission_source !== "public_form") {
-        throw new Error("intake_follow_up_not_linkable");
-    }
-    const query = new URLSearchParams({
-        inquiry_id: `eq.${inquiryId}`, message_type: "eq.content_hearing_follow_up",
-        status: "eq.sent", limit: "2",
-        select: "id,inquiry_id,recipient,subject,sent_at,gmail_message_id,gmail_thread_id"
-    });
-    const deliveries = await selectRows("pa_email_deliveries", query, fetchImpl);
-    const delivery = deliveries?.[0];
-    if (deliveries?.length !== 1 || delivery.id !== deliveryId || delivery.inquiry_id !== inquiryId
-        || !inquiry.email || !sameAddress(delivery.recipient, inquiry.email)
-        || !validGmailId(delivery.gmail_thread_id) || !Number.isFinite(Date.parse(delivery.sent_at))) {
-        throw new Error("intake_follow_up_not_linkable");
-    }
-    const exact = await resolveExactDelivery(delivery, fetchImpl);
-    const internalDate = Number(exact?.message.internalDate);
-    if (exact?.threadId !== delivery.gmail_thread_id || !Array.isArray(exact.message.labelIds)
-        || !exact.message.labelIds.includes("SENT") || !Number.isFinite(internalDate) || internalDate <= 0) {
-        throw new Error("intake_follow_up_not_linkable");
-    }
-    return linkThread({
-        inquiryId, threadId: exact.threadId, source: "gmail_message_id",
-        role: "primary_conversation", actorId, preserveExisting: true
-    }, fetchImpl);
+    const inquiry = await getInquiry(inquiryId,fetchImpl);
+    if (inquiry.id !== inquiryId) throw new Error("intake_follow_up_not_linkable");
+    const {source} = await intakeFollowUpProof({inquiry,deliveryId},fetchImpl);
+    return bindIntakeFollowUp({inquiryId,source,actorId},fetchImpl);
 };
 const fallbackCandidates = async (inquiry, delivery, fetchImpl) => {
     if (!delivery || !caseReference(inquiry.inquiry_number)) return [];
@@ -754,7 +797,7 @@ const standaloneAttachmentAuthorityHash = (authority, attachments) => {
     })).digest("hex");
 };
 // Read by global message IDs, never by case: a case filter would hide conflicts.
-const guardMessageAttributions = async ({ inquiryId, messages }, fetchImpl) => {
+const guardMessageAttributions = async ({ inquiryId, messages, allowMissing = false }, fetchImpl) => {
     const ids = messages.map((message) => message.id);
     if (!ids.length || ids.some((id) => !validGmailId(id)) || new Set(ids).size !== ids.length) throw new Error("reply_attribution_unknown");
     for (let offset = 0; offset < ids.length; offset += 100) {
@@ -775,15 +818,21 @@ const guardMessageAttributions = async ({ inquiryId, messages }, fetchImpl) => {
             if (row.inquiry_id !== inquiryId || row.gmail_thread_id !== expected.get(row.gmail_message_id)) throw new Error("reply_attribution_conflict");
             seen.add(row.gmail_message_id);
         }
-        if (seen.size !== expected.size) throw new Error("reply_attribution_unknown");
+        if (!allowMissing && seen.size !== expected.size) throw new Error("reply_attribution_unknown");
     }
 };
 
-const resolveReplySource = async ({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl) => {
+const resolveReplySource = async ({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId, replySourceDeliveryId }, fetchImpl) => {
     const requestedMessageId = String(replySourceMessageId || "");
     const requestedThreadId = String(replySourceThreadId || "");
     const explicit = Boolean(requestedMessageId || requestedThreadId);
     if (explicit && (!validGmailId(requestedMessageId) || !validGmailId(requestedThreadId))) throw new Error("invalid_reply_source");
+    if (replySourceDeliveryId !== undefined) {
+        if (!explicit || !isUuid(replySourceDeliveryId)) throw new Error("invalid_reply_source");
+        const proof=await intakeFollowUpProof({inquiry,deliveryId:replySourceDeliveryId},fetchImpl);
+        if (proof.source.id !== requestedMessageId || proof.source.thread_id !== requestedThreadId) throw new Error("invalid_reply_source");
+        return { ...proof, explicit: true };
+    }
     let link;
     if (explicit) {
         const links = await getLinks(inquiryId, fetchImpl);
@@ -812,7 +861,7 @@ const resolveReplySource = async ({ inquiry, inquiryId, replySourceMessageId, re
     // Explicit selection still needs a known, same-case index; an Owner root
     // anchor is additional evidence, never a bypass for missing/conflicting rows.
     await guardMessageAttributions({ inquiryId, messages: explicit ? [source] : messages }, fetchImpl);
-    return { explicit, link, source };
+    return { explicit, link, source, authorityHash: replySourceHash(source) };
 };
 const allowedReplyCc = (source, recipient) => uniqueAddresses([
         source?.from_address, source?.reply_to,
@@ -823,24 +872,32 @@ const allowedReplyCc = (source, recipient) => uniqueAddresses([
     ].map(safeAddress).filter((address) => EMAIL.test(address) && !address.includes('"')
         && !sameAddress(address, recipient) && !sameAddress(address, OFFICIAL_EMAIL)
         && !/(?:^|[+._-])(?:no-?reply|notifications?)(?:[+._-]|@)|@(?:[^@.]+\.)?formspree\.io$/iu.test(address)));
-// Read-only Composer initialization: same source/recipient guards as preview,
-// without body, confirmation token, indexing, attention, audit or Gmail writes.
-const replyContext = async ({ inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl = fetch) => {
-    if (!replySourceMessageId || !replySourceThreadId) throw new Error("invalid_reply_source");
-    const inquiry = await getInquiry(inquiryId, fetchImpl);
-    if (inquiry.id !== inquiryId) throw new Error("invalid_reply_source");
-    const { link, source } = await resolveReplySource({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
-    const recipient = guardReplySource(inquiry, source);
+const replyContextFields = (inquiryId, source, recipient, authorityHash, explicit, delivery) => {
     const cc = allowedReplyCc(source, recipient);
-    return { inquiry_id: inquiryId, gmail_thread_id: link.gmail_thread_id, reply_source_message_id: source.id,
-        reply_source_explicit: true, reply_source_authority_hash: replySourceHash(source),
+    return { inquiry_id: inquiryId, gmail_thread_id: source.thread_id, reply_source_message_id: source.id,
+        reply_source_explicit: explicit, reply_source_authority_hash: authorityHash,
+        ...(delivery && {reply_source_delivery_id:delivery.id}),
         from_address: source.from_address, reply_to: source.reply_to, recipient,
         subject: replySubject(source.subject), cc_addresses: cc, allowed_cc: cc };
 };
-const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
+// Composer initialization performs reads and never issues a send token.
+const replyContext = async ({ inquiryId, replySourceMessageId, replySourceThreadId, replySourceDeliveryId }, fetchImpl = fetch) => {
+    if (!replySourceMessageId || !replySourceThreadId) throw new Error("invalid_reply_source");
     const inquiry = await getInquiry(inquiryId, fetchImpl);
     if (inquiry.id !== inquiryId) throw new Error("invalid_reply_source");
-    const { explicit, link, source } = await resolveReplySource({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId }, fetchImpl);
+    const { source, authorityHash, delivery } = await resolveReplySource({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId, replySourceDeliveryId }, fetchImpl);
+    return replyContextFields(inquiryId,source,guardReplySource(inquiry,source),authorityHash,true,delivery);
+};
+const readIntakeReplyContext = async input => {
+    const {source, authorityHash, delivery} = await readIntakeFollowUp(input);
+    const {inquiry} = input;
+    return replyContextFields(inquiry.id,source,guardReplySource(inquiry,source),authorityHash,true,delivery);
+};
+const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, replySourceMessageId, replySourceThreadId, replySourceDeliveryId, subjectOverride, issueConfirmationToken = true }, fetchImpl = fetch) => {
+    if (replySourceDeliveryId !== undefined && (mode !== "normal" || subjectOverride != null)) throw new Error("invalid_reply_mode");
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
+    if (inquiry.id !== inquiryId) throw new Error("invalid_reply_source");
+    const { explicit, source, authorityHash, delivery } = await resolveReplySource({ inquiry, inquiryId, replySourceMessageId, replySourceThreadId, replySourceDeliveryId }, fetchImpl);
     const latest = source;
     // A thread may initially contain only our delivery.  In that case reply to
     // its original recipient, still in the same Gmail thread; a customer reply
@@ -861,12 +918,13 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
     const expiresAt = issueConfirmationToken ? Date.now() + PREVIEW_TTL_MS : null;
     const preview = {
         inquiry_id: inquiryId,
-        gmail_thread_id: link.gmail_thread_id,
+        gmail_thread_id: source.thread_id,
         reply_source_explicit: explicit,
+        ...(delivery && {reply_source_delivery_id:delivery.id}),
         reply_source_message_id: source.id,
         reply_source_rfc_message_id: source.rfc_message_id,
         reply_source_references: source.references,
-        reply_source_authority_hash: replySourceHash(source),
+        reply_source_authority_hash: authorityHash,
         recipient,
         cc_addresses: requestedCc,
         subject,
@@ -876,7 +934,7 @@ const buildReplyPreview = async ({ inquiryId, actorId, body, attachments = [], m
         attachments: normalizedAttachments.map(({ filename, mime_type, size }) => ({ filename, mime_type, size }))
     };
     if (issueConfirmationToken) {
-        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: link.gmail_thread_id, replySourceMessageId: source.id, replySourceExplicit: explicit, replySourceAuthorityHash: preview.reply_source_authority_hash, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt });
+        preview.confirmation_token = replyPreviewToken({ inquiryId, actorId, threadId: source.thread_id, replySourceMessageId: source.id, replySourceExplicit: explicit, replySourceAuthorityHash: preview.reply_source_authority_hash, recipient, ccAddresses: requestedCc, subject, body: normalizedBody, mode: normalizedMode, attachmentsHash, expiresAt });
         preview.expires_at = new Date(expiresAt).toISOString();
     }
     return preview;
@@ -1001,11 +1059,11 @@ const verifyReplyPreview = ({ confirmationToken, preview, actorId, attachments }
     });
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, replySourceDeliveryId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
     updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
-    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, subjectOverride }, fetchImpl);
+    const preview = await replyPreview({ inquiryId, actorId, body, attachments: normalizedAttachments, mode: normalizedMode, ccAddresses, replySourceMessageId, replySourceThreadId, replySourceDeliveryId, subjectOverride }, fetchImpl);
     verifyReplyPreview({ confirmationToken, preview, actorId, attachments: normalizedAttachments });
     updateDeliveryTrace(deliveryTrace, { phase: "reply_source_validation" });
     const implicitApproval = signedPreviewPayload(confirmationToken).replySourceExplicit === false;
@@ -1017,23 +1075,49 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     const currentInquiry = await getInquiry(inquiryId, fetchImpl);
     if (currentInquiry.id !== inquiryId) throw new Error("invalid_reply_source");
     const currentRecipient = guardReplySource(currentInquiry, source);
+    const original = replySourceDeliveryId === undefined ? null : await intakeFollowUpProof({
+        inquiry:currentInquiry, deliveryId:replySourceDeliveryId,
+        readMessage:async id=>(thread.messages || []).find(raw=>raw.id===id)
+    },fetchImpl);
+    const authorityHash=original?.authorityHash || replySourceHash(source);
+    if (authorityHash !== preview.reply_source_authority_hash || !sameAddress(currentRecipient, preview.recipient)) {
+        throw new Error("invalid_reply_source");
+    }
     if (!preview.reply_source_explicit || implicitApproval) {
         for (const message of currentMessages) {
             if (message.thread_id !== preview.gmail_thread_id) throw new Error("invalid_reply_source");
             if (!sameAddress(guardReplySource(currentInquiry, message), currentInquiry.email)) throw new Error("invalid_reply_source");
         }
     }
+    const intakeMessages = original ? (thread.messages || [])
+        .filter(raw=>!(raw.labelIds || []).some(label=>["DRAFT","TRASH","SPAM"].includes(label)))
+        .map(normalizeMessage) : [];
+    if (original) {
+        if (intakeMessages.some(message=>message.thread_id!==preview.gmail_thread_id ||
+            !sameAddress(guardReplySource(currentInquiry,message),currentInquiry.email))) {
+            throw new Error("invalid_reply_source");
+        }
+        await guardMessageAttributions({inquiryId,messages:intakeMessages,allowMissing:true},fetchImpl);
+        if (!original.link) await bindIntakeFollowUp({inquiryId,source:original.source,actorId},fetchImpl);
+    }
     const currentLinks = await getLinks(inquiryId, fetchImpl);
     if (!currentLinks.some((link) => link.gmail_thread_id === preview.gmail_thread_id && link.inquiry_id === inquiryId)) throw new Error("gmail_thread_not_linked");
-    if (replySourceHash(source) !== preview.reply_source_authority_hash || !sameAddress(currentRecipient, preview.recipient)) throw new Error("invalid_reply_source");
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_oauth" });
     const config = mailConfig();
     const token = await getGmailAccessToken(config, fetchImpl);
     // Last awaited check before provider send, including the whole automatic
     // approval scope even when the UI now supplies its resolved explicit ID.
-    await guardMessageAttributions({ inquiryId,
-        messages: !preview.reply_source_explicit || implicitApproval ? currentMessages : [source]
-    }, fetchImpl);
+    if (original) {
+        const latestInquiry = await getInquiry(inquiryId,fetchImpl);
+        if (latestInquiry.id !== inquiryId) throw new Error("invalid_reply_source");
+        const proof = await intakeFollowUpProof({inquiry:latestInquiry,deliveryId:original.delivery.id},fetchImpl);
+        if (!proof.link || proof.authorityHash !== preview.reply_source_authority_hash) throw new Error("invalid_reply_source");
+        await guardMessageAttributions({inquiryId,messages:intakeMessages,allowMissing:true},fetchImpl);
+    } else {
+        await guardMessageAttributions({ inquiryId,
+            messages: !preview.reply_source_explicit || implicitApproval ? currentMessages : [source]
+        }, fetchImpl);
+    }
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
@@ -1056,7 +1140,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
-    if (!validGmailId(sent?.id)) throw new Error("gmail_send_invalid");
+    if (!validGmailId(sent?.id) || (original && sent.threadId!==preview.gmail_thread_id)) throw new Error("gmail_send_invalid");
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",
@@ -1067,10 +1151,10 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
         cc_count: preview.cc_addresses.length,
         attachment_filenames: normalizedAttachments.map((attachment) => attachment.filename)
     }, fetchImpl);
-    const synced = await syncCase({ inquiryId, actorId }, fetchImpl);
+    const synced = await syncCase({ inquiryId, actorId, linkedOnly:Boolean(original) }, fetchImpl);
     return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
 };
 
-module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, linkIntakeFollowUp, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, linkIntakeFollowUp, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, readIntakeReplyContext, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
 module.exports.verifyReplyPreview = verifyReplyPreview;

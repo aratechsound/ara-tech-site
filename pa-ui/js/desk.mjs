@@ -314,14 +314,13 @@ function canStartFollowUp(inquiry) {
 }
 
 function formReplyOption(inquiry) {
-  if(passiveMail)return {reason:'閲覧専用モードでは返信を編集・送信できません。'};
   if(!session?.user?.id)return {reason:'返信には管理者の認証が必要です。'};
   if(isClosedCase(inquiry)||inquiry.deleted_at)return {reason:'終了済みの案件には返信できません。'};
   const recipient=inquiry.email?.trim();
   if(!recipient||!/^\S+@\S+\.\S+$/u.test(recipient))return {reason:'案件の顧客メールアドレスを確認してください。'};
   if(detail.deliveries?.state!=='ready')return {reason:'配送履歴を取得してから返信できます。'};
   try {
-    if(intakeAttempts.blocked(inquiry.id)||replyState.blocked()||
+    if((!passiveMail&&(intakeAttempts.blocked(inquiry.id)||replyState.blocked()))||
        detail.deliveries.value.some(row=>row.message_type===followUpType&&deliveryOutcome(row)==='配送結果未確定')){
       return {reason:'送信結果を確認できない記録があります。配送履歴を確認してください。'};
     }
@@ -332,8 +331,18 @@ function formReplyOption(inquiry) {
     (row.reply_to||row.from_address)?.trim().toLowerCase()===address&&
     links.some(link=>link.inquiry_id===inquiry.id&&link.gmail_thread_id===row.gmail_thread_id));
   if(source)return {recipient,source};
+  const firstReplies=detail.deliveries.value.filter(row=>row.message_type===followUpType&&row.status==='sent');
+  const sent=firstReplies[0];
+  if(firstReplies.length===1&&sent.inquiry_id===inquiry.id&&!sent.error_summary&&sent.id&&
+    /^[A-Za-z0-9_-]{1,200}$/u.test(sent.gmail_message_id||'')&&/^[A-Za-z0-9_-]{1,200}$/u.test(sent.gmail_thread_id||'')&&
+    sent.recipient?.trim().toLowerCase()===address){
+    const source={inquiry_id:inquiry.id,direction:'outbound',subject:sent.subject,
+      gmail_message_id:sent.gmail_message_id,gmail_thread_id:sent.gmail_thread_id};
+    return {recipient,source,deliveryId:sent.id};
+  }
+  if(passiveMail)return {reason:'閲覧専用モードでは返信を編集・送信できません。'};
   if(canStartFollowUp(inquiry))return {first:true};
-  return {reason:'この案件に紐付いた顧客からの返信メールを確認できません。'};
+  return {reason:'この案件の返信元を確認できません。'};
 }
 
 function formEntry(inquiry, entry) {
@@ -984,7 +993,7 @@ document.addEventListener('click',e=>{
     if(notice)notice.hidden=true;
     if(option.first)openIntakeComposer();
     if(option.source){
-      void replyState.open(option.source,{formRecipient:option.recipient}).catch(()=>{});
+      void replyState.open(option.source,{formRecipient:option.recipient,deliveryId:option.deliveryId}).catch(()=>{});
       $('reply-composer-host')?.scrollIntoView({block:'start'});
     }
     return;
@@ -1071,11 +1080,15 @@ async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=
     return data;
   }finally{clearTimeout(timer);track.delete(controller);}
 }
-const replyRequest=(input,isCurrent)=>authenticatedMailRequest(input,isCurrent,{track:replyRequests,timeout:input.action==='send_reply'?65000:25000});
+async function replyRequest(input,isCurrent){
+  if(!passiveMail)return authenticatedMailRequest(input,isCurrent,{track:replyRequests,timeout:input.action==='send_reply'?65000:25000});
+  if(input.action!=='reply_context'||!input.reply_source_delivery_id||input.inquiry_id!==selected||!isCurrent())throw Error('mail_readonly');
+  return api('/data/mail-intake-reply/'+encodeURIComponent(input.inquiry_id)+'/'+encodeURIComponent(input.reply_source_delivery_id),{track:replyRequests});
+}
 let attemptStorage;
 try{attemptStorage=sessionStorage;}catch{attemptStorage={getItem(){throw Error('send_lock_unavailable');},setItem(){throw Error('send_lock_unavailable');}};}
 const intakeAttempts=createAttemptStore(attemptStorage,'paui-intake-follow-up-attempts-v1');
-replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(attemptStorage),changed:renderMailSyncStatus,
+replyState=createReplyState({readOnly:passiveMail,request:replyRequest,attempts:createAttemptStore(attemptStorage),changed:renderMailSyncStatus,
   readSent:async receipt=>{
     const id=receipt.caseId,epoch=authEpoch;if(!session?.user?.id)throw Error('login_required');
     if(caseLoad?.id===id)await caseLoad.promise;
