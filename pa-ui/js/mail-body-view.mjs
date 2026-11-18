@@ -53,7 +53,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
         ?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます';
       else body.textContent=displayText(storedPreview||entry.preview)||
         (parts?'取得成功 / 空本文':busy?'本文を取得中…':'表示時に本文を取得します…');
-      button.textContent=busy?'本文を取得中…':failed?'本文を再取得':expanded?'閉じる':parts?'全文を表示':'本文を取得';
+      button.textContent=busy?'本文を取得中…':failed?'本文を再取得':expanded?'閉じる':'全文を表示';
       button.disabled=busy;
       button.hidden=Boolean(parts?.empty);
       button.setAttribute('aria-expanded',String(Boolean(expanded)));
@@ -61,13 +61,15 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       quoted.hidden=!(expanded&&parts.quoted);quoted.open=!quoted.hidden&&entry.quoteOpen;
     }
     entry.notify=draw;draw();
-    button.onclick=()=>{
+    button.onclick=async()=>{
       if(!valid())return;
-      if(!entry.parts){void load(id,row,entry,valid);return;}
+      if(entry.state==='error'){await load(id,row,entry,valid);return;}
+      if(!entry.parts)await load(id,row,entry,valid);
+      if(!valid()||entry.state!=='ready'||cache.get(k)!==entry)return;
       if(entry.parts.empty&&!fallbackParts)return;
       entry.expanded=!entry.expanded;
       entry.quoteOpen=entry.expanded;
-      draw();
+      entry.notify();
     };
     if(entry.state==='idle'){
       observer??=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){observer.unobserve(e.target);e.target._loadBody?.();}},{rootMargin:'160px'});
