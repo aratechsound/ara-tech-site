@@ -1,5 +1,7 @@
 const MAIL_ID=/^[A-Za-z0-9_-]{1,200}$/;
+const deliveryIdPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validMailId=value=>typeof value==='string'&&MAIL_ID.test(value);
+const sameAddress=(a,b)=>typeof a==='string'&&a.trim().toLowerCase()===b.trim().toLowerCase();
 const keyFor='paui089-send-attempts-v1';
 export const parseCc=value=>[...new Set(String(value||'').split(/[;,\n]/).map(v=>v.trim().toLowerCase()).filter(Boolean))];
 export const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)))),b=>b.toString(16).padStart(2,'0')).join('');
@@ -44,16 +46,16 @@ export function verifiedSentMail(receipt,value){
   return {...value,messages:[...unique.values()].sort((a,b)=>time(b)-time(a)||a.gmail_message_id.localeCompare(b.gmail_message_id))};
 }
 
-export function createReplyState({request,attempts,readSent=async()=>{throw Error('sent_readback_unavailable');},applySent=()=>{},changed=()=>{},now=Date.now,hash=digest}){
+export function createReplyState({request,attempts,readSent=async()=>{throw Error('sent_readback_unavailable');},applySent=()=>{},changed=()=>{},now=Date.now,hash=digest,readOnly=false}){
   const drafts=new Map(),sentJobs=new Map(),sendingCases=new Set();let generation=0,revision=0,authGeneration=0,listener=()=>{};
   let state={caseId:null,open:false,phase:'idle',body:'',cc:'',attachments:[],context:null,source:null,preview:null,confirmed:false,error:null,history:null};
   const notify=()=>{changed(state);listener(state);};
   function invalidate(){revision++;state.preview=null;state.confirmed=false;}
   function stash(){if(state.caseId&&!sentJobs.has(state.caseId))drafts.set(state.caseId,{body:state.body,attachments:state.attachments});}
   const valid=(g,r,c)=>generation===g&&revision===r&&state.caseId===c&&state.open;
-  function sourcePayload(){return {inquiry_id:state.caseId,mode:'normal',reply_source_message_id:state.source.gmail_message_id,reply_source_thread_id:state.source.gmail_thread_id};}
+  function sourcePayload(){return {inquiry_id:state.caseId,mode:'normal',reply_source_message_id:state.source.gmail_message_id,reply_source_thread_id:state.source.gmail_thread_id,...(state.deliveryId&&{reply_source_delivery_id:state.deliveryId})};}
   function content(){return {...sourcePayload(),body:state.body.trim(),cc_addresses:parseCc(state.cc),attachments:state.attachments.map(({filename,mime_type,data})=>({filename,mime_type,data}))};}
-  function boundContext(c){return c&&c.inquiry_id===state.caseId&&c.gmail_thread_id===state.source.gmail_thread_id&&c.reply_source_message_id===state.source.gmail_message_id&&c.reply_source_explicit===true&&typeof c.recipient==='string'&&c.recipient&&typeof c.subject==='string'&&c.subject&&typeof c.reply_source_authority_hash==='string';}
+  function boundContext(c){return c&&c.inquiry_id===state.caseId&&c.gmail_thread_id===state.source.gmail_thread_id&&c.reply_source_message_id===state.source.gmail_message_id&&c.reply_source_explicit===true&&c.reply_source_delivery_id===state.deliveryId&&(!state.formRecipient||sameAddress(c.recipient,state.formRecipient))&&typeof c.recipient==='string'&&c.recipient&&typeof c.subject==='string'&&c.subject&&typeof c.reply_source_authority_hash==='string';}
   function blocked(){try{return attempts.blocked(state.caseId);}catch{return true;}}
   const pending=id=>Boolean(sentJobs.get(id)&&sentJobs.get(id).phase!=='sent');
   function reflect(job){if(state.caseId!==job.receipt.caseId)return;state.phase=job.phase;state.receipt=job.receipt;state.error=null;invalidate();}
@@ -75,6 +77,7 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
   }
   return {
     get:()=>state,
+    readOnly,
     subscribe(fn){listener=fn;notify();return()=>{listener=()=>{};};},
     setCase(caseId){stash();generation++;invalidate();try{for(const receipt of attempts.receipts?.(caseId)||[])if(!sentJobs.has(caseId))sentJobs.set(caseId,{key:receipt.key,receipt,phase:'sent-unverified',promise:null});}catch{}const job=sentJobs.get(caseId),draft=job?{}:drafts.get(caseId)||{};state={caseId,open:false,phase:job?.phase||(sendingCases.has(caseId)?'sending':'idle'),body:draft.body||'',cc:'',attachments:draft.attachments||[],source:null,context:null,preview:null,confirmed:false,error:null,history:null,receipt:job?.receipt||null};notify();},
     clearAuth(){generation++;revision++;authGeneration++;drafts.clear();sentJobs.clear();state={caseId:null,open:false,phase:'idle',body:'',cc:'',attachments:[],source:null,context:null,preview:null,confirmed:false,error:null,history:null,receipt:null};notify();},
@@ -82,24 +85,35 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
     resumeSent(){return refreshSent(state.caseId);},
     retrySent(){return refreshSent(state.caseId);},
     close(){if(state.phase==='sending'||state.phase==='sent-refreshing')return;generation++;invalidate();state.open=false;stash();notify();},
-    async open(row){
+    async open(row,{formRecipient,deliveryId}={}){
       if(this.pending(state.caseId))return;
-      if(!state.caseId||row.inquiry_id!==state.caseId||row.direction!=='inbound'||row.index_state==='not_indexed'||!MAIL_ID.test(row.gmail_message_id||'')||!MAIL_ID.test(row.gmail_thread_id||''))throw Error('invalid_reply_source');
-      generation++;invalidate();sentJobs.delete(state.caseId);state.receipt=null;state.open=true;state.source={...row};state.context=null;state.cc='';state.error=null;state.phase='context-loading';state.history=null;
+      const outbound=deliveryId!==undefined;
+      const allowed=outbound?row.direction==='outbound'&&formRecipient&&deliveryIdPattern.test(deliveryId):!readOnly&&row.direction==='inbound'&&row.index_state!=='not_indexed';
+      if(!state.caseId||row.inquiry_id!==state.caseId||!allowed||!validMailId(row.gmail_message_id)||!validMailId(row.gmail_thread_id))throw Error('invalid_reply_source');
+      generation++;invalidate();sentJobs.delete(state.caseId);state.receipt=null;state.open=true;state.source={...row};state.formRecipient=formRecipient;state.deliveryId=deliveryId;state.sampleHtml=null;
+      if(formRecipient){state.body='';state.attachments=[];}state.context=null;state.cc='';state.error=null;state.phase='context-loading';state.history=null;
       const g=generation,c=state.caseId,isCurrent=()=>generation===g&&state.caseId===c&&state.open;notify();
       try{const data=await request({action:'reply_context',...sourcePayload()},isCurrent);if(!isCurrent())return;
-        if(!boundContext(data.context))throw Error('invalid_reply_binding');state.context=data.context;state.cc=(data.context.cc_addresses||[]).join(', ');state.phase='editing';
+        if(!boundContext(data.context)||readOnly&&(data.read_only!==true||!data.sample_html))throw Error('invalid_reply_binding');state.context=data.context;state.sampleHtml=readOnly?data.sample_html:null;state.cc=(data.context.cc_addresses||[]).join(', ');state.phase='editing';
       }catch(e){if(!isCurrent())return;state.phase='error';state.error=e.message||'context_unavailable';}
       notify();
     },
-    edit(field,value){if(this.pending(state.caseId)||!['body','cc','attachments'].includes(field))return;invalidate();state[field]=value;state.error=null;if(state.phase!=='context-loading')state.phase=state.context?'editing':'error';stash();notify();},
+    edit(field,value){if(readOnly||this.pending(state.caseId)||!['body','cc','attachments'].includes(field))return;invalidate();state[field]=value;state.error=null;if(state.phase!=='context-loading')state.phase=state.context?'editing':'error';stash();notify();},
     attachmentError(){invalidate();state.error='attachment_limit';notify();},
-    confirm(value){state.confirmed=Boolean(value)&&state.phase==='ready';notify();},
-    canSend(){return state.phase==='ready'&&state.confirmed&&state.preview&&Date.parse(state.preview.expires_at)>now()&&!blocked();},
+    confirm(value){state.confirmed=!readOnly&&Boolean(value)&&state.phase==='ready';notify();},
+    canSend(){return !readOnly&&state.phase==='ready'&&state.confirmed&&state.preview&&Date.parse(state.preview.expires_at)>now()&&!blocked();},
     blocked,
     invalidateAuth(){if(state.preview){invalidate();state.phase='editing';state.error='login_required';notify();}},
     expire(){if(state.preview&&Date.parse(state.preview.expires_at)<=now()){invalidate();state.phase='editing';state.error='preview_expired';notify();}},
     async preview(){
+      if(readOnly){
+        if(state.context&&state.sampleHtml){
+          state.preview={...state.context,html:state.sampleHtml,attachments:[]};
+          state.phase='ready';
+          notify();
+        }
+        return;
+      }
       if(!state.context||blocked()||this.pending(state.caseId)||state.phase==='preview-loading')return;
       invalidate();state.phase='preview-loading';state.error=null;const g=generation,r=revision,c=state.caseId,payload=content(),context=state.context;notify();
       if(!payload.body||payload.body.length>20000){state.phase='editing';state.error='body_required';notify();return;}

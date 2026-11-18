@@ -2,25 +2,56 @@ begin;
 set local lock_timeout = '3s';
 set local statement_timeout = '15s';
 
+create function public.pa_commercial_outbox_failure_retryable(p_job public.pa_commercial_outbox)
+returns boolean
+language sql immutable
+set search_path = pg_catalog
+as $fn$
+  select coalesce(p_job.provider_message_id is null and p_job.provider_thread_id is null and (
+    (p_job.delivery_state = 'failed_before_provider' and p_job.provider_request_started is false
+      and p_job.provider_response_received is false and p_job.provider_http_status is null)
+    or
+    (p_job.delivery_state = 'failed_after_provider_response' and p_job.provider_request_started is true
+      and p_job.provider_response_received is true and p_job.provider_http_status in (400, 401, 403, 404, 413, 422, 429))
+  ), false)
+$fn$;
+
+revoke all on function public.pa_commercial_outbox_failure_retryable(public.pa_commercial_outbox)
+  from public, anon, authenticated;
+
 create function public.pa_guard_commercial_outbox_retry()
 returns trigger
 language plpgsql
 set search_path = pg_catalog
 as $fn$
+declare
+  prior public.pa_commercial_outbox%rowtype;
 begin
+  if tg_op = 'INSERT' then
+    -- A new operation ID must not bypass an unresolved delivery for the same
+    -- business record. Lock matching rows in ID order and inspect their latest state.
+    for prior in
+      select * from public.pa_commercial_outbox
+      where inquiry_id = new.inquiry_id and job_kind = new.job_kind and aggregate_id = new.aggregate_id
+      order by id for no key update
+    loop
+      if prior.state in ('processing', 'unknown') or prior.delivery_state = 'unknown_after_provider_start'
+        or (prior.state = 'failed' and not public.pa_commercial_outbox_failure_retryable(prior)) then
+        raise exception 'outbox_unknown_requires_reconciliation';
+      end if;
+      if prior.state = 'queued' then
+        raise exception 'outbox_busy';
+      end if;
+    end loop;
+    return new;
+  end if;
+
   -- An expired lease cannot establish whether its worker reached Gmail.
-  if old.state = 'processing' then
+  if old.state in ('processing', 'unknown') or old.delivery_state = 'unknown_after_provider_start' then
     raise exception 'outbox_unknown_requires_reconciliation';
   end if;
 
-  if old.state = 'failed' and not coalesce(
-    (old.delivery_state = 'failed_before_provider' and old.provider_request_started is false
-      and old.provider_response_received is false and old.provider_http_status is null)
-    or
-    (old.delivery_state = 'failed_after_provider_response' and old.provider_request_started is true
-      and old.provider_response_received is true and old.provider_http_status in (400, 401, 403, 404, 413, 422, 429)),
-    false
-  ) then
+  if old.state = 'failed' and not public.pa_commercial_outbox_failure_retryable(old) then
     raise exception 'outbox_unknown_requires_reconciliation';
   end if;
   return new;
@@ -38,6 +69,11 @@ for each row when ((new.state = 'processing' and
     and new.last_error_code in ('estimate_presented_with_confirmation', 'estimate_available_in_confirmation')))
 execute function public.pa_guard_commercial_outbox_retry();
 
+create trigger pa_commercial_outbox_retry_insert_guard
+before insert on public.pa_commercial_outbox
+for each row when (new.state = 'queued')
+execute function public.pa_guard_commercial_outbox_retry();
+
 -- The new application can reserve a delivery only through the guarded SQL.
 -- Validate the trigger before issuing a new direct confirmation as well.
 create function public.pa_v5_assert_outbox_retry_guard()
@@ -46,10 +82,10 @@ language plpgsql stable
 set search_path = pg_catalog
 as $fn$
 begin
-  if not exists (
-    select 1 from pg_trigger
+  if 2 <> (
+    select count(*) from pg_trigger
     where tgrelid = 'public.pa_commercial_outbox'::regclass
-      and tgname = 'pa_commercial_outbox_retry_guard'
+      and tgname in ('pa_commercial_outbox_retry_guard', 'pa_commercial_outbox_retry_insert_guard')
       and tgfoid = to_regprocedure('public.pa_guard_commercial_outbox_retry()')
       and tgenabled in ('O', 'A') and not tgisinternal
   ) then

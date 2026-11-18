@@ -10,6 +10,9 @@ const publicIntake = require('../../api/pa-inquiry.js');
 const paMail = require('../../api/pa-mail.js');
 const paGmail = require('../../api/pa-gmail.js');
 const { normalizeMessage } = require('../../api/_pa-gmail.cjs');
+const { createReadHandler } = require('../../api/_pa-workspace-read.cjs');
+const { createProvider } = require('../../api/_pa-workspace-gmail.cjs');
+const { verifyIntakeThreadReply } = require('./paui098-thread-reply.cjs');
 const { createHandler: createCommercialHandler } = require('../../api/_pa-commercial-handler.cjs');
 const { createHandler: createContractHandler } = require('../../api/pa-contract.js');
 const { createService: createCommercialService, decryptSecret } = require('../../api/_pa-commercial.cjs');
@@ -18,6 +21,8 @@ const { sha } = require('../../api/_pa-contract-pdf.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const email = 'public-customer@example.invalid';
+const intakeReplyWidth = Number(process.argv.find(arg=>arg.startsWith('--paui098='))?.split('=')[1]||0);
+const readonlyToken = 'fixture-admin-workspace-proof';
 const eventName = 'ブラウザ総合検証の合成イベント';
 const replyBody = 'お問い合わせありがとうございます。会場について確認します。';
 const incomingBody = 'ご返信ありがとうございます。見積書をお願いします。';
@@ -210,6 +215,19 @@ async function main() {
   const transport = caseTransport(fixture);
   const oldFetch = global.fetch;
   global.fetch = transport.fetchImpl;
+  const readonlyHandler = createReadHandler({
+    key:'sb_publishable_fixture',
+    provider:createProvider(transport.fetchImpl),
+    fetchImpl:async (target,options)=>{
+      const source=new URL(target);
+      assert.equal(source.origin,'https://kogbnremsouajxxsgxro.supabase.co');
+      assert.equal(options.method,'GET');
+      assert.equal(options.headers.authorization,'Bearer '+readonlyToken);
+      return fixture.fetchImpl('https://fixture.invalid'+source.pathname+source.search,{
+        ...options,headers:{...options.headers,authorization:'Bearer fixture-admin'}
+      });
+    }
+  });
   const syncCalls = [];
   const serverErrors = [];
   const rows = async (statement, args) => (await db.query(statement, args)).rows;
@@ -284,7 +302,11 @@ async function main() {
       }
       if (url.pathname === '/api/pa-workspace-read') {
         assert.equal(request.method, 'GET');
-        assert.equal(request.headers.authorization, 'Bearer fixture-admin');
+        if(intakeReplyWidth&&url.searchParams.get('path')?.startsWith('/data/mail-intake-reply/')){
+          return readonlyHandler(request,response);
+        }
+        const auth=request.headers.authorization;
+        assert(auth==='Bearer fixture-admin'||intakeReplyWidth&&auth==='Bearer '+readonlyToken);
         return jsonAdapter(response).json({ ok: true, result: await readProjection(url.searchParams.get('path')) });
       }
       const file = path.resolve(root, '.' + decodeURIComponent(url.pathname));
@@ -310,13 +332,14 @@ async function main() {
     browser = await chromium.launch({
       headless: true, ...(process.env.PA_CHROME_EXECUTABLE ? { executablePath: process.env.PA_CHROME_EXECUTABLE } : {})
     });
-    const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.route('**/*', route =>
       new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await context.route(origin + '/pa-ui/js/integration.mjs', route => route.fulfill({
       contentType: 'text/javascript',
       body: `
-        const session={user:{id:${JSON.stringify(actor)}},access_token:'fixture-admin',expires_at:9999999999};
+        const readonly=${Boolean(intakeReplyWidth)}&&new URL(location.href).searchParams.get('mail-view')==='readonly';
+        const session={user:{id:${JSON.stringify(actor)}},access_token:readonly?'${readonlyToken}':'fixture-admin',expires_at:9999999999};
         export const workspaceAuth={restore:async()=>session,current:async()=>session};
         export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);
         export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);
@@ -350,6 +373,7 @@ async function main() {
     const formCard = page.locator('[data-timeline-kind="form"]');
     await formCard.getByText(eventName, { exact: true }).waitFor();
     await formCard.getByRole('button', { name: 'お客様に返信' }).click();
+    assert.equal(await formCard.locator('textarea[name=body]').inputValue(),'');
     const composer = page.locator('#intake-composer-host form');
     await composer.getByLabel('本文', { exact: true }).fill(replyBody);
     await composer.getByRole('button', { name: 'プレビュー' }).click();
@@ -376,6 +400,14 @@ async function main() {
     assert.equal((await rows('select status from pa_inquiries where id=$1', [inquiry.id]))[0].status, 'waiting_customer_reply');
     await page.locator('[data-delivery-id="' + delivery.id + '"]').getByText(replyBody, { exact: false }).waitFor();
 
+    if(intakeReplyWidth){
+      assert([1440,390].includes(intakeReplyWidth));
+      await page.setViewportSize({width:intakeReplyWidth,height:900});
+      await verifyIntakeThreadReply({page,context,origin,inquiry,delivery,followUp,rows,state,transport,requests:syncCalls});
+      assert.deepEqual(serverErrors,[]);
+      assert.deepEqual(pageErrors,[]);
+      return;
+    }
     const inbound = fixture.raw('fixture_browser_customer_reply', followUp.threadId, email, incomingBody);
     state.messages.set(inbound.id, inbound);
     state.threadMessages.get(followUp.threadId).push(inbound);
@@ -438,6 +470,28 @@ async function main() {
     await page.locator('[data-message="' + inbound.id + '"]').waitFor();
     assert.equal(await page.locator('[data-intake-reply]').count(), 0);
     assert.equal(await page.getByRole('button', { name: linkLabel }).count(), 0);
+    const callCount = transport.sent.length;
+    await page.locator('[data-timeline-kind="form"] [data-form-reply]').click();
+    const replyForm = page.locator('.reply-composer');
+    await replyForm.waitFor();
+    await page.waitForFunction(expected=>document.querySelector('[data-reply-to]')?.value===expected,email);
+    assert.equal(await replyForm.locator('[data-reply-body]').inputValue(), '');
+    assert.equal(await replyForm.locator('[data-reply-files]').count(), 1);
+    assert(await replyForm.locator('[data-reply-subject]').inputValue());
+    await replyForm.locator('[data-reply-body]').fill('新しい内容の履歴確認です。');
+    await page.locator('[data-timeline-kind="form"] [data-form-reply]').click();
+    await page.locator('#form-reply-editing').waitFor();
+    assert.equal(await replyForm.locator('[data-reply-body]').inputValue(),'新しい内容の履歴確認です。');
+    await replyForm.locator('[data-reply-files]').setInputFiles({
+      name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('isolated attachment')
+    });
+    await replyForm.locator('[data-reply-files-list]').getByText('fixture.txt',{exact:false}).waitFor();
+    await replyForm.locator('[data-reply-preview]').click();
+    await replyForm.locator('[data-reply-preview-box]').waitFor();
+    await replyForm.locator('[data-reply-preview-files]').getByText('fixture.txt',{exact:false}).waitFor();
+    assert.equal(await replyForm.locator('[data-reply-send]').isEnabled(), false);
+    assert.equal(transport.sent.length,callCount);
+    await replyForm.locator('[data-reply-close]').click();
     assert.equal(transport.sent.length, 3);
     const flow = await runCommerce({
       page, browser, origin, inquiry, rows, sent: transport.sent,

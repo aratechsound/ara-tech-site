@@ -108,14 +108,15 @@ module.exports = async (request, response) => {
         }
         if (input.action === "reply_context") {
             const context = await replyContext({ inquiryId: input.inquiry_id,
-                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id });
+                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id,
+                replySourceDeliveryId: input.reply_source_delivery_id });
             return sendJson(response, 200, { ok: true, context });
         }
         if (input.action === "reply_preview") {
             const preview = await replyPreview({
                 inquiryId: input.inquiry_id, actorId: user.id, body: input.body, attachments: input.attachments, mode: input.mode,
                 ccAddresses: input.cc_addresses,
-                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id
+                replySourceMessageId: input.reply_source_message_id, replySourceThreadId: input.reply_source_thread_id, replySourceDeliveryId: input.reply_source_delivery_id
             });
             return sendJson(response, 200, { ok: true, preview });
         }
@@ -135,7 +136,8 @@ module.exports = async (request, response) => {
             ccAddresses: input.cc_addresses,
             confirmationToken: input.confirmation_token,
             replySourceMessageId: input.reply_source_message_id,
-            replySourceThreadId: input.reply_source_thread_id
+            replySourceThreadId: input.reply_source_thread_id,
+            replySourceDeliveryId: input.reply_source_delivery_id
         });
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {

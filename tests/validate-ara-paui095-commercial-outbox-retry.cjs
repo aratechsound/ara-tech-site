@@ -22,7 +22,7 @@ async function run(check) {
   }
 }
 
-async function verifyUnknown(f, responseStatus, invalidateRecord = false) {
+async function verifyUnknown(f, responseStatus, { invalidateRecord = false, responseBody = {} } = {}) {
   const id = await seedEstimate(f);
   const modified = createService({fetchImpl: async (url, options) => {
     const endpoint = new URL(url);
@@ -31,7 +31,8 @@ async function verifyUnknown(f, responseStatus, invalidateRecord = false) {
     }
     const response = await f.fetchImpl(url, options);
     if (endpoint.hostname==='gmail.googleapis.com' && endpoint.pathname.endsWith('/messages/send')) {
-      return new Response('{}', {status:responseStatus});
+      if (responseStatus === null) throw new DOMException('Fixture provider response timed out', 'TimeoutError');
+      return Response.json(responseBody, {status:responseStatus});
     }
     return response;
   }});
@@ -56,6 +57,53 @@ async function verifyUnknown(f, responseStatus, invalidateRecord = false) {
   await assert.rejects(() => f.service.dispatch({job_id:id},f.actor), replayRejected);
   assert.deepEqual(await saved(f,id),row);
   assert.equal(f.state.sendCount,1);
+}
+
+async function verifyLostFinish(f, committed) {
+  const id = await seedEstimate(f);
+  const service = createService({fetchImpl: async (url, options) => {
+    const endpoint = new URL(url);
+    if (/\/pa_v5_outbox_finish(?:_v2)?$/u.test(endpoint.pathname)) {
+      if (committed && endpoint.pathname.endsWith('_v2')) await f.fetchImpl(url, options);
+      return new Response('{}', {status:503});
+    }
+    return f.fetchImpl(url, options);
+  }});
+  if (committed) {
+    const result = await service.dispatch({job_id:id}, f.actor);
+    assert.equal(result.finish_response_recovered, true);
+    assert.equal((await saved(f, id)).state, 'sent');
+    assert.equal((await service.dispatch({job_id:id}, f.actor)).already_committed, true);
+  } else {
+    await assert.rejects(() => service.dispatch({job_id:id}, f.actor), /mail_outcome_unknown/);
+    assert.equal((await saved(f, id)).state, 'processing');
+    await f.db.query("update public.pa_commercial_outbox set lease_expires_at=now()-interval '1 minute' where id=$1", [id]);
+    await assert.rejects(() => service.dispatch({job_id:id}, f.actor), replayRejected);
+  }
+  assert.equal(f.state.sendCount, 1);
+}
+
+async function verifyReplacementGuard(f) {
+  const allKinds = ['estimate', 'confirmation', 'confirmation_reminder', 'invoice', 'change_proposal', 'accept_receipt'];
+  for (const jobKind of allKinds) {
+    const aggregate = randomUUID();
+    const insert = (state, delivery, started, response, status, evidence) => f.db.query(`
+      insert into public.pa_commercial_outbox
+      (id,inquiry_id,operation_id,job_kind,aggregate_id,state,delivery_state,recipient,subject,body_text,
+       reply_binding,provider_request_started,provider_response_received,provider_http_status,provider_message_id)
+      values($1,$2,$3,$4,$5,$6,$7,'fixture@example.invalid','Fixture','Fixture','{}',$8,$9,$10,$11)
+    `, [randomUUID(), f.inquiryId, randomUUID(), jobKind, aggregate, state, delivery, started, response, status, evidence]);
+    // The old dispatcher could preserve failed with apparently retryable diagnostics.
+    // A provider ID overrides that classification for both retry and new operation IDs.
+    await insert('failed', 'failed_after_provider_response', true, true, 400, 'provider_evidence');
+    const jobs = (await f.service.snapshot(f.inquiryId)).outbox;
+    const previous = jobs.find(job => job.aggregate_id === aggregate);
+    assert.equal(previous.requires_reconciliation, true, jobKind);
+    await assert.rejects(() => insert('queued', null, false, false, null, null), replayRejected);
+    assert.equal((await saved(f, previous.id)).provider_message_id, 'provider_evidence');
+  }
+  assert.equal(f.state.sendCount, 0);
+  console.log('PASS unresolved provider evidence prevents replacement job insertion for every commercial job kind');
 }
 
 async function verifyAcceptedReplyEvidence(f, { failure, matchingThread = true }) {
@@ -259,6 +307,9 @@ async function verifyLegacyUnknownRollback() {
     await f.db.exec('alter table public.pa_commercial_outbox disable trigger pa_commercial_outbox_retry_guard');
     await assert.rejects(() => f.db.query('select public.pa_v5_claim_guarded_outbox($1,$2,$3)', [f.actorId, id, randomUUID()]), /outbox_retry_guard_unavailable/);
     await f.db.exec('alter table public.pa_commercial_outbox enable trigger pa_commercial_outbox_retry_guard');
+    await f.db.exec('alter table public.pa_commercial_outbox disable trigger pa_commercial_outbox_retry_insert_guard');
+    await assert.rejects(() => f.db.query('select public.pa_v5_assert_outbox_retry_guard()'), /outbox_retry_guard_unavailable/);
+    await f.db.exec('alter table public.pa_commercial_outbox enable trigger pa_commercial_outbox_retry_insert_guard');
     await f.db.exec(operation('-rollback'));
     await assert.rejects(() => claim(f, id), replayRejected);
     assert.deepEqual(await saved(f, id), before);
@@ -278,9 +329,14 @@ async function main() {
   await run(f => verifyAcceptedReplyEvidence(f, { failure: 'audit', matchingThread: false }));
   await run(f => verifyUnknown(f,503));
   await run(f => verifyUnknown(f,200));
-  await run(f => verifyUnknown(f,503,true));
+  await run(f => verifyUnknown(f,200,{responseBody:{id:1234,threadId:'thread_123'}}));
+  await run(f => verifyUnknown(f,null));
+  await run(f => verifyUnknown(f,503,{invalidateRecord:true}));
+  await run(f => verifyLostFinish(f, true));
+  await run(f => verifyLostFinish(f, false));
   await run(verifyHistorical);
   await run(verifyFailureWithoutDiagnostics);
+  await run(verifyReplacementGuard);
   await run(verifyDefiniteFailure);
   await run(verifyDirectConfirmationRace);
   await run(verifyDirectConfirmationAfterRejection);

@@ -1,4 +1,5 @@
 import {purposeExcerpt} from './mail-purpose.mjs';
+
 // Template contents are inert, including remote media. Never attach email HTML.
 export function htmlText(html, doc=globalThis.document, preserveQuotes=false) {
   if(!doc)return '';
@@ -6,7 +7,7 @@ export function htmlText(html, doc=globalThis.document, preserveQuotes=false) {
   const fragment=template.content;
   fragment.querySelectorAll('script,style,iframe,object,embed,svg,math,template,form,input,button,img,video,audio,link,meta,[hidden],[aria-hidden="true"]').forEach(n=>n.remove());
   if(preserveQuotes)fragment.querySelectorAll('blockquote,.gmail_quote').forEach(n=>n.prepend('\n> 引用\n'));
-  else fragment.querySelectorAll('blockquote,.gmail_quote,.gmail_signature').forEach(n=>n.remove());
+  if(!preserveQuotes)fragment.querySelectorAll('blockquote,.gmail_quote,.gmail_signature').forEach(n=>n.remove());
   fragment.querySelectorAll('[style]').forEach(n=>{if(n.style.display==='none'||n.style.visibility==='hidden')n.remove();});
   fragment.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));
   fragment.querySelectorAll('p,div,li,tr,h1,h2,h3').forEach(n=>n.append('\n'));
@@ -24,8 +25,10 @@ export function excerpt(text) {
   return out.join('\n').slice(0,650);
 }
 export function savedExcerpt(row){
-  const text=row.body_text||row.snippet||htmlText(row.body_html||'');
-  return purposeExcerpt(text);
+  const html=String(row.body_html||'').slice(0,50000);
+  const text=String(row.body_text||'');
+  return purposeExcerpt(text.trim()?text:htmlText(html)).split('\n').map(line=>line.trim()).join(' ')
+    .slice(0,650).replace(/[\uD800-\uDBFF]$/u,'');
 }
 export function mailAttachments(row){
   if(!Array.isArray(row.attachment_metadata))return [];

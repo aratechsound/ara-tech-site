@@ -18,6 +18,7 @@ function outboxNeedsReconciliation(job, now = Date.now()) {
   if (job.state === 'unknown' || job.delivery_state === 'unknown_after_provider_start') return true;
   if (job.state === 'processing') return !(Date.parse(job.lease_expires_at) > now);
   if (job.state !== 'failed') return false;
+  if (job.provider_message_id != null || job.provider_thread_id != null) return true;
   const beforeProvider = job.delivery_state === 'failed_before_provider' && job.provider_request_started === false
     && job.provider_response_received === false && job.provider_http_status == null;
   const explicitRejection = job.delivery_state === 'failed_after_provider_response' && job.provider_request_started === true
@@ -1194,6 +1195,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       body: bodyTemplate.replace('{{CONFIRMATION_URL}}', confirmationUrl),
       replySource: input.reply_source || null, ccAddresses: input.cc_addresses || []
     });
+    await requireOutboxGuard();
     return rpc('pa_v5_queue_confirmation_reminder', {
       p_actor: actor.id, p_case: uuid(input.case_id), p_offer: uuid(input.offer_id),
       p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id),
@@ -1305,6 +1307,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       const prepared = await issuedConfirmationAuthority({ case_id: caseId, offer_id: offerId }, actor);
       const fingerprint = text(input.preview_fingerprint, 64);
       if (prepared.job.id !== jobId || prepared.fingerprint !== fingerprint) throw Error('stale_confirmation_preview');
+      await requireOutboxGuard();
       await rpc('pa_v5_authorize_confirmation_send', {
         p_actor: actor.id, p_case: caseId, p_offer: offerId, p_job: jobId,
         p_authority_sha256: fingerprint

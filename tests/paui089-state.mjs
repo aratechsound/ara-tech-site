@@ -13,6 +13,29 @@ function fixture({storage=memory(),transport}={}){let time=1000;const calls=[];c
 }
 async function ready(f){await f.state.open(row());f.state.edit('body','Unsent local fixture');await f.state.preview();assert.equal(f.state.get().phase,'ready');f.state.confirm(true);}
 await check('opening is context-only; no preview token, send, sync or handled write',async()=>{const f=fixture();await f.state.open(row());assert.deepEqual(f.calls.map(c=>c.action),['reply_context']);assert.equal(f.state.get().preview,null);});
+await check('form reply requires the saved customer; a mismatch keeps preview and send unavailable',async()=>{
+ const f=fixture();
+ await f.state.open(row(),{formRecipient:'different@example.invalid'});
+ assert.equal(f.state.get().error,'invalid_reply_binding');
+ f.state.edit('body','fixture');
+ await f.state.preview();
+ await f.state.send();
+ assert.deepEqual(f.calls.map(call=>call.action),['reply_context']);
+});
+await check('form reply sends new content twice with separate approvals and one transport per click',async()=>{
+ const f=fixture();
+ for(const body of ['first additional message','second additional message']){
+  await f.state.open(row(),{formRecipient:'customer@example.invalid'});
+  assert.equal(f.state.get().body,'');
+  f.state.edit('body',body);
+  await f.state.preview();
+  await f.state.send();
+  f.state.confirm(true);
+  await Promise.all([f.state.send(),f.state.send()]);
+  assert.equal(f.state.get().phase,'sent');
+ }
+ assert.deepEqual(f.calls.filter(call=>call.action==='send_reply').map(call=>call.body),['first additional message','second additional message']);
+});
 await check('source change retains draft and binds the selected secondary thread',async()=>{const f=fixture();await ready(f);await f.state.open(row('m2','t2'));assert.equal(f.state.get().body,'Unsent local fixture');assert.equal(f.state.canSend(),false);await f.state.preview();assert.equal(f.calls.at(-1).reply_source_message_id,'m2');assert.equal(f.calls.at(-1).reply_source_thread_id,'t2');});
 await check('body CC and attachment edits invalidate every previous confirmation',async()=>{for(const [field,value]of [['body','edited'],['cc','peer@example.invalid'],['attachments',[{filename:'a',mime_type:'text/plain',data:'YWJj',size:3}]]]){const f=fixture();await ready(f);f.state.edit(field,value);assert.equal(f.state.get().preview,null);assert.equal(f.state.canSend(),false);}});
 await check('case switch isolates and restores in-memory body without confirmation',async()=>{const f=fixture();await ready(f);f.state.setCase(B);assert.equal(f.state.get().body,'');await assert.rejects(()=>f.state.open(row()),/invalid_reply_source/);f.state.setCase(A);assert.equal(f.state.get().body,'Unsent local fixture');assert.equal(f.state.get().preview,null);});

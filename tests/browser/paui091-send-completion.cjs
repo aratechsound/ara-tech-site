@@ -290,7 +290,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const page=await pageAt({width:1440,height:1000});await draft(page,'Reload while send response is held');await approve(page);holdSend=true;releaseSend=null;const before=sendCount();await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.reload();holdSend=false;releaseSend();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Never replay after interrupted send');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({send_in_flight_reload_lock_survives:true,no_automatic_resend:true});await page.close();
   }
   {
-   const before=posts.length,page=await pageAt({width:390,height:844},true);assert.equal(posts.length,before);await page.locator('[data-reply-message="source"]').click();assert.equal(posts.length,before);assert.equal(await page.locator('.reply-composer').isHidden(),true);checks.push({passive_production_verification_mode_no_posts:true});
+   const before=posts.length,page=await pageAt({width:390,height:844},true);assert.equal(posts.length,before);const readonlyReply=page.locator('[data-reply-message="source"]');await readonlyReply.waitFor();assert.equal(await readonlyReply.isDisabled(),true);assert.match(await readonlyReply.getAttribute('title'),/閲覧専用/);await readonlyReply.evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true})));assert.equal(posts.length,before);assert.equal(await page.locator('.reply-composer').isHidden(),true);checks.push({passive_production_verification_mode_no_posts:true});
    await page.goto(base+'/?case='+B+'&tab=conversation&mail-view=readonly');
    await page.locator('[data-delivery-id="follow-up"]').getByText('Edited fixture follow-up',{exact:true}).waitFor();
    await page.reload();
@@ -326,8 +326,11 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await form.getByText('送信結果を確認できません。配送記録を確認してください。',{exact:true}).waitFor();
    assert.equal(await form.locator('button[type="submit"]').isDisabled(),true);
    await page.reload();
-   await page.getByRole('button',{name:'お客様に返信',exact:true}).click();
-   await page.getByText('送信は試行済みです。配送記録とGmail履歴を確認してください。').waitFor();
+   const unknownReply=page.locator('[data-timeline-kind="form"] [data-form-reply]');
+   await page.getByText('送信結果を確認できない記録があります。配送履歴を確認してください。',{exact:true}).waitFor();
+   assert.equal(await unknownReply.isDisabled(),true);
+   await unknownReply.evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+   assert.equal(await page.getByRole('form',{name:'お問い合わせへの返信'}).count(),0);
    assert.equal(intakePosts.length,2);
    await page.close();
   }
