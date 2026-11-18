@@ -326,8 +326,11 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    await form.getByText('送信結果を確認できません。配送記録を確認してください。',{exact:true}).waitFor();
    assert.equal(await form.locator('button[type="submit"]').isDisabled(),true);
    await page.reload();
-   await page.getByRole('button',{name:'お客様に返信',exact:true}).click();
-   await page.getByText('送信は試行済みです。配送記録とGmail履歴を確認してください。').waitFor();
+   const unknownReply=page.locator('[data-timeline-kind="form"] [data-form-reply]');
+   await page.getByText('送信結果を確認できない記録があります。配送履歴を確認してください。',{exact:true}).waitFor();
+   assert.equal(await unknownReply.isDisabled(),true);
+   await unknownReply.evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+   assert.equal(await page.getByRole('form',{name:'お問い合わせへの返信'}).count(),0);
    assert.equal(intakePosts.length,2);
    await page.close();
   }
