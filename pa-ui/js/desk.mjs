@@ -663,13 +663,19 @@ function render(){
   }
 }
 async function loadSurface(name,url,epoch){
-  detail[name]={state:'loading'};
-  try{const value=await api(url);if(epoch!==selectionEpoch)return;detail[name]={state:'ready',value};}
-  catch(error){if(epoch!==selectionEpoch)return;detail[name]={state:'error',error};}
+  if(epoch!==selectionEpoch)return;
+  const pending={state:'loading'};
+  detail[name]=pending;
+  let result;
+  try{result={state:'ready',value:await api(url)};}
+  catch(error){result={state:'error',error};}
+  // A newer read can start for the same surface without changing the case.
+  if(epoch!==selectionEpoch||detail[name]!==pending)return;
+  detail[name]=result;
   // Only the material indexes can change the document gallery. Keep its active
   // preview and cached originals while unrelated case data updates the inspector.
   if(tab==='documents'&&name!=='materials'&&name!=='commercial'){renderInspector();return;}
-  if(epoch===selectionEpoch)render();
+  render();
 }
 function discoverMail(){if(current()&&detail.mailCandidates?.state!=='loading')void loadSurface('mailCandidates','/data/mail-candidates/'+selected,selectionEpoch);}
 async function checkLiveMail(){
