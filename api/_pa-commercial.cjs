@@ -15,6 +15,17 @@ const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const DIRECT_CONFIRM_LINK_ONLY = 'DIRECT_CONFIRM_LINK_ONLY';
 const LEGACY_CONFIRMATION = 'LEGACY';
 const isDirectConfirmation = (mode) => mode === DIRECT_CONFIRM_WITH_ESTIMATE || mode === DIRECT_CONFIRM_LINK_ONLY;
+const definitiveGmailRejections = new Set([400, 401, 403, 404, 413, 422, 429]);
+function outboxNeedsReconciliation(job, now = Date.now()) {
+  if (job.state === 'unknown' || job.delivery_state === 'unknown_after_provider_start') return true;
+  if (job.state === 'processing') return !(Date.parse(job.lease_expires_at) > now);
+  if (job.state !== 'failed') return false;
+  const beforeProvider = job.delivery_state === 'failed_before_provider' && job.provider_request_started === false
+    && job.provider_response_received === false && job.provider_http_status == null;
+  const explicitRejection = job.delivery_state === 'failed_after_provider_response' && job.provider_request_started === true
+    && job.provider_response_received === true && definitiveGmailRejections.has(job.provider_http_status);
+  return !beforeProvider && !explicitRejection;
+}
 const confirmationMode = (value) => {
   const mode = value == null ? LEGACY_CONFIRMATION : value;
   if (mode !== LEGACY_CONFIRMATION && !isDirectConfirmation(mode)) throw Error('invalid_contract');
@@ -62,9 +73,8 @@ const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offer
     || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
       && (job.aggregate_id === confirmationId
         || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
-  return related && (['processing', 'unknown'].includes(job.state)
-    || job.delivery_state === 'unknown_after_provider_start'
-    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
+  return related && (job.state === 'processing' || outboxNeedsReconciliation(job)
+    || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked' && job.provider_request_started
       && (!job.provider_response_received || job.provider_http_status >= 500
         || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
 };
@@ -264,9 +274,10 @@ const deliveryFailureDetails = (error, trace = {}) => {
   const providerHttpStatus = Number.isInteger(trace.provider_http_status)
     ? trace.provider_http_status
     : Number(failureCode.match(/^gmail_send_([1-5][0-9]{2})$/u)?.[1]) || null;
+  const rejected = providerResponseReceived && definitiveGmailRejections.has(providerHttpStatus);
   const deliveryState = !providerRequestStarted
     ? 'failed_before_provider'
-    : providerResponseReceived ? 'failed_after_provider_response' : 'unknown_after_provider_start';
+    : rejected ? 'failed_after_provider_response' : 'unknown_after_provider_start';
   const state = deliveryState === 'unknown_after_provider_start' ? 'unknown' : 'failed';
   const safeMessages = {
     invalid_confirmation: '送信内容の確認情報と添付ファイルが一致しません。',
@@ -275,10 +286,9 @@ const deliveryFailureDetails = (error, trace = {}) => {
     mail_adapter_not_configured: 'メール配送設定が完了していません。',
     invalid_production_e2e_test: 'Production TEST配送の固定条件と一致しません。'
   };
-  const safeMessage = safeMessages[failureCode]
+  const safeMessage = deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : safeMessages[failureCode]
     || (failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。'
-      : failureCode.startsWith('gmail_send_') ? 'Gmail APIが送信リクエストを受理しませんでした。'
-        : deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : 'メール配送開始前に失敗しました。');
+      : rejected ? 'Gmail APIが送信リクエストを受理しませんでした。' : 'メール配送開始前に失敗しました。');
   const phase = /^[a-z][a-z0-9_]{0,99}$/u.test(String(trace.phase || '')) ? trace.phase : 'dispatch';
   return { state, deliveryState, failureCode, safeMessage, phase, providerRequestStarted, providerResponseReceived, providerHttpStatus };
 };
@@ -508,7 +518,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     ]) : [[], []];
     const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
-    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => item);
+    const observedAt = Date.now();
+    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => ({
+      ...item, requires_reconciliation: outboxNeedsReconciliation(item, observedAt)
+    }));
+    const invoicesToReconcile = new Set(safeOutbox.filter(job => job.job_kind === 'invoice' && job.requires_reconciliation)
+      .map(job => job.aggregate_id));
     return {
       case_status: inquiry.status,
       state: effectiveState,
@@ -517,7 +532,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
-      outbox: safeOutbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
+      outbox: safeOutbox,
+      billings: billings.map(item => ({ ...item, invoice_requires_reconciliation: item.invoice_policy === 'separate_pdf' && invoicesToReconcile.has(item.id) })),
+      payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
       confirmation_preflight: {
         event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
@@ -1336,15 +1353,22 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         // may already have delivered this mail. Never make it retryable.
         failure = { ...failure, state: 'unknown', deliveryState: 'unknown_after_provider_start' };
       }
-      await finishOutbox({
+      const providerEvidence = sent || deliveryTrace.accepted_reply;
+      const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
-        p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
+        p_message: providerEvidence?.gmail_message_id || null, p_thread: providerEvidence?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
         p_delivery_state: failure.deliveryState, p_failure_phase: failure.phase,
         p_failure_code: failure.failureCode, p_safe_message: failure.safeMessage,
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
+      if (failure.state === 'unknown') {
+        // A failed diagnostic write cannot make a started provider request safe to repeat.
+        await finish.catch(() => null);
+        throw Error('mail_outcome_unknown');
+      }
+      await finish;
       throw error;
     }
     try {
