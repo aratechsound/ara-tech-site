@@ -98,14 +98,63 @@ async function run() {
         assert.equal(originalReads, 1, 'Independent read must not refetch the selected Gmail original');
 
         await preview.getByRole('button', { name: '閉じる', exact: true }).click();
+        const views = mobile
+          ? [['estimate', '#sent-estimate-grid', 'cases'], ['documents', '#material-grid', 'files']]
+          : [
+              ['overview', '#overview-next-action', 'cases'],
+              ['estimate', '#sent-estimate-grid', 'cases'],
+              ['invoice', '#detail-card h2:has-text("請求状態")', 'cases'],
+              ['conversation', '#case-mail-sync', 'inbox'],
+              ['schedule', '.schedule-hero', 'cases'],
+              ['history', '#detail-card h2:has-text("案件・工程・メール監査")', 'cases'],
+              ['documents', '#material-grid', 'files']
+            ];
+        for (const [view, marker, group] of views) {
+          await page.locator(view === 'schedule' ? '#open-schedule' : '[data-tab="' + view + '"]').click();
+          await page.locator(marker).waitFor();
+          if (view === 'estimate') {
+            await page.getByRole('button', { name: '見積書_Gmail.pdf の拡大プレビュー', exact: true }).click();
+            await preview.waitFor();
+          }
+          await page.reload();
+          const params = new URL(page.url()).searchParams;
+          assert.equal(params.get('case'), A);
+          assert.equal(params.get('tab'), view === 'overview' ? null : view, 'The URL must preserve the case view');
+          assert.equal(params.get('mail-view'), 'readonly');
+          await page.locator(marker).waitFor();
+          assert.equal(await page.locator('.globalnav button.active').getAttribute('data-top'), group);
+          assert.equal(await page.locator('dialog[open]').count(), 0);
+        }
+
         await page.locator('[data-case="' + B + '"]').click();
+        assert.equal(await page.locator('.globalnav button.active').getAttribute('data-top'), 'cases');
+        assert.equal(new URL(page.url()).searchParams.get('tab'), null);
         await page.locator('[data-tab="estimate"]').click();
         await page.getByText('保存済み見積なし', { exact: true }).waitFor();
         assert.equal(await page.getByRole('button', { name: '見積書_Gmail.pdf の拡大プレビュー' }).count(), 0);
+
+        if (!mobile) {
+          await page.goto(host + '/pa-admin.html?case=' + A + '&tab=unrecognized');
+          await page.locator('#overview-next-action').waitFor();
+          assert.equal(new URL(page.url()).searchParams.get('tab'), null);
+          await page.goto(host + '/pa-admin.html?case=' + B + '&tab=invoice');
+          await page.getByRole('heading', { name: '請求状態', exact: true }).waitFor();
+          await page.locator('[data-case="' + B + '"][aria-pressed="true"]').waitFor();
+          await page.reload();
+          await page.getByRole('heading', { name: '請求状態', exact: true }).waitFor();
+          assert.equal(await page.locator('dialog[open]').count(), 0);
+          const inaccessible = '99999999-9999-4999-8999-999999999999';
+          await page.goto(host + '/pa-admin.html?case=' + inaccessible + '&tab=invoice');
+          await page.locator('[data-case="' + A + '"]').waitFor();
+          assert.equal(await page.locator('#detail-card h2').count(), 0);
+          assert.equal(await page.locator('[data-case][aria-pressed="true"]').count(), 0);
+        }
         assert.deepEqual(unintendedRequests, []);
         assert.deepEqual(errors, []);
         console.log('PASS sent estimate preview and original remain bound after independent commercial ' +
           (mobile ? 'failure (390px touch)' : 'success (1440px)'));
+        console.log('PASS saved case views and navigation state restore on reload with no mail POST ' +
+          (mobile ? '(390px touch)' : '(1440px)'));
       } finally {
         releaseCommercial();
         await page.close();

@@ -20,6 +20,7 @@ import {conversationTimeline,customerInbound,deliveryDate,deliveryLabel,delivery
 import {escape,STATUS,STEPS,statusText,statusColor,displayStatus,paymentClosureBasis,eventDate,sortCases,filterCases,attention,reviewCounts,scheduleState,scheduleResponseLabel,flattenMaterials,commercialMaterials,isClosedCase} from './model.mjs';
 
 const $=id=>document.getElementById(id),central=$('detail-card');
+const CASE_TABS=new Set(['overview','conversation','estimate','invoice','documents','history','schedule']);
 const tx=value=>escape(privateText(String(value??'未提供')));
 const addresses=v=>Array.isArray(v)?v.join(', '):String(v||'未取得');
 const date=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '未提供';return new Date(value).toLocaleString('ja-JP');};
@@ -133,6 +134,8 @@ function renderHeader(){
   if(c&&!passiveMail){portal.href='/pa/cases/'+encodeURIComponent(c.id)+'/portal';portal.removeAttribute('aria-disabled');portal.title='既存の案件別管理者ポータルを新しいタブで開く';}
   else{portal.removeAttribute('href');portal.setAttribute('aria-disabled','true');}
   document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.disabled=!c;b.setAttribute('aria-selected',String(b.dataset.tab===tab));});
+  const activeGroup=c&&tab==='conversation'?'inbox':c&&tab==='documents'?'files':'cases';
+  document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top===activeGroup));
   renderCounts();
 }
 const unconfirmedOfferLabel='発行記録あり・同意未確認';
@@ -235,7 +238,13 @@ async function syncSelectedMail(){
   if(id!==selected||epoch!==selectionEpoch||tab!=='conversation'||!session||replyState.pending(id)||detail.intakeThreadLink==='pending')return;
   return caseMailSync.run(id);
 }
-function persistCaseView(){const url=new URL(location.href);url.searchParams.set('case',selected);if(tab==='conversation')url.searchParams.set('tab','conversation');else url.searchParams.delete('tab');window.history.replaceState(null,'',url);}
+function persistCaseView(){
+  const url=new URL(location.href);
+  url.searchParams.set('case',selected);
+  if(tab==='overview')url.searchParams.delete('tab');
+  else url.searchParams.set('tab',tab);
+  window.history.replaceState(null,'',url);
+}
 function conversation(c){
   const live=detail.liveMail,candidates=detail.mailCandidates;
   const labels={no_thread_links:'承認済みスレッドなし / 未紐付けメールは未確認',partial_unknown:'Gmail取得・帰属照合が一部失敗 / 最新は未確認',index_gap:'索引未更新あり / 承認済みスレッドから表示',linked_threads_current:'承認済みスレッドの索引に欠落なし'};
@@ -768,7 +777,10 @@ async function checkLiveMail(){
 }
 async function selectCase(id,{restoreTab=false}={}){
   if(!cases.some(c=>c.id===id))return;
-  ++selectionEpoch;abortRequests();clearDetail();selected=id;replyState.setCase(id);tab=restoreTab&&new URL(location.href).searchParams.get('tab')==='conversation'?'conversation':'overview';persistCaseView();const epoch=selectionEpoch;
+  const priorTab=restoreTab?new URL(location.href).searchParams.get('tab'):null;
+  ++selectionEpoch;abortRequests();clearDetail();selected=id;replyState.setCase(id);
+  tab=CASE_TABS.has(priorTab)?priorTab:'overview';
+  persistCaseView();const epoch=selectionEpoch;
   renderList();render();
   // Read surfaces first. Restored conversation view then runs only its linked-case sync.
   const messages=loadSurface('messages','/data/mail/'+id,epoch);
@@ -791,14 +803,13 @@ async function refresh({openCaseId}={}){
   finally{if(epoch===listEpoch)$('refresh-cases').disabled=false;}
 }
 function setTab(name){
-  if(!['overview','conversation','estimate','invoice','documents','history','schedule'].includes(name)||!current())return;
+  if(!CASE_TABS.has(name)||!current())return;
   const changed=tab!==name;
   if(changed){htmlView.close();caseBasicsEditor.close();}
   if(changed&&detail.commercialPanel){detail.commercialPanel.controller.abort();delete detail.commercialPanel;}
   resetPrivacy();tab=name;persistCaseView();render();central.scrollTop=0;
   if(name==='conversation'&&changed)void syncSelectedMail();
   if(name==='conversation'&&!detail.mailCandidates)discoverMail();
-  document.querySelectorAll('[data-top]').forEach(b=>b.classList.toggle('active',b.dataset.top==='files'?name==='documents':b.dataset.top==='inbox'?name==='conversation':!['documents','conversation'].includes(name)));
 }
 function openDrawer(){
   resetPrivacy();$('feature-search').value='';renderFeatures();
