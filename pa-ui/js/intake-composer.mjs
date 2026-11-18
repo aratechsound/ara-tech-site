@@ -23,8 +23,6 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
   const status = form.querySelector('[role=status]');
   recipient.value = inquiry.email.trim();
   subject.value = ('お問い合わせについて｜' + inquiry.inquiry_number).slice(0, 240);
-  const name = inquiry.contact_name || inquiry.customer_name;
-  body.value = name ? name + ' 様\n\n' : '';
   const frame = review.querySelector('iframe');
   let snapshot;
   let revision = 0;

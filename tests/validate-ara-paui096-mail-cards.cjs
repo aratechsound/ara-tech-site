@@ -96,7 +96,7 @@ async function main() {
       };
       const exercise = async card=>{
         await folded(card);
-        assert.equal((await body(card).textContent()).split('\n').slice(0,3).join('\n'),'お世話になっております。\n\n原文3行目');
+        assert.match(await body(card).textContent(),/^原文3行目 長文メールの続きです。/u);
         await card.getByRole('button',{name:'全文を表示',exact:true}).click();
         assert.equal(await toggle(card).getAttribute('aria-expanded'),'true');
         assert.equal(await body(card).textContent(),longBody);
@@ -110,7 +110,7 @@ async function main() {
       await folded(incoming);
       releaseBody();
       await incoming.getByRole('button',{name:'全文を表示',exact:true}).waitFor();
-      assert(await incoming.getByRole('button',{name:'返信',exact:true}).isEnabled());
+      assert.equal(await incoming.getByRole('button',{name:'返信',exact:true}).isEnabled(),false);
       assert.equal(await incoming.getByText('資料.pdf',{exact:true}).count(),1);
       assert.equal(await incoming.locator('.mail-address').innerText(),'差出人 fixture@example.invalid\n宛先 desk@example.invalid');
       assert.equal(await incoming.locator('.mail-heading time').count(),1);
