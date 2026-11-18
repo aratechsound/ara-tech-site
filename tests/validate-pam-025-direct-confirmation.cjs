@@ -35,6 +35,7 @@ async function setup({ transport, migrate = true, linkOnly = migrate } = {}) {
     const previousAcl = await f.db.query(estimateAclSql);
     await f.db.exec(read(ESTIMATE_CONFIRMATION_GUARD));
     await f.db.exec(read(ESTIMATE_RECOVERY_GUARD));
+    await f.db.exec(read('20261117190400_paui095_guard_case_reopen.sql'));
     const currentAcl = await f.db.query(estimateAclSql);
     assert.equal(previousAcl.rows.length, 2);
     assert.deepEqual(currentAcl.rows, previousAcl.rows);
