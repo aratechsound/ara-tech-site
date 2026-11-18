@@ -14,7 +14,7 @@ const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
 const LEGACY_CONFIRMATION = 'LEGACY';
 const definitiveGmailRejections = new Set([400, 401, 403, 404, 413, 422, 429]);
-function outboxNeedsReconciliation(job, now) {
+function outboxNeedsReconciliation(job, now = Date.now()) {
   if (job.state === 'unknown' || job.delivery_state === 'unknown_after_provider_start') return true;
   if (job.state === 'processing') return !(Date.parse(job.lease_expires_at) > now);
   if (job.state !== 'failed') return false;
@@ -71,9 +71,8 @@ const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offer
     || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
       && (job.aggregate_id === confirmationId
         || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
-  return related && (['processing', 'unknown'].includes(job.state)
-    || job.delivery_state === 'unknown_after_provider_start'
-    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
+  return related && (job.state === 'processing' || outboxNeedsReconciliation(job)
+    || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked' && job.provider_request_started
       && (!job.provider_response_received || job.provider_http_status >= 500
         || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
 };

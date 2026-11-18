@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { setup } = require('./validate-pam-025-direct-confirmation.cjs');
+const { setup, MODE } = require('./validate-pam-025-direct-confirmation.cjs');
 const { createService } = require('../api/_pa-commercial.cjs');
 
 const directory = path.join(__dirname, '../supabase/operations');
@@ -110,6 +110,49 @@ async function verifyDefiniteFailure(f) {
   assert.deepEqual(await saved(f,id),final);
 }
 
+async function verifyDirectConfirmationRace(f) {
+  const id = await seedEstimate(f);
+  const input = { case_id:f.inquiryId, confirmation_mode:MODE };
+  const preview = await f.service.confirmationPreview(input,f.actor);
+  const service = createService({fetchImpl: async (url, options) => {
+    if (new URL(url).pathname.endsWith('/pa_v5_issue_confirmation')) {
+      const lease = randomUUID();
+      await claim(f,id,lease);
+      await f.fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method:'POST', body:JSON.stringify({raw:'Zml4dHVyZQ',threadId:'thread_123'})
+      });
+      await f.db.query(`select public.pa_v5_outbox_finish(
+        $1,$2,$3,'failed',null,null,'legacy_fixture_failure')`, [f.actorId,id,lease]);
+    }
+    return f.fetchImpl(url,options);
+  }});
+  await assert.rejects(() => service.issueDirectConfirmationAndSend({
+    ...input, preview_fingerprint:preview.fingerprint, operation_id:randomUUID()
+  }, f.actor), replayRejected);
+  const snapshot = await f.service.snapshot(f.inquiryId);
+  assert.equal(snapshot.confirmation_preflight.delivery_outcome_unresolved,true);
+  assert.equal(snapshot.offers.length,0);
+  assert.equal(snapshot.outbox.length,1);
+  assert.equal((await saved(f,id)).state,'failed');
+  await assert.rejects(() => f.service.confirmationPreview(input,f.actor),/delivery_outcome_unresolved/);
+  assert.equal(f.state.sendCount,1);
+}
+
+async function verifyDirectConfirmationAfterRejection(f) {
+  const id = await seedEstimate(f);
+  f.state.transport = 'fail';
+  await assert.rejects(() => f.service.dispatch({job_id:id},f.actor),/gmail_send_400/);
+  f.state.transport = 'ok';
+  const input = { case_id:f.inquiryId, confirmation_mode:MODE };
+  const preview = await f.service.confirmationPreview(input,f.actor);
+  const sent = await f.service.issueDirectConfirmationAndSend({
+    ...input, preview_fingerprint:preview.fingerprint, operation_id:randomUUID()
+  }, f.actor);
+  assert.equal(sent.state,'sent');
+  assert.equal((await saved(f,id)).state,'cancelled');
+  assert.equal(f.state.sendCount,2);
+}
+
 async function main() {
   global.fetch = async () => { throw Error('LIVE_NETWORK_FORBIDDEN'); };
   await run(f => verifyUnknown(f,503));
@@ -118,6 +161,8 @@ async function main() {
   await run(verifyHistorical);
   await run(verifyFailureWithoutDiagnostics);
   await run(verifyDefiniteFailure);
-  console.log('PASS commercial outbox: ambiguous 503 and malformed 200 stay UNKNOWN, failed diagnostic writes and historical ambiguous attempts cannot replay, definite pre-provider and 400 failures can retry, rollback refuses unresolved attempts, real Gmail 0');
+  await run(verifyDirectConfirmationRace);
+  await run(verifyDirectConfirmationAfterRejection);
+  console.log('PASS commercial outbox: ambiguous 503 and malformed 200 stay UNKNOWN, failed diagnostic writes and historical ambiguous attempts cannot replay, direct confirmation cannot supersede an ambiguous estimate, definite pre-provider and 400 failures can retry, rollback refuses unresolved attempts, real Gmail 0');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

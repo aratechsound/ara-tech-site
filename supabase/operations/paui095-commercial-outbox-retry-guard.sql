@@ -29,11 +29,13 @@ $fn$;
 
 revoke all on function public.pa_guard_commercial_outbox_retry() from public, anon, authenticated;
 
--- Guard renewal/retry under the same row lock used by every outbox claim RPC.
+-- Guard claims and direct-confirmation supersession inside the existing transactions.
 create trigger pa_commercial_outbox_retry_guard
-before update of lease_id, attempt_count on public.pa_commercial_outbox
-for each row when (new.state = 'processing' and
+before update of state, lease_id, attempt_count on public.pa_commercial_outbox
+for each row when ((new.state = 'processing' and
   (new.lease_id is distinct from old.lease_id or new.attempt_count is distinct from old.attempt_count))
+  or (new.state = 'cancelled' and old.state = 'failed' and old.job_kind = 'estimate'
+    and new.last_error_code in ('estimate_presented_with_confirmation', 'estimate_available_in_confirmation')))
 execute function public.pa_guard_commercial_outbox_retry();
 
 commit;
