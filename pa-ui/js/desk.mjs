@@ -353,7 +353,7 @@ function formEntry(inquiry, entry) {
   const reply='<div class="inlinebtns"><button type="button" class="action blue" data-form-reply'+
     (first?' data-intake-reply':'')+(reason?' disabled aria-describedby="form-reply-reason"':'')+'>'+
     (first?'お客様に返信':'返信')+'</button></div>'+
-    (reason?'<p class="hint" id="form-reply-reason">'+escape(reason)+'</p>':'');
+    (reason?'<p class="hint" id="form-reply-reason">'+escape(reason)+'</p>':'<p class="hint" id="form-reply-editing" role="status" hidden></p>');
   return `<article class="mail-row no-attachments" data-timeline-kind="form"><div class="mail-text">
     <div class="mail-heading"><strong>お問い合わせ受付</strong><time>${escape(timelineDate(entry.at))}</time></div>
     <p class="mail-address">申込者 ${escape(inquiry.contact_name || inquiry.customer_name || '未取得')} / ${escape(inquiry.email || '未取得')}<br>受付先 ARA-TECH</p>
@@ -976,9 +976,15 @@ document.addEventListener('click',e=>{
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
   if(e.target.closest('[data-form-reply]:not(:disabled)')){
     const option=formReplyOption(current());
+    const notice=$('form-reply-editing');
+    if(replyState.get().open){
+      if(notice){notice.textContent='編集中の返信を閉じてから、お問い合わせ受付の返信を開いてください。';notice.hidden=false;}
+      return;
+    }
+    if(notice)notice.hidden=true;
     if(option.first)openIntakeComposer();
     if(option.source){
-      if(!replyState.get().open)void replyState.open(option.source,{formRecipient:option.recipient}).catch(()=>{});
+      void replyState.open(option.source,{formRecipient:option.recipient}).catch(()=>{});
       $('reply-composer-host')?.scrollIntoView({block:'start'});
     }
     return;

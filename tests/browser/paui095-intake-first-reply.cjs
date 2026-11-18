@@ -448,6 +448,9 @@ async function main() {
     assert.equal(await replyForm.locator('[data-reply-files]').count(), 1);
     assert(await replyForm.locator('[data-reply-subject]').inputValue());
     await replyForm.locator('[data-reply-body]').fill('新しい内容の履歴確認です。');
+    await page.locator('[data-timeline-kind="form"] [data-form-reply]').click();
+    await page.locator('#form-reply-editing').waitFor();
+    assert.equal(await replyForm.locator('[data-reply-body]').inputValue(),'新しい内容の履歴確認です。');
     await replyForm.locator('[data-reply-files]').setInputFiles({
       name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('isolated attachment')
     });
