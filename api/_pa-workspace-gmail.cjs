@@ -28,10 +28,10 @@ function createProvider(fetchImpl=fetch){
   }
 async function message(id) { return hydrate(await gmailMessage(id,boundedFetch)); }
 async function thread(id) { return gmailJson('/threads/'+encodeURIComponent(id)+'?format=full',{method:'GET'},boundedFetch); }
-async function attachment({messageId,metadata,raw}) {
+async function attachment({messageId,metadata,partId,raw}) {
   const normalized=normalizeMessage(raw);
   const refs=[metadata.id,metadata.gmail_attachment_id,metadata.part_id].filter(Boolean);
-  const matches=normalized.attachments.filter(a=>refs.includes(a.id)||refs.includes(a.part_id));
+  const matches=normalized.attachments.filter(a=>partId?a.part_id===partId:refs.includes(a.id)||refs.includes(a.part_id));
   if(matches.length!==1)throw Error('attachment_mail_mismatch');
   const fresh=matches[0];
   if(fresh.mime_type!==metadata.mime_type || Number(fresh.size)!==Number(metadata.size))throw Error('asset_identity_mismatch');

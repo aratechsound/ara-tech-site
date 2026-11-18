@@ -24,6 +24,11 @@
 .case-list,.central{scrollbar-color:#555 transparent}.attachment-strip{scrollbar-color:#555 #161616}.attachment-strip::-webkit-scrollbar-thumb{background:#555}
 .modal-wrap,.pa-material-preview-dialog::backdrop{background:#000d}
 .drawer-wrap{background:#000a}.drawer-filters select,.feature button{background:#161616;border-color:#303030}.newdot.read{background:#777}
+dialog.modal-wrap,dialog.drawer-wrap{width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;color:inherit;overflow:hidden}
+dialog.drawer-wrap{padding:0}
+dialog.modal-wrap[open]{display:flex}
+dialog.drawer-wrap[open]{display:block}
+dialog.modal-wrap::backdrop,dialog.drawer-wrap::backdrop{background:transparent}
 .pa-material-preview-dialog{border-color:#404040}.material-card:hover{border-color:#666}
 /* Keep semantic success, warning, failure and direction colors from the existing theme. */
 @media(max-width:760px){.topright .subtle{display:none}.brand img{width:104px}.globalnav button{padding:0 5px}.topcmd{font-size:10px;padding:5px}.mail-layout{grid-template-columns:minmax(0,1fr)}.mail-attachments{border-left:0;border-top:1px solid var(--border)}.attachment-strip{max-width:100%}}

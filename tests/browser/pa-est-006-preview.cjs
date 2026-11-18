@@ -22,6 +22,15 @@ async function counts(db, caseId) { const result = {}; for (const [key, sql] of 
 async function main() {
     let fixture, billingFixture, pdfFixture, unknownFixture, recoveryFixture, server, browser;
     const pageErrors = [], apiActions = [];
+    const heldDeskReads = new Map(), releaseHeldDeskReads = [];
+    const holdNextDeskRead = (target, status) => {
+        let start, release;
+        const started = new Promise(resolve => { start = resolve; });
+        const released = new Promise(resolve => { release = resolve; });
+        heldDeskReads.set(target, { start, released, status });
+        releaseHeldDeskReads.push(release);
+        return { started, release };
+    };
     try {
         fixture = await createFixture();
         const r7 = read('20260914213000_pa_est_007r3_delivery_recovery.sql');
@@ -70,6 +79,8 @@ async function main() {
         }));
         await context.route(base + '/fixture-desk-read?**', async route => {
             const target = new URL(route.request().url()).searchParams.get('path');
+            const hold = heldDeskReads.get(target);
+            if (hold) heldDeskReads.delete(target);
             let result = target === '/data/cases' ? { cases: deskCases, progress: [] }
                 : target.startsWith('/data/commercial/') ? { estimates: [], offers: [], billings: [] }
                 : target.startsWith('/data/sent-estimates/') ? { messages: [], unknown: [] } : [];
@@ -86,7 +97,14 @@ async function main() {
                     result = await service.snapshot(inquiryId);
                 } else if (target === '/data/case/' + inquiryId + '/payments') {
                     result = (await db.query('select * from pa_payment_records where inquiry_id=$1', [inquiryId])).rows;
+                } else if (target === '/data/case/' + inquiryId + '/audit') {
+                    result = (await db.query('select occurred_at,action,details from pa_inquiry_audit where inquiry_id=$1 order by occurred_at desc', [inquiryId])).rows;
                 }
+            }
+            if (hold) {
+                hold.start();
+                await hold.released;
+                if (hold.status !== 200) return route.fulfill({ status: hold.status, json: { ok: false, code: 'fixture_delayed_read_failed' } });
             }
             return route.fulfill({ json: { ok: true, result } });
         });
@@ -240,8 +258,13 @@ async function main() {
         assert.equal(accepted.state, 'accepted');
         const sendsBeforeBilling = f.state.sendCount;
         handler = createHandler({ service: f.service, ...options });
+        const paymentsPath = '/data/case/' + case_id + '/payments';
+        const auditPath = '/data/case/' + case_id + '/audit';
+        const oldPayments = holdNextDeskRead(paymentsPath, 200);
+        const oldAudit = holdNextDeskRead(auditPath, 503);
         await page.setViewportSize({ width: 390, height: 844 });
         await page.goto(`${base}/pa-admin.html?case=${case_id}`);
+        await Promise.all([oldPayments.started, oldAudit.started]);
         await page.getByRole('button', { name: '請求・入金', exact: true }).click();
         await page.getByRole('button', { name: '請求・入金の操作', exact: true }).click();
         const entryResponse = action => page.waitForResponse(response =>
@@ -308,6 +331,23 @@ async function main() {
         assert.equal(saved.status(), 200, await saved.text());
         await page.getByText('案件は完了しました。', { exact: true }).waitFor();
         await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        await page.getByText('入金記録に基づく完了', { exact: true }).waitFor();
+        const savedPayments = page.locator('.group').filter({
+            has: page.getByRole('heading', { name: '保存済み入金記録', exact: true })
+        }).locator('article.record');
+        await savedPayments.nth(2).waitFor();
+        assert.equal(await savedPayments.count(), 3);
+        const lateResponses = [paymentsPath, auditPath].map(target => page.waitForResponse(response =>
+            new URL(response.url()).searchParams.get('path') === target));
+        oldPayments.release();
+        oldAudit.release();
+        assert.deepEqual((await Promise.all(lateResponses)).map(response => response.status()), [200, 503]);
+        await page.waitForLoadState('networkidle');
+        const finalPaymentRows = await savedPayments.count();
+        const finalClosureProof = await page.getByText('入金記録に基づく完了', { exact: true }).count();
+        console.log(JSON.stringify({ latePaymentStatus: 200, lateAuditStatus: 503, finalPaymentRows, finalClosureProof }));
+        assert.equal(finalPaymentRows, 3, 'A delayed pre-payment response cannot erase the confirmed ledger');
+        assert.equal(finalClosureProof, 1, 'A delayed read failure cannot erase the confirmed closure audit');
         const { rows: [bill] } = await f.db.query('select * from pa_billings where inquiry_id=$1', [case_id]);
         assert.equal(bill.invoice_policy, 'no_separate_invoice');
         assert.equal(bill.state, 'paid');
@@ -496,6 +536,7 @@ async function main() {
         await closeInvoice.getByLabel('確認メモ').fill('隔離案件の請求書に対する入金を確認');
         await closeInvoice.getByRole('button', { name: '全条件を確認して完了' }).click();
         await page.waitForFunction(() => document.getElementById('head-state')?.textContent === '入金確認済みで完了');
+        await page.getByText('入金記録に基づく完了', { exact: true }).waitFor();
         assert.equal((await pf.db.query('select count(*)::int n from pa_payment_records where inquiry_id=$1', [pf.inquiryId])).rows[0].n, 1);
         assert.equal(pf.state.sendCount, beforeInvoiceSend + 1);
         console.log('PASS CASE DESK estimate and separate invoice PDFs, byte identity on delivery, payment and close');
@@ -538,9 +579,10 @@ async function main() {
         await recoveryDialog.getByRole('button', { name: 'キャンセル', exact: true }).click();
         assert.equal(context.pages().length, 1);
         console.log('PASS CASE DESK historical and current recovery, no resend, canonical readback, and registered attachment lock');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_stale_estimate_preserves_active_confirmation: true, desk_estimate_recovery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_billing_late_reads: { finalPaymentRows, finalClosureProof }, desk_stale_estimate_preserves_active_confirmation: true, desk_estimate_recovery: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
+        for (const release of releaseHeldDeskReads) release();
         if (browser) await browser.close();
         if (server) await new Promise((resolve) => server.close(resolve));
         for (const instance of [fixture, billingFixture, pdfFixture, unknownFixture, recoveryFixture]) await instance?.db.close();
