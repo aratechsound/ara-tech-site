@@ -10,7 +10,25 @@ const {chromium}=require('playwright');
  try{
   browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:950}});page.on('pageerror',e=>errors.push(e.message));
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/,r=>r.abort());
-  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"export const workspaceAuth={restore:async()=>({access_token:'fixture-only',expires_at:9999999999}),current:async()=>({access_token:'fixture-only',expires_at:9999999999}),logout:async()=>{},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=()=>{throw Error('forbidden_legacy')};"}));
+  await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:`
+    const owner={user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};
+    let holdNext=false,finish;
+    window.holdLinkAuth=()=>{holdNext=true;};
+    window.linkAuthPending=()=>Boolean(finish);
+    window.releaseLinkAuth=(otherOwner=false)=>{const release=finish;finish=null;release(otherOwner);};
+    export const workspaceAuth={
+      restore:async()=>owner,login:async()=>owner,
+      async current(){
+        if(!holdNext)return owner;
+        holdNext=false;
+        const otherOwner=await new Promise(resolve=>{finish=resolve;});
+        return otherOwner?{...owner,user:{id:'other-fixture-owner'}}:owner;
+      },
+      logout:async()=>{},subscribe:()=>{}
+    };
+    export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);
+    export const legacyUrl=()=>{throw Error('forbidden_legacy')};
+  `}));
   await page.route('**/api/pa-gmail',async r=>{assert.equal(r.request().method(),'POST');const body=r.request().postDataJSON();writes.push(body);assert.equal(body.action,'manual_link');assert.equal(body.inquiry_id,A);assert.equal(body.gmail_thread_id,'selected-thread');if(mode==='unknown')return r.fulfill({status:503,json:{ok:false,code:'service_unavailable'}});return r.fulfill({json:{ok:true,result:{linked:true}}});});
   await page.route('**/api/pa-workspace-read?**',async r=>{
    assert.equal(r.request().method(),'GET');const p=new URL(r.request().url()).searchParams.get('path');calls.push(p);
@@ -35,7 +53,45 @@ const {chromium}=require('playwright');
   // A fresh document/session tests an uncertain first write without the prior
   // successful attempt lock. No network operation can escape the fixture.
   mode='unknown';await page.reload();await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-case="'+A+'"][aria-pressed="true"]').waitFor();await page.locator('[data-tab=conversation]').click();await open();await page.locator('#thread-owner-approved').check();await page.locator('#thread-link-confirm').click();await page.locator('#thread-results').filter({hasText:/結果UNKNOWN/}).waitFor();assert.equal(writes.length,2);await close();await open();await page.locator('#thread-owner-approved').check();assert(await page.locator('#thread-link-confirm').isDisabled(),'UNKNOWN cannot re-submit in same session');await close();
-  delay=true;await open();await close();await page.locator('[data-case="'+B+'"]').click();await new Promise(resolve=>setTimeout(resolve,350));assert(!await page.locator('#modal-wrap').evaluate(e=>e.classList.contains('open')));assert.equal(writes.length,2,'Stale case never writes');
+  delay=true;await open();await close();await page.locator('[data-case="'+B+'"]').click();await new Promise(resolve=>setTimeout(resolve,350));assert(!await page.locator('#modal-wrap').isVisible());assert.equal(writes.length,2,'Stale case never writes');
+  delay=false;mode='unlinked';
+  await page.reload();
+  await page.locator('[data-case="'+A+'"]').click();
+  await page.locator('[data-tab=conversation]').click();
+  await open();
+  await page.locator('#thread-owner-approved').check();
+  await page.evaluate(()=>window.holdLinkAuth());
+  await page.locator('#thread-link-confirm').click();
+  await page.waitForFunction(()=>window.linkAuthPending());
+  await close();
+  await page.locator('[data-case="'+B+'"]').click();
+  await page.locator('[data-case="'+A+'"]').click();
+  await page.locator('[data-tab=conversation]').click();
+  await page.evaluate(()=>window.releaseLinkAuth());
+  await page.waitForLoadState('networkidle');
+  assert.equal(writes.length,2,'An approval dismissed during Auth cannot dispatch after returning to the same case');
+  console.log('PASS CASE DESK discarded old manual-link approval after case switch and return');
+  await open();
+  await page.locator('#thread-owner-approved').check();
+  await page.evaluate(()=>window.holdLinkAuth());
+  await page.locator('#thread-link-confirm').click();
+  await page.waitForFunction(()=>window.linkAuthPending());
+  await page.evaluate(()=>window.releaseLinkAuth(true));
+  await page.getByText('セッションまたは管理者権限を確認できません。再認証してください。',{exact:true}).waitFor();
+  assert.equal(writes.length,2,'Refreshed credentials for a different owner cannot inherit the approval');
+  assert.equal(await page.locator('#modal-content').innerText(),'');
+  await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');
+  await page.locator('#login-form input[name="password"]').fill('fixture-only');
+  await page.locator('#login-form button').click();
+  await page.locator('[data-case="'+A+'"]').click();
+  await page.locator('[data-tab=conversation]').click();
+
+  await open();
+  await page.locator('#thread-owner-approved').check();
+  await page.locator('#thread-link-confirm').dblclick();
+  await page.getByText('操作結果を取得しました。案件の最新メールを読取確認しています。',{exact:true}).waitFor();
+  assert.equal(writes.length,3,'A fresh same-owner approval may submit exactly once when earlier attempts never posted');
+  console.log('PASS CASE DESK manual-link dispatch requires current owner approval; fresh approval writes once');
   assert.deepEqual(errors,[]);console.log(JSON.stringify({status:'PASS',scope:'LOCAL_FIXTURE_ONLY',customer_address_discovery:true,no_thread_id_input:true,owner_gate:true,multiple_cases_require_selection:true,already_linked_no_write:true,unknown_no_retry:true,stale_case_rejected:true,newest_first:true,production_writes:0}));
  }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
