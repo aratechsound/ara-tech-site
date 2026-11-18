@@ -485,9 +485,13 @@ function renderTimelineMail(entry, isNew) {
   const atts = mailAttachments(r);
   return `<article class="mail-row ${dir} ${atts.length?'has-attachments':'no-attachments'}" data-message="${escape(r.gmail_message_id)}" style="--attachment-slots:${Math.min(atts.length,4)}"><div class="mail-layout"><div class="mail-text"><div class="mail-heading"><span class="mail-direction ${dir}">${label}</span>${isNew?'<span class="tiny new">NEW・要確認</span>':''}${r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':''}<time>${escape(timelineDate(entry.at))}</time><span class="mail-attachment-count">添付 ${Array.isArray(r.attachment_metadata)?atts.length+'件':'未取得'}</span></div><div class="mail-address" title="${escape('差出人 '+(r.from_address||'未取得')+' / 宛先 '+addresses(r.to_addresses)+(r.cc_addresses?.length?' / CC '+addresses(r.cc_addresses):''))}">差出人 ${escape(r.from_address||'未取得')}<br>宛先 ${escape(addresses(r.to_addresses))}${r.cc_addresses?.length?'<br>CC '+escape(addresses(r.cc_addresses)):''}</div><strong class="mail-subject">${escape(r.subject||'件名未提供')}</strong><p class="${followUpBody?'timeline-body':'mail-excerpt'} ${body?'':'unavailable'}">${escape(body||'表示時に本文を取得します…')}</p>${'<button class="lightbtn body-read" data-body-read="'+escape(r.gmail_message_id)+'">全文を表示</button>'}${dir==='sent'?historyHtmlButton:''}${inbound&&detail.deliveries?.state==='ready'?'<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+(r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>':''}</div>${atts.length?'<aside class="mail-attachments" aria-label="このメールの添付資料"><div class="mail-attachments-title"><strong>添付 '+atts.length+'件</strong>'+(atts.length>4?'<span class="carousel-arrows"><button type="button" class="carousel-arrow" data-carousel-left aria-label="添付を左へ" title="続きの添付を表示">‹</button><button type="button" class="carousel-arrow" data-carousel-right aria-label="添付を右へ" title="先頭の添付へ戻る">›</button></span>':'')+'</div><div class="attachment-strip" data-attachments="'+escape(r.gmail_message_id)+'"></div></aside>':''}</div>${deliveryAttempts(entry.deliveries)}</article>`;
 }
-function commercialControls(c,label){
-  if(passiveMail||c?.case_type!=='PA_EVENT'||isClosedCase(c)||c.status==='on_hold'||c.progress?.is_on_hold)return '';
-  return `<div class="inlinebtns">${button(label,'commercial-actions','quiet')}</div><div id="commercial-actions-host"></div>`;
+function commercialControls(c,label,{allowReopen=false}={}){
+  if(passiveMail||c?.case_type!=='PA_EVENT'||c.status==='on_hold'||c.progress?.is_on_hold)return '';
+  const closedAt=c.progress?.closed_at;
+  const reopen=allowReopen&&closedAt&&displayStatus(c)==='owner_payment_completed'&&getRows('audit')?.some(
+    row=>row.action==='payment_confirmed_and_closed_v5'&&row.occurred_at===closedAt);
+  if(isClosedCase(c)&&!reopen)return '';
+  return `<div class="inlinebtns">${button(reopen?'再開の操作':label,'commercial-actions','quiet')}</div><div id="commercial-actions-host"></div>`;
 }
 function estimateCommercial(c){
   return readBlock('commercial','商務・原本',s=>{
@@ -526,7 +530,7 @@ async function openDeskCommercial(){
   const stillCurrent=()=>!controller.signal.aborted&&epoch===selectionEpoch&&selected===c.id
     &&tab===activeTab&&session?.user?.id===owner;
   try{
-    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-desk-pdf-mail');
+    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-case-reopen');
     if(!stillCurrent())return;
     const renderActions=activeTab==='invoice'?renderDeskBillingActions:renderDeskConfirmationActions;
     await renderActions(panel,{
@@ -543,14 +547,15 @@ async function openDeskCommercial(){
         session=fresh;
         return fresh.access_token;
       },
-      refreshCommercial:async({closed=false}={})=>{
+      refreshCommercial:async({closed=false,reopened=false}={})=>{
         if(!stillCurrent())return;
         if(closed)panel.textContent='案件は完了しました。';
+        if(reopened)panel.textContent='案件を再開しました。';
         const reload=[loadSurface('commercial','/data/commercial/'+c.id,epoch)];
         if(activeTab==='invoice')reload.push(loadSurface('payments','/data/case/'+c.id+'/payments',epoch));
-        if(closed)reload.push(reloadBilledCase(c.id,epoch),loadSurface('audit','/data/case/'+c.id+'/audit',epoch));
+        if(closed||reopened)reload.push(reloadBilledCase(c.id,epoch),loadSurface('audit','/data/case/'+c.id+'/audit',epoch));
         await Promise.all(reload);
-        if(!closed&&stillCurrent())await openDeskCommercial();
+        if(!closed&&!reopened&&stillCurrent())await openDeskCommercial();
       }
     });
   }catch{if(stillCurrent())panel.textContent=label+'を開けませんでした。もう一度お試しください。';}
@@ -579,7 +584,7 @@ function invoice(c){
       readBlock('audit','完了の監査履歴',rows=>'<p class="stage-info">'+
         escape(paymentClosureBasis(c,rows)||'今回の完了の根拠を確認できる監査記録がありません')+'</p>')+'</div>'
     : '';
-  return moneyBar()+closure+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作');
+  return moneyBar()+closure+`<h2 class="sectiontitle">請求状態</h2>`+readBlock('commercial','請求',s=>rowsHtml(s.billings||[],{title:b=>b.invoice_policy==='no_separate_invoice'?'請求書を別途発行しない':b.invoice_delivery_state||b.state||'請求記録',body:b=>'期限 '+(b.due_date||'未提供')+' / 支払予定 '+(b.customer_planned_payment_on||'未提供'),time:b=>b.created_at}))+`<div class="group"><h2 class="sectiontitle">保存済み入金記録</h2>`+readBlock('payments','入金記録',rows=>rows.length?'<div class="rows">'+rows.map(p=>`<article class="record">${pair('入金日',date(p.confirmed_at))}<div class="label-pair"><span>金額</span><b>${escape(privateMoney(p.amount,p.currency||'JPY'))}</b></div>${pair('支払方法',p.payment_method||'未提供')}</article>`).join('')+'</div>':'<div class="empty-state">取得成功 / 保存済み入金記録なし（未入金の判定ではありません）</div>')+`</div>`+commercialControls(c,'請求・入金の操作',{allowReopen:true});
 }
 const scheduleNoticeLabels = {
   schedule_request:'日程調整の案内',

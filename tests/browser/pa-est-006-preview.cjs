@@ -9,6 +9,7 @@ const { setup, MODE } = require('../validate-pam-025-direct-confirmation.cjs');
 const { read } = require('../helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../../api/_pa-commercial.cjs');
 const { createHandler } = require('../../api/_pa-commercial-handler.cjs');
+const { createReadHandler } = require('../../api/_pa-workspace-read.cjs');
 const { sha } = require('../../api/_pa-contract-pdf.cjs');
 
 const root = path.resolve(__dirname, '../..');
@@ -18,6 +19,34 @@ const readBody = (request) => new Promise((resolve, reject) => { const parts = [
 const adapt = (response) => { response.status = (code) => { response.statusCode = code; return response; }; response.json = (value) => { response.setHeader('Content-Type', 'application/json; charset=utf-8'); response.end(JSON.stringify(value)); return response; }; return response; };
 const harness = (caseId) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/pa-admin.css"><link rel="stylesheet" href="/pa-commercial.css"><link rel="stylesheet" href="/pa-confirmation-preview.css"><style>body{padding:12px}.hidden{display:none!important}.button{border:1px solid #0877ea;border-radius:8px;background:#0877ea;color:white;padding:8px 12px}.button--secondary{background:white;color:#0877ea}</style></head><body><section id="pa-commercial-workspace" class="pa-commercial hidden"><button id="pa-commercial-refresh"></button><button id="pa-v5-reply"></button><button id="pa-v5-estimate"></button><button id="pa-v5-add-file"></button><button id="pa-v5-note"></button><div class="pa-commercial__cards"><section class="pa-commercial-card"><button id="pa-estimate-tab"></button><button id="pa-billing-tab"></button><div id="pa-estimate-summary"></div><div id="pa-billing-summary"></div></section><section class="pa-commercial-card"><div id="pa-contract-v5-summary"></div></section><section class="pa-commercial-card"><span id="pa-data-freshness"></span><div id="pa-next-action-summary"></div></section></div><button id="pa-related-left"></button><button id="pa-related-right"></button><button id="pa-related-all"></button><span id="pa-related-files-count"></span><div id="pa-related-files"></div></section><script type="module">import{renderCommercialWorkspace}from'/js/pa-commercial-admin.js';const current={id:'${caseId}',event_name:'龍姫湖まつり2026（検証用）'};renderCommercialWorkspace({case:current,getCurrentCase:()=>current,getAccessToken:async()=> 'fixture-admin',openComposer:()=>{},focusBilling:()=>{},focusNote:()=>{},openFileSearch:()=>{}});</script></body></html>`;
 async function counts(db, caseId) { const result = {}; for (const [key, sql] of Object.entries({ offers: 'select count(*) n from pa_contract_offers where inquiry_id=$1', tokens: 'select count(*) n from pa_contract_tokens t join pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1', contracts: 'select count(*) n from pa_contracts where inquiry_id=$1', outbox: 'select count(*) n from pa_commercial_outbox where inquiry_id=$1', audit: "select count(*) n from pa_inquiry_audit where inquiry_id=$1 and action='formal_contract_issued'" })) result[key] = Number((await db.query(sql, [caseId])).rows[0].n); result.revision = Number((await db.query('select revision from pa_case_commercial_state where inquiry_id=$1', [caseId])).rows[0].revision); return result; }
+async function readWorkspaceProjection(target, fixture) {
+    const readWorkspace = createReadHandler({
+        key: 'sb_publishable_fixture',
+        fetchImpl: (url, options) => {
+            assert.equal(options.method, 'GET');
+            const fixtureUrl = new URL(url);
+            fixtureUrl.hostname = 'fixture.invalid';
+            assert.equal(fixtureUrl.searchParams.get('offset') ?? '0', '0');
+            fixtureUrl.searchParams.delete('offset');
+            return fixture.fetchImpl(fixtureUrl, { ...options, headers: { authorization: 'Bearer fixture-admin' } });
+        }
+    });
+    const result = {};
+    await readWorkspace({
+        method: 'GET',
+        url: '/api/pa-workspace-read?path=' + encodeURIComponent(target),
+        headers: { authorization: 'Bearer controlled-fixture-read' }
+    }, {
+        setHeader() {},
+        end(body) { result.status = this.statusCode; result.body = JSON.parse(body); }
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    if (target.startsWith('/data/commercial/')) {
+        assert.equal(result.body.result.read_projection, true);
+        assert.equal(result.body.result.state, undefined);
+    }
+    return result.body.result;
+}
 
 async function main() {
     let fixture, billingFixture, pdfFixture, unknownFixture, server, browser;
@@ -93,6 +122,9 @@ async function main() {
                         cases: deskCases.map(item => item.id === rows[0].id ? { ...item, status: rows[0].status } : item),
                         progress: (await db.query('select * from pa_case_progress')).rows
                     };
+                } else if (activeFixture === billingFixture &&
+                    [`/data/commercial/${inquiryId}`, `/data/case/${inquiryId}/audit`].includes(target)) {
+                    result = await readWorkspaceProjection(target, activeFixture);
                 } else if (target === '/data/commercial/' + inquiryId) {
                     result = await service.snapshot(inquiryId);
                 } else if (target === '/data/case/' + inquiryId + '/payments') {
@@ -368,6 +400,68 @@ async function main() {
         await page.getByText('bank_transfer', { exact: true }).first().waitFor();
         assert.equal(await page.getByRole('button', { name: '請求・入金の操作', exact: true }).count(), 0);
         console.log('PASS CASE DESK prepayment, append-only correction, partial payment, exact remaining balance, and closure without separate invoice or billing mail');
+        const closedView = await f.service.snapshot(case_id);
+        const originalContract = (await f.db.query('select * from pa_contracts where inquiry_id=$1', [case_id])).rows;
+        await assert.rejects(f.service.reopen({
+            case_id, expected_revision: closedView.state.revision - 1, operation_id: crypto.randomUUID(), reason: '古い版の試験'
+        }, f.actor), /commercial_state_changed/);
+        assert.deepEqual(await f.service.snapshot(case_id), closedView);
+        await page.goto(`${base}/pa-admin.html?case=${case_id}&mail-view=readonly`);
+        await page.getByRole('button', { name: '請求・入金', exact: true }).click();
+        await page.getByRole('heading', { name: '保存済み入金記録', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: '再開の操作', exact: true }).count(), 0);
+        const delayedReopenAudit = holdNextDeskRead(`/data/case/${case_id}/audit`, 200);
+        await page.goto(`${base}/pa-admin.html?case=${case_id}`);
+        await page.getByRole('button', { name: '請求・入金', exact: true }).click();
+        await delayedReopenAudit.started;
+        const reopenEntry = page.getByRole('button', { name: '再開の操作', exact: true });
+        assert.equal(await reopenEntry.count(), 0);
+        delayedReopenAudit.release();
+        await reopenEntry.click();
+        const reopen = page.getByRole('button', { name: '案件を再開', exact: true });
+        await reopen.click();
+        const reopenForm = page.getByRole('dialog', { name: '案件の再開を確認', exact: true });
+        await reopenForm.getByRole('button', { name: 'キャンセル', exact: true }).click();
+        assert.equal(apiActions.filter(action => action === 'reopen_case').length, 0);
+        await reopen.click();
+        await reopenForm.getByLabel('再開理由').fill('合成案件の精算内容を再確認');
+        const reopenResult = entryResponse('reopen_case');
+        await reopenForm.getByRole('button', { name: '理由を記録して再開する', exact: true }).click();
+        const reopenResponse = await reopenResult;
+        assert.equal(reopenResponse.status(), 200, await reopenResponse.text());
+        await page.getByText('案件を再開しました。', { exact: true }).waitFor();
+        const reopenedView = await f.service.snapshot(case_id);
+        assert.equal(reopenedView.case_status, 'schedule_confirmed');
+        assert.equal(reopenedView.state.closed_operation_id, null);
+        assert.equal(reopenedView.billings[0].state, 'open');
+        const { rows: reopenedProgress } = await f.db.query(
+            'select current_step, closed_at from pa_case_progress where inquiry_id=$1', [case_id]
+        );
+        assert.deepEqual(reopenedProgress, [{ current_step: 13, closed_at: null }]);
+        assert.deepEqual((await f.db.query('select id,amount from pa_payment_records where billing_id=$1 order by payment_date', [bill.id])).rows, ledger);
+        assert.deepEqual((await f.db.query('select * from pa_contracts where inquiry_id=$1', [case_id])).rows, originalContract);
+        const replay = await f.service.reopen(reopenResponse.request().postDataJSON(), f.actor);
+        assert.equal(replay.already_committed, true);
+        assert.deepEqual(await f.service.snapshot(case_id), reopenedView);
+        const { rows: privileges } = await f.db.query(`select
+            has_function_privilege('anon',oid,'EXECUTE') as anon_exec,
+            has_function_privilege('authenticated',oid,'EXECUTE') as authenticated_exec,
+            has_function_privilege('service_role',oid,'EXECUTE') as service_exec
+            from pg_proc where proname='pa_v5_reopen_case' and pronamespace='public'::regnamespace`);
+        assert.deepEqual(privileges, Array(2).fill({ anon_exec: false, authenticated_exec: false, service_exec: true }));
+        assert.equal((await f.db.query("select count(*)::int n from pa_inquiry_audit where inquiry_id=$1 and action='case_reopened_v5'", [case_id])).rows[0].n, 1);
+        assert.equal(f.state.sendCount, sendsBeforeBilling);
+        await page.reload();
+        await page.getByRole('button', { name: '請求・入金', exact: true }).click();
+        await page.getByRole('button', { name: '請求・入金の操作', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: '再開の操作', exact: true }).count(), 0);
+        await f.db.query("update pa_inquiries set status='on_hold' where id=$1", [f.otherId]);
+        const onHoldBefore = await f.service.snapshot(f.otherId);
+        await assert.rejects(f.service.reopen({
+            case_id: f.otherId, operation_id: crypto.randomUUID(), reason: '保留案件の試験'
+        }, f.actor), /case_unavailable/);
+        assert.deepEqual(await f.service.snapshot(f.otherId), onHoldBefore);
+        console.log('PASS CASE DESK guarded reopen preserves contract and payments, denies stale and held cases, and never dispatches');
 
         const openDesk = async (testFixture, invoice) => {
             process.env.ALLOWED_ORIGINS = base;
@@ -501,7 +595,7 @@ async function main() {
         assert.equal(await page.getByRole('button', { name: '見積書PDFを送る', exact: true }).count(), 0);
         assert.equal(unknownFixture.state.sendCount, 1);
         console.log('PASS CASE DESK lost Gmail response stays UNKNOWN on reload and cannot resend');
-        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_billing_late_reads: { finalPaymentRows, finalClosureProof }, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
+        const result = { pass: true, widths: [1366, 940, 390], zoom: '200%', unchecked_disabled: true, checked_enabled: true, final_dialog_open: true, preview_open_mutation: 0, preview_refresh_mutation: 0, final_dialog_mutation: 0, escape_close: true, back_close: true, focus_return: true, rerender_binding: true, refresh_binding: true, double_click_singleton: true, visible_error: true, issue_without_dispatch: true, desk_same_tab: true, desk_switch_cancels_confirmation: true, issued_preview: true, unknown_replacement_blocked: true, atomic_replacement_dialog: true, atomic_replacement_prepared_without_send: true, active_token_count: 1, desk_pdf_delivery: true, desk_estimate_revision_originals: true, desk_prepayment_partial_and_correction: true, desk_billing_late_reads: { finalPaymentRows, finalClosureProof }, desk_guarded_reopen: true, preview_payload_guard: true, desk_separate_invoice_close: true, unknown_pdf_send_no_retry: true, real_issue: 0, real_email: 0 };
         fs.writeFileSync(path.join(out, 'pa-est-006-browser-results.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
     } finally {
         for (const release of releaseHeldDeskReads) release();

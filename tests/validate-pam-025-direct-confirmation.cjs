@@ -23,7 +23,10 @@ async function setup({ transport, migrate = true } = {}) {
     '20260914170000_pa_est_007r1_production_e2e.sql']) await f.db.exec(read(name));
   await f.db.exec(r7.slice(0, cut) + '\ncommit;');
   await f.db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
-  if (migrate) await f.db.exec(read(MIGRATION));
+  if (migrate) {
+    await f.db.exec(read(MIGRATION));
+    await f.db.exec(read('20261117190400_paui095_guard_case_reopen.sql'));
+  }
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
     const response = await f.fetchImpl(url, options);
