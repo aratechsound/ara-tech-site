@@ -28,7 +28,7 @@ const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>legacy&&passiveMail?'':`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
 let session=null,authEpoch=0,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
-let lastAuthSignal=null;
+let lastAuthSignal=null,featureLoad='loading';
 const requests=new Set(),mailSyncRequests=new Set(),replyRequests=new Set();let threadLink=null,replyState=null,replyComposer=null,caseMailSync=null,caseLoad=null;
 // Explicit passive mail viewing for audits: no mail POST or auto-import.
 const passiveMail=new URL(location.href).searchParams.get('mail-view')==='readonly';
@@ -774,20 +774,50 @@ function openDrawer(){
   $('drawer-wrap').showModal();
 }
 function renderFeatures(){
+  const summary=$('feature-summary'),list=$('feature-list');
+  if(featureLoad!=='ready'){
+    const failed=featureLoad==='error';
+    summary.textContent=failed?'機能一覧を取得できませんでした。':'機能一覧を取得中…';
+    list.replaceChildren();
+    if(failed){
+      const retry=document.createElement('button');
+      retry.type='button';retry.className='lightbtn';retry.textContent='機能一覧を再取得';
+      retry.onclick=()=>{$('feature-search').focus();void loadFeatures();};
+      list.append(retry);
+    }
+    return;
+  }
   const q=$('feature-search').value.toLocaleLowerCase('ja'),place=$('feature-place').value,status=$('feature-status').value;
   const shown=features.filter(f=>(!q||(f.id+' '+f.name+' '+f.scope).toLocaleLowerCase('ja').includes(q))&&(!place||f.place===place)&&(!status||f.status===status));
-  $('feature-summary').textContent=`表示 ${shown.length}件 / 全 ${features.length}件`;
-  $('feature-list').innerHTML=shown.map(f=>`<div class="feature"><span class="fid">${escape(f.id)}</span><span><strong>${escape(f.name)}</strong><small>${escape(f.place)} / <span class="features-status ${f.status==='新UIから利用可能'?'available':f.status==='認証・ACL未解決'?'acl':f.status==='内部機能'?'internal':''}">${escape(f.status)}</span></small><div class="feature-detail">${escape(f.scope)}</div></span><button data-feature="${escape(f.id)}">対応を見る ›</button></div>`).join('');
+  summary.textContent=`表示 ${shown.length}件 / 全 ${features.length}件`;
+  list.innerHTML=shown.map(f=>`<div class="feature"><span class="fid">${escape(f.id)}</span><span><strong>${escape(f.name)}</strong><small>${escape(f.place)} / <span class="features-status ${f.status==='新UIから利用可能'?'available':f.status==='認証・ACL未解決'?'acl':f.status==='内部機能'?'internal':''}">${escape(f.status)}</span></small><div class="feature-detail">${escape(f.scope)}</div></span><button data-feature="${escape(f.id)}">対応を見る ›</button></div>`).join('');
+}
+async function loadFeatures(){
+  featureLoad='loading';$('feature-count').textContent='…';
+  if($('drawer-wrap').open)renderFeatures();
+  try{
+    const response=await fetch('/pa-ui/features.json',{cache:'no-store'});
+    if(!response.ok)throw Error('feature_catalog_unavailable');
+    const rows=await response.json();
+    if(!Array.isArray(rows))throw Error('feature_catalog_invalid');
+    features=rows;
+    options($('feature-place'),[...new Set(rows.map(f=>f.place))].sort().map(p=>[p,p]),'全配置');
+    featureLoad='ready';$('feature-count').textContent=String(rows.length);
+  }catch{
+    featureLoad='error';$('feature-count').textContent='未取得';
+  }
+  if($('drawer-wrap').open)renderFeatures();
 }
 function featureJump(id){
   const f=features.find(x=>x.id===id);
   if(!f)return;
   $('drawer-wrap').close();
-  // The feature guide must not start the conversation tab's automatic sync.
-  if(current()&&f.target!=='conversation')setTab(f.target||'overview');
-  const entry=f.current_control
+  const hasDeskControl=f.status==='新UIから利用可能'&&f.current_control;
+  // Opening the guide for the conversation must not trigger its automatic sync.
+  if(hasDeskControl&&current()&&f.target&&f.target!==tab&&f.target!=='conversation')setTab(f.target);
+  const entry=hasDeskControl
     ?`<p><strong>CASE DESKの操作場所</strong><br>${escape(f.current_control)}</p>`
-    :passiveMail?'':`<button class="action quiet" data-legacy ${current()?'':'disabled'}>既存の業務操作を開く ↗</button>`;
+    :'';
   openInfo(f.id+' '+f.name,entry+`<p>${escape(f.status)} / ${escape(f.scope)}</p><p class="hint">既存source：${escape(f.source)}<br>既存経路：${escape(f.api)}<br>機能実証：${escape(f.validation)}</p>`);
 }
 function openInfo(title,html){
@@ -835,7 +865,8 @@ const close=document.createElement('button');close.className='lightbtn';close.te
 $('advanced-filters').append(reset,close);
 for(const id of filterIds){const label=document.createElement('label');label.textContent=({order:'並び順',filter:'表示対象','type-filter':'案件種別','status-filter':'案件状態','year-filter':'開催年','step-filter':'工程'})[id];$(id).before(label);label.append($(id));}
 const featureStatus=document.createElement('select');featureStatus.id='feature-status';featureStatus.setAttribute('aria-label','機能対応区分');featureStatus.append(new Option('全対応区分',''));for(const s of ['新UIから利用可能','現時点で無効','認証・ACL未解決','内部機能'])featureStatus.append(new Option(s,s));document.querySelector('.drawer-filters').append(featureStatus);
-fetch('/pa-ui/features.json',{cache:'no-store'}).then(r=>r.json()).then(data=>{features=data;$('feature-count').textContent=data.length;options($('feature-place'),[...new Set(data.map(f=>f.place))].sort().map(p=>[p,p]),'全配置');}).catch(()=>{$('feature-count').textContent='未取得';});
+$('feature-summary').setAttribute('role','status');
+void loadFeatures();
 $('login-form').addEventListener('submit',async e=>{
   e.preventDefault();const form=e.currentTarget,submit=form.querySelector('button'),data=new FormData(form);submit.disabled=true;$('login-status').textContent='既存Auth・管理者ACLを確認中…';
   const epoch=++authEpoch,authSignal=lastAuthSignal;
