@@ -17,7 +17,7 @@ const {chromium}=require('playwright');
     window.linkAuthPending=()=>Boolean(finish);
     window.releaseLinkAuth=(otherOwner=false)=>{const release=finish;finish=null;release(otherOwner);};
     export const workspaceAuth={
-      restore:async()=>owner,
+      restore:async()=>owner,login:async()=>owner,
       async current(){
         if(!holdNext)return owner;
         holdNext=false;
@@ -77,9 +77,14 @@ const {chromium}=require('playwright');
   await page.locator('#thread-link-confirm').click();
   await page.waitForFunction(()=>window.linkAuthPending());
   await page.evaluate(()=>window.releaseLinkAuth(true));
-  await page.getByText('管理者認証を確認できませんでした。関連付けは未送信です。',{exact:true}).waitFor();
+  await page.getByText('セッションまたは管理者権限を確認できません。再認証してください。',{exact:true}).waitFor();
   assert.equal(writes.length,2,'Refreshed credentials for a different owner cannot inherit the approval');
-  await close();
+  assert.equal(await page.locator('#modal-content').innerText(),'');
+  await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');
+  await page.locator('#login-form input[name="password"]').fill('fixture-only');
+  await page.locator('#login-form button').click();
+  await page.locator('[data-case="'+A+'"]').click();
+  await page.locator('[data-tab=conversation]').click();
 
   await open();
   await page.locator('#thread-owner-approved').check();

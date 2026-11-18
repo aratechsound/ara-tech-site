@@ -26,7 +26,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  const protectedBefore=(await f.db.query('select to_jsonb(i) row from pa_inquiries i order by id')).rows;
  const linksBefore=(await f.db.query('select to_jsonb(l) row from pa_gmail_thread_links l order by id')).rows;
  const metadata=async id=>{const row=(await f.db.query('select state from paui041_mail_sync_state where inquiry_id=$1',[id])).rows[0],s=row?.state?.linked_sync;return {inquiry_id:id,scope:'existing_linked_threads',complete:Boolean(s?.complete),last_success_at:s?.checked_at||null,thread_ids:s?.thread_ids||[],message_count:s?.message_count||0};};
- const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);`;
+ const integration=`let active=true;export const workspaceAuth={async restore(){if(!active)throw Error('login_required');return {user:{id:'fixture-owner'},access_token:'fixture-only',expires_at:9999999999};},async current(){return this.restore();},async login(){active=true;return this.restore();},subscribe(){},async logout(){active=false;}};window.revokeSendFixture=()=>{active=false;};export const readUrl=p=>'/fixture-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+encodeURIComponent(id);`;
  const server=http.createServer(async(req,res)=>{try{
   const u=new URL(req.url,'http://localhost'),json=(v,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(v));};
   if(u.pathname==='/pa-ui/js/integration.mjs'){res.writeHead(200,{'content-type':'text/javascript'});return res.end(integration);}
@@ -126,7 +126,25 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    const page=await pageAt({width:390,height:844});await draft(page,'Known receipt survives reload');await approve(page);const before=sendCount();failRead=true;await page.locator('[data-reply-send]').click();await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();await page.reload();await page.waitForLoadState('networkidle');await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();failRead=false;await page.locator('[data-reply-recheck]').click();await page.getByText('送信しました',{exact:true}).waitFor();assert.equal(sendCount(),before+1);assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);await page.locator('[data-reply-message="source"]').click();assert.equal(await page.locator('[data-reply-body]').inputValue(),'');assert.deepEqual(page.errors,[]);checks.push({known_sent_reload_recovers_by_reads_only:true});await page.close();
   }
   {
-   const page=await pageAt({width:1440,height:1000});await draft(page,'Auth lost while waiting for response');await approve(page);const before=sendCount();holdSend=true;releaseSend=null;await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.evaluate(()=>window.revokeSendFixture());holdSend=false;releaseSend();await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(sendCount(),before+1);assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.deepEqual(page.errors,[]);checks.push({auth_lost_after_known_send_stays_unverified:true,no_resend:true});await page.close();
+   const page=await pageAt({width:1440,height:1000});await draft(page,'Auth lost while waiting for response');await approve(page);const before=sendCount();holdSend=true;releaseSend=null;
+   await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.evaluate(()=>window.revokeSendFixture());holdSend=false;releaseSend();
+   await page.getByText('セッションまたは管理者権限を確認できません。再認証してください。',{exact:true}).waitFor();
+   assert.equal(await page.locator('[data-case],[data-message]').count(),0);
+   assert.equal(await page.locator('.reply-composer').isVisible(),false);
+   assert.equal(sendCount(),before+1);
+   failRead=true;
+   await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');
+   await page.locator('#login-form input[name="password"]').fill('fixture-only');
+   await page.locator('#login-form button').click();
+   await page.waitForLoadState('networkidle');
+   await page.getByText('送信済み・履歴更新未確認',{exact:true}).waitFor();
+   assert.equal(await page.locator('.reply-composer').isVisible(),false);
+   assert.equal(await page.locator('[data-reply-send]').isDisabled(),true);
+   failRead=false;await page.locator('[data-reply-recheck]').click();
+   await page.getByText('送信しました',{exact:true}).waitFor();
+   assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+   assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);
+   checks.push({auth_lost_after_known_send_hides_private_data:true,known_receipt_recovers_after_login:true,no_resend:true});await page.close();
   }
   // Reproduce Owner's old close/tab-switch workaround, now on a forced read failure.
   {
