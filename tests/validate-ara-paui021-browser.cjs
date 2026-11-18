@@ -59,24 +59,41 @@ const root=path.resolve(__dirname,'..');
   await page.getByRole('button',{name:'閉じる',exact:true}).click();
   assert.equal(await downloadLink.count(),0);
   console.log('PASS explicit PDF retry after a temporary read failure, two-page render, zoom and exact Japanese original download');
-  const C='11111111-1111-4111-8111-111111111111',errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const C='11111111-1111-4111-8111-111111111111',D='22222222-2222-4222-8222-222222222222';
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX8sAAAAASUVORK5CYII=','base64');
   const reads=[];
   let transientReads=0;
-  let releasePayments;
+  let releasePayments,releaseCommercial,releaseMaterials,failOtherMaterials;
   const paymentsPending=new Promise(resolve=>{releasePayments=resolve;});
+  const commercialPending=new Promise(resolve=>{releaseCommercial=resolve;});
+  const materialsPending=new Promise(resolve=>{releaseMaterials=resolve;});
+  const otherMaterialsPending=new Promise(resolve=>{failOtherMaterials=resolve;});
   await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"const session={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>session,current:async()=>session,subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
   await page.route('**/api/pa-workspace-read?**',async r=>{
    const p=new URL(r.request().url()).searchParams.get('path');let value=[];
    reads.push({path:p,method:r.request().method()});
-   if(p==='/data/cases')value={cases:[{id:C,event_name:'Fixture Event',inquiry_number:'PA-20261002-00015',status:'new'}],progress:[]};
-   else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
-   else if(p.startsWith('/data/materials/'))value={cards:[],photos:[
-    {id:'fixture-png',display_filename:'現場写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
-    {id:'fixture-transient',display_filename:'再取得する写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
-    {id:'fixture-denied',display_filename:'閲覧不可.png',mime_type:'image/png',source_type:'gmail_attachment'}
-   ]};
+   if(p==='/data/cases')value={cases:[
+    {id:C,event_name:'Fixture Event',inquiry_number:'PA-20261002-00015',status:'new'},
+    {id:D,event_name:'Other Fixture Event',inquiry_number:'PA-20261002-00016',status:'new'}
+   ],progress:[]};
+   else if(p==='/data/commercial/'+D)value={estimates:[],offers:[],documents:[{id:'second-document',original_filename:'別案件の原本.pdf',mime_type:'application/pdf'}],billings:[]};
+   else if(p==='/data/materials/'+D){await otherMaterialsPending;return r.fulfill({status:503,json:{ok:false,code:'read_unavailable'}});}
+   else if(p.startsWith('/data/commercial/')){
+    await commercialPending;
+    value={estimates:[],offers:[],documents:[{id:'fixture-document',original_filename:'商務原本.pdf',mime_type:'application/pdf'}],billings:[]};
+   }
+   else if(p.startsWith('/data/materials/')){
+    await materialsPending;
+    value={cards:[],photos:[
+     {id:'fixture-png',display_filename:'現場写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
+     {id:'fixture-transient',display_filename:'再取得する写真.png',mime_type:'image/png',source_type:'gmail_attachment'},
+     {id:'fixture-denied',display_filename:'閲覧不可.png',mime_type:'image/png',source_type:'gmail_attachment'}
+    ]};
+   }
    else if(p==='/data/material/'+C+'/photo/fixture-png')return r.fulfill({contentType:'image/png',body:png});
+   else if(p==='/data/document/'+C+'/fixture-document')return r.fulfill({contentType:'application/pdf',body:pdf});
+   else if(p==='/data/document/'+D+'/second-document')return r.fulfill({contentType:'application/pdf',body:pdf});
    else if(p==='/data/material/'+C+'/photo/fixture-transient'){
     transientReads++;
     return transientReads<3
@@ -104,6 +121,9 @@ const root=path.resolve(__dirname,'..');
   assert.equal(await page.locator('[data-quoted-body]').count(),1);
   assert.deepEqual(errors,[]);console.log('PASS fetched full body visibly expands beyond three-line excerpt and separates quotation');
   await page.locator('[data-tab="documents"]').click();
+  const materialSearch=page.getByRole('searchbox',{name:'資料名で検索'});
+  await materialSearch.fill('現場');
+  releaseMaterials();
   await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).click();
   await downloadLink.waitFor();
   const imageReads=reads.filter(e=>e.path.endsWith('/fixture-png')).length;
@@ -112,11 +132,20 @@ const root=path.resolve(__dirname,'..');
     .some(row=>row.querySelector('span')?.textContent==='入金'&&row.querySelector('b')?.textContent==='0記録'));
   assert.equal(await downloadLink.isVisible(),true,'An unrelated case response keeps the active material preview open');
   assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Unrelated case data does not re-fetch the visible original');
+  releaseCommercial();
+  await page.waitForFunction(()=>[...document.querySelectorAll('#inspector .label-pair')]
+    .some(row=>row.querySelector('span')?.textContent==='見積'&&row.querySelector('b')?.textContent==='保存済み記録なし'));
+  assert.equal(await downloadLink.isVisible(),true,'The commercial index must keep the portal original open');
   const [imageDownload]=await Promise.all([page.waitForEvent('download'),downloadLink.click()]);
   assert.equal(imageDownload.suggestedFilename(),'現場写真.png');
   assert.deepEqual(fs.readFileSync(await imageDownload.path()),png);
   assert.equal(reads.filter(e=>e.path.endsWith('/fixture-png')).length,imageReads,'Save reuses the inspected bytes');
   await page.keyboard.press('Escape');
+  await page.getByText('商務原本の索引を取得中…',{exact:true}).waitFor({state:'hidden'});
+  assert.equal(await materialSearch.inputValue(),'現場','Applying the pending index retains the search term');
+  assert.equal(await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).evaluate(node=>document.activeElement===node),true);
+  await materialSearch.clear();
+  await page.getByRole('button',{name:'商務原本.pdf の拡大プレビュー',exact:true}).waitFor();
   const transient=page.getByRole('button',{name:'再取得する写真.png の拡大プレビュー',exact:true});
   await transient.locator('.material-error').waitFor();
   assert.equal(transientReads,1,'Thumbnail failure alone must not retry');
@@ -135,7 +164,22 @@ const root=path.resolve(__dirname,'..');
   await page.locator('dialog .preview-content').getByText(/閲覧拒否/).waitFor();
   assert.equal(await downloadLink.count(),0);
   assert.equal(await page.getByRole('button',{name:'原本を再取得',exact:true}).count(),0);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-case="'+D+'"]').click();
+  await page.locator('[data-tab="documents"]').click();
+  assert.equal(await page.getByRole('button',{name:'現場写真.png の拡大プレビュー',exact:true}).count(),0);
+  await page.getByRole('button',{name:'別案件の原本.pdf の拡大プレビュー',exact:true}).click();
+  await downloadLink.waitFor();
+  await page.getByRole('button',{name:'次のページ',exact:true}).click();
+  const secondPage=page.getByRole('dialog').getByLabel('PDF 2ページ');
+  await secondPage.waitFor();
+  const otherResponse=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/materials/'+D);
+  failOtherMaterials();
+  assert.equal((await otherResponse).status(),503);
+  await page.getByRole('button',{name:'閉じる',exact:true}).click();
+  await page.locator('#material-index-status').getByText(/資料ポータルの索引/).waitFor();
+  assert.equal(await page.locator('#file-count').textContent(),'取得済み 1資料 / 一部未取得');
   assert(reads.every(entry=>entry.method==='GET'));
-  assert.deepEqual(errors,[]);console.log('PASS CASE DESK temporary photo thumbnail/original failures recover by explicit GET, no extra read on save, late payment response preserves preview, ACL denial has no retry or download');
+  assert.deepEqual(errors,[]);console.log('PASS CASE DESK document indexes preserve independent original previews, search and focus; original retry, ACL denial and exact Japanese downloads remain read-only');
  }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

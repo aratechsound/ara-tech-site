@@ -613,8 +613,15 @@ function materialItems(){
   const commercial=detail.commercial?.state==='ready'?commercialMaterials(detail.commercial.value):[];
   const unique=new Map([...portal,...commercial].map(d=>[d.key,d]));return [...unique.values()];
 }
+function materialIndexStatus(){
+  return [['materials','資料ポータルの索引','資料索引'],['commercial','商務原本の索引','商務原本の索引']].map(([name,label,loadingLabel])=>{
+    const state=detail[name];
+    if(state?.state==='error')return errorBlock(state.error,label);
+    return state?.state==='ready'?'':`<div class="load-state">${loadingLabel}を取得中…</div>`;
+  }).join('');
+}
 function documents(){
-  return `<div class="files-controls"><input id="material-search" class="search" type="search" placeholder="資料名で検索" aria-label="資料名で検索"><span class="file-count" id="file-count"></span></div><p class="hint" style="margin:0 0 10px">PDF・画像は通常表示。原本の閲覧権限は取得時に検証します。</p>${detail.materials?.state==='error'?errorBlock(detail.materials.error,'資料ポータルの索引'):detail.materials?.state!=='ready'?'<div class="load-state">資料索引を取得中…</div>':''}${detail.commercial?.state==='error'?errorBlock(detail.commercial.error,'商務原本の索引'):detail.commercial?.state!=='ready'?'<div class="load-state">商務原本の索引を取得中…</div>':''}<div id="material-grid" class="material-grid"></div><p class="hint">未取得・権限拒否・原本未登録を区別。公開区分が未提供の場合は所有者から推定しません。</p>`;
+  return `<div class="files-controls"><input id="material-search" class="search" type="search" placeholder="資料名で検索" aria-label="資料名で検索"><span class="file-count" id="file-count"></span></div><p class="hint" style="margin:0 0 10px">PDF・画像は通常表示。原本の閲覧権限は取得時に検証します。</p><div id="material-index-status"></div><div id="material-grid" class="material-grid"></div><p class="hint">未取得・権限拒否・原本未登録を区別。公開区分が未提供の場合は所有者から推定しません。</p>`;
 }
 function renderMailPreviews(){
   const id=selected,epoch=selectionEpoch;
@@ -633,7 +640,17 @@ function renderMailPreviews(){
 }
 function renderGallery(){
   const id=selected,epoch=selectionEpoch;
-  gallery?.dispose();gallery=createGallery({isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='documents',requestBlob:item=>api(item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true})});
+  delete detail.materialIndexPending;
+  $('material-index-status').innerHTML=materialIndexStatus();
+  gallery?.dispose();gallery=createGallery({
+    isCurrent:()=>selected===id&&selectionEpoch===epoch&&tab==='documents',
+    requestBlob:item=>api(item.asset_kind==='document'?'/data/document/'+id+'/'+item.asset_id:'/data/material/'+id+'/'+item.asset_kind+'/'+item.asset_id,{blob:true}),
+    onPreviewClose:item=>{
+      if(!detail.materialIndexPending)return;
+      renderGallery();
+      $('material-grid').querySelector(`[data-material-key="${CSS.escape(item.key)}"]`)?.focus({preventScroll:true});
+    }
+  });
   const items=materialItems(),q=($('material-search')?.value||'').toLocaleLowerCase('ja');
   const filtered=items.filter(d=>(d.title+' '+d.filename).toLocaleLowerCase('ja').includes(q));
   $('file-count').textContent='取得済み '+filtered.length+'資料'+(detail.materials?.state==='error'||detail.commercial?.state==='error'?' / 一部未取得':'');
@@ -672,9 +689,16 @@ async function loadSurface(name,url,epoch){
   // A newer read can start for the same surface without changing the case.
   if(epoch!==selectionEpoch||detail[name]!==pending)return;
   detail[name]=result;
-  // Only the material indexes can change the document gallery. Keep its active
-  // preview and cached originals while unrelated case data updates the inspector.
-  if(tab==='documents'&&name!=='materials'&&name!=='commercial'){renderInspector();return;}
+  if(tab==='documents'){
+    renderInspector();
+    if(name!=='materials'&&name!=='commercial')return;
+    const previewSource=gallery?.previewSource(),updatedSource=name==='materials'?'portal':'commercial';
+    // An independent index cannot invalidate the open original. Defer rebuilding
+    // the grid until it closes. A refresh of its own index must still replace it.
+    if(previewSource&&previewSource!==updatedSource){detail.materialIndexPending=true;return;}
+    renderGallery();
+    return;
+  }
   render();
 }
 function discoverMail(){if(current()&&detail.mailCandidates?.state!=='loading')void loadSurface('mailCandidates','/data/mail-candidates/'+selected,selectionEpoch);}
