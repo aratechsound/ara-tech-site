@@ -3,6 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const {chromium}=require('playwright'),{createFixture}=require('../helpers/ara-case-fixture.cjs');
 const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 (async()=>{const f=await createFixture();await f.db.exec(fs.readFileSync(path.join(root,'supabase/migrations/20261106090000_paui088_linked_mail_sync.sql'),'utf8'));
+ const {values,pdf}=await import('../paui027-fixture.mjs');
  const {syncCase,replyContext,normalizeMessage}=require('../../api/_pa-gmail.cjs');
  await f.db.query("insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status) values($1,'PA-AUTO-A','Fixture A','customer@example.invalid','PA_EVENT','new_inquiry'),($2,'PA-AUTO-B','Fixture B','other@example.invalid','AV_INSTALL','new_inquiry')",[A,B]);
  await f.db.query("insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,'thread_1','manual','primary_conversation'),($1,'thread_2','manual','secondary_conversation')",[A]);
@@ -52,6 +53,10 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
     result={messages,status:'linked_threads_current'};
    }
    else if(parts[2]==='mail-body'){const raw=f.state.messages.get(parts[4]),m=normalizeMessage(raw);result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_state:'ready'};}
+   else if(route==='/data/sent-estimates/'+A)result=values[route];
+   else if(route==='/data/sent-estimate-attachment/'+A+'/quote/quote1'){
+    res.writeHead(200,{'content-type':'application/pdf'});return res.end(pdf());
+   }
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};else if(parts[2]==='commercial')result={estimates:[],documents:[],offers:[],billings:[]};else if(parts[2]==='materials')result={cards:[],photos:[]};return json({ok:true,result});
   }
   const file=path.resolve(root,'.'+(u.pathname==='/'?'/pa-admin.html':u.pathname));if(!file.startsWith(root+path.sep)||!fs.existsSync(file)){res.writeHead(404);return res.end();}res.writeHead(200,{'content-type':file.endsWith('.mjs')||file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':'text/html; charset=utf-8'});res.end(fs.readFileSync(file));
@@ -95,6 +100,36 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
     console.log(JSON.stringify({lateOriginalRead:deferredFailure?'failure':'success',indexedReplyPreserved:true,unneededSyncPosts:0}));
    }finally{finishLive();}
   }
+  const backgroundReply=f.raw('during_estimate_preview','thread_1','customer@example.invalid','Reply arrives while reading the estimate');
+  backgroundReply.labelIds=['INBOX','UNREAD'];
+  f.state.messages.set(backgroundReply.id,backgroundReply);
+  f.state.threadMessages.get('thread_1').push(backgroundReply);
+  const backgroundSyncStarted=new Promise(resolve=>{startSync=resolve;});
+  const beforeEstimateSync=posts.filter(p=>p.action==='sync').length;
+  paused=true;
+  await page.locator('[data-action="mail-sync"]').click();
+  await backgroundSyncStarted;
+  try{
+   await page.locator('[data-tab="estimate"]').click();
+   await page.getByRole('button',{name:'見積書_Gmail.pdf の拡大プレビュー',exact:true}).click();
+   const preview=page.locator('dialog[open].pa-material-preview-dialog');
+   await preview.getByRole('button',{name:'次のページ',exact:true}).click();
+   await preview.locator('canvas[aria-label="PDF 2ページ"]').waitFor();
+   const readback=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/case/'+A+'/attention');
+   paused=false;
+   releaseSync();
+   await readback;
+   await page.waitForLoadState('networkidle');
+   assert(await preview.locator('canvas[aria-label="PDF 2ページ"]').isVisible(),'Background sync replaced the open estimate preview');
+   assert(await preview.getByRole('link',{name:'原本をダウンロード',exact:true}).isVisible());
+   assert.equal(posts.filter(p=>p.action==='sync').length,beforeEstimateSync+1);
+   await preview.getByRole('button',{name:'閉じる',exact:true}).click();
+   await page.locator('[data-tab="conversation"]').click();
+   await page.locator('[data-message="during_estimate_preview"]').waitFor();
+   await page.locator('[data-mail-sync-state="success"]').waitFor();
+   assert.equal(await page.locator('[data-message="during_estimate_preview"]').count(),1);
+   console.log('PASS completed case sync preserves open estimate preview and applies the new reply once');
+  }finally{paused=false;releaseSync();}
   const readonly=await browser.newPage({viewport:{width:390,height:844}});
   await readonly.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
   const indexedReadStarted=new Promise(started=>{heldIndex=started;});

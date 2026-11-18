@@ -5,6 +5,7 @@ const {chromium}=require('playwright'),{createFixture}=require('../helpers/ara-c
 const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 (async()=>{
  const f=await createFixture(),{syncCase,replyContext,replyPreview,sendReply,normalizeMessage}=require('../../api/_pa-gmail.cjs');
+ const {values,pdf}=await import('../paui027-fixture.mjs');
  await f.db.query("insert into pa_inquiries(id,inquiry_number,customer_name,email,case_type,status) values($1,'PA-FIXTURE-A','Fixture A','customer@example.invalid','AV_INSTALL','new_inquiry'),($2,'PA-FIXTURE-B','Fixture B','other@example.invalid','AV_INSTALL','new_inquiry')",[A,B]);
  await f.db.query("insert into pa_gmail_thread_links(inquiry_id,gmail_thread_id,link_source,conversation_role) values($1,'thread_1','manual','primary_conversation')",[A]);
  await f.db.query("update pa_inquiries set submission_source='public_form', submission_key=id, venue='Fixture Park', request_summary='PA timeline fixture' where id=$1",[B]);
@@ -97,7 +98,10 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    }
    else if(parts[2]==='mail-body'){const m=normalizeMessage(f.state.messages.get(parts[4]));result={gmail_message_id:m.id,inquiry_id:parts[3],body_text:m.body_text,body_html:m.body_html||'',body_state:'ready',attachments:[]};}
    else if(parts[2]==='mail-candidates')result={candidates:[],matching_case_count:1};
-   else if(parts[2]==='sent-estimates')result={messages:[],unknown:[]};
+   else if(parts[2]==='sent-estimates')result=values[route]??{messages:[],unknown:[]};
+   else if(route==='/data/sent-estimate-attachment/'+A+'/quote/quote1'){
+    res.writeHead(200,{'content-type':'application/pdf'});return res.end(pdf());
+   }
    else if(parts[2]==='commercial')result={estimates:[],offers:[],billings:[]};else if(parts[2]==='materials')result={cards:[],photos:[]};return json({ok:true,result});
   }
   const file=path.resolve(root,'.'+(u.pathname==='/'?'/pa-admin.html':u.pathname));if(!file.startsWith(root+path.sep)||!fs.existsSync(file)){res.writeHead(404);return res.end();}
@@ -249,6 +253,35 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.deepEqual(page.errors,[]);
    checks.push({case_switch_late_send_isolated:true,mobile:true,form_delivery_timeline:true,gmail_read_failure_preserves_timeline:true});
    await page.close();
+  }
+  {
+   const page=await pageAt({width:390,height:844});
+   await draft(page,'Reply completes while reading an original');await approve(page);
+   const before=sendCount();
+   holdSend=true;releaseSend=null;
+   await page.locator('[data-reply-send]').click();
+   await waitForRelease('send');
+   try{
+    await page.locator('[data-tab="estimate"]').click();
+    await page.getByRole('button',{name:'見積書_Gmail.pdf の拡大プレビュー',exact:true}).click();
+    const preview=page.locator('dialog[open].pa-material-preview-dialog');
+    await preview.getByRole('button',{name:'次のページ',exact:true}).click();
+    await preview.locator('canvas[aria-label="PDF 2ページ"]').waitFor();
+    const readback=page.waitForResponse(r=>new URL(r.url()).searchParams.get('path')==='/data/mail/'+A);
+    holdSend=false;releaseSend();
+    await readback;
+    await page.waitForLoadState('networkidle');
+    assert(await preview.locator('canvas[aria-label="PDF 2ページ"]').isVisible(),'Verified reply readback replaced the open estimate preview');
+    assert(await preview.getByRole('link',{name:'原本をダウンロード',exact:true}).isVisible());
+    await preview.getByRole('button',{name:'閉じる',exact:true}).click();
+    await page.locator('[data-tab="conversation"]').click();
+    await page.getByText('送信しました',{exact:true}).waitFor();
+    assert.equal(await page.locator('[data-message="'+latestSent+'"]').count(),1);
+    assert.equal(sendCount(),before+1);
+    assert.deepEqual(page.errors,[]);
+    checks.push({verified_reply_preserves_other_pane:true,mobile:true,no_resend:true});
+    console.log('PASS verified reply preserves open estimate preview and appears once on return to conversation');
+   }finally{holdSend=false;releaseSend();await page.close();}
   }
   {
    const page=await pageAt({width:390,height:844});await draft(page,'Lost send response');await approve(page);loseReply=true;const before=sendCount();await page.locator('[data-reply-send]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-status]').textContent.includes('UNKNOWN'));assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);await page.locator('[data-reply-history]').click();assert.equal(sendCount(),before+1);loseReply=false;await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Do not resend after reload');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({unknown_stays_open:true,unknown_reload_no_resend:true});await page.close();

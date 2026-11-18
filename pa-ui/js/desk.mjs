@@ -736,6 +736,12 @@ async function loadSurface(name,url,epoch){
   render();
 }
 function discoverMail(){if(current()&&detail.mailCandidates?.state!=='loading')void loadSurface('mailCandidates','/data/mail-candidates/'+selected,selectionEpoch);}
+function applyIndexedMail(messages){
+  detail.messages={state:'ready',value:messages};
+  detail.liveMail=null;
+  bodyView.clear();
+  if(tab==='conversation')render();
+}
 async function checkLiveMail(){
   if(!current()||detail.liveMail?.state==='loading'||replyState.pending(selected))return;
   const id=selected,initialLoad=caseLoad;
@@ -1005,7 +1011,10 @@ replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(at
     const [messages,links]=await Promise.all([api('/data/mail/'+id,{track:replyRequests}),api('/data/case/'+id+'/links',{track:replyRequests})]);
     if(epoch!==authEpoch)throw Error('login_required');return {messages,links};
   },
-  applySent:(id,value,receipt)=>{if(id!==selected)return;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();
+  applySent:(id,value,receipt)=>{
+    if(id!==selected)return;
+    applyIndexedMail(value.messages);
+    if(tab!=='conversation')return;
     requestAnimationFrame(()=>{if(id!==selected||tab!=='conversation'||replyState.get().phase!=='sent'||replyState.get().receipt?.messageId!==receipt.messageId)return;
       $('reply-composer-host')?.querySelector('[data-reply-notice]')?.scrollIntoView({block:'start'});
       central.querySelector('[data-message="'+receipt.messageId+'"]')?.scrollIntoView({block:'nearest'});
@@ -1023,7 +1032,9 @@ caseMailSync=createCaseMailSync({read:api,canDispatch:id=>Boolean(session?.user?
   apply:(id,result)=>{
     cases=cases.map(c=>c.id===id?{...c,attention:result.attention,attentionLoaded:true}:c);
     if(id!==selected)return;
-    detail.messages={state:'ready',value:result.messages};detail.liveMail=null;bodyView.clear();renderList();render();
+    renderList();
+    applyIndexedMail(result.messages);
+    if(tab!=='conversation')renderInspector();
   }});
 setInterval(()=>{if(session&&session.expires_at*1000<=Date.now())replyState.invalidateAuth();replyState.expire();},1000);
 render();
