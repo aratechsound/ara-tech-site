@@ -4,13 +4,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { PDFDocument, PDFArray, decodePDFRawStream } = require('pdf-lib');
 const { createFixture } = require('./helpers/pa-contract-fixture.cjs');
-const { read } = require('./helpers/pa-estimate-fixture.cjs');
+const { read, readCommercialOutboxGuard } = require('./helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../api/_pa-commercial.cjs');
 const { createService: contractService } = require('../api/_pa-contract.cjs');
 const { sha } = require('../api/_pa-contract-pdf.cjs');
 const MODE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
+const LINK_ONLY = 'DIRECT_CONFIRM_LINK_ONLY';
 const MIGRATION = '20261008090000_pam025_direct_confirmation_with_estimate.sql';
-async function setup({ transport, migrate = true } = {}) {
+const ESTIMATE_CONFIRMATION_GUARD = '20261117183629_paui095_preserve_active_confirmation_on_estimate.sql';
+const ESTIMATE_RECOVERY_GUARD = '20261117184848_paui095_guard_current_estimate_recovery.sql';
+const LINK_MIGRATION = '20261117165312_paui095_confirmation_link_only.sql';
+async function setup({ transport, migrate = true, linkOnly = migrate, retryGuard = true } = {}) {
   const f = await createFixture();
   process.env.PA_COMMERCIAL_OUTBOX_KEY = '88'.repeat(32);
   process.env.PA_MAIL_ADAPTER = 'gmail';
@@ -23,7 +27,21 @@ async function setup({ transport, migrate = true } = {}) {
     '20260914170000_pa_est_007r1_production_e2e.sql']) await f.db.exec(read(name));
   await f.db.exec(r7.slice(0, cut) + '\ncommit;');
   await f.db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
-  if (migrate) await f.db.exec(read(MIGRATION));
+  if (migrate) {
+    await f.db.exec(read(MIGRATION));
+    const estimateAclSql = `select proname,proacl from pg_proc
+      where pronamespace='public'::regnamespace
+        and proname in ('pa_v5_issue_estimate','pa_v5_import_sent_estimate') order by proname`;
+    const previousAcl = await f.db.query(estimateAclSql);
+    await f.db.exec(read(ESTIMATE_CONFIRMATION_GUARD));
+    await f.db.exec(read(ESTIMATE_RECOVERY_GUARD));
+    await f.db.exec(read('20261117190400_paui095_guard_case_reopen.sql'));
+    const currentAcl = await f.db.query(estimateAclSql);
+    assert.equal(previousAcl.rows.length, 2);
+    assert.deepEqual(currentAcl.rows, previousAcl.rows);
+  }
+  if (linkOnly) await f.db.exec(read(LINK_MIGRATION));
+  if (retryGuard) await f.db.exec(readCommercialOutboxGuard());
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
     const response = await f.fetchImpl(url, options);
@@ -49,6 +67,62 @@ const counts = async f => {
     result[table] = (await f.db.query(`select * from public.${table}`)).rows;
   return JSON.stringify(result);
 };
+async function checkEstimateRecovery() {
+  for (const scenario of ['historical', 'current', 'unresolved']) {
+    const mode = scenario === 'historical' ? 'historical' : 'current';
+    const f = await setup();
+    try {
+      const case_id = f.inquiryId;
+      const estimate = await f.createEstimate();
+      const preview = await f.service.confirmationPreview({ case_id, confirmation_mode: MODE }, f.actor);
+      const confirmationRequest = {
+        case_id, confirmation_mode: MODE, preview_fingerprint: preview.fingerprint, operation_id: crypto.randomUUID()
+      };
+      const confirm = () => f.service.issueDirectConfirmationAndSend(confirmationRequest, f.actor);
+      if (scenario === 'unresolved') {
+        f.state.transport = 'uncertain';
+        await assert.rejects(confirm);
+      }
+      const confirmation = await confirm();
+      if (scenario === 'unresolved') assert.equal(confirmation.state, 'unknown');
+      const current = (await f.service.snapshot(case_id)).state;
+      const sends = f.state.sendCount;
+      const target = { case_id, gmail_message_id: 'direct_sent_001', gmail_attachment_id: 'attachment_1' };
+      const { amount_extraction: amount } = await f.service.recoveryPreview(target);
+      const request = {
+        ...target, mode, expected_revision: current.revision, expected_current: estimate.id,
+        operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(),
+        amount_minor: amount.amount_minor || 110000, currency: 'JPY', tax_basis: 'tax_included', conditions: {}
+      };
+      const recover = () => f.service.recoverEstimate(request, f.actor);
+      const tokenState = async () => (await f.db.query('select state from pa_contract_tokens where offer_id=$1', [confirmation.id])).rows[0].state;
+      if (mode === 'current') {
+        const before = await f.service.snapshot(case_id);
+        await assert.rejects(recover, /confirmation_already_active/);
+        assert.deepEqual(await f.service.snapshot(case_id), before);
+        assert.equal(await tokenState(), 'active');
+        const start = await f.service.beginRevision({
+          case_id, expected_revision: current.revision, operation_id: crypto.randomUUID(), reason: 'Explicit fixture revision'
+        }, f.actor);
+        request.expected_revision = start.revision;
+        if (scenario === 'unresolved') {
+          const beforeUnknown = await f.service.snapshot(case_id);
+          await assert.rejects(recover, /delivery_outcome_unresolved/);
+          assert.deepEqual(await f.service.snapshot(case_id), beforeUnknown);
+          assert.equal(f.state.sendCount, sends);
+          continue;
+        }
+      }
+      const recovered = await recover();
+      assert.equal((await f.service.snapshot(case_id)).state.current_estimate_revision_id,
+        mode === 'historical' ? estimate.id : recovered.id);
+      assert.equal(await tokenState(), mode === 'historical' ? 'active' : 'revoked');
+      assert.equal(recovered.revoked_confirmations, 0);
+      assert.equal((await recover()).already_committed, true);
+      assert.equal(f.state.sendCount, sends);
+    } finally { await f.db.close(); }
+  }
+}
 async function main() {
   global.fetch = async () => { throw Error('LIVE_NETWORK_FORBIDDEN'); };
   const evidence = {}, f = await setup();
@@ -282,6 +356,100 @@ async function main() {
     assert.equal(race.state.sendCount, 0);
     evidence.DB_FRESH_BINDING_RACE = 'PASS';
   } finally { await race.db.close(); }
+
+  const privileges = async (fixture) => (await fixture.db.query(
+    "select proname,proacl::text,prosecdef from pg_proc where proname in ('pa_v5_issue_confirmation','pa_v5_outbox_claim','pa_contract_accept') order by proname"
+  )).rows;
+  const previous = await setup({ linkOnly: false });
+  let baselinePrivileges;
+  try {
+    baselinePrivileges = await privileges(previous);
+    await previous.createEstimate();
+    const p = await previous.service.confirmationPreview({case_id: previous.inquiryId, confirmation_mode: LINK_ONLY}, previous.actor);
+    const baseline = await counts(previous);
+    await assert.rejects(previous.service.issueDirectConfirmationAndSend({
+      case_id: previous.inquiryId, confirmation_mode: LINK_ONLY, preview_fingerprint: p.fingerprint,
+      operation_id: crypto.randomUUID()
+    }, previous.actor), /stale_confirmation_preview/u);
+    assert.equal(await counts(previous), baseline);
+    assert.equal(previous.state.sendCount, 0);
+    await previous.db.exec(read(LINK_MIGRATION));
+    assert.equal(await counts(previous), baseline, 'forward RPC replacement preserves saved records');
+    assert.deepEqual(await privileges(previous), baselinePrivileges);
+    evidence.LINK_ONLY_OLD_DATABASE_STOPS_WITHOUT_WRITE = 'PASS';
+    evidence.LINK_ONLY_UPGRADE_PRESERVES_SAVED_ROWS = 'PASS';
+  } finally { await previous.db.close(); }
+
+  const link = await setup();
+  try {
+    assert.deepEqual(await privileges(link), baselinePrivileges);
+    const estimate = await link.createEstimate();
+    const case_id = link.inquiryId;
+    const baseline = await counts(link);
+    const [p, withAttachment] = await Promise.all([LINK_ONLY, MODE].map(confirmation_mode =>
+      link.service.confirmationPreview({case_id, confirmation_mode}, link.actor)));
+    assert.equal(await counts(link), baseline);
+    assert.notEqual(p.fingerprint, withAttachment.fingerprint);
+    assert.equal(p.estimate.sent_at, null);
+    assert.equal(p.estimate.sha256, sha(link.quote));
+    assert.equal(p.email.attachment_count, 0);
+    assert.equal(withAttachment.email.attachment_count, 1);
+    assert.match(p.email.body, /確認ページで閲覧できます/u);
+    assert.doesNotMatch(p.email.body, /見積書を添付/u);
+    const input = {case_id, confirmation_mode: LINK_ONLY, preview_fingerprint: p.fingerprint, operation_id: crypto.randomUUID()};
+    await assert.rejects(link.service.issueDirectConfirmationAndSend({
+      ...input, preview_fingerprint: withAttachment.fingerprint
+    }, link.actor), /stale_confirmation_preview/u);
+    assert.equal(await counts(link), baseline);
+    const sent = await link.service.issueDirectConfirmationAndSend(input, link.actor);
+    assert.equal(sent.state, 'sent');
+    assert.equal(link.state.sendCount, 1);
+    assert.equal((await link.service.issueDirectConfirmationAndSend(input, link.actor)).already_committed, true);
+    assert.equal(link.state.sendCount, 1);
+    const raw = Buffer.from(link.state.lastRaw.raw, 'base64url').toString('utf8');
+    assert.doesNotMatch(raw, /Content-Type: application\/pdf|Content-Disposition: attachment/iu);
+    assert.match(raw, /https:\/\/example\.invalid\/pa-contract\.html#[a-f0-9]{64}/u);
+    const { rows: [job] } = await link.db.query('select attachment_ids,secret_envelope from pa_commercial_outbox where id=$1', [sent.outbox_id]);
+    assert.deepEqual(job.attachment_ids, []);
+    const displayedEstimate = (await link.service.snapshot(case_id)).estimates.find(item => item.id === estimate.id);
+    assert.equal(displayedEstimate.delivery, null, 'link delivery must not become estimate attachment delivery');
+    const token = decryptSecret(job.secret_envelope).split('#')[1];
+    const viewed = await link.contract.view(token);
+    assert.equal(viewed.state, 'active');
+    assert.equal(viewed.snapshot.confirmation_mode, LINK_ONLY);
+    await assert.rejects(link.contract.customerQuote('0'.repeat(64)), /invalid_link/u);
+    assert.deepEqual((await link.contract.customerQuote(token)).bytes, link.quote);
+    const agreement = { token, offer_id: sent.id, snapshot_sha256: viewed.snapshot_sha256, confirmer_name: '検証者' };
+    await assert.rejects(link.contract.accept({...agreement, agree: false}), /consent_required/u);
+    assert.equal((await link.contract.accept({...agreement, agree: true})).state, 'accepted');
+    const { rows: [contract] } = await link.db.query('select snapshot from pa_contracts where id=$1', [sent.id]);
+    assert.equal(contract.snapshot.explicit_consent.quote_sha256, sha(link.quote));
+    assert.equal(contract.snapshot.explicit_consent.cancellation, true);
+    assert.equal(contract.snapshot.explicit_consent.payment, true);
+    evidence.LINK_ONLY_INITIAL_EMAIL_HAS_NO_PDF = 'PASS';
+    evidence.LINK_ONLY_SECURE_QUOTE_AND_CONSENT = 'PASS';
+    evidence.LINK_ONLY_DOES_NOT_MARK_QUOTE_ATTACHMENT_SENT = 'PASS';
+    evidence.LINK_ONLY_RPC_ACL_UNCHANGED = 'PASS';
+  } finally { await link.db.close(); }
+
+  const lost = await setup();
+  try {
+    await lost.createEstimate();
+    lost.state.transport = 'uncertain';
+    const case_id = lost.inquiryId;
+    const p = await lost.service.confirmationPreview({case_id, confirmation_mode: LINK_ONLY}, lost.actor);
+    const input = {case_id, confirmation_mode: LINK_ONLY, preview_fingerprint: p.fingerprint, operation_id: crypto.randomUUID()};
+    await assert.rejects(lost.service.issueDirectConfirmationAndSend(input, lost.actor));
+    const outcome = await lost.service.issueDirectConfirmationAndSend(input, lost.actor);
+    assert.equal(outcome.state, 'unknown');
+    await assert.rejects(lost.service.dispatch({
+      case_id, offer_id: outcome.id, job_id: outcome.outbox_id, preview_fingerprint: p.fingerprint
+    }, lost.actor));
+    assert.equal(lost.state.sendCount, 1);
+    evidence.LINK_ONLY_UNKNOWN_NEVER_RESENDS = 'PASS';
+  } finally { await lost.db.close(); }
+  await checkEstimateRecovery();
+  evidence.RECOVERY_CURRENT_GUARDS_AND_HISTORICAL = 'PASS';
   evidence.REAL_GMAIL_SEND = 0; evidence.PRODUCTION_MUTATION = 0;
   if (process.argv[2]) { fs.mkdirSync(process.argv[2], { recursive: true }); fs.writeFileSync(path.join(process.argv[2], 'pam-025-tests.json'), JSON.stringify(evidence, null, 2)); }
   console.log(JSON.stringify(evidence, null, 2));

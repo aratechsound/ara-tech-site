@@ -4,6 +4,10 @@ import { renderContractPanel } from "./pa-contract-admin.js";
 import { getCommercialDraftContext, openConfirmationPreviewForCurrentCase, renderCommercialWorkspace } from "./pa-commercial-admin.js?v=paui095-delivery-outcome";
 import { resolveRequestedCase, withoutRequestedCase } from "./pa-admin-selection.mjs?v=pa-est-009";
 
+import { scheduleInvitationTemplate, scheduleResultTemplate } from "../pa-ui/js/schedule-mail.mjs";
+import { openScheduleToken, scheduleTokenRequest, scheduleTokenSecret, scheduleTokenUrl } from "../pa-ui/js/schedule-token.mjs";
+import { deliveryOutcome, retryableDeliveryFailure } from "../pa-ui/js/conversation-timeline.mjs";
+
 import { isPaCase, caseTypeLabel, matchesCaseType, setupUnlinkedMail } from "./ara-case.mjs";
 
 import { ownerPaidCompletionStatus, caseEditorStatus, recordOwnerPaidCompletion } from "./pa-owner-paid-completion.mjs";
@@ -857,12 +861,6 @@ const mailTypeLabels = {
     schedule_response_decline_internal: "ARA-TECH向け見送り通知",
     schedule_result_confirmed: "日程確保済み結果",
     schedule_result_unavailable: "日程確保不可結果"
-};
-
-const mailStatusLabels = {
-    sending: "送信処理中",
-    sent: "送信済み",
-    failed: "送信失敗"
 };
 
 const newestDelivery = (type) =>
@@ -2268,6 +2266,7 @@ const renderFirstFormData = (item) => {
 };
 
 const renderTokenState = () => {
+    $("#issue-token").disabled = false;
     issuedRawToken = "";
     $("#issued-url").value = "";
     emailSection.classList.add("hidden");
@@ -2332,6 +2331,14 @@ const renderResponse = () => {
     appendDetail("規約バージョン", currentResponse.terms_version);
 };
 
+const canRetryMail = delivery => {
+    if (delivery?.status !== "failed" || !delivery.dedupe_key || !retryableDeliveryFailure(delivery.error_summary)) return false;
+    const attempts = currentDeliveries.filter(item => item.dedupe_key === delivery.dedupe_key);
+    return attempts.length === delivery.attempt_number && attempts.every(item =>
+        item.attempt_number <= delivery.attempt_number && item.status === "failed" && retryableDeliveryFailure(item.error_summary)
+    );
+};
+
 const retryButton = (delivery) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2362,10 +2369,10 @@ const renderAutomaticMailStatus = () => {
         title.textContent = label;
         const status = document.createElement("p");
         status.textContent = delivery
-            ? `${mailStatusLabels[delivery.status] || delivery.status}${delivery.sent_at ? ` ／ ${formatDateTime(delivery.sent_at)}` : ""}`
+            ? `${deliveryOutcome(delivery)}${delivery.sent_at ? ` ／ ${formatDateTime(delivery.sent_at)}` : ""}`
             : "送信記録なし（既存案件）";
         card.append(title, status);
-        if (delivery?.status === "failed") card.append(retryButton(delivery));
+        if (canRetryMail(delivery)) card.append(retryButton(delivery));
         automaticMailStatus.append(card);
     });
 };
@@ -2477,20 +2484,20 @@ const renderEmailHistory = () => {
         const item = document.createElement("div");
         item.className = `mail-history__item mail-history__item--${delivery.status}`;
         const title = document.createElement("strong");
-        title.textContent = `${mailTypeLabels[delivery.message_type] || delivery.message_type} ／ ${mailStatusLabels[delivery.status] || delivery.status}`;
+        title.textContent = `${mailTypeLabels[delivery.message_type] || delivery.message_type} ／ ${deliveryOutcome(delivery)}`;
         const subject = document.createElement("span");
         subject.textContent = delivery.subject;
         const meta = document.createElement("span");
         const when = delivery.sent_at || delivery.failed_at || delivery.requested_at;
         meta.textContent = `${formatDateTime(when)} ／ Gmail送信履歴${delivery.gmail_message_id ? "（Gmail同期でthreadを取得できます）" : ""}`;
         item.append(title, subject, meta);
-        if (delivery.status === "failed") item.append(retryButton(delivery));
+        if (canRetryMail(delivery)) item.append(retryButton(delivery));
         emailHistory.append(item);
     });
 
     const latestSchedule = newestDelivery("schedule_request");
     $("#email-send-state").textContent = latestSchedule
-        ? `${mailStatusLabels[latestSchedule.status] || latestSchedule.status}${latestSchedule.sent_at ? `：${formatDateTime(latestSchedule.sent_at)}` : ""}`
+        ? `${deliveryOutcome(latestSchedule)}${latestSchedule.sent_at ? `：${formatDateTime(latestSchedule.sent_at)}` : ""}`
         : "未送信";
 };
 
@@ -2529,7 +2536,7 @@ const renderAudit = (entries) => {
     auditList.replaceChildren();
     const mailEntries = currentDeliveries.filter(isInternalDelivery).map((delivery) => ({
         occurred_at: delivery.sent_at || delivery.failed_at || delivery.requested_at,
-        label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${mailStatusLabels[delivery.status] || delivery.status}${delivery.is_retry ? "（再送）" : ""}`
+        label: `${mailTypeLabels[delivery.message_type] || delivery.message_type}：${deliveryOutcome(delivery)}${delivery.is_retry ? "（再送）" : ""}`
     }));
     const combined = [
         ...entries.map((entry) => {
@@ -2628,7 +2635,7 @@ const openCase = async (id) => {
             .limit(50),
         supabase
             .from("pa_email_deliveries")
-            .select("id, message_type, recipient, subject, status, requested_at, sent_at, failed_at, gmail_message_id, error_summary, is_retry, attempt_number")
+            .select("id, message_type, recipient, subject, status, requested_at, sent_at, failed_at, gmail_message_id, error_summary, is_retry, attempt_number, dedupe_key")
             .eq("inquiry_id", id)
             .order("requested_at", { ascending: false })
             .limit(100),
@@ -2839,13 +2846,6 @@ const saveCase = async () => {
     setMessage(caseStatusMessage, "案件を保存しました。", "success");
 };
 
-const randomToken = () => {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-};
-
 const shortEventDate = (value) => {
     const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/u);
     return match ? `${Number(match[2])}月${Number(match[3])}日` : "開催予定日";
@@ -2981,16 +2981,18 @@ const sendContentHearingEmail = async () => {
     }
     resetContentHearingConfirmation();
 
+    const targetCase = selectedMailCase();
     mailActionInProgress = true;
     setMailButtonsDisabled(true);
     clearMessage($("#content-hearing-message"));
     try {
         const result = await callMailApi({
             action: "send_content_hearing",
-            inquiry_id: currentCase.id,
+            inquiry_id: targetCase.id,
             subject,
             body
         });
+        if (!targetCase.isCurrent()) return;
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent" && result.case_state) {
             applyContentHearingCaseState(result.case_state);
@@ -3000,56 +3002,64 @@ const sendContentHearingEmail = async () => {
                 "success"
             );
             await loadCases();
-            await openCase(currentCase.id);
+            if (targetCase.isCurrent()) await openCase(targetCase.id);
         } else {
             setMessage($("#content-hearing-message"), mailErrorMessage(result.delivery.error_summary), "error");
         }
     } catch (error) {
+        if (!targetCase.isCurrent()) return;
         setMessage($("#content-hearing-message"), mailErrorMessage(error.message), "error");
     } finally {
         mailActionInProgress = false;
-        resetContentHearingConfirmation();
+        if (targetCase.isCurrent()) resetContentHearingConfirmation();
         setMailButtonsDisabled(false);
     }
 };
 
 const buildEmail = (url) => {
-    const addressee = currentCase.public_addressee || currentCase.customer_name;
-    const eventName = currentCase.public_event_name || currentCase.event_name || "ご相談の案件";
-    const eventDate = currentCase.public_event_date || currentCase.event_date;
-    const deadline = currentCase.response_deadline || localInputToIso($("#token-expiry").value);
-    const subject = `【ARA-TECH】開催日程についてのご確認／受付番号${currentCase.inquiry_number}`;
-    const body = [
-        `${addressee} 様`,
-        "",
-        "ARA-TECHへお問い合わせいただきありがとうございます。",
-        "下記案件について、日程確保に必要な条件確認・同意をお願いいたします。",
-        "",
-        `問い合わせ番号：${currentCase.inquiry_number}`,
-        `イベント名：${eventName}`,
-        `開催希望日：${formatDate(eventDate)}`,
-        `会場・開催場所：${currentCase.public_venue || currentCase.venue || "未設定"}`,
-        "",
-        "日程確保フォーム専用URL",
-        url,
-        "",
-        `回答期限：${formatDateTime(deadline)}`,
-        "",
-        "専用URLを開き、表示された案件情報と条件をご確認・同意のうえ、ご回答ください。",
-        "日程確保フォームへの回答だけでは、契約・予約または日程確保は確定しません。",
-        "ARA-TECHが内容を確認し、日程確保完了の連絡をした時点で確保成立となります。",
-        "",
-        "ご不明点がございましたら、このメールへご返信ください。",
-        ""
-    ].join("\n");
-
+    const {subject,body} = scheduleInvitationTemplate(currentCase,url,{
+        formatDate,formatDateTime,fallbackDeadline:currentCase.response_deadline || localInputToIso($("#token-expiry").value)
+    });
     $("#email-recipient").value = currentCase.email || "";
     $("#email-subject").value = subject;
     $("#email-body").value = body;
     $("#email-schedule-url").value = url;
     emailOperationKey = crypto.randomUUID();
+    $("#send-email").disabled = mailActionInProgress;
     clearMessage($("#email-message"));
     emailSection.classList.remove("hidden");
+};
+
+const changeScheduleToken = async (action, token = null, expiry = null) => {
+    const selectedCase = currentCase;
+    const selection = caseSelectionSerial;
+    const expectedToken = openScheduleToken(currentToken ? [currentToken] : [])?.id || null;
+    $("#issue-token").disabled = true;
+    $("#revoke-token").disabled = true;
+    issuedRawToken = "";
+    emailOperationKey = "";
+    $("#issued-url").value = "";
+    emailSection.classList.add("hidden");
+    let result;
+    try {
+        result = await scheduleTokenRequest(supabase, {
+            caseId: selectedCase.id, updatedAt: selectedCase.updated_at, expectedToken,
+            action, token, expiry
+        });
+    } catch {
+        // The request may have committed. Keep both controls locked until the next case read.
+    }
+    if (selection !== caseSelectionSerial || currentCase !== selectedCase) return null;
+    const confirmed = result?.state === (action === "issue" ? "issued" : "revoked")
+        && result.updated_at && result.case_status && (action === "issue" ? result.token_id : result.revoked_at);
+    if (!confirmed) {
+        setMessage($("#token-message"), "結果を確定できません。案件を開き直して現在のURL状態を確認してください。", "error");
+        return null;
+    }
+    selectedCase.updated_at = result.updated_at;
+    selectedCase.status = result.case_status;
+    $("#issue-token").disabled = false;
+    return result;
 };
 
 const issueToken = async () => {
@@ -3073,34 +3083,24 @@ const issueToken = async () => {
         return;
     }
 
-    $("#issue-token").disabled = true;
-    const rawToken = randomToken();
-    const { data, error } = await supabase.rpc("issue_pa_schedule_token", {
-        p_inquiry_id: currentCase.id,
-        p_token: rawToken,
-        p_expires_at: expiry
-    });
-    $("#issue-token").disabled = false;
-
-    if (error || !data?.length) {
-        setMessage($("#token-message"), `URLを発行できませんでした。${error?.message || ""}`, "error");
-        return;
-    }
+    if ($("#issue-token").disabled) return;
+    const rawToken = scheduleTokenSecret();
+    const data = await changeScheduleToken("issue", rawToken, expiry);
+    if (!data) return;
 
     issuedRawToken = rawToken;
     currentToken = {
-        id: data[0].token_id,
-        issued_at: data[0].issued_at,
-        expires_at: data[0].expires_at,
+        id: data.token_id,
+        issued_at: data.issued_at,
+        expires_at: data.expires_at,
         revoked_at: null,
         answered_at: null
     };
-    currentCase.second_form_issued_at = data[0].issued_at;
-    currentCase.response_deadline = data[0].expires_at;
-    currentCase.status = "second_form_issued";
-    const url = `https://ara-tech.cc/pa-schedule-confirm.html?token=${encodeURIComponent(rawToken)}`;
+    currentCase.second_form_issued_at = data.issued_at;
+    currentCase.response_deadline = data.expires_at;
+    const url = scheduleTokenUrl(rawToken);
     $("#issued-url").value = url;
-    $("#token-state").textContent = `発行済み。有効期限：${formatDateTime(data[0].expires_at)}`;
+    $("#token-state").textContent = `発行済み。有効期限：${formatDateTime(data.expires_at)}`;
     $("#revoke-token").disabled = false;
     buildEmail(url);
     renderOverview();
@@ -3109,21 +3109,12 @@ const issueToken = async () => {
 };
 
 const revokeToken = async () => {
-    if (!currentCase || !window.confirm("現在の日程確保フォームURLを無効にしますか？")) return;
+    if (!currentCase || !currentToken || $("#revoke-token").disabled
+        || !window.confirm("現在表示された日程確保フォームURLを無効にしますか？")) return;
     clearMessage($("#token-message"));
-    const { data, error } = await supabase.rpc("revoke_pa_schedule_token", {
-        p_inquiry_id: currentCase.id
-    });
-    if (error || !data) {
-        setMessage($("#token-message"), `URLを無効化できませんでした。${error?.message || ""}`, "error");
-        return;
-    }
-    currentToken = currentToken ? { ...currentToken, revoked_at: new Date().toISOString() } : null;
-    currentCase.status = "second_form_not_issued";
-    issuedRawToken = "";
-    emailOperationKey = "";
-    $("#issued-url").value = "";
-    emailSection.classList.add("hidden");
+    const result = await changeScheduleToken("revoke");
+    if (!result) return;
+    currentToken = { ...currentToken, revoked_at: result.revoked_at };
     renderTokenState();
     renderOverview();
     setMessage($("#token-message"), "現在のURLを無効化しました。", "success");
@@ -3131,12 +3122,15 @@ const revokeToken = async () => {
 };
 
 const mailErrorMessage = (code) => {
+    if (code === "mail_outcome_unknown" || !code) return "配送結果を確定できません。送信済み履歴とGmailを確認してください。";
     if (code === "gmail_not_configured" || String(code).startsWith("gmail_oauth_")) {
         return "Gmail接続設定を確認してください。案件データは保持され、送信失敗として記録されます。";
     }
     if (String(code).startsWith("gmail_send_")) {
         return "Gmailから送信できませんでした。案件データは保持されています。接続状態を確認して再送してください。";
     }
+    if (code === "schedule_delivery_busy") return "この日程URLは別の操作で処理中です。配送履歴を確認してください。";
+    if (code === "schedule_delivery_exists") return "この日程URLの配送記録が既にあります。配送履歴を確認してください。";
     if (code === "schedule_token_not_available") return "この案件の有効な日程URLを確認できません。現在の発行状態と案内文を確認してください。";
     if (code === "invalid_schedule_url" || code === "invalid_schedule_message") return "案内メールの受付番号と日程URLを確認してください。";
     if (code === "not_authorized") return "管理者セッションを確認し、再ログインしてください。";
@@ -3145,13 +3139,19 @@ const mailErrorMessage = (code) => {
 
 const setMailButtonsDisabled = (disabled) => {
     $("#send-content-hearing").disabled = disabled;
-    $("#send-email").disabled = disabled;
+    $("#send-email").disabled = disabled || !emailOperationKey;
     $("#send-result-email").disabled = disabled;
     $("#prepare-result-confirmed").disabled = disabled;
     $("#prepare-result-unavailable").disabled = disabled;
     document.querySelectorAll(".mail-status-grid button, .mail-history button").forEach((button) => {
         button.disabled = disabled;
     });
+};
+
+const selectedMailCase = () => {
+    const id = currentCase.id;
+    const selection = caseSelectionSerial;
+    return { id, isCurrent: () => selection === caseSelectionSerial && currentCase?.id === id };
 };
 
 const callMailApi = async (payload) => {
@@ -3166,9 +3166,11 @@ const callMailApi = async (payload) => {
         },
         credentials: "same-origin",
         body: JSON.stringify(payload)
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || !result.delivery) throw new Error(result.code || "mail_delivery_failed");
+    }).catch(() => { throw new Error("mail_outcome_unknown"); });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.delivery) {
+        throw new Error(response.status < 500 && result?.code ? result.code : "mail_outcome_unknown");
+    }
     return result;
 };
 
@@ -3893,7 +3895,8 @@ const sendEmail = async () => {
         setMessage($("#email-message"), "宛先、件名、本文、専用URLを確認してください。", "error");
         return;
     }
-    const confirmationKey = JSON.stringify([currentCase.id, currentCase.email, subject, body, scheduleUrl]);
+    const targetCase = selectedMailCase();
+    const confirmationKey = JSON.stringify([targetCase.id, currentCase.email, subject, body, scheduleUrl]);
     const sendButton = $("#send-email");
     if (sendButton.dataset.confirmationKey !== confirmationKey) {
         sendButton.dataset.confirmationKey = confirmationKey;
@@ -3914,24 +3917,34 @@ const sendEmail = async () => {
     try {
         const result = await callMailApi({
             action: "send_schedule",
-            inquiry_id: currentCase.id,
+            inquiry_id: targetCase.id,
             subject,
             body,
             schedule_url: scheduleUrl,
             operation_key: emailOperationKey
         });
+        if (!targetCase.isCurrent()) return;
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent") {
             setMessage($("#email-message"), "Gmailから送信しました。送信日時とGmailメッセージIDを案件へ記録しました。", "success");
         } else {
-            setMessage($("#email-message"), mailErrorMessage(result.delivery.error_summary), "error");
+            if (["unknown", "sending"].includes(result.delivery.status)) emailOperationKey = "";
+            const code = result.delivery.status === "sending" ? "mail_outcome_unknown" : result.delivery.error_summary;
+            setMessage($("#email-message"), mailErrorMessage(code), "error");
         }
     } catch (error) {
-        setMessage($("#email-message"), mailErrorMessage(error.message), "error");
-        $("#email-send-state").textContent = "送信失敗";
+        if (!targetCase.isCurrent()) return;
+        if (["schedule_token_not_available", "schedule_delivery_busy", "schedule_delivery_exists", "invalid_schedule_url", "invalid_schedule_message", "schedule_not_allowed", "not_authorized"].includes(error.message)) {
+            setMessage($("#email-message"), mailErrorMessage(error.message), "error");
+            $("#email-send-state").textContent = "送信を停止しました";
+        } else {
+            emailOperationKey = "";
+            setMessage($("#email-message"), mailErrorMessage("mail_outcome_unknown"), "error");
+            $("#email-send-state").textContent = "配送結果未確定";
+        }
     } finally {
         mailActionInProgress = false;
-        resetSendEmailConfirmation();
+        if (targetCase.isCurrent()) resetSendEmailConfirmation();
         setMailButtonsDisabled(false);
     }
 };
@@ -3939,18 +3952,20 @@ const sendEmail = async () => {
 const retryEmail = async (deliveryId) => {
     if (!currentCase || mailActionInProgress) return;
     const delivery = currentDeliveries.find((item) => item.id === deliveryId);
-    if (!delivery || delivery.status !== "failed") return;
+    if (!canRetryMail(delivery)) return;
     if (!window.confirm(`${mailTypeLabels[delivery.message_type] || "メール"}を同じ宛先・件名・本文で再送しますか？`)) return;
 
+    const targetCase = selectedMailCase();
     mailActionInProgress = true;
     setMailButtonsDisabled(true);
     clearMessage($("#email-message"));
     try {
         const result = await callMailApi({
             action: "retry",
-            inquiry_id: currentCase.id,
+            inquiry_id: targetCase.id,
             delivery_id: delivery.id
         });
+        if (!targetCase.isCurrent()) return;
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent") {
             if (result.case_state) {
@@ -3977,6 +3992,7 @@ const retryEmail = async (deliveryId) => {
             setMessage($("#email-message"), mailErrorMessage(result.delivery.error_summary), "error");
         }
     } catch (error) {
+        if (!targetCase.isCurrent()) return;
         setMessage($("#email-message"), mailErrorMessage(error.message), "error");
     } finally {
         mailActionInProgress = false;
@@ -3984,48 +4000,7 @@ const retryEmail = async (deliveryId) => {
     }
 };
 
-const resultEmailTemplate = (result) => {
-    const addressee = currentCase.public_addressee || currentCase.contact_name || currentCase.customer_name;
-    const summary = [
-        `受付番号：${currentCase.inquiry_number}`,
-        `開催希望日：${formatDate(currentCase.public_event_date || currentCase.event_date)}`,
-        `会場・開催場所：${currentCase.public_venue || currentCase.venue || "未設定"}`
-    ];
-    if (result === "confirmed") {
-        return {
-            title: "日程を確保できました",
-            subject: `【ARA-TECH】ご希望日の対応日程を確保しました／受付番号${currentCase.inquiry_number}`,
-            body: [
-                `${addressee} 様`,
-                "",
-                "ご希望日の対応日程を確保しました。",
-                ...summary,
-                "",
-                "今後、イベント詳細やお見積りについて、ARA-TECHから改めてご連絡いたします。",
-                "現段階では、見積承認、契約成立、正式予約完了ではありません。",
-                "",
-                "ご不明点がございましたら、このメールへご返信ください。",
-                ""
-            ].join("\n")
-        };
-    }
-    return {
-        title: "日程を確保できませんでした",
-        subject: `【ARA-TECH】ご希望日の対応日程について／受付番号${currentCase.inquiry_number}`,
-        body: [
-            `${addressee} 様`,
-            "",
-            "既存予定の日程調整を行いましたが、ご希望日の対応日程を確保できませんでした。",
-            ...summary,
-            "",
-            "恐れ入りますが、上記の開催希望日では受付できません。",
-            "必要に応じて、別日程についてご相談いただけます。",
-            "",
-            "ご希望がございましたら、このメールへご返信ください。",
-            ""
-        ].join("\n")
-    };
-};
+const resultEmailTemplate = result => scheduleResultTemplate(currentCase,result,formatDate);
 
 const resetResultEmailConfirmation = () => {
     const button = $("#send-result-email");
@@ -4102,6 +4077,7 @@ const sendResultEmail = async () => {
     }
     resetResultEmailConfirmation();
 
+    const targetCase = selectedMailCase();
     mailActionInProgress = true;
     setMailButtonsDisabled(true);
     clearMessage($("#result-email-message"));
@@ -4109,11 +4085,12 @@ const sendResultEmail = async () => {
     try {
         const apiResult = await callMailApi({
             action: "send_result",
-            inquiry_id: currentCase.id,
+            inquiry_id: targetCase.id,
             result,
             subject,
             body
         });
+        if (!targetCase.isCurrent()) return;
         recordDeliveryResult(apiResult.delivery);
         if (apiResult.delivery.status === "sent" && apiResult.case_state) {
             applyCaseState(apiResult.case_state);
@@ -4129,15 +4106,16 @@ const sendResultEmail = async () => {
                 activeProgressFilter = "";
             }
             await loadCases();
-            await openCase(currentCase.id);
+            if (targetCase.isCurrent()) await openCase(targetCase.id);
         } else {
             setMessage($("#result-email-message"), mailErrorMessage(apiResult.delivery.error_summary), "error");
         }
     } catch (error) {
+        if (!targetCase.isCurrent()) return;
         setMessage($("#result-email-message"), mailErrorMessage(error.message), "error");
     } finally {
         mailActionInProgress = false;
-        resetResultEmailConfirmation();
+        if (targetCase.isCurrent()) resetResultEmailConfirmation();
         setMailButtonsDisabled(false);
     }
 };

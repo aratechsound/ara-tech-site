@@ -77,6 +77,7 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
       return json(200, { ok: true, result });
     } catch (error) {
       const code = String(error?.message || '');
+      if (code === 'outbox_retry_guard_unavailable') return json(503, { ok: false, code });
       const allowed = SAFE.has(code);
       return json(code === 'not_authorized' ? 401 : code === 'stale_confirmation_preview' ? 409 : allowed ? 400 : 503, { ok: false, code: allowed ? code : 'service_unavailable' });
     }

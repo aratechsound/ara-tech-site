@@ -17,6 +17,7 @@ let estimateEntryOpening = false;
 let activeWorkspaceContext = null;
 let confirmationPreviewOpening = false;
 const DIRECT_CONFIRM_WITH_ESTIMATE = "DIRECT_CONFIRM_WITH_ESTIMATE";
+const DIRECT_CONFIRM_LINK_ONLY = "DIRECT_CONFIRM_LINK_ONLY";
 
 const byId = (id) => document.getElementById(id);
 const element = (tag, className, text) => {
@@ -87,6 +88,7 @@ const formDialog = (title, fields, confirmLabel = "確認して実行", context,
         control.name = field.name;
         if (field.accept) control.accept = field.accept;
         if (field.required) control.required = true;
+        if (field.maxLength != null) control.maxLength = field.maxLength;
         if (field.type === "number" && privacy) {
             privacy.setAmount(control, field.value);
             amountInputs.push(control);
@@ -215,13 +217,21 @@ async function openPdfMail(context, { state, current, accepted, invoice = false,
 }
 
 let recoveryOpening = false;
-const openRecovery = async (context, state, trigger) => {
-    if (recoveryOpening) return;
+const openRecovery = async (context, state, trigger, { allowCurrent = true } = {}) => {
+    if (recoveryOpening || context.signal?.aborted) return;
     recoveryOpening = true;
+    const privacy = context.privacy;
+    let busy = false;
+    let unavailable = false;
+    let revealed = !privacy;
+    let updateSubmit = () => {};
+    let manualAmount;
     const triggerLabel = trigger?.textContent || "送信済みメールから登録";
     if (trigger) { trigger.disabled = true; trigger.textContent = "検索中…"; }
 
     const dialog = element("dialog", "pa-commercial-dialog pa-recovery-dialog");
+    dialog.setAttribute("aria-label", "送信済みメールから見積を登録");
+    if (privacy) dialog.dataset.externalMoneyGuard = "true";
     const form = document.createElement("form");
     form.append(element("h3", "", "送信済みメールから見積を登録"));
     const status = element("div", "pa-recovery-dialog__status", "検索中…\n送信済みメールと添付を確認しています");
@@ -235,12 +245,32 @@ const openRecovery = async (context, state, trigger) => {
     const submit = element("button", "button button--small", "再送せず登録");
     submit.type = "submit";
     submit.disabled = true;
+    const onReset = () => { revealed = false; updateSubmit(); };
+    const onReveal = event => {
+        if (event.detail.scope === dialog) { revealed = true; updateSubmit(); }
+    };
+    if (privacy) {
+        privacy.reset();
+        const reveal = button("金額を表示・入力", () => {});
+        reveal.dataset.moneyToggle = "true";
+        reveal.setAttribute("aria-pressed", "false");
+        actions.append(reveal);
+        document.addEventListener("privacy-reset", onReset);
+        document.addEventListener("privacy-reveal", onReveal);
+    }
     actions.append(cancel, submit);
     form.append(actions);
     dialog.append(form);
     document.body.append(dialog);
+    const abort = () => { if (dialog.open) dialog.close("cancel"); };
+    context.signal?.addEventListener("abort", abort, { once: true });
+    dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
     dialog.addEventListener("close", () => {
         recoveryOpening = false;
+        context.signal?.removeEventListener("abort", abort);
+        document.removeEventListener("privacy-reset", onReset);
+        document.removeEventListener("privacy-reveal", onReveal);
+        if (manualAmount) privacy?.releaseAmount(manualAmount);
         if (trigger?.isConnected) { trigger.disabled = false; trigger.textContent = triggerLabel; }
         dialog.remove();
     }, { once: true });
@@ -248,19 +278,21 @@ const openRecovery = async (context, state, trigger) => {
 
     try {
         const candidates = await api(context, "recovery_candidates");
+        if (!dialog.open) return;
         if (!candidates.length) {
             status.textContent = "この案件に復旧可能な送信済みPDFはありません。";
             cancel.textContent = "閉じる";
             return;
         }
 
-        status.classList.add("hidden");
+        status.hidden = true;
         const candidateLabel = element("label", "field");
         candidateLabel.append(element("span", "", "送信済みPDF"));
         const candidateSelect = document.createElement("select");
         candidateSelect.name = "candidate";
+        const fileText = value => privacy ? privacy.text(String(value || "")) : String(value || "");
         candidates.forEach((item, index) => candidateSelect.append(new Option(
-            `${item.source_sent_at || "送信日時不明"} / ${item.filename}${item.existing ? "（登録済み）" : ""}`,
+            `${item.source_sent_at || "送信日時不明"} / ${fileText(item.filename)}${item.existing ? "（登録済み）" : ""}`,
             String(index)
         )));
         candidateLabel.append(candidateSelect);
@@ -278,9 +310,9 @@ const openRecovery = async (context, state, trigger) => {
         moneyRow.append(element("span", "pa-commercial__label", "見積金額："), amountRow);
         summary.append(fileRow, moneyRow);
 
-        const manualLabel = element("label", "field hidden");
+        const manualLabel = element("label", "field");
         manualLabel.append(element("span", "", "見積金額（円）"));
-        const manualAmount = document.createElement("input");
+        manualAmount = document.createElement("input");
         manualAmount.type = "number";
         manualAmount.name = "amount";
         manualAmount.min = "1";
@@ -292,31 +324,46 @@ const openRecovery = async (context, state, trigger) => {
         const mode = document.createElement("fieldset");
         mode.className = "pa-recovery-dialog__mode";
         mode.append(element("legend", "", "登録方法"));
-        [["current", "現在の見積として登録"], ["historical", "過去の見積として取り込む"]].forEach(([value, label], index) => {
+        [["current", "現在の見積として登録"], ["historical", "過去の見積として取り込む"]].forEach(([value, label]) => {
             const option = element("label", "pa-recovery-dialog__radio");
             const radio = document.createElement("input");
             radio.type = "radio";
             radio.name = "mode";
             radio.value = value;
-            radio.checked = index === 0;
+            radio.disabled = value === "current" && !allowCurrent;
+            radio.checked = value === (privacy || !allowCurrent ? "historical" : "current");
             option.append(radio, document.createTextNode(label));
             mode.append(option);
         });
         const resend = element("p", "pa-recovery-dialog__resend", "");
         resend.append(element("span", "pa-commercial__label", "メール再送："), document.createTextNode("しない"));
+        if (!allowCurrent) mode.append(element("small", "", "この案件では現在の見積に切り替えられません。過去の見積として登録できます。"));
         content.append(candidateLabel, summary, manualLabel, mode, resend);
 
         let previewEpoch = 0;
         let preview = null;
+        const selection = () => candidates[Number(candidateSelect.value)];
+        const amountFor = () => preview?.amount_extraction?.status === "HIGH_CONFIDENCE"
+            ? Number(preview.amount_extraction.amount_minor)
+            : Number(privacy ? privacy.readAmount(manualAmount) : manualAmount.value);
+        updateSubmit = () => {
+            const amountMinor = amountFor();
+            submit.disabled = busy || unavailable || !revealed || !preview || Boolean(selection()?.existing)
+                || !Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > 9999999999;
+        };
         const loadPreview = async () => {
             const epoch = ++previewEpoch;
-            const selected = candidates[Number(candidateSelect.value)];
+            const selected = selection();
             preview = null;
-            submit.disabled = true;
-            manualLabel.classList.add("hidden");
+            if (privacy) {
+                privacy.reset();
+                privacy.setAmount(manualAmount, "");
+            } else manualAmount.value = "";
+            updateSubmit();
+            manualLabel.hidden = true;
             manualAmount.disabled = true;
-            sourceBadge.classList.add("hidden");
-            filename.textContent = selected.filename || "ファイル名を確認中";
+            sourceBadge.hidden = true;
+            filename.textContent = fileText(selected.filename) || "ファイル名を確認中";
             amount.textContent = "PDFから金額を確認しています…";
             amountRow.setAttribute("aria-busy", "true");
             try {
@@ -327,19 +374,20 @@ const openRecovery = async (context, state, trigger) => {
                 if (epoch !== previewEpoch || !dialog.open) return;
                 preview = loaded;
                 selected.filename = loaded.original_filename;
-                filename.textContent = loaded.original_filename;
-                candidateSelect.options[Number(candidateSelect.value)].textContent = `${selected.source_sent_at || "送信日時不明"} / ${loaded.original_filename}${selected.existing ? "（登録済み）" : ""}`;
+                filename.textContent = fileText(loaded.original_filename);
+                candidateSelect.options[Number(candidateSelect.value)].textContent = `${selected.source_sent_at || "送信日時不明"} / ${fileText(loaded.original_filename)}${selected.existing ? "（登録済み）" : ""}`;
                 if (loaded.amount_extraction?.status === "HIGH_CONFIDENCE") {
-                    amount.textContent = money(loaded.amount_extraction.amount_minor, "JPY");
-                    sourceBadge.classList.remove("hidden");
+                    const cents = loaded.amount_extraction.amount_minor;
+                    amount.textContent = privacy ? privacy.money(cents, "JPY") : money(cents, "JPY");
+                    sourceBadge.hidden = false;
                 } else {
                     amount.textContent = "自動取得できませんでした";
-                    manualLabel.classList.remove("hidden");
+                    manualLabel.hidden = false;
                     manualAmount.disabled = false;
-                    manualAmount.focus();
+                    if (!privacy) manualAmount.focus();
                 }
-                submit.disabled = Boolean(selected.existing) || (loaded.amount_extraction?.status !== "HIGH_CONFIDENCE" && !manualAmount.value);
                 if (selected.existing) amount.textContent += " / 登録済み";
+                updateSubmit();
             } catch {
                 if (epoch !== previewEpoch || !dialog.open) return;
                 amount.textContent = "PDFの確認に失敗しました";
@@ -349,35 +397,50 @@ const openRecovery = async (context, state, trigger) => {
             }
         };
         candidateSelect.addEventListener("change", loadPreview);
-        manualAmount.addEventListener("input", () => { if (!preview || preview.amount_extraction?.status !== "HIGH_CONFIDENCE") submit.disabled = !manualAmount.value; });
+        manualAmount.addEventListener("input", () => queueMicrotask(updateSubmit));
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
-            const selected = candidates[Number(candidateSelect.value)];
-            if (selected.existing || !preview) return;
-            const extracted = preview.amount_extraction?.status === "HIGH_CONFIDENCE";
-            const amountMinor = extracted ? Number(preview.amount_extraction.amount_minor) : Number(manualAmount.value);
-            if (!Number.isSafeInteger(amountMinor) || amountMinor < 1) { manualAmount.focus(); return; }
-            submit.disabled = true;
+            if (submit.disabled || busy) return;
+            const selected = selection();
+            const amountMinor = amountFor();
+            const registrationMode = new FormData(form).get("mode");
+            if (registrationMode !== "historical" && !(registrationMode === "current" && allowCurrent)) return;
+            busy = true;
+            updateSubmit();
+            candidateSelect.disabled = mode.disabled = manualAmount.disabled = true;
             cancel.disabled = true;
             submit.textContent = "登録しています…";
             try {
-                await api(context, "recover_estimate", {
+                const registered = await api(context, "recover_estimate", {
                     expected_revision: state.revision, expected_current: state.current_estimate_revision_id,
                     operation_id: crypto.randomUUID(), document_id: crypto.randomUUID(),
-                    mode: new FormData(form).get("mode"), amount_minor: amountMinor,
+                    mode: registrationMode, amount_minor: amountMinor,
                     currency: "JPY", tax_basis: "tax_included", conditions: {},
                     gmail_message_id: selected.gmail_message_id, gmail_attachment_id: selected.gmail_attachment_id
                 });
+                if (privacy) {
+                    const checked = await api(context, "recovery_candidates");
+                    if (!registered?.id || !checked.some(row => row.gmail_message_id === selected.gmail_message_id
+                        && row.gmail_attachment_id === selected.gmail_attachment_id
+                        && row.existing?.estimate_revision_id === registered.id)) throw Error("estimate_recovery_unverified");
+                }
                 dialog.close("registered");
                 await context.refreshCommercial();
             } catch (error) {
-                status.textContent = error.message === "amount_extraction_mismatch"
-                    ? "PDFから再確認した金額と一致しません。もう一度選択してください。"
-                    : "登録できませんでした。状態を更新して再確認してください。";
-                status.classList.remove("hidden");
-                submit.disabled = false;
+                if (!dialog.open) return;
+                status.textContent = {
+                    amount_extraction_mismatch: "PDFから再確認した金額と一致しません。",
+                    confirmation_already_active: "有効な正式受注確認があるため、現在の見積に切り替えられません。",
+                    delivery_outcome_unresolved: "関連する配送結果を照合してから、現在の見積に切り替えてください。"
+                }[error.message] || "登録結果を確認できませんでした。画面を閉じ、登録済みの表示を確認してください。";
+                status.hidden = false;
                 cancel.disabled = false;
+                cancel.textContent = "閉じる";
+                unavailable = true;
                 submit.textContent = "再送せず登録";
+            } finally {
+                busy = false;
+                if (dialog.open) updateSubmit();
             }
         });
         await loadPreview();
@@ -425,7 +488,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
     confirmationPreviewOpening = true;
     const issuedMode = Boolean(issuedConfirmation?.offer_id && issuedConfirmation?.outbox_id);
     const replacementMode = !issuedMode && Boolean(replacementConfirmation?.offer_id && replacementConfirmation?.version);
-    const directMode = !issuedMode && !replacementMode && confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE;
+    const linkOnly = confirmationMode === DIRECT_CONFIRM_LINK_ONLY;
+    const directMode = !issuedMode && !replacementMode && (confirmationMode === DIRECT_CONFIRM_WITH_ESTIMATE || linkOnly);
     const caseId = context.getCurrentCase().id;
     const dialog = element("dialog", "pa-confirmation-preview-dialog");
     const privacy = context.privacy;
@@ -453,7 +517,8 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
             ? `正式受注確認 #${issuedConfirmation.version}は発行済みです。案内メールはまだ送信されていません。`
             : replacementMode
                 ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい確認を同じ見積で準備します。案内メールは送信しません。`
-                : directMode ? "見積書原本と正式受注確認URLを同じメールで提示します。お客様にはページ上で条件への同意と正式依頼をお願いします。まだ発行・送信していません。" : "まだ正式受注確認は発行・送信されていません。")
+                : linkOnly ? "正式受注確認URLをメールでご案内し、見積書原本は確認ページで提示します。"
+                    : directMode ? "見積書原本と正式受注確認URLを同じメールで提示します。お客様にはページ上で条件への同意と正式依頼をお願いします。まだ発行・送信していません。" : "まだ正式受注確認は発行・送信されていません。")
     );
     const refreshButton = button("内容を再取得", () => load(), "button button--secondary button--small"), closeButton = button("閉じる", () => dialog.close(), "button button--secondary button--small");
     const revealButton = privacy ? createRevealButton() : null;
@@ -484,9 +549,13 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                 ? `${honorific(model.recipient.customer_name)}へ正式受注確認 #${model.confirmation_version}の案内メールを送信します。`
                 : replacementMode
                     ? `正式受注確認 #${replacementConfirmation.version}を失効し、新しい専用URLと送信待ちメールを原子的に準備します。この操作では案内メールを送信しません。`
-                    : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
+                    : linkOnly ? "正式受注確認を発行し、専用URLを送信します。見積書原本は確認ページで提示します。"
+                        : directMode ? "正式受注確認を発行し、専用URLとこの見積PDF原本1ファイルを同じメールで送信します。" : "正式受注確認を発行し、専用URLと送信待ちメールを安全に準備します。この操作では案内メールを送信しません。")
         );
-        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", amount(model.estimate)); pair(facts, "送信先", model.recipient.to); wrap.append(facts);
+        const facts = element("dl", "pa-confirmation-preview__facts"); pair(facts, "案件", model.customer_snapshot.case.event_name); pair(facts, "見積", `第${model.estimate.revision_number}版`); pair(facts, "金額", amount(model.estimate)); pair(facts, "送信先", model.recipient.to);
+        if (model.email.attachment_count === 0) pair(facts, "メール添付", "なし（確認ページで提示）");
+        else if (model.email.attachment_count === 1) pair(facts, "メール添付", model.estimate.original_filename);
+        wrap.append(facts);
         if (privacy) wrap.append(createRevealButton());
         const actions = element("div", "actions pa-confirmation-final-dialog__actions"), back = button("戻って確認する", () => final.close("back")), confirm = button(issuedMode || directMode ? "正式受注確認を送信する" : replacementMode ? "旧確認を失効して新しい確認を発行する（送信しない）" : "正式受注確認を発行する（送信しない）", () => final.close("confirm"), "button button--small");
         actions.append(back, confirm); wrap.append(actions); final.append(wrap); document.body.append(final);
@@ -529,7 +598,10 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
         const customerFrame = element("iframe", "pa-confirmation-preview__customer"); customerFrame.title = "顧客向け正式受注確認ページの送信前プレビュー"; setFrame(customerFrame, "src", "/pa-contract.html?mode=admin-pre-issue"); customer.append(customerFrame);
         const onMessage = (event) => { if (event.origin === location.origin && event.source === customerFrame.contentWindow && event.data?.type === "pa-contract-preview-ready") customerFrame.contentWindow.postMessage({ type: "pa-contract-preview-model", snapshot: model.customer_snapshot }, location.origin); };
         window.addEventListener("message", onMessage); dialog.addEventListener("close", () => window.removeEventListener("message", onMessage), { once: true });
-        const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject); email.append(emailFacts);
+        const email = section("発行案内メール"), emailFacts = element("dl", "pa-confirmation-preview__facts"); pair(emailFacts, "件名", model.email.subject);
+        if (model.email.attachment_count === 0) pair(emailFacts, "添付", "なし（確認ページで提示）");
+        else if (model.email.attachment_count === 1) pair(emailFacts, "添付", model.estimate.original_filename);
+        email.append(emailFacts);
         const emailColumns = element("div", "pa-confirmation-preview__two-column"), htmlWrap = element("article", ""), textWrap = element("article", ""), emailFrame = element("iframe", "pa-confirmation-preview__email");
         emailFrame.title = "発行案内メールHTML本文"; emailFrame.setAttribute("sandbox", ""); setFrame(emailFrame, "srcdoc", model.email.html); htmlWrap.append(element("h4", "", "HTML本文"), emailFrame); textWrap.append(element("h4", "", "plain text本文"), element("pre", "pa-confirmation-preview__mail-text", textValue(model.email.body))); emailColumns.append(htmlWrap, textWrap); email.append(emailColumns);
         const receipt = section("承認後に生成される正式受注確認書"); receipt.append(element("p", "pa-confirmation-preview__note", `${model.versions.receipt}／Page 1・2 + Page 3以降は現在の正規見積原本。確認者・成立日時はお客様承認時に自動記録されます。`));
@@ -544,9 +616,10 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
             let phase = "dialog", retryBlocked = false;
             try {
                 if (!await finalDialog(model)) return;
-                phase = issuedMode ? "dispatch" : "issue";
-                finalButton.textContent = issuedMode ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
-                if (issuedMode) await api(context, "dispatch_outbox", {
+                phase = issuedMode || directMode ? "dispatch" : "issue";
+                finalButton.textContent = phase === "dispatch" ? "正式受注確認を送信しています…" : "正式受注確認を発行しています…";
+                let result;
+                if (issuedMode) result = await api(context, "dispatch_outbox", {
                     job_id: model.outbox_id, offer_id: model.offer_id,
                     preview_fingerprint: model.fingerprint
                 });
@@ -558,14 +631,15 @@ const openConfirmationPreview = async (context, issuedConfirmation = null, repla
                         expected_old_version: replacementConfirmation.version,
                         reason: "Owner判断による旧確認終了・同一見積で再発行"
                     });
-                    else await api(context, directMode ? "issue_direct_confirmation_and_send" : "issue_confirmation", { confirmation_mode: model.confirmation_mode, preview_fingerprint: model.fingerprint, operation_id: operationId });
+                    else result = await api(context, directMode ? "issue_direct_confirmation_and_send" : "issue_confirmation", { confirmation_mode: model.confirmation_mode, preview_fingerprint: model.fingerprint, operation_id: operationId });
                 }
+                if (phase === "dispatch" && (result?.state !== "sent" || !result.provider_message_id)) throw Error("mail_outcome_unknown");
                 dialog.close(); await context.refreshCommercial();
             } catch (error) {
                 if (phase === "dialog") { dialogError.textContent = "最終確認画面を開けませんでした。内容を再取得してもう一度お試しください。"; dialogError.classList.remove("hidden"); }
                 else { retryBlocked = true; const stale = error.message === "stale_confirmation_preview"; status.textContent = stale ? "プレビュー後に内容が変更されています。もう一度内容をご確認ください。" : "発行または案内の結果を確認できません。状態を更新して履歴をご確認ください。"; status.className = stale ? "pa-confirmation-preview__stale" : "pa-confirmation-preview__error"; body.prepend(status); if (stale) { preview = null; checkbox.checked = false; } }
             } finally {
-                busy = false; checkbox.disabled = false; finalButton.removeAttribute("aria-busy"); finalButton.disabled = retryBlocked || !checkbox.checked || model !== preview; finalButton.textContent = actionLabel; if (phase === "dialog" && dialog.open && finalButton.isConnected) finalButton.focus();
+                busy = false; checkbox.disabled = retryBlocked; finalButton.removeAttribute("aria-busy"); finalButton.disabled = retryBlocked || !checkbox.checked || model !== preview; finalButton.textContent = actionLabel; if (phase === "dialog" && dialog.open && finalButton.isConnected) finalButton.focus();
             }
         }, "button button--small");
         finalButton.disabled = true; checkbox.addEventListener("change", () => { finalButton.disabled = !checkbox.checked || !preview || busy; }); gate.append(identity, checkLabel, dialogError, finalButton);
@@ -612,11 +686,19 @@ export async function renderDeskConfirmationActions(root, context) {
         const current = data.estimates.find(estimate => estimate.id === data.state.current_estimate_revision_id);
         const unresolved = data.confirmation_preflight?.delivery_outcome_unresolved;
         status.textContent = confirmationDisplayState({ accepted, active, delivery }).label;
-        if (accepted) return;
         if (["closed", "cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
             status.textContent = "終了・保留中の案件では正式受注確認を操作できません。";
             return;
         }
+        if (current) appendLine(root, "現在の見積", `版 ${current.revision_number}`);
+        const actions = element("div", "inlinebtns");
+        const action = (label, run) => actions.append(button(label, run, "action blue"));
+        const currentDeliveryClear = !current?.delivery || ["sent", "cancelled"].includes(current.delivery.state);
+        action("送信済みメールから見積を登録", event => openRecovery(context, data.state, event.currentTarget, {
+            allowCurrent: !accepted && !active && unresolved === false && currentDeliveryClear
+        }));
+        root.append(actions);
+        if (accepted) return;
         if (typeof unresolved !== "boolean") {
             status.textContent = "正式受注確認の操作可否を取得できません。状態を再取得してください。";
             return;
@@ -625,8 +707,6 @@ export async function renderDeskConfirmationActions(root, context) {
             status.textContent = "送信結果を照合してから、正式受注確認を準備してください。";
             return;
         }
-        const actions = element("div", "inlinebtns");
-        const action = (label, run) => actions.append(button(label, run, "action blue"));
         let estimateBusy = false;
         const estimateAction = registerOnly => async () => {
             if (estimateBusy) return;
@@ -636,21 +716,24 @@ export async function renderDeskConfirmationActions(root, context) {
             let refreshRequired = false;
             try {
                 if (await openPdfMail(context, {state: data.state, current, registerOnly})) await context.refreshCommercial();
-            } catch {
+            } catch (error) {
                 refreshRequired = true;
-                if (!context.signal.aborted) status.textContent = "見積の処理結果を確認できません。状態を再取得して履歴を確認してください。";
+                if (!context.signal.aborted) {
+                    status.textContent = error.message === "confirmation_already_active"
+                        ? "有効な正式受注確認があるため見積を登録できません。状態を再取得してください。"
+                        : "見積の処理結果を確認できません。状態を再取得して履歴を確認してください。";
+                }
             } finally {
                 if (!refreshRequired) buttons.forEach(item => item.disabled = false);
                 estimateBusy = false;
             }
         };
-        if (!active && (!current?.delivery || ["sent", "cancelled"].includes(current.delivery.state))) {
+        if (!active && currentDeliveryClear) {
             action("見積書PDFを送る", estimateAction(false));
             action("見積原本を登録（送信しない）", estimateAction(true));
         }
         if (!current) {
             status.textContent = "正規見積が未登録です。";
-            root.append(actions);
             return;
         }
         if (current.delivery?.state === "sent") status.textContent += " / 見積書送信済み";
@@ -658,8 +741,9 @@ export async function renderDeskConfirmationActions(root, context) {
             if (current.delivery?.state === "sent") {
                 action("正式受注確認を発行準備", () => openConfirmationPreview(context));
             } else {
-                action("正式受注確認として送信", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE));
+                action("正式受注確認を送る（見積PDFを添付）", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_WITH_ESTIMATE));
             }
+            action("正式受注確認を送る（メール添付なし）", () => openConfirmationPreview(context, null, null, DIRECT_CONFIRM_LINK_ONLY));
         } else if (active.estimate_revision_id === current.id) {
             if (delivery?.state === "queued") {
                 action("正式受注確認を送る", () => openConfirmationPreview(context, {
@@ -672,7 +756,6 @@ export async function renderDeskConfirmationActions(root, context) {
                 }));
             }
         }
-        if (actions.childElementCount) root.append(actions);
     } catch {
         if (!context.signal.aborted) status.textContent = "正式受注確認の状態を取得できません。状態を再取得してください。";
     }
@@ -687,8 +770,38 @@ export async function renderDeskBillingActions(root, context) {
         if (context.signal.aborted) return;
         if (data.state?.inquiry_id !== context.case.id) throw Error("case_changed");
         const { accepted } = selectConfirmationContext(data);
-        if (["closed", "cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
-            status.textContent = data.case_status === "closed" ? "案件は完了しました。" : "終了・保留中の案件です。";
+        if (data.case_status === "closed") {
+            status.textContent = "案件は完了しています。再開すると請求を確認できる状態に戻ります。入金・契約の記録は保持されます。";
+            if (!data.state.closed_operation_id || context.case.progress?.is_on_hold) return;
+            const reopen = button("案件を再開", async () => {
+                reopen.disabled = true;
+                let refreshRequired = false;
+                try {
+                    const values = await formDialog("案件の再開を確認", [
+                        { name: "reason", label: "再開理由", type: "textarea", required: true, maxLength: 2000 }
+                    ], "理由を記録して再開する", context);
+                    if (!values?.reason.trim()) return;
+                    const operation = crypto.randomUUID();
+                    const reopened = await api(context, "reopen_case", {
+                        expected_revision: data.state.revision, operation_id: operation, reason: values.reason.trim()
+                    });
+                    const confirmed = await api(context, "snapshot");
+                    if (reopened?.inquiry_id !== context.case.id || confirmed.state?.inquiry_id !== context.case.id
+                        || confirmed.state.reopen_operation_id !== operation || confirmed.state.closed_operation_id
+                        || confirmed.case_status !== "schedule_confirmed") throw Error("reopen_unconfirmed");
+                    await context.refreshCommercial({ reopened: true });
+                } catch {
+                    refreshRequired = true;
+                    if (!context.signal.aborted) status.textContent = "再開結果を確認できませんでした。案件一覧を再取得してください。";
+                } finally {
+                    if (!refreshRequired && !context.signal.aborted) reopen.disabled = false;
+                }
+            }, "action quiet");
+            root.append(reopen);
+            return;
+        }
+        if (["cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
+            status.textContent = "終了・保留中の案件です。";
             return;
         }
         if (!accepted) { status.textContent = "正式受注の成立後に請求・入金を操作できます。"; return; }
@@ -872,6 +985,9 @@ const renderDocument = (context, item, root, currentEpoch) => {
 
 function renderBilling(billingRoot, context, data, { state, current, accepted, billing, paid }) {
     const formatAmount = context.privacy?.money || money;
+    const invoiceReview = billing?.invoice_policy === "separate_pdf"
+        && (billing.invoice_delivery_state === "unknown" || billing.invoice_requires_reconciliation === true);
+    const invoiceState = invoiceReview ? "unknown" : billing?.invoice_delivery_state;
     const readForm = (title, fields, confirmLabel) => formDialog(title, fields, confirmLabel, context);
     const operationStatus = element("p", "hint");
     operationStatus.setAttribute("role", "status");
@@ -905,7 +1021,8 @@ function renderBilling(billingRoot, context, data, { state, current, accepted, b
     } else {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `請求 #${billing.billing_number}`));
         billingRoot.append(element("p", "pa-commercial__amount", formatAmount(billing.amount_minor, billing.currency)));
-        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", billing.invoice_delivery_state)}` : "既存書類を使用／別途発行なし");
+        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", invoiceState)}` : "既存書類を使用／別途発行なし");
+        if (invoiceReview) billingRoot.append(element("p", "pa-commercial__warning", "再送せず、Gmail送信済みと配送記録を照合してください。"));
         appendLine(billingRoot, "支払期限", billing.due_date || "期日未確定");
         appendLine(billingRoot, "先方予定日", billing.customer_planned_payment_on || "連絡なし");
         appendLine(billingRoot, "確認済み入金", formatAmount(paid, billing.currency));
@@ -995,7 +1112,7 @@ function renderBilling(billingRoot, context, data, { state, current, accepted, b
             await api(context, "adjust_payment", { billing_id: billing.id, payment_id: values.payment, operation_id: crypto.randomUUID(), delta_minor: Number(values.delta), reason: values.reason });
             await context.refreshCommercial();
         }));
-        if (!context.signal || billing.invoice_policy !== "separate_pdf" || billing.invoice_delivery_state === "sent") billingActions.append(billingButton("案件完了を確認", async () => {
+        if (!invoiceReview && (!context.signal || billing.invoice_policy !== "separate_pdf" || invoiceState === "sent")) billingActions.append(billingButton("案件完了を確認", async () => {
             const balance = Number(billing.amount_minor) - paid;
             const values = await readForm("入金確認と案件完了", [
                 { name: "date", label: "追加入金確認日", type: "date", required: balance > 0 },
@@ -1250,9 +1367,10 @@ const render = async (context, data, epoch) => {
         const kind = pendingJob.delivery_scope === DELIVERY_SCOPE.UNCLASSIFIED
             ? `関連先を確認できない配送（種別：${safeJobKind}）`
             : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || safeJobKind;
-        const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
+        const pendingState = pendingJob.requires_reconciliation ? "unknown" : pendingJob.state;
+        const alert = element("p", pendingState === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingState)}`);
         nextRoot.append(alert);
-        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingState)) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();

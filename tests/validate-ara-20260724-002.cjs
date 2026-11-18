@@ -62,8 +62,13 @@ assert.match(adminJs, /#case-search"\)\.addEventListener\("input", renderCases\)
 assert.match(adminJs, /#case-status-filter"\)\.addEventListener\("change", renderCases\)/);
 assert.match(adminJs, /#case-sort"\)\.addEventListener\("change", renderCases\)/);
 assert.match(adminJs, /stateCell\.append\(statusBadge\(formalOrderDisplayStatus\(item, progress\)\)\)/);
-assert.match(adminJs, /currentCase = result\.data;[\s\S]*?await loadCases\(\);[\s\S]*?await openCase\(currentCase\.id\)/);
-assert.match(adminJs, /applyCaseState\(apiResult\.case_state\);[\s\S]*?await loadCases\(\)/);
+const saveCase = adminJs.match(/const saveCase = async \(\) => \{[\s\S]*?\n\};/)?.[0];
+assert.ok(saveCase, "case save handler must be present");
+assert.match(saveCase, /currentCase = result\.data;[\s\S]*?await loadCases\(\);\s*if \(selection !== caseSelectionSerial \|\| currentCase !== result\.data\) return;\s*await openCase\(result\.data\.id\)/);
+const resultMail = adminJs.match(/const sendResultEmail = async \(\) => \{[\s\S]*?\n\};/)?.[0];
+assert.ok(resultMail, "schedule result handler must be present");
+assert.match(resultMail, /if \(!targetCase\.isCurrent\(\)\) return;\s*recordDeliveryResult\(apiResult\.delivery\)/);
+assert.match(resultMail, /applyCaseState\(apiResult\.case_state\);[\s\S]*?await loadCases\(\);\s*if \(targetCase\.isCurrent\(\)\) await openCase\(targetCase\.id\)/);
 assert.match(adminJs, /const renderCaseTabs = \(\) =>/);
 assert.match(adminJs, /activeCaseTab === "active" && isClosedCase\(item\)/);
 assert.match(adminJs, /activeCaseTab\.startsWith\("year-"\)/);

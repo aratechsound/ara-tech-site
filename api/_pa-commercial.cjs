@@ -12,10 +12,23 @@ const CUSTOMER_CONFIRMATION_TEMPLATE_VERSION = 'PA-CUSTOMER-WEB-V3.2';
 const RECEIPT_TEMPLATE_VERSION = 'PA-RECEIPT-V4.1';
 const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
+const DIRECT_CONFIRM_LINK_ONLY = 'DIRECT_CONFIRM_LINK_ONLY';
 const LEGACY_CONFIRMATION = 'LEGACY';
+const isDirectConfirmation = (mode) => mode === DIRECT_CONFIRM_WITH_ESTIMATE || mode === DIRECT_CONFIRM_LINK_ONLY;
+const definitiveGmailRejections = new Set([400, 401, 403, 404, 413, 422, 429]);
+function outboxNeedsReconciliation(job, now = Date.now()) {
+  if (job.state === 'unknown' || job.delivery_state === 'unknown_after_provider_start') return true;
+  if (job.state === 'processing') return !(Date.parse(job.lease_expires_at) > now);
+  if (job.state !== 'failed') return false;
+  const beforeProvider = job.delivery_state === 'failed_before_provider' && job.provider_request_started === false
+    && job.provider_response_received === false && job.provider_http_status == null;
+  const explicitRejection = job.delivery_state === 'failed_after_provider_response' && job.provider_request_started === true
+    && job.provider_response_received === true && definitiveGmailRejections.has(job.provider_http_status);
+  return !beforeProvider && !explicitRejection;
+}
 const confirmationMode = (value) => {
   const mode = value == null ? LEGACY_CONFIRMATION : value;
-  if (![LEGACY_CONFIRMATION, DIRECT_CONFIRM_WITH_ESTIMATE].includes(mode)) throw Error('invalid_contract');
+  if (mode !== LEGACY_CONFIRMATION && !isDirectConfirmation(mode)) throw Error('invalid_contract');
   return mode;
 };
 // The confirmation outbox is also the estimate delivery authority in direct mode.
@@ -60,9 +73,8 @@ const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offer
     || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
       && (job.aggregate_id === confirmationId
         || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
-  return related && (['processing', 'unknown'].includes(job.state)
-    || job.delivery_state === 'unknown_after_provider_start'
-    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
+  return related && (job.state === 'processing' || outboxNeedsReconciliation(job)
+    || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked' && job.provider_request_started
       && (!job.provider_response_received || job.provider_http_status >= 500
         || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
 };
@@ -85,7 +97,9 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
   const contact = String(inquiry.contact_name || inquiry.customer_name || 'ご担当者').trim().replace(/\s*様\s*$/u, '');
   const request = mode === DIRECT_CONFIRM_WITH_ESTIMATE
     ? '御見積書を添付しております。\n内容およびキャンセル条件・お支払条件等をご確認いただき、正式受注確認ページより正式なご依頼をお願いいたします。'
-    : '対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。';
+    : mode === DIRECT_CONFIRM_LINK_ONLY
+      ? '対象の見積書は正式受注確認ページで閲覧できます。ご依頼内容、キャンセル・変更条件、お支払条件をご確認のうえ、同ページから正式にご依頼ください。'
+      : '対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。';
   return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n${request}\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
 };
 
@@ -98,7 +112,7 @@ const SAFE = new Set([
   'invalid_confirmation_replacement', 'replacement_target_changed', 'confirmation_delivery_in_progress',
   'confirmation_send_owner_approval_required', 'confirmation_send_authority_changed',
   'revoke_reason_required', 'invalid_revision_start', 'outbox_not_found', 'outbox_busy',
-  'outbox_unknown_requires_reconciliation', 'outbox_lease_changed', 'invalid_outbox_result',
+  'outbox_unknown_requires_reconciliation', 'outbox_retry_guard_unavailable', 'outbox_lease_changed', 'invalid_outbox_result',
   'mail_outcome_unknown',
   'invalid_settlement', 'settlement_not_ready', 'contract_not_found', 'invalid_billing',
   'invalid_billing_mail', 'due_date_evidence_required', 'invoice_document_not_allowed',
@@ -260,9 +274,10 @@ const deliveryFailureDetails = (error, trace = {}) => {
   const providerHttpStatus = Number.isInteger(trace.provider_http_status)
     ? trace.provider_http_status
     : Number(failureCode.match(/^gmail_send_([1-5][0-9]{2})$/u)?.[1]) || null;
+  const rejected = providerResponseReceived && definitiveGmailRejections.has(providerHttpStatus);
   const deliveryState = !providerRequestStarted
     ? 'failed_before_provider'
-    : providerResponseReceived ? 'failed_after_provider_response' : 'unknown_after_provider_start';
+    : rejected ? 'failed_after_provider_response' : 'unknown_after_provider_start';
   const state = deliveryState === 'unknown_after_provider_start' ? 'unknown' : 'failed';
   const safeMessages = {
     invalid_confirmation: '送信内容の確認情報と添付ファイルが一致しません。',
@@ -271,10 +286,9 @@ const deliveryFailureDetails = (error, trace = {}) => {
     mail_adapter_not_configured: 'メール配送設定が完了していません。',
     invalid_production_e2e_test: 'Production TEST配送の固定条件と一致しません。'
   };
-  const safeMessage = safeMessages[failureCode]
+  const safeMessage = deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : safeMessages[failureCode]
     || (failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。'
-      : failureCode.startsWith('gmail_send_') ? 'Gmail APIが送信リクエストを受理しませんでした。'
-        : deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : 'メール配送開始前に失敗しました。');
+      : rejected ? 'Gmail APIが送信リクエストを受理しませんでした。' : 'メール配送開始前に失敗しました。');
   const phase = /^[a-z][a-z0-9_]{0,99}$/u.test(String(trace.phase || '')) ? trace.phase : 'dispatch';
   return { state, deliveryState, failureCode, safeMessage, phase, providerRequestStarted, providerResponseReceived, providerHttpStatus };
 };
@@ -442,6 +456,20 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     return response.status === 204 ? null : response.json();
   };
   const rpc = (name, input) => db('rpc/' + name, { method: 'POST', body: JSON.stringify(input) });
+  // A missing or unverified guard is a deployment mismatch. Never use the
+  // prior claim RPC as a fallback for a mail dispatch.
+  const guardedOutboxRpc = async (name, input) => {
+    try { return await rpc(name, input); }
+    catch (error) {
+      if (error.message === 'service_unavailable') throw Error('outbox_retry_guard_unavailable');
+      throw error;
+    }
+  };
+  const requireOutboxGuard = async () => {
+    if (await guardedOutboxRpc('pa_v5_assert_outbox_retry_guard', {}) !== true) {
+      throw Error('outbox_retry_guard_unavailable');
+    }
+  };
   const finishOutbox = async (input) => {
     try { return await rpc('pa_v5_outbox_finish_v2', input); }
     catch (error) {
@@ -504,7 +532,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     ]) : [[], []];
     const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
-    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => item);
+    const observedAt = Date.now();
+    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => ({
+      ...item, requires_reconciliation: outboxNeedsReconciliation(item, observedAt)
+    }));
+    const invoicesToReconcile = new Set(safeOutbox.filter(job => job.job_kind === 'invoice' && job.requires_reconciliation)
+      .map(job => job.aggregate_id));
     return {
       case_status: inquiry.status,
       state: effectiveState,
@@ -513,7 +546,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
-      outbox: safeOutbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
+      outbox: safeOutbox,
+      billings: billings.map(item => ({ ...item, invoice_requires_reconciliation: item.invoice_policy === 'separate_pdf' && invoicesToReconcile.has(item.id) })),
+      payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
       confirmation_preflight: {
         event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
@@ -620,10 +655,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const agreement = termsForIssue(text(inquiry.event_date, 10));
     const bodyTemplate = confirmationBodyTemplate(inquiry, mode);
     const previewBody = bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER);
-    const confirmationAttachment = [{ filename: documentRow.original_filename, mime_type: documentRow.mime_type, data: quoteBytes.toString('base64url') }];
+    const confirmationAttachment = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [pdfAttachment(documentRow.original_filename, quoteBytes)];
     const email = await confirmationMailPreview({ caseId: safeCaseId, actor, body: previewBody, attachments: confirmationAttachment, contentOnly: true });
     if (emailAddress(email.recipient) !== emailAddress(inquiry.email)) throw Error('invalid_contract');
-    if (mode === DIRECT_CONFIRM_WITH_ESTIMATE && email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id) throw Error('invalid_contract');
+    if (isDirectConfirmation(mode) && email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id) throw Error('invalid_contract');
     const contactName = String(inquiry.contact_name || inquiry.customer_name || '').trim();
     const organization = String(inquiry.organization_name || '').trim();
     const customerDisplay = [organization, contactName].filter(Boolean).join(' ');
@@ -709,8 +744,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       one('pa_commercial_outbox', { inquiry_id: 'eq.' + caseId, aggregate_id: 'eq.' + offerId, job_kind: 'eq.confirmation', select: '*' })
     ]);
     if (!offer || !job || !['queued', 'failed'].includes(job.state) || !job.secret_envelope || Number(new Date(offer.expires_at)) <= Date.now()) throw Error('invalid_contract');
+    const mode = confirmationMode(offer.snapshot?.confirmation_mode);
     const estimate = current.estimates.find((item) => item.id === offer.estimate_revision_id);
     const documentRow = estimate && current.documents.find((item) => item.id === estimate.document_id);
+    const expectedAttachments = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [documentRow?.id];
     if (!estimate || !documentRow || current.state.current_estimate_revision_id !== estimate.id
       || offer.snapshot?.estimate?.estimate_id !== estimate.id
       || offer.snapshot?.estimate?.document_id !== documentRow.id
@@ -721,7 +758,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       || offer.snapshot?.estimate?.currency !== estimate.currency
       || current.state.estimate_change_state !== 'ready'
       || offer.quote_sha256 !== documentRow.sha256
-      || !Array.isArray(job.attachment_ids) || job.attachment_ids.length !== 1 || job.attachment_ids[0] !== documentRow.id
+      || !Array.isArray(job.attachment_ids) || canonical(job.attachment_ids) !== canonical(expectedAttachments)
       || pdf.sha(Buffer.from(postgresJsonbText(offer.snapshot), 'utf8')) !== offer.snapshot_sha256) throw Error('document_identity_mismatch');
     const quoteBytes = fromBytea(offer.quote_pdf);
     if (pdf.sha(quoteBytes) !== offer.quote_sha256) throw Error('document_identity_mismatch');
@@ -730,7 +767,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     await pdf.validatePdf(quoteBytes, offer.quote_sha256);
     const bodyTemplate = text(job.body_text, 20000);
     if (!bodyTemplate.includes('{{CONFIRMATION_URL}}')) throw Error('invalid_contract');
-    const attachment = [{ filename: documentRow.original_filename, mime_type: documentRow.mime_type, data: quoteBytes.toString('base64url') }];
+    const attachment = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [pdfAttachment(documentRow.original_filename, quoteBytes)];
     const email = await confirmationMailPreview({
       caseId, actor, body: bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER), attachments: attachment,
       ccAddresses: job.reply_binding?.cc_addresses || [], contentOnly: true
@@ -739,13 +776,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       || email.gmail_thread_id !== job.reply_binding?.thread_id
       || email.reply_source_message_id !== job.reply_binding?.reply_source_message_id
       || canonical(email.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('stale_confirmation_preview');
-    const mode = confirmationMode(offer.snapshot?.confirmation_mode);
-    if (mode === DIRECT_CONFIRM_WITH_ESTIMATE && (job.reply_binding?.confirmation_mode !== mode
+    if (isDirectConfirmation(mode) && (job.reply_binding?.confirmation_mode !== mode
       || email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id)) throw Error('stale_confirmation_preview');
     const authority = {
       offer_id: offer.id, offer_version: Number(offer.version), offer_snapshot_sha256: offer.snapshot_sha256,
       outbox_id: job.id, outbox_state: job.state, recipient: job.recipient, subject: job.subject,
-      body_template_sha256: pdf.sha(Buffer.from(bodyTemplate, 'utf8')), attachment_sha256: offer.quote_sha256,
+      body_template_sha256: pdf.sha(Buffer.from(bodyTemplate, 'utf8')),
+      attachment_sha256: attachment.length ? offer.quote_sha256 : null,
       current_estimate_revision_id: current.state.current_estimate_revision_id,
       confirmation_mode: mode, gmail_thread_id: email.gmail_thread_id,
       reply_source_message_id: email.reply_source_message_id, cc: email.cc_addresses || []
@@ -772,7 +809,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         reply_source_message_id: result.email.reply_source_message_id, cc: result.email.cc_addresses || []
       },
       estimate: { ...result.customerSnapshot.estimate, bytes: result.quoteBytes.length },
-      email: { subject: result.email.subject, body: result.email.body, html: result.email.html },
+      email: { subject: result.email.subject, body: result.email.body, html: result.email.html, attachment_count: result.confirmationAttachment.length },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
   }
@@ -801,7 +838,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         reply_source_message_id: prepared.email.reply_source_message_id, cc: prepared.email.cc_addresses || []
       },
       estimate: { ...prepared.offer.snapshot.estimate, bytes: prepared.quoteBytes.length },
-      email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html },
+      email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html, attachment_count: prepared.attachment.length },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
   }
@@ -815,6 +852,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
 
   async function issueEstimate(input, actor) {
     const preparationMode = confirmationMode(input.confirmation_mode);
+    if (preparationMode === DIRECT_CONFIRM_LINK_ONLY) throw Error('invalid_estimate');
     if (preparationMode === DIRECT_CONFIRM_WITH_ESTIMATE && (input.source_kind !== 'managed_send' || input.source_sent_at)) throw Error('invalid_estimate');
     const bytes = Buffer.from(text(input.content_base64, 8000000), 'base64');
     await pdf.validatePdf(bytes, text(input.sha256, 64));
@@ -946,7 +984,8 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   }
 
   async function issueDirectConfirmationAndSend(input, actor) {
-    if (input.confirmation_mode !== DIRECT_CONFIRM_WITH_ESTIMATE) throw Error('invalid_contract');
+    if (!isDirectConfirmation(input.confirmation_mode)) throw Error('invalid_contract');
+    await requireOutboxGuard();
     const issued = await issueConfirmation(input, actor);
     // A repeated final operation reports the existing outcome, including unknown.
     // Only a separate, newly approved send operation may retry a definite failure.
@@ -1279,7 +1318,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       });
     }
     const lease = crypto.randomUUID();
-    const claimed = await rpc('pa_v5_outbox_claim', { p_actor: actor.id, p_job: jobId, p_lease: lease });
+    const claimed = await guardedOutboxRpc('pa_v5_claim_guarded_outbox', { p_actor: actor.id, p_job: jobId, p_lease: lease });
     if (claimed?.state === 'cancelled') return claimed;
     if (claimed?.already_committed && claimed.state === 'sent') {
       const completed = await one('pa_commercial_outbox', { id: 'eq.' + jobId, select: 'provider_message_id' });
@@ -1321,7 +1360,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       }
     } catch (error) {
       let failure = deliveryFailureDetails(error, deliveryTrace);
-      if (job.reply_binding?.confirmation_mode === DIRECT_CONFIRM_WITH_ESTIMATE
+      if (isDirectConfirmation(job.reply_binding?.confirmation_mode)
         && deliveryTrace.provider_request_started
         && (deliveryTrace.provider_http_status >= 500
           || (deliveryTrace.provider_http_status >= 200 && deliveryTrace.provider_http_status < 300))) {
@@ -1329,15 +1368,22 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         // may already have delivered this mail. Never make it retryable.
         failure = { ...failure, state: 'unknown', deliveryState: 'unknown_after_provider_start' };
       }
-      await finishOutbox({
+      const providerEvidence = sent || deliveryTrace.accepted_reply;
+      const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
-        p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
+        p_message: providerEvidence?.gmail_message_id || null, p_thread: providerEvidence?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
         p_delivery_state: failure.deliveryState, p_failure_phase: failure.phase,
         p_failure_code: failure.failureCode, p_safe_message: failure.safeMessage,
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
+      if (failure.state === 'unknown') {
+        // A failed diagnostic write cannot make a started provider request safe to repeat.
+        await finish.catch(() => null);
+        throw Error('mail_outcome_unknown');
+      }
+      await finish;
       throw error;
     }
     try {
@@ -1578,7 +1624,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     recordPrepayment: (input, actor) => rpc('pa_v5_record_prepayment', { p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id), p_payment_date: text(input.payment_date, 10), p_amount_minor: integer(input.amount_minor, 1), p_method: text(input.payment_method, 30), p_memo: text(input.memo, 5000, true) }),
     adjustPayment: (input, actor) => rpc('pa_v5_adjust_payment', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: input.billing_id ? uuid(input.billing_id) : null, p_payment: uuid(input.payment_id), p_operation: uuid(input.operation_id), p_delta_minor: integer(input.delta_minor, -9999999999, 9999999999), p_reason: text(input.reason, 2000) }),
     close: (input, actor) => rpc('pa_v5_payment_and_close', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: uuid(input.billing_id), p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_payment_date: input.payment_date || null, p_new_payment_minor: integer(input.new_payment_minor), p_method: input.payment_method || null, p_memo: text(input.memo, 5000, true) }),
-    reopen: (input, actor) => rpc('pa_v5_reopen_case', { p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) })
+    reopen: (input, actor) => rpc('pa_v5_reopen_case', {
+      p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000),
+      ...(input.expected_revision == null ? {} : { p_expected_revision: integer(input.expected_revision) })
+    })
   };
 }
 
