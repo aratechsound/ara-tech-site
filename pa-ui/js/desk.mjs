@@ -487,7 +487,9 @@ function renderTimelineMail(entry, isNew) {
 }
 function commercialControls(c,label,{allowReopen=false}={}){
   if(passiveMail||c?.case_type!=='PA_EVENT'||c.status==='on_hold'||c.progress?.is_on_hold)return '';
-  const reopen=allowReopen&&c.status==='closed'&&getRows('commercial')?.state?.closed_operation_id;
+  const closedAt=c.progress?.closed_at;
+  const reopen=allowReopen&&closedAt&&displayStatus(c)==='owner_payment_completed'&&getRows('audit')?.some(
+    row=>row.action==='payment_confirmed_and_closed_v5'&&row.occurred_at===closedAt);
   if(isClosedCase(c)&&!reopen)return '';
   return `<div class="inlinebtns">${button(reopen?'再開の操作':label,'commercial-actions','quiet')}</div><div id="commercial-actions-host"></div>`;
 }
