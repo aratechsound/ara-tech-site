@@ -46,12 +46,13 @@
     "place": "概要",
     "status": "新UIから利用可能",
     "scope": "受付順へ明示切替可能。初期は開催日順。",
-    "target": "overview",
-    "source": "js/pa-admin.js:203",
-    "api": "Supabase SELECT / pa_inquiries; pa_case_progress",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "取得済み案件の受付日時で並べ替え。",
+    "validation": "隔離試験で受付順への切替と並べ替えを確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離試験で受付順への切替と並べ替えを確認。",
+    "current_control": "案件一覧の「詳細条件」→「並び順」→「受付順」"
   },
   {
     "id": "PAUI-A-005",
@@ -59,12 +60,13 @@
     "place": "概要",
     "status": "新UIから利用可能",
     "scope": "確定開催日 / 開催日昇順。未定は末尾。",
-    "target": "overview",
-    "source": "js/pa-admin.js:203",
-    "api": "なし（現在のsortはclient） / pa_inquiries.event_date; pa_case_progress.confirmed_event_date",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "取得済み案件の確保日または開催希望日で並べ替え。",
+    "validation": "隔離試験で初期並び順と開催日未定の表示を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離試験で初期並び順と開催日未定の表示を確認。",
+    "current_control": "案件一覧の「詳細条件」→「並び順」→「開催日順」"
   },
   {
     "id": "PAUI-A-006",
@@ -72,25 +74,27 @@
     "place": "概要",
     "status": "新UIから利用可能",
     "scope": "初期は進行中。進行中/要対応/すべて/完了・見送り、検索・種別・状態・年・保存済み工程で絞込。開催日で完了判定しない。",
-    "target": "overview",
-    "source": "js/pa-admin.js:1397",
-    "api": "Supabase SELECT後client filter / pa_inquiries; pa_case_progress",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "取得済み案件を画面内で検索・絞り込み。",
+    "validation": "隔離ブラウザで検索、各条件の絞り込み、リセットを確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで検索、各条件の絞り込み、リセットを確認。",
+    "current_control": "案件一覧の検索欄、または「詳細条件」→ 表示対象・案件種別・案件状態・開催年・工程"
   },
   {
     "id": "PAUI-A-007",
-    "name": "進行／完了・工程別件数",
+    "name": "進行中・完了等の件数と工程絞り込み",
     "place": "概要",
     "status": "新UIから利用可能",
-    "scope": "取得した案件の進行・完了等件数と工程filter。",
-    "target": "overview",
-    "source": "js/pa-admin.js:1365",
-    "api": "Supabase SELECT / pa_inquiries; pa_case_progress",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "scope": "案件一覧の下に表示件数と進行・完了等の合計を表示します。工程を指定すると、表示件数に反映されます。",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "取得済み案件と保存済み工程から画面内で集計。",
+    "validation": "隔離ブラウザで工程絞り込みと表示件数を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで工程絞り込みと表示件数を確認。",
+    "current_control": "案件一覧の最下部で件数を確認。工程は「詳細条件」→「工程」で指定"
   },
   {
     "id": "PAUI-A-008",
@@ -110,13 +114,14 @@
     "name": "正式受注済の表示・既存事実確認",
     "place": "概要",
     "status": "新UIから利用可能",
-    "scope": "保存済み契約/予約確定記録による正式受注表示。変更なし。",
-    "target": "overview",
-    "source": "js/pa-formal-order-status.mjs:12",
-    "api": "Supabase SELECT / pa_inquiries; pa_case_progress.formal_contract_id",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "scope": "顧客同意、旧工程の見積承認・予約確定、発行済みで同意未確認を保存済みの記録から区別します。",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "GET /data/cases, /data/commercial",
+    "validation": "隔離ブラウザで状態の区別、本番閲覧で保存済み顧客同意と対応する履歴の版を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで状態の区別、本番閲覧で保存済み顧客同意と対応する履歴の版を確認。",
+    "current_control": "右欄の「正式受注」、または「見積・受注」→「正式確認の履歴」"
   },
   {
     "id": "PAUI-A-010",
@@ -125,11 +130,12 @@
     "status": "新UIから利用可能",
     "scope": "保存済み14工程・保留・次アクションの参照。",
     "target": "overview",
-    "source": "js/pa-admin.js:80",
-    "api": "Supabase SELECT; V5 snapshot / pa_case_progress; pa_inquiries",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/model.mjs",
+    "api": "GET /data/cases（案件・保存済み工程）",
+    "validation": "隔離ブラウザで工程と次に必要な対応の表示を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで工程と次に必要な対応の表示を確認。",
+    "current_control": "「概要」→「次に必要な対応」と「案件の基本情報」内の工程欄"
   },
   {
     "id": "PAUI-A-011",
@@ -243,11 +249,12 @@
     "status": "新UIから利用可能",
     "scope": "保存済み案件概要・次アクションのみ参照。メモ編集は無効。",
     "target": "overview",
-    "source": "js/pa-admin.js:2714",
-    "api": "Supabase UPDATE / pa_inquiries.internal_memo; next_action",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs",
+    "api": "GET /data/cases（案件・保存済み工程）",
+    "validation": "隔離ブラウザで次に必要な対応への案内を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで次に必要な対応への案内を確認。",
+    "current_control": "「概要」→「次に必要な対応」と「案件の基本情報」内の依頼概要"
   },
   {
     "id": "PAUI-B-004",
@@ -273,20 +280,22 @@
     "api": "/api/pa-gmail sync / pa_gmail_thread_links; pa_gmail_message_index; pa_inquiry_audit",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "関連付け済みスレッドの取込は隔離試験で確認。",
+    "current_control": "案件の「やり取り」または「この案件のメールを再取得」"
   },
   {
     "id": "PAUI-C-002",
     "name": "受信・送信本文と添付履歴表示",
     "place": "メール・やり取り",
-    "status": "認証・ACL未解決",
-    "scope": "送受信・差出人宛先・日時・保存済み本文抜粋・添付情報を表示。実メール本文の保存がないため本文取得はHOLD。",
+    "status": "新UIから利用可能",
+    "scope": "案件の送受信履歴に差出人、宛先、日時、本文、添付情報を表示します。紐付け済みGmailの全文は開いた時に取得できます。",
     "target": "conversation",
-    "source": "js/pa-admin.js:2373",
-    "api": "/api/pa-gmail sync; attachment_download / pa_gmail_message_index; pa_email_deliveries",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/mail-body-view.mjs",
+    "api": "GET /api/pa-workspace-read /data/mail-body, /data/mail-live-body; pa_gmail_message_index; pa_email_deliveries",
+    "validation": "認証済み本番の既存履歴で全文表示を確認。未保存・権限拒否時は取得結果を表示します。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #54・#64・#81で、既存案件の本文展開または送信済みHTML表示を本番で確認。",
+    "current_control": "「やり取り」→ 対象メールの「全文を表示」または「HTML本文を表示」"
   },
   {
     "id": "PAUI-C-003",
@@ -299,7 +308,8 @@
     "api": "/api/pa-gmail manual_link / pa_gmail_thread_links; pa_inquiry_audit",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-031 local fixture PASS; Production business E2E pending"
+    "integration_verification": "PAUI-031 local fixture PASS; Production business E2E pending",
+    "current_control": "「やり取り」→「顧客メールを関連付け」"
   },
   {
     "id": "PAUI-C-004",
@@ -312,7 +322,8 @@
     "api": "/api/pa-gmail reply_preview/send_reply / pa_gmail_message_index; pa_gmail_thread_links; pa_email_deliveries",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN",
+    "current_control": "「やり取り」→ 返信する受信メールの「返信」"
   },
   {
     "id": "PAUI-C-005",
@@ -325,20 +336,22 @@
     "api": "/api/pa-gmail reply_preview/send_reply / delivery/index; Gmail attachment metadata",
     "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN"
+    "integration_verification": "PAUI-089 isolated regression; Production opening verified separately; real send NOT_RUN",
+    "current_control": "受信メールの「返信」→「添付ファイル」"
   },
   {
     "id": "PAUI-C-006",
     "name": "Gmail添付preview・download",
     "place": "メール・やり取り",
-    "status": "認証・ACL未解決",
-    "scope": "共通PDF/画像サムネイル・ページ移動・拡大とOfficeアイコンを匿名fixtureで検証。正規の書込みなしGmail読取経路は未接続。",
+    "status": "新UIから利用可能",
+    "scope": "案件に紐付いたGmail添付を開いて、PDF・画像をプレビューし、取得済み原本を保存できます。原本の権限は取得時に照合します。",
     "target": "conversation",
-    "source": "js/pa-admin.js:3245",
-    "api": "/api/pa-gmail attachment_download / pa_gmail_message_index; pa_gmail_thread_links",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/gallery.mjs",
+    "api": "GET /api/pa-workspace-read /data/mail-attachment, /data/mail-live-attachment",
+    "validation": "既存原本の閲覧と保存リンクを本番で確認。日本語名での実保存とバイト一致は隔離資料で確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#79・#81でケース帰属、閲覧権限、原本保存を検証。",
+    "current_control": "「やり取り」→ 対象メールの添付資料 → プレビュー内の保存リンク"
   },
   {
     "id": "PAUI-C-007",
@@ -958,14 +971,15 @@
     "id": "PAUI-G-001",
     "name": "案件関連資料の集約・検索preview",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "初期金額保護を原本から分離。資料索引・検索・版履歴を維持。原本ACL通過は別検証。",
+    "status": "新UIから利用可能",
+    "scope": "案件の資料索引を資料名で検索し、閲覧権限のあるPDF・画像を開けます。金額は明示操作で表示します。",
     "target": "documents",
-    "source": "js/pa-commercial-admin.js:595",
-    "api": "commercial snapshot/document; pa-gmail attachment_download; pa-portal download / commercial documents; Gmail index; portal cards/versions/photos",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs; pa-ui/js/gallery.mjs",
+    "api": "GET /api/pa-workspace-read /data/materials, /data/commercial, /data/material, /data/document",
+    "validation": "認証済み本番で既存資料のPDFプレビューを確認。非公開アップロード原本の取得は権限変更の承認待ち。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#81・#82で索引と既存原本表示を確認。非公開アップロードはPR #80候補。",
+    "current_control": "「資料」→「資料名で検索」→ 対象資料のプレビュー"
   },
   {
     "id": "PAUI-G-002",
@@ -973,12 +987,13 @@
     "place": "資料ポータル",
     "status": "新UIから利用可能",
     "scope": "既存の /pa/cases/:id/portal へ新タブで遷移。リンク発行なし。",
-    "target": "documents",
-    "source": "js/pa-admin.js:1009",
+    "target": null,
+    "source": "pa-ui/js/desk.mjs; js/pa-case-portal.js",
     "api": "/api/pa-portal read / pa_portals; pa_portal_*",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "validation": "隔離ブラウザで選択案件へのリンクと閲覧モードでの非表示を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで選択案件へのリンクと閲覧モードでの非表示を確認。",
+    "current_control": "案件上部の「資料ポータル」。通常モードで、選択中の案件を新しいタブに開きます"
   },
   {
     "id": "PAUI-G-003",
@@ -995,16 +1010,17 @@
   },
   {
     "id": "PAUI-G-004",
-    "name": "資料版履歴・current版切替",
+    "name": "資料の版履歴表示",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "保存済み版履歴の参照のみ。current版切替は無効。実ACL通過は別検証。",
+    "status": "新UIから利用可能",
+    "scope": "複数版がある資料の版と登録日時を参照できます。現行版切替はCASE DESKで無効です。",
     "target": "documents",
-    "source": "js/pa-case-portal.js:143",
-    "api": "/api/pa-portal switch_current / pa_portal_document_versions; cards.current_version_id",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/gallery.mjs; js/pa-case-portal.js:143",
+    "api": "GET /api/pa-workspace-read /data/materials; pa_portal_document_versions; cards.current_version_id",
+    "validation": "CASE DESKの版一覧は保存済み索引から表示します。版切替APIは旧経路にあります。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "CASE DESKのギャラリーに複数版の参照UIを確認。現行版切替はこの案内の対象外。",
+    "current_control": "「資料」→ 複数版がある資料の「版履歴」"
   },
   {
     "id": "PAUI-G-005",
@@ -1140,14 +1156,15 @@
     "id": "PAUI-G-015",
     "name": "PDF画像資料preview・原本download",
     "place": "資料",
-    "status": "認証・ACL未解決",
-    "scope": "共通rendererとPDF.jsで通常プレビュー。30秒非表示は独立金額欄のみ。実Gmail原本は未取得。downloadは無効。",
+    "status": "新UIから利用可能",
+    "scope": "閲覧権限のあるPDF・画像をプレビューし、取得済みの原本をファイル名付きで保存できます。",
     "target": "documents",
-    "source": "js/portal-document-view.mjs:3",
-    "api": "/pdfjs rewrites; portal download / asset refs; source sha256",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/gallery.mjs; js/portal-document-view.mjs",
+    "api": "GET /api/pa-workspace-read /data/material, /data/document; /pdfjs; source sha256",
+    "validation": "日本語名の既存PDF・写真と保存リンクを本番で確認。非公開アップロード原本の取得は権限変更の承認待ち。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "PAUI-095 PR #78・#79で原本のプレビュー、保存リンク、合成資料の保存バイト一致を確認。",
+    "current_control": "「資料」→ 対象資料のプレビュー内にある保存リンク"
   },
   {
     "id": "PAUI-G-016",
@@ -1177,16 +1194,17 @@
   },
   {
     "id": "PAUI-H-001",
-    "name": "管理者login/logout・session復元",
+    "name": "管理者ログイン・ログアウト・セッション復元",
     "place": "監査・管理",
     "status": "新UIから利用可能",
-    "scope": "既存Auth/work_adminsでlogin、メモリsessionのlogout。永続session復元なし。",
-    "target": "history",
-    "source": "js/pa-admin.js:4178",
-    "api": "Supabase Auth; verifyAdmin / auth.users; work_admins",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "scope": "既存の管理者セッションを復元します。管理者が変わった場合や権限を確認できない場合は案件表示を閉じ、再ログインを求めます。",
+    "target": null,
+    "source": "pa-ui/js/auth-session.mjs; pa-ui/js/desk.mjs",
+    "api": "Supabase Auth / work_admins",
+    "validation": "隔離でログアウト・別管理者・期限切れからの復帰を、本番閲覧で既存管理者セッションの復元を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離でログアウト・別管理者・期限切れからの復帰を、本番閲覧で既存管理者セッションの復元を確認。",
+    "current_control": "CASE DESKのログイン画面、または画面上部の「ログアウト」。既存セッションは画面を開いたときに確認します"
   },
   {
     "id": "PAUI-H-002",
@@ -1221,11 +1239,12 @@
     "status": "新UIから利用可能",
     "scope": "保存済み案件・工程・配送の監査記録参照。",
     "target": "history",
-    "source": "js/pa-admin.js:2528",
-    "api": "Supabase SELECT; API/RPC監査append / pa_inquiry_audit",
-    "validation": "ローカル表示/閉鎖境界の検証と実環境認証/ACLを別記録。全機能E2EのPASSを意味しない。",
+    "source": "pa-ui/js/desk.mjs",
+    "api": "GET /data/case/:id/audit",
+    "validation": "隔離ブラウザで履歴画面への案内と案件の監査記録を確認。",
     "legacy_entry": "/pa-admin-legacy.html?case=<selected-case>",
-    "integration_verification": "source preserved; business E2E NOT_RUN"
+    "integration_verification": "隔離ブラウザで履歴画面への案内と案件の監査記録を確認。",
+    "current_control": "「履歴」、または「概要」→「最近の動き」→「履歴を表示」"
   },
   {
     "id": "PAUI-H-005",
