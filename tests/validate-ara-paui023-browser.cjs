@@ -10,11 +10,38 @@ const root=path.resolve(__dirname,'..');
  const origin=process.env.PAUI023_PREVIEW||'http://127.0.0.1:'+server.address().port;
  const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[],counts={},methods=[];let active=0,maxActive=0,retry=false;
  page.on('pageerror',e=>errors.push(e.message));
- const C='11111111-1111-4111-8111-111111111111',D='22222222-2222-4222-8222-222222222222';
- await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:"let session={access_token:'fixture-only',expires_at:9999999999};export const workspaceAuth={restore:async()=>session,current:async()=>session,logout:async()=>{session=null;},login:async()=>{session={access_token:'fixture-only'};return session;},subscribe:()=>{}};export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;"}));
+ const C='11111111-1111-4111-8111-111111111111',D='22222222-2222-4222-8222-222222222222',E='33333333-3333-4333-8333-333333333333';
+ const authReads=[];
+ const integration=`
+ const account=id=>({user:{id},access_token:'fixture-'+id,expires_at:9999999999});
+ let session=account('first'),listener,delayRestore=!!window.fixtureDelayInitialRestore,releaseRestore;
+ export const workspaceAuth={
+   async restore(){
+     const snapshot=session;
+     if(!delayRestore)return snapshot;
+     delayRestore=false;
+     return new Promise(resolve=>{releaseRestore=()=>resolve(snapshot);});
+   },
+   current:async()=>session,logout:async()=>{session=null;listener?.('SIGNED_OUT',null);},
+   login:async email=>{session=account(email.startsWith('second@')?'second':'first');listener?.('SIGNED_IN',session);return session;},
+   subscribe:callback=>{listener=callback;}
+ };
+ window.fixtureSession={
+   change(id,event){session=account(id);if(event)listener(event,session);},
+   delay(){delayRestore=true;},pending:()=>!!releaseRestore,
+   release(){releaseRestore();releaseRestore=null;},
+   expire(){listener('TOKEN_REFRESHED',{...session,expires_at:1});}
+ };
+ export const readUrl=p=>'/api/pa-workspace-read?path='+encodeURIComponent(p);
+ export const legacyUrl=id=>'/pa-admin-legacy.html?case='+id;`;
+ await page.route('**/pa-ui/js/integration.mjs',r=>r.fulfill({contentType:'text/javascript',body:integration}));
  await page.route('**/api/pa-workspace-read?**',async r=>{
  const p=new URL(r.request().url()).searchParams.get('path');methods.push(r.request().method());let value=[];
- if(p==='/data/cases')value={cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:'new',case_type:'PA_EVENT',event_date:'2026-10-20'},{id:D,event_name:'短名',status:'on_hold',case_type:'OTHER',event_date:'2027-01-01'},{id:'closed',event_name:'完了fixture',status:'closed'}],progress:[{inquiry_id:C,current_step:2},{inquiry_id:D,current_step:3}]};
+ const authorization=r.request().headers().authorization;
+ authReads.push({path:p,authorization});
+ if(p==='/data/cases')value=authorization==='Bearer fixture-second'
+  ?{cases:[{id:E,event_name:'別アカウントの合成案件',status:'new',case_type:'OTHER'}],progress:[]}
+  :{cases:[{id:C,event_name:'第8回広島都市学園大学みやこ祭',status:'new',case_type:'PA_EVENT',event_date:'2026-10-20'},{id:D,event_name:'短名',status:'on_hold',case_type:'OTHER',event_date:'2027-01-01'},{id:'closed',event_name:'完了fixture',status:'closed'}],progress:[{inquiry_id:C,current_step:2},{inquiry_id:D,current_step:3}]};
  else if(p.startsWith('/data/commercial/'))value={estimates:[],offers:[],documents:[],billings:[]};
  else if(p.startsWith('/data/materials/'))value={cards:[],photos:[]};
  else if(p==='/data/mail/'+C)value=Array.from({length:18},(_,i)=>({gmail_message_id:'m'+i,inquiry_id:C,direction:'inbound',subject:'Fixture '+i,snippet:i===0?'保存済み抜粋':null,attachment_metadata:[]}));
@@ -90,8 +117,54 @@ const root=path.resolve(__dirname,'..');
  assert.deepEqual(errors,[]);assert(methods.every(m=>m==='GET'));
  if(process.env.PAUI023_SCREENSHOT)await page.screenshot({path:process.env.PAUI023_SCREENSHOT,fullPage:true});
  await page.locator('#sign-out').click();await page.getByText('ログアウトしました。',{exact:true}).waitFor();assert.equal(await page.locator('[data-message]').count(),0);
- await page.locator('#login-form input[name="email"]').fill('fixture@example.invalid');await page.locator('#login-form input[name="password"]').fill('fixture-only');await page.locator('#login-form button').click();await page.locator('[data-case="'+C+'"]').click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).waitFor();assert.equal(counts.m0,before+1);
+ const login=async id=>{
+  await page.locator('#login-form input[name="email"]').fill(id+'@example.invalid');
+  await page.locator('#login-form input[name="password"]').fill('fixture-only');
+  await page.locator('#login-form button').click();
+ };
+ await login('first');await caseC.click();await page.getByRole('button',{name:'やり取り',exact:true}).click();await card(0).getByRole('button',{name:'全文を表示',exact:true}).click();await card(0).getByRole('button',{name:'閉じる',exact:true}).waitFor();assert.equal(counts.m0,before+1);
  console.log('PASS logout clears private cache; reauthentication fetches fresh body; GET only; no browser errors');
+ const workspace=page.locator('#workspace'),secondCase=page.locator('[data-case="'+E+'"]');
+ const waitForClearedWorkspace=async()=>{
+  await workspace.waitFor({state:'hidden',timeout:3500});
+  assert.equal(await page.locator('[data-case],[data-message]').count(),0);
+  assert.equal(await page.locator('#search').inputValue(),'');
+ };
+ await page.locator('#search').fill('みやこ祭');
+ await page.evaluate(()=>{window.fixtureSession.change('first','TOKEN_REFRESHED');window.dispatchEvent(new Event('focus'));});
+ assert(await workspace.isVisible());assert(await card(0).isVisible());
+ await page.evaluate(()=>{window.fixtureSession.change('second');window.dispatchEvent(new Event('focus'));});
+ await waitForClearedWorkspace();
+ assert(!authReads.some(row=>row.authorization==='Bearer fixture-second'),'Changing the recognized account must not start new case reads');
+ await login('second');await secondCase.waitFor();assert.equal(await caseC.count(),0);
+
+ await page.evaluate(()=>{window.fixtureSession.delay();window.dispatchEvent(new Event('focus'));});
+ await page.waitForFunction(()=>window.fixtureSession.pending());
+ await page.evaluate(()=>window.fixtureSession.change('first','SIGNED_IN'));
+ await waitForClearedWorkspace();
+ await login('first');await caseC.waitFor();
+ await page.evaluate(()=>window.fixtureSession.release());
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+ assert(await workspace.isVisible());assert.equal(await secondCase.count(),0);
+
+ const secondReads=authReads.filter(row=>row.authorization==='Bearer fixture-second').length;
+ await page.evaluate(()=>{window.fixtureSession.expire();window.fixtureSession.change('second');});
+ await page.locator('#refresh-cases').click();await waitForClearedWorkspace();
+ assert.equal(authReads.filter(row=>row.authorization==='Bearer fixture-second').length,secondReads);
+ await login('second');await secondCase.waitFor();
+ await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
+ await waitForClearedWorkspace();
+ await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+ await secondCase.waitFor();assert.equal(await caseC.count(),0);
+ await page.addInitScript(()=>{window.fixtureDelayInitialRestore=true;});
+ await page.reload();
+ await page.waitForFunction(()=>window.fixtureSession?.pending());
+ await page.evaluate(()=>{window.fixtureSession.change('second','SIGNED_IN');window.fixtureSession.release();});
+ await page.getByText('セッションまたは管理者権限を確認できません。再認証してください。',{exact:true}).waitFor();
+ await waitForClearedWorkspace();
+ await login('second');await secondCase.waitFor();assert.equal(await caseC.count(),0);
+ assert.deepEqual(errors,[]);assert(methods.every(method=>method==='GET'));
+ console.log('PASS workspace session identity: account change, stale focus, expired token and restored browser page keep private views scoped to the active session');
  const fixture=await browser.newPage({viewport:{width:1440,height:900}});const fixtureErrors=[],apiCalls=[];
  fixture.on('pageerror',e=>fixtureErrors.push(e.message));await fixture.route('**/api/**',r=>{apiCalls.push(r.request().url());return r.abort();});
  await fixture.goto(origin+'/tests/paui023-preview.html');await fixture.locator('[data-case="'+C+'"]').click();await fixture.getByRole('button',{name:'やり取り',exact:true}).click();

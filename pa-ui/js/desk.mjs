@@ -27,7 +27,8 @@ const shortDate=value=>{if(!value||!Number.isFinite(Date.parse(value)))return '�
 const flag=(type,text)=>`<span class="pill ${escape(type)}">${tx(text)}</span>`;
 const button=(text,act,style='',legacy=false)=>legacy&&passiveMail?'':`<button class="action ${style}" ${legacy?'data-legacy title="既存の業務操作画面で確認"':'data-action="'+escape(act)+'"'}>${escape(text)}${legacy?' ↗':''}</button>`;
 const moneyBar=label=>`<div class="money-bar"><button class="lightbtn" data-money-toggle aria-pressed="false">${escape(label||'この画面の金額を表示')}</button><small>30秒・画面切替・非アクティブで再非表示</small></div>`;
-let session=null,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
+let session=null,authEpoch=0,cases=[],selected=null,tab='overview',selectionEpoch=0,listEpoch=0,detail={},gallery=null,features=[],listError=null,attentionError=null;
+let lastAuthSignal=null;
 const requests=new Set(),mailSyncRequests=new Set(),replyRequests=new Set();let threadLink=null,replyState=null,replyComposer=null,caseMailSync=null,caseLoad=null;
 // Explicit passive mail viewing for audits: no mail POST or auto-import.
 const passiveMail=new URL(location.href).searchParams.get('mail-view')==='readonly';
@@ -37,16 +38,24 @@ function errorBlock(error,label=''){
   return `<div class="read-error" role="status">${escape(label)} ${escape(failText(error))}<small>取得不能を「なし」「未入金」「確認済み」と扱いません。再取得は明示操作です。</small></div>`;
 }
 function abortRequests(){for(const controller of requests)controller.abort();requests.clear();}
+function acceptActiveSession(next,epoch){
+  if(epoch!==authEpoch||!session)return false;
+  if(!next?.access_token||next.user?.id!==session.user?.id){signOut(false);return false;}
+  session=next;
+  return true;
+}
 async function api(url,{blob=false,track=requests}={}){
   if(!session)throw new ReadFailure('login_required',401);
+  const epoch=authEpoch;
   if(session.expires_at&&session.expires_at*1000<=Date.now()){
-    try{session=await workspaceAuth.current();}catch{signOut(false);throw new ReadFailure('login_required',401);}
+    const fresh=await workspaceAuth.current().catch(()=>null);
+    if(!acceptActiveSession(fresh,epoch))throw new ReadFailure('login_required',401);
   }
-  const controller=new AbortController();track.add(controller);
+  const requestToken=session.access_token,controller=new AbortController();track.add(controller);
   let timer=setTimeout(()=>controller.abort(),25000);
   try{
     const response=await fetch(readUrl(url),{method:'GET',cache:'no-store',headers:{authorization:'Bearer '+session.access_token},signal:controller.signal});
-    if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
+    if(!response.ok){let data;try{data=await response.json();}catch{}const code=data?.code||'read_unavailable';if(epoch===authEpoch&&session?.access_token===requestToken&&requiresReauthentication(code,response.status))signOut(false);throw new ReadFailure(code,response.status);}
     if(blob)return response.blob();
     const data=await response.json();if(data.ok!==true)throw new ReadFailure('invalid_read_response',503);return data.result;
   }catch(error){if(error.name==='AbortError')throw new ReadFailure('read_timeout_or_cancelled',503);throw error;}
@@ -786,7 +795,30 @@ function openInfo(title,html){
   if(!$('modal-wrap').open)$('modal-wrap').showModal();
   $('modal-close-top').focus();
 }
-function signOut(callAuth=true){manualIntake.close();$('drawer-wrap').close();$('manual-intake-status').textContent='';for(const c of replyRequests)c.abort();replyRequests.clear();caseMailSync?.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();++selectionEpoch;++listEpoch;abortRequests();clearDetail();replyState?.clearAuth();session=null;cases=[];selected=null;renderList();render();$('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;$('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';if(callAuth)workspaceAuth.logout().then(()=>{$('login-status').textContent='ログアウトしました。';}).catch(()=>{$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';});}
+function signOut(callAuth=true){
+  ++authEpoch;++selectionEpoch;++listEpoch;
+  session=null;cases=[];selected=null;caseLoad=null;listError=null;attentionError=null;
+  manualIntake.close();$('drawer-wrap').close();$('manual-intake-status').textContent='';
+  for(const controller of replyRequests)controller.abort();replyRequests.clear();
+  for(const controller of mailSyncRequests)controller.abort();mailSyncRequests.clear();
+  abortRequests();caseMailSync?.clear();bodyView.clear();clearDetail();replyState?.clearAuth();
+  $('modal-content').replaceChildren();$('modal-title').textContent='';
+  resetCaseFilters();updateFilters();renderList();render();
+  $('workspace').hidden=true;$('login-screen').hidden=false;$('sign-out').hidden=true;
+  $('login-form').reset();$('login-status').textContent=callAuth?'ログアウト処理中…':'セッションまたは管理者権限を確認できません。再認証してください。';
+  if(callAuth)workspaceAuth.logout().then(()=>{
+    if(!session)$('login-status').textContent='ログアウトしました。';
+  }).catch(()=>{
+    if(!session)$('login-status').textContent='ログアウトを完了できませんでした。通信状態を確認して再実行してください。';
+  });
+}
+async function showWorkspace(next,epoch,authSignal){
+  if(epoch!==authEpoch||!next?.access_token)return;
+  if(authSignal!==lastAuthSignal&&lastAuthSignal?.userId!==next.user?.id){signOut(false);return;}
+  session=next;
+  $('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;
+  await refresh();
+}
 
 const extra=document.createElement('div');extra.className='search-extra';extra.innerHTML='<select id="type-filter" aria-label="案件種別"><option value="">すべての種別</option></select><select id="status-filter" aria-label="案件状態"><option value="">すべての状態</option></select><select id="year-filter" aria-label="開催年"><option value="">すべての年</option></select><select id="step-filter" aria-label="工程"><option value="">すべての工程</option></select>';
 $('advanced-filters').append(extra);
@@ -797,7 +829,8 @@ function updateFilterSummary(){
 }
 function toggleFilters(open){$('advanced-filters').hidden=!open;$('toggle-filters').setAttribute('aria-expanded',String(open));$('toggle-filters').textContent=open?'詳細条件 ▲':'詳細条件 ▼';}
 $('toggle-filters').onclick=()=>toggleFilters($('advanced-filters').hidden);
-const reset=document.createElement('button');reset.className='lightbtn';reset.textContent='条件をリセット';reset.onclick=()=>{for(const id of filterIds)$(id).value=({order:'event',filter:'active'}[id]||'');$('search').value='';renderList();};
+function resetCaseFilters(){for(const id of filterIds)$(id).value=({order:'event',filter:'active'}[id]||'');$('search').value='';}
+const reset=document.createElement('button');reset.className='lightbtn';reset.textContent='条件をリセット';reset.onclick=()=>{resetCaseFilters();renderList();};
 const close=document.createElement('button');close.className='lightbtn';close.textContent='詳細条件を閉じる ▲';close.onclick=()=>{toggleFilters(false);$('toggle-filters').focus();};
 $('advanced-filters').append(reset,close);
 for(const id of filterIds){const label=document.createElement('label');label.textContent=({order:'並び順',filter:'表示対象','type-filter':'案件種別','status-filter':'案件状態','year-filter':'開催年','step-filter':'工程'})[id];$(id).before(label);label.append($(id));}
@@ -805,9 +838,12 @@ const featureStatus=document.createElement('select');featureStatus.id='feature-s
 fetch('/pa-ui/features.json',{cache:'no-store'}).then(r=>r.json()).then(data=>{features=data;$('feature-count').textContent=data.length;options($('feature-place'),[...new Set(data.map(f=>f.place))].sort().map(p=>[p,p]),'全配置');}).catch(()=>{$('feature-count').textContent='未取得';});
 $('login-form').addEventListener('submit',async e=>{
   e.preventDefault();const form=e.currentTarget,submit=form.querySelector('button'),data=new FormData(form);submit.disabled=true;$('login-status').textContent='既存Auth・管理者ACLを確認中…';
+  const epoch=++authEpoch,authSignal=lastAuthSignal;
   try{
-    session=await workspaceAuth.login(String(data.get('email')),String(data.get('password')));form.reset();$('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;await refresh();
-  }catch{$('login-status').textContent='ログインできません。既存管理者認証・閲覧権限を確認してください。';form.elements.password.value='';}
+    const authenticated=await workspaceAuth.login(String(data.get('email')),String(data.get('password')));
+    if(epoch!==authEpoch)return;
+    form.reset();await showWorkspace(authenticated,epoch,authSignal);
+  }catch{if(epoch===authEpoch){$('login-status').textContent='ログインできません。既存管理者認証・閲覧権限を確認してください。';form.elements.password.value='';}}
   finally{submit.disabled=false;}
 });
 document.addEventListener('click',e=>{
@@ -863,7 +899,7 @@ $('drawer-close').onclick=()=>$('drawer-wrap').close();
 function closeInfo(){threadLink?.reset();$('modal-wrap').close();resetPrivacy();}
 $('modal-close').onclick=closeInfo;$('modal-close-top').onclick=closeInfo;
 $('modal-wrap').addEventListener('cancel',event=>{event.preventDefault();closeInfo();});
-window.addEventListener('pagehide',()=>{manualIntake.close();$('drawer-wrap').close();for(const c of replyRequests)c.abort();replyRequests.clear();replyState.clearAuth();caseMailSync.clear();for(const c of mailSyncRequests)c.abort();mailSyncRequests.clear();bodyView.clear();session=null;abortRequests();clearDetail();});
+window.addEventListener('pagehide',()=>signOut(false));
 threadLink=createThreadLink({readOnly:passiveMail,read:api,open:openInfo,close:closeInfo,candidates:()=>getRows('mailCandidates'),current:()=>current()?{id:selected,name:current().event_name||current().inquiry_number,epoch:selectionEpoch}:null,
   refresh:async()=>{const epoch=selectionEpoch,id=selected;await loadSurface('links','/data/case/'+id+'/links',epoch);if(epoch===selectionEpoch&&id===selected)await checkLiveMail();},
   write:async (input,beginDispatch)=>{
@@ -872,10 +908,9 @@ threadLink=createThreadLink({readOnly:passiveMail,read:api,open:openInfo,close:c
     if(!owner||input.action!=='manual_link')throw new ReadFailure('login_required',401);
     const sameContext=()=>owner===session?.user?.id&&input.inquiry_id===selected&&tab==='conversation';
     if(!sameContext())throw new ReadFailure('case_changed',409);
-    const fresh=await workspaceAuth.current();
-    if(fresh?.user?.id!==owner||!fresh.access_token)throw new ReadFailure('login_required',401);
+    const epoch=authEpoch,fresh=await workspaceAuth.current().catch(()=>null);
+    if(!acceptActiveSession(fresh,epoch))throw new ReadFailure('login_required',401);
     if(!sameContext()||!beginDispatch())throw new ReadFailure('case_changed',409);
-    session=fresh;
     const response=await fetch('/api/pa-gmail',{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+fresh.access_token,'Content-Type':'application/json'},body:JSON.stringify(input)});
     const data=await response.json();if(!response.ok||data.ok!==true)throw new ReadFailure(data.code||'write_outcome_unknown',response.status);return data.result;
   }});
@@ -884,17 +919,15 @@ async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=
   if(passiveMail)throw Error('mail_readonly');
   const owner=session?.user?.id;
   if(!owner||input.inquiry_id!==selected||!isCurrent())throw Error('login_required');
-  let fresh;
-  try{fresh=await workspaceAuth.restore();if(!fresh||fresh.user.id!==owner)throw Error('login_required');}
-  catch{signOut(false);throw Error('login_required');}
+  const epoch=authEpoch,fresh=await workspaceAuth.restore().catch(()=>null);
+  if(!acceptActiveSession(fresh,epoch))throw Error('login_required');
   if(input.inquiry_id!==selected||!isCurrent())throw Error('case_changed');
-  session=fresh;
   const controller=new AbortController();track.add(controller);
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
     const response=await fetch(endpoint,{method:'POST',cache:'no-store',headers:{authorization:'Bearer '+fresh.access_token,'Content-Type':'application/json'},body:JSON.stringify(input),signal:controller.signal});
     const data=await response.json();
-    if(requiresReauthentication(data.code,response.status))signOut(false);
+    if(epoch===authEpoch&&session?.access_token===fresh.access_token&&requiresReauthentication(data.code,response.status))signOut(false);
     if(!response.ok||data.ok!==true&&!(endpoint==='/api/pa-mail'&&data.delivery))throw Error(data.code||'reply_request_failed');
     return data;
   }finally{clearTimeout(timer);track.delete(controller);}
@@ -905,14 +938,16 @@ try{attemptStorage=sessionStorage;}catch{attemptStorage={getItem(){throw Error('
 const intakeAttempts=createAttemptStore(attemptStorage,'paui-intake-follow-up-attempts-v1');
 replyState=createReplyState({request:replyRequest,attempts:createAttemptStore(attemptStorage),changed:renderMailSyncStatus,
   readSent:async receipt=>{
-    const id=receipt.caseId,owner=session?.user?.id;if(!owner)throw Error('login_required');
+    const id=receipt.caseId,epoch=authEpoch;if(!session?.user?.id)throw Error('login_required');
     if(caseLoad?.id===id)await caseLoad.promise;
     // Finish a pre-existing auto-import before the authoritative read. A send
     // pending for this case prevents new PAUI090 flights until verification ends.
     if(caseMailSync.get(id).promise)await caseMailSync.get(id).promise;
-    const fresh=await workspaceAuth.restore();if(!fresh||fresh.user.id!==owner||session?.user?.id!==owner)throw Error('login_required');session=fresh;
+    if(epoch!==authEpoch)throw Error('login_required');
+    const fresh=await workspaceAuth.restore().catch(()=>null);
+    if(!acceptActiveSession(fresh,epoch))throw Error('login_required');
     const [messages,links]=await Promise.all([api('/data/mail/'+id,{track:replyRequests}),api('/data/case/'+id+'/links',{track:replyRequests})]);
-    if(session?.user?.id!==owner)throw Error('login_required');return {messages,links};
+    if(epoch!==authEpoch)throw Error('login_required');return {messages,links};
   },
   applySent:(id,value,receipt)=>{if(id!==selected)return;detail.messages={state:'ready',value:value.messages};detail.liveMail=null;bodyView.clear();render();
     requestAnimationFrame(()=>{if(id!==selected||tab!=='conversation'||replyState.get().phase!=='sent'||replyState.get().receipt?.messageId!==receipt.messageId)return;
@@ -937,6 +972,27 @@ caseMailSync=createCaseMailSync({read:api,canDispatch:id=>Boolean(session?.user?
 setInterval(()=>{if(session&&session.expires_at*1000<=Date.now())replyState.invalidateAuth();replyState.expire();},1000);
 render();
 
-workspaceAuth.subscribe?.((event,value)=>{if(event==='TOKEN_REFRESHED'&&session){if(value?.user?.id!==session.user.id){signOut(false);return;}session=value;}if(event==='SIGNED_OUT')signOut(false);});
-window.addEventListener('focus',async()=>{if(!session)return;const epoch=listEpoch;try{const restored=await workspaceAuth.restore();if(epoch!==listEpoch||!session)return;if(!restored)signOut(false);else session=restored;}catch{if(epoch===listEpoch&&session)signOut(false);}});
-workspaceAuth.restore().then(async restored=>{if(!restored)return;session=restored;$('login-screen').hidden=true;$('workspace').hidden=false;$('sign-out').hidden=false;await refresh();}).catch(()=>{$('login-status').textContent='既存セッションを確認できません。管理者でログインしてください。';});
+workspaceAuth.subscribe?.((event,value)=>{
+  if(event==='SIGNED_OUT'){signOut(false);return;}
+  if(event!=='SIGNED_IN'&&event!=='TOKEN_REFRESHED')return;
+  lastAuthSignal={userId:value?.user?.id};
+  if(!session)return;
+  if(event==='TOKEN_REFRESHED')acceptActiveSession(value,authEpoch);
+  if(event==='SIGNED_IN'&&value?.user?.id!==session.user?.id)signOut(false);
+});
+window.addEventListener('focus',async()=>{
+  if(!session)return;
+  const epoch=authEpoch,restored=await workspaceAuth.restore().catch(()=>null);
+  acceptActiveSession(restored,epoch);
+});
+async function restoreWorkspace(){
+  const epoch=authEpoch,authSignal=lastAuthSignal;
+  try{
+    const restored=await workspaceAuth.restore();
+    await showWorkspace(restored,epoch,authSignal);
+  }catch{
+    if(epoch===authEpoch)$('login-status').textContent='既存セッションを確認できません。管理者でログインしてください。';
+  }
+}
+window.addEventListener('pageshow',event=>{if(event.persisted)void restoreWorkspace();});
+void restoreWorkspace();
