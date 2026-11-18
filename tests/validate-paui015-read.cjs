@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict'),http=require('node:http'),crypto=require('node:crypto'),fs=require('node:fs');
 const {createReadHandler}=require('../api/_pa-workspace-read.cjs');
 const C='11111111-1111-4111-8111-111111111111',A='22222222-2222-4222-8222-222222222222',P='33333333-3333-4333-8333-333333333333',D='44444444-4444-4444-8444-444444444444';
+const PORTAL_REF='a'.repeat(36);
 const token='Bearer '+'fixture-only-'.repeat(4),bytes=Buffer.from('%PDF-1.4\nfixture\n%%EOF'),sha=crypto.createHash('sha256').update(bytes).digest('hex');
 let mode='',calls=[],tests=[];
 const json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json'}});
@@ -17,9 +18,12 @@ async function mocked(url,opts){
  ]);
  if(table==='pa_gmail_thread_links')return json([{inquiry_id:C,gmail_thread_id:'thread1'}]);
  if(table==='pa_gmail_message_index')return json([{inquiry_id:mode==='foreign-case'?A:C,gmail_thread_id:mode==='foreign-thread'?'thread2':'thread1',gmail_message_id:'message1',body_text:mode==='no-body'?'':'保存済み本文',attachment_metadata:[{id:'attach1',filename:'日本語.pdf',mime_type:'application/pdf',size:bytes.length}]}]);
- if(table==='pa_portals')return mode==='portal-acl'?json({},403):json([{id:P,case_id:mode==='foreign-portal'?A:C}]);
+ if(table==='pa_portals')return mode==='portal-acl'?json({},403):json([{id:P,case_id:mode==='foreign-portal'?A:C,public_ref:PORTAL_REF}]);
  if(table==='pa_portal_document_cards')return json([{id:D,portal_id:P,current_version_id:A}]);
- if(table==='pa_portal_document_versions')return json([{id:A,card_id:D,source_type:'portal_upload',mime_type:'application/pdf',source_ref:{storage_path:`cases/${C}/${A}/${sha}`,sha256:sha,size:bytes.length}}]);
+ if(table==='pa_portal_document_versions'){
+  const prefix=mode==='organizer'?'organizer/'+PORTAL_REF:mode==='foreign-organizer'?'organizer/'+'b'.repeat(36):'cases/'+C;
+  return json([{id:A,card_id:D,source_type:'portal_upload',mime_type:'application/pdf',source_ref:{storage_path:`${prefix}/${A}/${sha}`,sha256:sha,size:bytes.length}}]);
+ }
  if(q.pathname.startsWith('/storage/'))return mode==='storage-acl'?json({},403):new Response(mode==='bad-storage'?Buffer.from('bad'):bytes);
  if(table==='pa_commercial_documents')return mode==='commercial-acl'?json({},403):json([{id:D,inquiry_id:mode==='foreign-document'?A:C,mime_type:'application/pdf',content:'\\x'+bytes.toString('hex'),sha256:mode==='bad-hash'?'0'.repeat(64):sha}]);
  if(['pa_estimate_revisions','pa_contract_offers','pa_billings'].includes(table))return json([]);
@@ -55,6 +59,13 @@ async function mocked(url,opts){
   await check('Commercial original exact case hash and magic',async()=>{const r=await send('/data/document/'+C+'/'+D);assert.equal(r.status,200);assert(Buffer.from(await r.arrayBuffer()).equals(bytes));mode='bad-hash';assert.equal((await send('/data/document/'+C+'/'+D)).status,409);mode='foreign-document';assert.equal((await send('/data/document/'+C+'/'+D)).status,403);});
   await check('Portal ACL and parent binding',async()=>{mode='portal-acl';assert.equal((await send('/data/materials/'+C)).status,403);mode='foreign-portal';assert.equal((await send('/data/materials/'+C)).status,403);});
   await check('Private storage Owner JWT and SHA256',async()=>{assert.equal((await send('/data/material/'+C+'/version/'+A)).status,200);mode='bad-storage';assert.equal((await send('/data/material/'+C+'/version/'+A)).status,409);});
+  await check('Organizer uploads use the same private bucket and exact portal binding',async()=>{
+   const list=await(await send('/data/materials/'+C)).json();assert.equal(list.result.portalRef,undefined);
+   mode='organizer';const res=await send('/data/material/'+C+'/version/'+A);assert.equal(res.status,200);assert(Buffer.from(await res.arrayBuffer()).equals(bytes));
+   assert(calls.at(-1).url.includes('/storage/v1/object/pa-portal-assets/organizer/'+PORTAL_REF+'/'));
+   const n=calls.filter(x=>x.url.includes('/storage/')).length;
+   mode='foreign-organizer';assert.equal((await send('/data/material/'+C+'/version/'+A)).status,403);assert.equal(calls.filter(x=>x.url.includes('/storage/')).length,n);
+  });
   await check('Storage ACL denial makes one attempt with no fallback',async()=>{mode='storage-acl';const n=calls.filter(x=>x.url.includes('/storage/')).length;assert.equal((await send('/data/material/'+C+'/version/'+A)).status,403);assert.equal(calls.filter(x=>x.url.includes('/storage/')).length,n+1);});
   await check('No business RPC, privileged key or mutation upstream',async()=>{assert(calls.every(c=>c.method==='GET'&&c.token===token&&c.key.startsWith('sb_publishable_')));assert(!calls.some(c=>c.url.includes('/rpc/')));});
  }finally{await new Promise(r=>server.close(r));}

@@ -84,7 +84,7 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
   }
   async function materials(id,token,{includeAssetIdentity=false}={}){
     await readableCase(id,token);
-    const portal=await rows('pa_portals',{case_id:'eq.'+id,select:'id,case_id',limit:2},token,true);
+    const portal=await rows('pa_portals',{case_id:'eq.'+id,select:includeAssetIdentity?'id,case_id,public_ref':'id,case_id',limit:2},token,true);
     if(portal.length>1||portal.some(p=>p.case_id!==id))throw new ReadError('case_binding_mismatch',403);
     if(!portal.length)return {cards:[],photos:[],portal_exists:false};
     const portalId=assertId(portal[0].id);
@@ -94,7 +94,8 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     const versions=cards.length?await allDirect('pa_portal_document_versions',{card_id:`in.(${cards.map(c=>c.id).join(',')})`,archived_at:'is.null',select:'id,card_id,source_type,source_ref,display_filename,mime_type,version_label,contributor_kind,source_created_at,created_at'+identity,order:'created_at.desc,id.asc'},token):[];
     const photos=await allDirect('pa_portal_photo_items',{portal_id:'eq.'+portalId,archived_at:'is.null',select:'id,portal_id,source_type,source_ref,display_filename,mime_type,caption,contributor_kind,owner_kind,source_created_at,sort_order,created_at'+identity,order:'sort_order.asc,id.asc'},token);
     if(versions.some(v=>!cards.some(c=>c.id===v.card_id))||photos.some(p=>p.portal_id!==portalId))throw new ReadError('case_binding_mismatch',403);
-    return {portal_exists:true,cards:cards.map(c=>({...c,versions:versions.filter(v=>v.card_id===c.id)})),photos};
+    return {portal_exists:true,cards:cards.map(c=>({...c,versions:versions.filter(v=>v.card_id===c.id)})),photos,
+      ...(includeAssetIdentity?{portalRef:portal[0].public_ref}:{})};
   }
   async function allDirect(table,params,token){
     const result=[];
@@ -115,7 +116,9 @@ function createReadHandler({fetchImpl=fetch,key=publicKey(),readMailAttachment,p
     }
     if(item.source_type!=='portal_upload')throw new ReadError('canonical_attachment_path_unavailable',503);
     const ref=item.source_ref||{},parts=String(ref.storage_path||'').split('/');
-    if(parts.length!==4||parts[0]!=='cases'||parts[1]!==id||!UUID.test(parts[2])||!/^[a-f0-9]{64}$/i.test(parts[3])||parts[3]!==ref.sha256)throw new ReadError('asset_identity_mismatch',403);
+    const bound=parts[0]==='cases'&&parts[1]===id
+      ||parts[0]==='organizer'&&/^[a-f0-9]{36}$/.test(model.portalRef||'')&&parts[1]===model.portalRef;
+    if(parts.length!==4||!bound||!UUID.test(parts[2])||!/^[a-f0-9]{64}$/i.test(parts[3])||parts[3]!==ref.sha256)throw new ReadError('asset_identity_mismatch',403);
     const mime=contentType(item.mime_type);if(!MIME.has(mime))throw new ReadError('preview_type_refused',415);
     // Same private bucket/path as _pa-portal.cjs. Owner JWT/RLS only: no public URL,
     // signed URL issuance, service role, or fallback after an ACL denial.
