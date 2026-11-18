@@ -872,6 +872,9 @@ const renderDocument = (context, item, root, currentEpoch) => {
 
 function renderBilling(billingRoot, context, data, { state, current, accepted, billing, paid }) {
     const formatAmount = context.privacy?.money || money;
+    const invoiceReview = billing?.invoice_policy === "separate_pdf"
+        && (billing.invoice_delivery_state === "unknown" || billing.invoice_requires_reconciliation === true);
+    const invoiceState = invoiceReview ? "unknown" : billing?.invoice_delivery_state;
     const readForm = (title, fields, confirmLabel) => formDialog(title, fields, confirmLabel, context);
     const operationStatus = element("p", "hint");
     operationStatus.setAttribute("role", "status");
@@ -905,7 +908,8 @@ function renderBilling(billingRoot, context, data, { state, current, accepted, b
     } else {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `請求 #${billing.billing_number}`));
         billingRoot.append(element("p", "pa-commercial__amount", formatAmount(billing.amount_minor, billing.currency)));
-        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", billing.invoice_delivery_state)}` : "既存書類を使用／別途発行なし");
+        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", invoiceState)}` : "既存書類を使用／別途発行なし");
+        if (invoiceReview) billingRoot.append(element("p", "pa-commercial__warning", "再送せず、Gmail送信済みと配送記録を照合してください。"));
         appendLine(billingRoot, "支払期限", billing.due_date || "期日未確定");
         appendLine(billingRoot, "先方予定日", billing.customer_planned_payment_on || "連絡なし");
         appendLine(billingRoot, "確認済み入金", formatAmount(paid, billing.currency));
@@ -995,7 +999,7 @@ function renderBilling(billingRoot, context, data, { state, current, accepted, b
             await api(context, "adjust_payment", { billing_id: billing.id, payment_id: values.payment, operation_id: crypto.randomUUID(), delta_minor: Number(values.delta), reason: values.reason });
             await context.refreshCommercial();
         }));
-        if (!context.signal || billing.invoice_policy !== "separate_pdf" || billing.invoice_delivery_state === "sent") billingActions.append(billingButton("案件完了を確認", async () => {
+        if (!invoiceReview && (!context.signal || billing.invoice_policy !== "separate_pdf" || invoiceState === "sent")) billingActions.append(billingButton("案件完了を確認", async () => {
             const balance = Number(billing.amount_minor) - paid;
             const values = await readForm("入金確認と案件完了", [
                 { name: "date", label: "追加入金確認日", type: "date", required: balance > 0 },
@@ -1250,9 +1254,10 @@ const render = async (context, data, epoch) => {
         const kind = pendingJob.delivery_scope === DELIVERY_SCOPE.UNCLASSIFIED
             ? `関連先を確認できない配送（種別：${safeJobKind}）`
             : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || safeJobKind;
-        const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
+        const pendingState = pendingJob.requires_reconciliation ? "unknown" : pendingJob.state;
+        const alert = element("p", pendingState === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingState)}`);
         nextRoot.append(alert);
-        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingState)) nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();

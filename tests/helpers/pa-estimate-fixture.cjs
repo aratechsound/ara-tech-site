@@ -4,6 +4,9 @@ const path = require('node:path');
 const { PGlite } = require(process.env.PA_PGLITE_MODULE || '@electric-sql/pglite');
 const root = path.resolve(__dirname, '../..');
 const read = (name) => fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8');
+const readCommercialOutboxGuard = () => fs.readFileSync(
+    path.join(root, 'supabase/operations/paui095-commercial-outbox-retry-guard.sql'), 'utf8'
+);
 const migrationName = '20260903020000_pam005_atomic_estimate_reconciliation.sql';
 const actorId = '123e4567-e89b-42d3-a456-426614174001';
 const inquiryId = '123e4567-e89b-42d3-a456-426614174000';
@@ -101,4 +104,4 @@ async function state(db, id = inquiryId) {
     ) result`, [id])).rows[0].result;
 }
 
-module.exports = { createDatabase, expectedFor, invoke, rpcFetch, state, read, migrationName, actorId, inquiryId, otherId, sentAt };
+module.exports = { createDatabase, expectedFor, invoke, rpcFetch, state, read, readCommercialOutboxGuard, migrationName, actorId, inquiryId, otherId, sentAt };

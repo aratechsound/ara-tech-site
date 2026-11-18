@@ -999,6 +999,8 @@ const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], atta
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(20000),
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
             raw: buildRawMessage({
@@ -1012,7 +1014,8 @@ const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], atta
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
-    if (!validGmailId(sent?.id) || !validGmailId(sent?.threadId)) throw new Error("gmail_send_invalid");
+    if (typeof sent?.id !== "string" || typeof sent.threadId !== "string" ||
+        !validGmailId(sent.id) || !validGmailId(sent.threadId)) throw new Error("gmail_send_invalid");
     return { gmail_message_id: sent.id, gmail_thread_id: sent.threadId, production_e2e_standalone: true, rfc_message_id: messageId };
 };
 
@@ -1121,6 +1124,7 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
+        ...(deliveryTrace ? { redirect: "error", signal: AbortSignal.timeout(20000) } : {}),
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
             threadId: preview.gmail_thread_id,
@@ -1140,7 +1144,15 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const sent = await response.json();
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
-    if (!validGmailId(sent?.id) || (original && sent.threadId!==preview.gmail_thread_id)) throw new Error("gmail_send_invalid");
+    if (!validGmailId(sent?.id) || ((original || deliveryTrace) &&
+        (typeof sent.id !== "string" || sent.threadId !== preview.gmail_thread_id))) {
+        throw new Error("gmail_send_invalid");
+    }
+    if (deliveryTrace && sent.threadId === preview.gmail_thread_id) {
+        updateDeliveryTrace(deliveryTrace, {
+            accepted_reply: { gmail_message_id: sent.id, gmail_thread_id: sent.threadId }
+        });
+    }
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",
