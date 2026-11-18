@@ -1,10 +1,14 @@
 const mailId = /^[A-Za-z0-9_-]{1,256}$/;
 
+export const retryableDeliveryFailure = code =>
+  /^(?:gmail_not_configured|gmail_oauth_(?:\d{3}|invalid)|mail_before_dispatch_failed|gmail_send_(?:400|401|403|404|413|422|429))$/u.test(code);
+
 export function deliveryOutcome(delivery) {
-  const {status, error_summary: error = ''} = delivery;
-  if (/unknown|uncertain|timeout|gmail_send_invalid|supabase_/i.test(error || '')) return '配送結果未確定';
-  if (status === 'sent') return '送信済み';
-  if (status === 'failed') return '送信失敗';
+  if (/unknown|uncertain|timeout|gmail_send_invalid|supabase_/i.test(delivery.error_summary || '')) return '配送結果未確定';
+  if (delivery.status === 'sent') return '送信済み';
+  if (delivery.status === 'failed' && (
+    retryableDeliveryFailure(delivery.error_summary) || delivery.error_summary === 'schedule_token_not_available'
+  )) return '送信失敗';
   return '配送結果未確定';
 }
 
