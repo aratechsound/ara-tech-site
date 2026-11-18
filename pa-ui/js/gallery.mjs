@@ -19,9 +19,9 @@ function canRetryOriginal(error){
     || [408,429,502,504].includes(error.status);
 }
 // Shared by portal documents and mail attachments. Only separate money fields expire.
-export function createGallery({requestBlob,isCurrent}){
+export function createGallery({requestBlob,isCurrent,onPreviewClose}){
   const id='asset-preview-'+(++serial),urls=new Set(),records=new Map();
-  let epoch=0,active=true,entries=[],root,view,dialog,observer,previewEpoch=0;
+  let epoch=0,active=true,entries=[],root,view,dialog,documentSource,observer,previewEpoch=0;
   const current=()=>active&&isCurrent();
   const supported=item=>['application/pdf','image/png','image/jpeg','image/webp'].includes(item.mime_type);
   async function attachmentRecord(item){
@@ -74,6 +74,7 @@ export function createGallery({requestBlob,isCurrent}){
     resetPrivacy();if(dialog?.open)dialog.close();
     const generation=epoch;
     dialog=document.createElement('dialog');dialog.id=id;dialog.className='pa-material-preview-dialog';dialog.dataset.externalMoneyGuard='true';
+    documentSource=item.source;
     const title=document.createElement('h3');title.id=id+'-title';title.textContent=item.filename;
     const body=document.createElement('div');body.id=id+'-body';body.className='preview-content';body.textContent='原本を取得中…';
     const controls=document.createElement('div');controls.className='preview-controls';
@@ -81,7 +82,12 @@ export function createGallery({requestBlob,isCurrent}){
     opened.append(title,controls,body,close);document.body.append(opened);opened.showModal();
     let renderId=0,page=1,zoom=1,pages=1;
     const alive=()=>current()&&epoch===generation&&opened.isConnected&&opened.open;
-    opened.addEventListener('close',()=>{++renderId;opened.remove();if(dialog===opened)dialog=null;},{once:true});
+    opened.addEventListener('close',()=>{
+      ++renderId;opened.remove();
+      if(dialog!==opened)return;
+      dialog=null;documentSource=null;
+      if(current())onPreviewClose?.(item);
+    },{once:true});
     if(!supported(item)){body.textContent=fileType(item)+' / 内容プレビュー非対応。原本の取得・ダウンロードは行いません。';return;}
     async function renderOriginal(){
       if(!alive())return;
@@ -151,5 +157,5 @@ export function createGallery({requestBlob,isCurrent}){
   function dispose(){
     active=false;++epoch;++previewEpoch;observer?.disconnect();if(view){view.clear();view=null;}if(dialog?.open)dialog.close();for(const url of urls)URL.revokeObjectURL(url);urls.clear();records.clear();root=null;entries=[];
   }
-  return {mount,dispose,openPreview};
+  return {mount,dispose,openPreview,previewSource:()=>dialog?.open?documentSource:null};
 }
