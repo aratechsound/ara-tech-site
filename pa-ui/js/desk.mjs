@@ -289,7 +289,8 @@ function openHistoryMailHtml(button) {
 }
 
 function replyableMessages() {
-  if (!current() || passiveMail || detail.deliveries?.state !== 'ready') return [];
+  const inquiry=current();
+  if (!inquiry || passiveMail || isClosedCase(inquiry) || inquiry.deleted_at || detail.deliveries?.state !== 'ready') return [];
   return conversationEntries(current()).filter(customerInbound)
     .map(entry => entry.message).filter(row => row.index_state !== 'not_indexed');
 }
@@ -312,6 +313,29 @@ function canStartFollowUp(inquiry) {
     !detail.deliveries.value.some(row=>row.message_type===followUpType));
 }
 
+function formReplyOption(inquiry) {
+  if(passiveMail)return {reason:'閲覧専用モードでは返信を編集・送信できません。'};
+  if(!session?.user?.id)return {reason:'返信には管理者の認証が必要です。'};
+  if(isClosedCase(inquiry)||inquiry.deleted_at)return {reason:'終了済みの案件には返信できません。'};
+  const recipient=inquiry.email?.trim();
+  if(!recipient||!/^\S+@\S+\.\S+$/u.test(recipient))return {reason:'案件の顧客メールアドレスを確認してください。'};
+  if(detail.deliveries?.state!=='ready')return {reason:'配送履歴を取得してから返信できます。'};
+  try {
+    if(intakeAttempts.blocked(inquiry.id)||replyState.blocked()||
+       detail.deliveries.value.some(row=>row.message_type===followUpType&&deliveryOutcome(row)==='配送結果未確定')){
+      return {reason:'送信結果を確認できない記録があります。配送履歴を確認してください。'};
+    }
+  } catch {return {reason:'二重送信防止の記録を確認できません。'};}
+  const address=recipient.toLowerCase();
+  const links=getRows('links')||[];
+  const source=replyableMessages().find(row=>
+    (row.reply_to||row.from_address)?.trim().toLowerCase()===address&&
+    links.some(link=>link.inquiry_id===inquiry.id&&link.gmail_thread_id===row.gmail_thread_id));
+  if(source)return {recipient,source};
+  if(canStartFollowUp(inquiry))return {first:true};
+  return {reason:'この案件に紐付いた顧客からの返信メールを確認できません。'};
+}
+
 function formEntry(inquiry, entry) {
   const form = inquiry.first_form_data || {};
   const fields = [
@@ -323,14 +347,18 @@ function formEntry(inquiry, entry) {
     ['概要', form.event_overview || inquiry.request_summary],
     ['質問・相談', form.questions]
   ];
-  const followUp = canStartFollowUp(inquiry) && !detail.intakeComposer
-    ? '<div class="inlinebtns"><button type="button" class="action blue" data-intake-reply>お客様に返信</button></div>'
-    : '';
+  const option=formReplyOption(inquiry);
+  const first=option.first&&!detail.intakeComposer;
+  const reason=option.reason||(detail.intakeComposer?'このカードで編集中です。':'');
+  const reply='<div class="inlinebtns"><button type="button" class="action blue" data-form-reply'+
+    (first?' data-intake-reply':'')+(reason?' disabled aria-describedby="form-reply-reason"':'')+'>'+
+    (first?'お客様に返信':'返信')+'</button></div>'+
+    (reason?'<p class="hint" id="form-reply-reason">'+escape(reason)+'</p>':'');
   return `<article class="mail-row no-attachments" data-timeline-kind="form"><div class="mail-text">
     <div class="mail-heading"><strong>お問い合わせ受付</strong><time>${escape(timelineDate(entry.at))}</time></div>
     <p class="mail-address">申込者 ${escape(inquiry.contact_name || inquiry.customer_name || '未取得')} / ${escape(inquiry.email || '未取得')}<br>受付先 ARA-TECH</p>
     <dl class="timeline-form">${fields.filter(([, value]) => value).map(([name, value]) =>
-      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl>${followUp}<div id="intake-composer-host"></div></div></article>`;
+      `<div><dt>${escape(name)}</dt><dd>${tx(value)}</dd></div>`).join('')}</dl>${reply}<div id="intake-composer-host"></div></div></article>`;
 }
 
 function openIntakeComposer() {
@@ -486,9 +514,13 @@ function renderTimelineMail(entry, isNew) {
   const atts = mailAttachments(r);
   const badges = (isNew?'<span class="tiny new">NEW・要確認</span>':'')+
     (r.index_state==='not_indexed'?'<span class="tiny warning">索引未保存・確認状態未取得</span>':'');
+  const inquiry=current();
+  const replyRestriction = passiveMail?'閲覧専用モードでは返信を編集・送信できません。'
+    : isClosedCase(inquiry)||inquiry.deleted_at?'終了済みの案件には返信できません。'
+    : r.index_state==='not_indexed'?'索引未登録のため返信元を確定できません。':'';
   const reply = inbound && detail.deliveries?.state==='ready'
     ? '<button type="button" class="action quiet mail-reply-button" data-reply-message="'+escape(r.gmail_message_id)+'" '+
-      (r.index_state==='not_indexed'?'disabled title="索引未登録のため返信元を確定できません"':'')+'>返信</button>'
+      (replyRestriction?'disabled title="'+escape(replyRestriction)+'"':'')+'>返信</button>'
     : '';
   const content = mailCardText({entry,dir,label,badges,from:r.from_address||'未取得',to:addresses(r.to_addresses),
     cc:r.cc_addresses?.length?addresses(r.cc_addresses):'',subject:r.subject||'件名未提供',
@@ -942,7 +974,15 @@ $('login-form').addEventListener('submit',async e=>{
 document.addEventListener('click',e=>{
   if(e.target.closest('[data-action="case-basics"]')){openCaseBasics();return;}
   if(e.target.closest('[data-intake-recheck]')){void refreshIntakeDelivery(selected);return;}
-  if(e.target.closest('[data-intake-reply]')){openIntakeComposer();return;}
+  if(e.target.closest('[data-form-reply]:not(:disabled)')){
+    const option=formReplyOption(current());
+    if(option.first)openIntakeComposer();
+    if(option.source){
+      if(!replyState.get().open)void replyState.open(option.source,{formRecipient:option.recipient}).catch(()=>{});
+      $('reply-composer-host')?.scrollIntoView({block:'start'});
+    }
+    return;
+  }
   const historyHtml=e.target.closest('[data-history-mail-html]');
   if(historyHtml){void openHistoryMailHtml(historyHtml);return;}
   const intakeLink=e.target.closest('[data-action="link-intake-follow-up"]');

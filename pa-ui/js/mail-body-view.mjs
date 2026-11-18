@@ -37,7 +37,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
     }
     const savedDelivery={body_text:fallback};
     const storedPreview=savedExcerpt(savedDelivery);
-    const fallbackParts=storedPreview?fullBody(savedDelivery):null;
+    const fallbackParts=fallback?.trim()?fullBody(savedDelivery):null;
     const quoted=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');
     quoted.dataset.quotedBody='true';summary.textContent='引用部分';quoted.append(summary,text);body.after(quoted);
     quoted.addEventListener('toggle',()=>{if(!quoted.hidden)entry.quoteOpen=quoted.open;});
@@ -52,7 +52,7 @@ export function createMailBodyView({request,isAuthenticated,limit=2}) {
       else if(failed&&!storedPreview)body.textContent=entry.error?.status===401||entry.error?.status===403
         ?'認証・ACL拒否 / '+entry.error.status+' / 本文を取得できません':'本文の取得に失敗しました / 再取得できます';
       else body.textContent=displayText(storedPreview||entry.preview)||
-        (parts?'取得成功 / 空本文':busy?'本文を取得中…':'表示時に本文を取得します…');
+        (parts?(parts.empty?'取得成功 / 空本文':'プレビュー対象の本文なし'):busy?'本文を取得中…':'表示時に本文を取得します…');
       button.textContent=busy?'本文を取得中…':failed?'本文を再取得':expanded?'閉じる':'全文を表示';
       button.disabled=busy;
       button.hidden=Boolean(parts?.empty);

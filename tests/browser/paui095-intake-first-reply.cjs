@@ -350,6 +350,7 @@ async function main() {
     const formCard = page.locator('[data-timeline-kind="form"]');
     await formCard.getByText(eventName, { exact: true }).waitFor();
     await formCard.getByRole('button', { name: 'お客様に返信' }).click();
+    assert.equal(await formCard.locator('textarea[name=body]').inputValue(),'');
     const composer = page.locator('#intake-composer-host form');
     await composer.getByLabel('本文', { exact: true }).fill(replyBody);
     await composer.getByRole('button', { name: 'プレビュー' }).click();
@@ -438,6 +439,25 @@ async function main() {
     await page.locator('[data-message="' + inbound.id + '"]').waitFor();
     assert.equal(await page.locator('[data-intake-reply]').count(), 0);
     assert.equal(await page.getByRole('button', { name: linkLabel }).count(), 0);
+    const callCount = transport.sent.length;
+    await page.locator('[data-timeline-kind="form"] [data-form-reply]').click();
+    const replyForm = page.locator('.reply-composer');
+    await replyForm.waitFor();
+    await page.waitForFunction(expected=>document.querySelector('[data-reply-to]')?.value===expected,email);
+    assert.equal(await replyForm.locator('[data-reply-body]').inputValue(), '');
+    assert.equal(await replyForm.locator('[data-reply-files]').count(), 1);
+    assert(await replyForm.locator('[data-reply-subject]').inputValue());
+    await replyForm.locator('[data-reply-body]').fill('新しい内容の履歴確認です。');
+    await replyForm.locator('[data-reply-files]').setInputFiles({
+      name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('isolated attachment')
+    });
+    await replyForm.locator('[data-reply-files-list]').getByText('fixture.txt',{exact:false}).waitFor();
+    await replyForm.locator('[data-reply-preview]').click();
+    await replyForm.locator('[data-reply-preview-box]').waitFor();
+    await replyForm.locator('[data-reply-preview-files]').getByText('fixture.txt',{exact:false}).waitFor();
+    assert.equal(await replyForm.locator('[data-reply-send]').isEnabled(), false);
+    assert.equal(transport.sent.length,callCount);
+    await replyForm.locator('[data-reply-close]').click();
     assert.equal(transport.sent.length, 3);
     const flow = await runCommerce({
       page, browser, origin, inquiry, rows, sent: transport.sent,

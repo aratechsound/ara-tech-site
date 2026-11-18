@@ -1,5 +1,6 @@
 const MAIL_ID=/^[A-Za-z0-9_-]{1,200}$/;
 const validMailId=value=>typeof value==='string'&&MAIL_ID.test(value);
+const sameAddress=(a,b)=>typeof a==='string'&&a.trim().toLowerCase()===b.trim().toLowerCase();
 const keyFor='paui089-send-attempts-v1';
 export const parseCc=value=>[...new Set(String(value||'').split(/[;,\n]/).map(v=>v.trim().toLowerCase()).filter(Boolean))];
 export const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)))),b=>b.toString(16).padStart(2,'0')).join('');
@@ -53,7 +54,7 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
   const valid=(g,r,c)=>generation===g&&revision===r&&state.caseId===c&&state.open;
   function sourcePayload(){return {inquiry_id:state.caseId,mode:'normal',reply_source_message_id:state.source.gmail_message_id,reply_source_thread_id:state.source.gmail_thread_id};}
   function content(){return {...sourcePayload(),body:state.body.trim(),cc_addresses:parseCc(state.cc),attachments:state.attachments.map(({filename,mime_type,data})=>({filename,mime_type,data}))};}
-  function boundContext(c){return c&&c.inquiry_id===state.caseId&&c.gmail_thread_id===state.source.gmail_thread_id&&c.reply_source_message_id===state.source.gmail_message_id&&c.reply_source_explicit===true&&typeof c.recipient==='string'&&c.recipient&&typeof c.subject==='string'&&c.subject&&typeof c.reply_source_authority_hash==='string';}
+  function boundContext(c){return c&&c.inquiry_id===state.caseId&&c.gmail_thread_id===state.source.gmail_thread_id&&c.reply_source_message_id===state.source.gmail_message_id&&c.reply_source_explicit===true&&(!state.formRecipient||sameAddress(c.recipient,state.formRecipient))&&typeof c.recipient==='string'&&c.recipient&&typeof c.subject==='string'&&c.subject&&typeof c.reply_source_authority_hash==='string';}
   function blocked(){try{return attempts.blocked(state.caseId);}catch{return true;}}
   const pending=id=>Boolean(sentJobs.get(id)&&sentJobs.get(id).phase!=='sent');
   function reflect(job){if(state.caseId!==job.receipt.caseId)return;state.phase=job.phase;state.receipt=job.receipt;state.error=null;invalidate();}
@@ -82,10 +83,11 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
     resumeSent(){return refreshSent(state.caseId);},
     retrySent(){return refreshSent(state.caseId);},
     close(){if(state.phase==='sending'||state.phase==='sent-refreshing')return;generation++;invalidate();state.open=false;stash();notify();},
-    async open(row){
+    async open(row,{formRecipient}={}){
       if(this.pending(state.caseId))return;
       if(!state.caseId||row.inquiry_id!==state.caseId||row.direction!=='inbound'||row.index_state==='not_indexed'||!MAIL_ID.test(row.gmail_message_id||'')||!MAIL_ID.test(row.gmail_thread_id||''))throw Error('invalid_reply_source');
-      generation++;invalidate();sentJobs.delete(state.caseId);state.receipt=null;state.open=true;state.source={...row};state.context=null;state.cc='';state.error=null;state.phase='context-loading';state.history=null;
+      generation++;invalidate();sentJobs.delete(state.caseId);state.receipt=null;state.open=true;state.source={...row};state.formRecipient=formRecipient;
+      if(formRecipient){state.body='';state.attachments=[];}state.context=null;state.cc='';state.error=null;state.phase='context-loading';state.history=null;
       const g=generation,c=state.caseId,isCurrent=()=>generation===g&&state.caseId===c&&state.open;notify();
       try{const data=await request({action:'reply_context',...sourcePayload()},isCurrent);if(!isCurrent())return;
         if(!boundContext(data.context))throw Error('invalid_reply_binding');state.context=data.context;state.cc=(data.context.cc_addresses||[]).join(', ');state.phase='editing';
