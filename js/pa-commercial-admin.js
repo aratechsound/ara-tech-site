@@ -677,6 +677,7 @@ export async function renderDeskConfirmationActions(root, context) {
             status.textContent = "終了・保留中の案件では正式受注確認を操作できません。";
             return;
         }
+        if (current) appendLine(root, "現在の見積", `版 ${current.revision_number}`);
         const actions = element("div", "inlinebtns");
         const action = (label, run) => actions.append(button(label, run, "action blue"));
         const currentDeliveryClear = !current?.delivery || ["sent", "cancelled"].includes(current.delivery.state);

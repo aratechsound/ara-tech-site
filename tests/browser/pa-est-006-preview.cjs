@@ -9,6 +9,7 @@ const { setup, MODE } = require('../validate-pam-025-direct-confirmation.cjs');
 const { read } = require('../helpers/pa-estimate-fixture.cjs');
 const { createService, decryptSecret } = require('../../api/_pa-commercial.cjs');
 const { createHandler } = require('../../api/_pa-commercial-handler.cjs');
+const { createReadHandler } = require('../../api/_pa-workspace-read.cjs');
 const { sha } = require('../../api/_pa-contract-pdf.cjs');
 
 const root = path.resolve(__dirname, '../..');
@@ -18,6 +19,33 @@ const readBody = (request) => new Promise((resolve, reject) => { const parts = [
 const adapt = (response) => { response.status = (code) => { response.statusCode = code; return response; }; response.json = (value) => { response.setHeader('Content-Type', 'application/json; charset=utf-8'); response.end(JSON.stringify(value)); return response; }; return response; };
 const harness = (caseId) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/pa-admin.css"><link rel="stylesheet" href="/pa-commercial.css"><link rel="stylesheet" href="/pa-confirmation-preview.css"><style>body{padding:12px}.hidden{display:none!important}.button{border:1px solid #0877ea;border-radius:8px;background:#0877ea;color:white;padding:8px 12px}.button--secondary{background:white;color:#0877ea}</style></head><body><section id="pa-commercial-workspace" class="pa-commercial hidden"><button id="pa-commercial-refresh"></button><button id="pa-v5-reply"></button><button id="pa-v5-estimate"></button><button id="pa-v5-add-file"></button><button id="pa-v5-note"></button><div class="pa-commercial__cards"><section class="pa-commercial-card"><button id="pa-estimate-tab"></button><button id="pa-billing-tab"></button><div id="pa-estimate-summary"></div><div id="pa-billing-summary"></div></section><section class="pa-commercial-card"><div id="pa-contract-v5-summary"></div></section><section class="pa-commercial-card"><span id="pa-data-freshness"></span><div id="pa-next-action-summary"></div></section></div><button id="pa-related-left"></button><button id="pa-related-right"></button><button id="pa-related-all"></button><span id="pa-related-files-count"></span><div id="pa-related-files"></div></section><script type="module">import{renderCommercialWorkspace}from'/js/pa-commercial-admin.js';const current={id:'${caseId}',event_name:'龍姫湖まつり2026（検証用）'};renderCommercialWorkspace({case:current,getCurrentCase:()=>current,getAccessToken:async()=> 'fixture-admin',openComposer:()=>{},focusBilling:()=>{},focusNote:()=>{},openFileSearch:()=>{}});</script></body></html>`;
 async function counts(db, caseId) { const result = {}; for (const [key, sql] of Object.entries({ offers: 'select count(*) n from pa_contract_offers where inquiry_id=$1', tokens: 'select count(*) n from pa_contract_tokens t join pa_contract_offers o on o.id=t.offer_id where o.inquiry_id=$1', contracts: 'select count(*) n from pa_contracts where inquiry_id=$1', outbox: 'select count(*) n from pa_commercial_outbox where inquiry_id=$1', audit: "select count(*) n from pa_inquiry_audit where inquiry_id=$1 and action='formal_contract_issued'" })) result[key] = Number((await db.query(sql, [caseId])).rows[0].n); result.revision = Number((await db.query('select revision from pa_case_commercial_state where inquiry_id=$1', [caseId])).rows[0].revision); return result; }
+
+async function readCommercialProjection(target, fixture) {
+    const readWorkspace = createReadHandler({
+        key: 'sb_publishable_fixture',
+        fetchImpl: (url, options) => {
+            assert.equal(options.method, 'GET');
+            const fixtureUrl = new URL(url);
+            fixtureUrl.hostname = 'fixture.invalid';
+            assert.equal(fixtureUrl.searchParams.get('offset') ?? '0', '0');
+            fixtureUrl.searchParams.delete('offset');
+            return fixture.fetchImpl(fixtureUrl, { ...options, headers: { authorization: 'Bearer fixture-admin' } });
+        }
+    });
+    const result = {};
+    await readWorkspace({
+        method: 'GET',
+        url: '/api/pa-workspace-read?path=' + encodeURIComponent(target),
+        headers: { authorization: 'Bearer controlled-fixture-read' }
+    }, {
+        setHeader() {},
+        end(body) { result.status = this.statusCode; result.body = JSON.parse(body); }
+    });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.result.read_projection, true);
+    assert.equal(result.body.result.state, undefined);
+    return result.body.result;
+}
 
 async function main() {
     let fixture, billingFixture, pdfFixture, unknownFixture, recoveryFixture, server, browser;
@@ -94,7 +122,9 @@ async function main() {
                         progress: (await db.query('select * from pa_case_progress')).rows
                     };
                 } else if (target === '/data/commercial/' + inquiryId) {
-                    result = await service.snapshot(inquiryId);
+                    result = activeFixture === recoveryFixture
+                        ? await readCommercialProjection(target, activeFixture)
+                        : await service.snapshot(inquiryId);
                 } else if (target === '/data/case/' + inquiryId + '/payments') {
                     result = (await db.query('select * from pa_payment_records where inquiry_id=$1', [inquiryId])).rows;
                 } else if (target === '/data/case/' + inquiryId + '/audit') {
@@ -571,8 +601,11 @@ async function main() {
         assert.match(recoveredDocument.filename, /^見積書 2026\.10\.18/u);
         assert.deepEqual(recoveredDocument.bytes, recoveryFixture.quote);
         assert.equal(recoveryFixture.state.sendCount, 0);
-        await page.getByRole('cell', { name: /版 1 \/ .*現行/u }).waitFor();
+        await page.getByRole('cell', { name: /^版 1 \/ /u }).waitFor();
+        const estimateActions = page.getByRole('region', { name: '見積・正式受注の操作', exact: true });
+        await estimateActions.getByText('現在の見積：版 1', { exact: true }).waitFor({ timeout: 6000 });
         await openDesk(recoveryFixture, false);
+        await estimateActions.getByText('現在の見積：版 1', { exact: true }).waitFor({ timeout: 6000 });
         recoveryDialog = await openRecoveryDialog();
         await recoveryDialog.getByRole('button', { name: '金額を表示・入力' }).click();
         assert.equal(await recoveryDialog.getByRole('button', { name: '再送せず登録', exact: true }).isDisabled(), true);
