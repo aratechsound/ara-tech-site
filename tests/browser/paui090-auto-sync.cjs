@@ -65,7 +65,17 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
  try{const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
   await page.goto('http://127.0.0.1:'+server.address().port+'/?case='+A);await page.locator('[data-case="'+A+'"].selected').waitFor();assert.equal(posts.length,0,'overview performs no sync');
   await page.locator('[data-tab="conversation"]').click();await started;assert.equal(posts.filter(p=>p.action==='sync').length,1);assert.equal(await page.locator('[data-action="mail-sync"]').isDisabled(),true);
-  await page.locator('[data-tab="conversation"]').click();await page.locator('[data-case="'+B+'"]').click();await page.locator('[data-tab="conversation"]').click();await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab="conversation"]').click();assert.equal(posts.filter(p=>p.action==='sync').length,1);paused=false;releaseSync();
+  await page.locator('[data-tab="conversation"]').click();await page.locator('[data-case="'+B+'"]').click();await page.locator('[data-tab="conversation"]').click();await page.locator('[data-case="'+A+'"]').click();await page.locator('[data-tab="conversation"]').click();assert.equal(posts.filter(p=>p.action==='sync').length,1);
+  await page.locator('[data-tab="overview"]').click();
+  const overview=page.locator('#overview-next-action');
+  assert.equal(await overview.locator('small').textContent(),'顧客回答待ち');
+  paused=false;releaseSync();
+  await overview.getByText('顧客返信・未確認',{exact:true}).waitFor();
+  assert((await overview.getAttribute('class')).split(' ').includes('warn'));
+  await page.locator('#inspector').getByText('顧客返信・未確認',{exact:true}).waitFor();
+  assert.equal(posts.filter(p=>p.action==='sync').length,1,'No second import while viewing the overview');
+  console.log('PASS completed case sync refreshes the overview and inspector attention indicators');
+  await page.locator('[data-tab="conversation"]').click();
   await page.locator('[data-mail-sync-state="success"]').waitFor();await page.locator('[data-message="new_received_1"]').waitFor();assert((await page.locator('[data-message="new_received_1"]').innerText()).includes('NEW'));await page.waitForFunction(()=>document.querySelector('[data-message="new_received_1"]').textContent.includes('First new reply body.'));
   await page.locator('[data-reply-message="new_received_1"]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-to]').value==='customer@example.invalid');await page.locator('[data-reply-body]').fill('Unsent draft retained during refresh');
   const second=f.raw('new_received_2','thread_1','customer@example.invalid','Next arrival body.');second.internalDate=String(Number(first.internalDate)+10000);second.labelIds=['UNREAD','INBOX'];f.state.messages.set(second.id,second);f.state.threadMessages.set('thread_1',[old,first,second]);
