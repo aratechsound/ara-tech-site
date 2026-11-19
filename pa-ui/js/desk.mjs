@@ -587,7 +587,7 @@ function sentEstimateHistory(){
     (s.unknown?.length?'<div class="read-error">紐付け不明 '+s.unknown.length+'スレッド / 自動確定しません</div>':''));
 }
 function estimate(c){
-  return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2><div id="estimate-commercial">${estimateCommercial(c)}</div><div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認。現行見積への登録・有効化は行いません。</p><div id="sent-estimate-history">${sentEstimateHistory()}</div><div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
+  return moneyBar()+`<h2 class="sectiontitle">見積・正式受注</h2><div id="estimate-commercial">${estimateCommercial(c)}</div><div class="inlinebtns" style="margin-top:12px">${button('再送・失効','resend','quiet',true)}</div>${commercialControls(c,'正式受注の操作')}<div class="group"><h2 class="sectiontitle">Gmail送信済み見積（過去履歴・正式登録未照合）</h2><p class="hint">期限切れを含む過去資料です。有効性は未確認です。登録する場合は「正式受注の操作」で原本を確認してください。</p><div id="sent-estimate-history">${sentEstimateHistory()}</div><div id="sent-estimate-grid" class="material-grid"></div></div><p class="hint">商務取得不能時は「契約なし」「未送信」と判定しません。</p>`;
 }
 async function openDeskCommercial(){
   const c=current(),epoch=selectionEpoch,owner=session?.user?.id;
@@ -607,7 +607,7 @@ async function openDeskCommercial(){
   const stillCurrent=()=>!controller.signal.aborted&&epoch===selectionEpoch&&selected===c.id
     &&tab===activeTab&&session?.user?.id===owner;
   try{
-    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui095-confirmation-link-only');
+    const {renderDeskConfirmationActions,renderDeskBillingActions}=await import('/js/pa-commercial-admin.js?v=paui108');
     if(!stillCurrent())return;
     const renderActions=activeTab==='invoice'?renderDeskBillingActions:renderDeskConfirmationActions;
     await renderActions(panel,{
