@@ -89,6 +89,7 @@ const formDialog = (title, fields, confirmLabel = "確認して実行", context,
         control.name = field.name;
         if (field.accept) control.accept = field.accept;
         if (field.required) control.required = true;
+        if (field.maxLength != null) control.maxLength = field.maxLength;
         if (field.type === "number" && privacy) {
             privacy.setAmount(control, field.value);
             amountInputs.push(control);
@@ -830,8 +831,38 @@ export async function renderDeskBillingActions(root, context) {
         if (context.signal.aborted) return;
         if (data.state?.inquiry_id !== context.case.id) throw Error("case_changed");
         const { accepted } = selectConfirmationContext(data);
-        if (["closed", "cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
-            status.textContent = data.case_status === "closed" ? "案件は完了しました。" : "終了・保留中の案件です。";
+        if (data.case_status === "closed") {
+            status.textContent = "案件は完了しています。再開すると請求を確認できる状態に戻ります。入金・契約の記録は保持されます。";
+            if (!data.state.closed_operation_id || context.case.progress?.is_on_hold) return;
+            const reopen = button("案件を再開", async () => {
+                reopen.disabled = true;
+                let refreshRequired = false;
+                try {
+                    const values = await formDialog("案件の再開を確認", [
+                        { name: "reason", label: "再開理由", type: "textarea", required: true, maxLength: 2000 }
+                    ], "理由を記録して再開する", context);
+                    if (!values?.reason.trim()) return;
+                    const operation = crypto.randomUUID();
+                    const reopened = await api(context, "reopen_case", {
+                        expected_revision: data.state.revision, operation_id: operation, reason: values.reason.trim()
+                    });
+                    const confirmed = await api(context, "snapshot");
+                    if (reopened?.inquiry_id !== context.case.id || confirmed.state?.inquiry_id !== context.case.id
+                        || confirmed.state.reopen_operation_id !== operation || confirmed.state.closed_operation_id
+                        || confirmed.case_status !== "schedule_confirmed") throw Error("reopen_unconfirmed");
+                    await context.refreshCommercial({ reopened: true });
+                } catch {
+                    refreshRequired = true;
+                    if (!context.signal.aborted) status.textContent = "再開結果を確認できませんでした。案件一覧を再取得してください。";
+                } finally {
+                    if (!refreshRequired && !context.signal.aborted) reopen.disabled = false;
+                }
+            }, "action quiet");
+            root.append(reopen);
+            return;
+        }
+        if (["cancelled", "declined", "schedule_unavailable", "on_hold"].includes(data.case_status)) {
+            status.textContent = "終了・保留中の案件です。";
             return;
         }
         if (!accepted) { status.textContent = "正式受注の成立後に請求・入金を操作できます。"; return; }
