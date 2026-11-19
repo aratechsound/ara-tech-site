@@ -111,6 +111,7 @@ async function main() {
         assert.match(sentCenter, /過去の配送要確認 1件/u);
         assert.match(sentNext, /お客様の正式回答を待っています。/u);
         assert.doesNotMatch(sentNext, /関連先を確認できない配送/u, 'same-page redraw clears stale unclassified warning');
+        await page.locator('[data-delivery-readback="job-7"]').getByRole('button',{name:'Gmail送信済みを再確認'}).waitFor();
 
         activeScenario = 'current-invoice-failed';
         await page.evaluate(() => window.__context.refreshCommercial());
@@ -121,7 +122,7 @@ async function main() {
         for (const width of [1440,390]) {
             await page.setViewportSize({width,height:900});
             isOwner=false;
-            const scope = page.locator('#pa-next-action-summary');
+            const scope = page.locator('[data-delivery-readback="invoice-1"]');
             const check = scope.getByRole('button',{name:'Gmail送信済みを再確認'});
             const manual = scope.getByRole('button',{name:'手動再送'});
             await check.click();

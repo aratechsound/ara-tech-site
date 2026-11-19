@@ -1304,20 +1304,33 @@ const render = async (context, data, epoch) => {
     appendLine(nextRoot, "業務", stateLabel("fulfillment", state.fulfillment_state));
     appendLine(nextRoot, "精算", stateLabel("settlement", state.settlement_state));
     appendLine(nextRoot, "最終更新", dateTime(state.updated_at));
-    currentDeliveryIssues.forEach((pendingJob) => {
-        const confirmationVersion = pendingJob.aggregate_id === (accepted || active)?.id ? (accepted || active)?.version : null;
-        const safeJobKind = /^[a-z0-9_]{1,48}$/u.test(String(pendingJob.job_kind || "")) ? pendingJob.job_kind : "unknown";
-        const kind = pendingJob.delivery_scope === DELIVERY_SCOPE.UNCLASSIFIED
+    const currentAggregates = {
+        estimate: current?.id, invoice: billing?.state === "open" ? billing.id : null,
+        confirmation: active?.id, confirmation_reminder: active?.id,
+        accept_receipt: accepted?.id, change_proposal: change?.id
+    };
+    const latestSent = new Map();
+    for (const job of data.outbox || []) {
+        if (job.state === "sent" && job.aggregate_id && currentAggregates[job.job_kind] === job.aggregate_id
+            && !latestSent.has(job.job_kind)) latestSent.set(job.job_kind, job);
+    }
+    [...currentDeliveryIssues, ...latestSent.values()].forEach((job) => {
+        const confirmationVersion = job.aggregate_id === (accepted || active)?.id ? (accepted || active)?.version : null;
+        const safeJobKind = /^[a-z0-9_]{1,48}$/u.test(String(job.job_kind || "")) ? job.job_kind : "unknown";
+        const kind = job.delivery_scope === DELIVERY_SCOPE.UNCLASSIFIED
             ? `関連先を確認できない配送（種別：${safeJobKind}）`
-            : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || safeJobKind;
-        const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
-        nextRoot.append(alert);
-        if (["unknown", "processing", "failed"].includes(pendingJob.state)) {
-            appendDeliveryReadback(nextRoot, context, pendingJob, alert, kind);
+            : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内`, change_proposal: "変更提案メール" }[job.job_kind] || safeJobKind;
+        const row = element("div", "pa-commercial__delivery");
+        row.dataset.deliveryReadback = job.id;
+        const alert = element("p", job.state === "unknown" ? "pa-commercial__error" : job.state === "sent" ? "pa-commercial__label" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", job.state)}`);
+        row.append(alert);
+        nextRoot.append(row);
+        if (["unknown", "processing", "failed", "sent"].includes(job.state)) {
+            appendDeliveryReadback(row, context, job, alert, kind);
         }
-        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && pendingJob.state === "queued") nextRoot.append(button("固定済み内容を送信", async () => {
+        if (job.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(job.job_kind) && job.state === "queued") row.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
-            await api(context, "dispatch_outbox", { job_id: pendingJob.id });
+            await api(context, "dispatch_outbox", { job_id: job.id });
             await context.refreshCommercial();
         }, "button button--small"));
     });
