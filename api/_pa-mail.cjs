@@ -385,7 +385,7 @@ const supabaseRequest = async (path, options = {}, fetchImpl = fetch) => {
         try {
             const detail = await response.json();
             error.databaseCode = /^[A-Z0-9]{5}$/.test(detail?.code || '') ? detail.code : null;
-            const allowed = ['submission_content_conflict','mail_page_conflict','mail_link_conflict','inquiry_archived','invalid_intake','invalid_notification','not_authorized','invalid_mail_cursor','pa_history_preserved'];
+            const allowed = ['schedule_delivery_busy','schedule_delivery_exists','schedule_token_not_available','retry_not_allowed','submission_content_conflict','mail_page_conflict','mail_link_conflict','inquiry_archived','invalid_intake','invalid_notification','not_authorized','invalid_mail_cursor','pa_history_preserved'];
             error.safeDatabaseReason = allowed.includes(detail?.message) ? detail.message : null;
         } catch {}
         throw error;
@@ -523,7 +523,7 @@ const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders
         ...(carbonCopy.length ? [`Cc: ${carbonCopy.join(", ")}`] : []),
         `Reply-To: ${replyTo}`,
         `Subject: ${encodeWord(safeSubject)}`,
-        ...(messageId && /^<pa-e2e-[0-9a-f-]{36}@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
+        ...(messageId && /^<pa-(?:e2e-[0-9a-f-]{36}|once-[0-9a-f]{64})@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
         "MIME-Version: 1.0"
     ];
     const inReplyTo = String(replyHeaders.inReplyTo || "").trim();
@@ -604,22 +604,27 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body, messageType }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType, messageId, deliveryTrace, beforeDispatch }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
+    const raw = buildRawMessage({ to, subject, body, messageType, config, messageId });
+    if (beforeDispatch) await beforeDispatch();
+    if (deliveryTrace) deliveryTrace.providerStarted = true;
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
+        method: "POST", redirect: "error",
         headers: {
             authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
             accept: "application/json"
         },
-        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, messageType, config }) })
+        body: JSON.stringify({ raw })
     });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const payload = await response.json();
-    if (!payload?.id) throw new Error("gmail_send_invalid");
-    return { id: String(payload.id), threadId: payload.threadId ? String(payload.threadId) : null };
+    if (![payload?.id, payload?.threadId].every(id => typeof id === "string" && /^[A-Za-z0-9_-]{1,200}$/u.test(id))) {
+        throw new Error("gmail_send_invalid");
+    }
+    return { id: payload.id, threadId: payload.threadId };
 };
 
 const insertDelivery = async (delivery, fetchImpl = fetch) => {
@@ -628,11 +633,23 @@ const insertDelivery = async (delivery, fetchImpl = fetch) => {
         on_conflict: "dedupe_key,attempt_number",
         select: "*"
     });
-    const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
-        method: "POST",
-        prefer: "return=representation,resolution=ignore-duplicates",
-        body: JSON.stringify(delivery)
-    }, fetchImpl);
+    let rows;
+    try {
+        rows = delivery.message_type === "schedule_request"
+            ? await supabaseRequest("/rest/v1/rpc/pa_claim_schedule_invitation", {
+                method: "POST", body: JSON.stringify({ p_delivery: delivery })
+            }, fetchImpl)
+            : await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
+                method: "POST",
+                prefer: "return=representation,resolution=ignore-duplicates",
+                body: JSON.stringify(delivery)
+            }, fetchImpl);
+    } catch (error) {
+        if (delivery.message_type === "schedule_request" && error.safeDatabaseReason) {
+            throw new Error(error.safeDatabaseReason);
+        }
+        throw error;
+    }
     if (Array.isArray(rows) && rows[0]) return { row: rows[0], created: true };
 
     const lookup = new URLSearchParams({
@@ -647,7 +664,7 @@ const insertDelivery = async (delivery, fetchImpl = fetch) => {
 };
 
 const updateDelivery = async (deliveryId, patch, fetchImpl = fetch) => {
-    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, select: "*" });
+    const parameters = new URLSearchParams({ id: `eq.${deliveryId}`, status: "eq.sending", select: "*" });
     const rows = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {
         method: "PATCH",
         prefer: "return=representation",
@@ -662,32 +679,45 @@ const safeErrorCode = (error) => {
     if (/^(gmail_not_configured|gmail_oauth_(?:\d{3}|invalid)|gmail_send_(?:\d{3}|invalid))$/u.test(message)) {
         return message;
     }
-    if (/^supabase_\d{3}$/u.test(message)) return message;
+    if (message === "mail_outcome_unknown" || message === "mail_before_dispatch_failed" || /^supabase_\d{3}$/u.test(message)) return message;
     return "mail_delivery_failed";
 };
 
+const retryableDeliveryFailure = code =>
+    /^(?:gmail_not_configured|gmail_oauth_(?:[0-9]{3}|invalid)|mail_before_dispatch_failed)$/u.test(code);
+
+const deliveryErrorResult = (messageType, error) => {
+    const code = safeErrorCode(error);
+    return { message_type: messageType, status: code === "mail_outcome_unknown" ? "unknown" : "failed", error_summary: code };
+};
+
 const deliver = async (row, fetchImpl = fetch) => {
+    const deliveryTrace = { providerStarted: false };
+    const schedule = row.message_type === "schedule_request";
+    let gmail;
     try {
-        const gmail = await sendGmail({
+        gmail = await sendGmail({
             to: row.recipient,
             subject: row.subject,
             body: row.body,
-            messageType: row.message_type
-        }, fetchImpl);
-        return updateDelivery(row.id, {
-            status: "sent",
-            sent_at: new Date().toISOString(),
-            failed_at: null,
-            gmail_message_id: gmail.id,
-            gmail_thread_id: gmail.threadId,
-            error_summary: null
+            messageType: row.message_type,
+            messageId: require('./_pa-send-once.cjs').legacyMessageId('legacy-delivery', row.id),
+            deliveryTrace,
+            beforeDispatch: row.is_retry && isScheduleDelivery(row.message_type)
+                ? async () => validateScheduleRetryContext(await getInquiry(row.inquiry_id,fetchImpl),row,fetchImpl)
+                : schedule ? () => requireOpenScheduleToken(row.inquiry_id,scheduleUrlInMessage(row.body),fetchImpl)
+                : undefined
         }, fetchImpl);
     } catch (error) {
-        const code = safeErrorCode(error);
+        let code = safeErrorCode(error);
+        const uncertain = deliveryTrace.providerStarted;
+        if (uncertain) code = "mail_outcome_unknown";
+        else if (schedule && error.message === "schedule_token_not_available") code = error.message;
+        else if (code === "mail_delivery_failed") code = "mail_before_dispatch_failed";
         try {
             return await updateDelivery(row.id, {
-                status: "failed",
-                failed_at: new Date().toISOString(),
+                status: uncertain ? "unknown" : "failed",
+                failed_at: uncertain ? null : new Date().toISOString(),
                 gmail_message_id: null,
                 gmail_thread_id: null,
                 error_summary: code
@@ -697,6 +727,21 @@ const deliver = async (row, fetchImpl = fetch) => {
             wrapped.deliveryId = row.id;
             throw wrapped;
         }
+    }
+    try {
+        return await updateDelivery(row.id, {
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            failed_at: null,
+            gmail_message_id: gmail.id,
+            gmail_thread_id: gmail.threadId,
+            error_summary: null
+        }, fetchImpl);
+    } catch {
+        // The write may have committed. Never replace a possibly sent row with failed.
+        const wrapped = new Error("mail_outcome_unknown");
+        wrapped.deliveryId = row.id;
+        throw wrapped;
     }
 };
 
@@ -910,11 +955,7 @@ const sendScheduleResponseEmails = async (inquiry, response, fetchImpl = fetch) 
                 ...template
             }, fetchImpl);
         } catch (error) {
-            return {
-                message_type: template.message_type,
-                status: "failed",
-                error_summary: safeErrorCode(error)
-            };
+            return deliveryErrorResult(template.message_type, error);
         }
     }));
 };
@@ -996,11 +1037,7 @@ const sendAutomaticInquiryEmails = async (inquiry, fetchImpl = fetch) => {
         try {
             return await createAndDeliver(delivery, fetchImpl);
         } catch (error) {
-            return {
-                message_type: delivery.message_type,
-                status: "failed",
-                error_summary: safeErrorCode(error)
-            };
+            return deliveryErrorResult(delivery.message_type, error);
         }
     }));
 };
@@ -1029,15 +1066,7 @@ const requireOpenScheduleToken = async (inquiryId, url, fetchImpl) => {
     }
 };
 
-const createScheduleDelivery = async ({
-    inquiry,
-    subject,
-    body,
-    scheduleUrl,
-    operationKey,
-    actorUserId
-}, fetchImpl = fetch) => {
-    if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+const prepareScheduleInvitation = ({inquiry, subject, body, scheduleUrl}) => {
     if (![
         "schedule_coordination",
         "second_form_not_issued",
@@ -1059,6 +1088,13 @@ const createScheduleDelivery = async ({
     if (!safeSubject.includes(inquiry.inquiry_number) || scheduleUrlInMessage(safeBody) !== safeUrl) {
         throw new Error("invalid_schedule_message");
     }
+    return {safeUrl, safeSubject, safeBody};
+};
+
+const createScheduleDelivery = async (input, fetchImpl = fetch) => {
+    const {inquiry, operationKey, actorUserId} = input;
+    if (!isUuid(operationKey) || !isUuid(actorUserId)) throw new Error("invalid_operation");
+    const {safeUrl, safeSubject, safeBody} = prepareScheduleInvitation(input);
     const dedupeKey = `schedule:${inquiry.id}:${operationKey.toLowerCase()}`;
     try {
         await requireOpenScheduleToken(inquiry.id, safeUrl, fetchImpl);
@@ -1169,14 +1205,7 @@ const sendContentHearingAndFinalize = async ({
     return { delivery, caseState };
 };
 
-const createScheduleResultDelivery = async ({
-    inquiry,
-    result,
-    subject,
-    body,
-    actorUserId
-}, fetchImpl = fetch) => {
-    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+const prepareScheduleResult = async ({inquiry, result, subject, body}, fetchImpl) => {
     if (!["confirmed", "unavailable"].includes(result)) throw new Error("invalid_schedule_result");
 
     const response = await getScheduleResponseByInquiry(inquiry.id, fetchImpl);
@@ -1205,6 +1234,24 @@ const createScheduleResultDelivery = async ({
     }
 
     const safeBody = normalizeCustomerBody(safeBodyInput);
+    return {safeSubject, safeBody};
+};
+
+const previewScheduleMail = async ({kind, ...input}, fetchImpl = fetch) => {
+    if (kind === "invitation") {
+        const {safeUrl, safeBody} = prepareScheduleInvitation(input);
+        await requireOpenScheduleToken(input.inquiry.id, safeUrl, fetchImpl);
+        return buildCustomerHtml(safeBody);
+    }
+    if (kind !== "result") throw new Error("invalid_action");
+    const {safeBody} = await prepareScheduleResult(input, fetchImpl);
+    return buildCustomerHtml(safeBody);
+};
+
+const createScheduleResultDelivery = async (input, fetchImpl = fetch) => {
+    const {inquiry, result, actorUserId} = input;
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    const {safeSubject, safeBody} = await prepareScheduleResult(input, fetchImpl);
     const messageType = result === "confirmed"
         ? "schedule_result_confirmed"
         : "schedule_result_unavailable";
@@ -1272,34 +1319,79 @@ const getDelivery = async (deliveryId, fetchImpl = fetch) => {
     return rows[0];
 };
 
-const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = fetch) => {
-    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+const isMailResendOwner = actorId => {
+    const ownerId = process.env.PA_MAIL_OWNER_USER_ID;
+    return isUuid(ownerId) && actorId === ownerId;
+};
+const assertMailResendOwner = (actorId, confirmed) => {
+    if (confirmed !== true || !isMailResendOwner(actorId)) throw Error("retry_not_allowed");
+};
+
+const isScheduleDelivery = type => type === "schedule_request" || Boolean(resultForMessageType(type));
+const scheduleRetrySnapshot = row => crypto.createHash("sha256").update(JSON.stringify([
+    row.inquiry_id, row.id, row.message_type, row.attempt_number, row.recipient, row.subject, row.body
+])).digest("hex");
+
+const validateScheduleRetryContext = async (inquiry, previous, fetchImpl) => {
+    if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
+    const query = new URLSearchParams({inquiry_id:"eq."+inquiry.id, select:"is_on_hold,closed_at", limit:"2"});
+    const progress = await supabaseRequest("/rest/v1/pa_case_progress?"+query,{},fetchImpl);
+    if (progress?.length !== 1 || progress[0].is_on_hold || progress[0].closed_at) throw new Error("retry_not_allowed");
+    const draft = {inquiry, subject:previous.subject, body:previous.body};
+    const result = resultForMessageType(previous.message_type);
+    if (result) {
+        if (inquiry.status !== "schedule_adjusting") throw new Error("result_not_allowed");
+        await prepareScheduleResult({...draft,result},fetchImpl);
+    } else {
+        const {safeUrl} = prepareScheduleInvitation({...draft,scheduleUrl:scheduleUrlInMessage(previous.body)});
+        await requireOpenScheduleToken(inquiry.id,safeUrl,fetchImpl);
+    }
+};
+
+const prepareDeliveryRetry = async ({deliveryId, inquiry}, fetchImpl) => {
     const previous = await getDelivery(deliveryId, fetchImpl);
     if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
-    if (previous.message_type === "schedule_request") {
-        if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
-        await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
-    }
-
-    const successLookup = new URLSearchParams({
-        dedupe_key: `eq.${previous.dedupe_key}`,
-        status: "eq.sent",
-        select: "id",
-        limit: "1"
-    });
-    const successes = await supabaseRequest(`/rest/v1/pa_email_deliveries?${successLookup}`, {}, fetchImpl);
-    if (Array.isArray(successes) && successes[0]) throw new Error("retry_not_allowed");
+    if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
+    if (!retryableDeliveryFailure(previous.error_summary)) throw new Error("mail_outcome_unknown");
+    if (isScheduleDelivery(previous.message_type)) await validateScheduleRetryContext(inquiry,previous,fetchImpl);
 
     const parameters = new URLSearchParams({
+        inquiry_id: `eq.${previous.inquiry_id}`,
         dedupe_key: `eq.${previous.dedupe_key}`,
-        select: "attempt_number",
+        select: "id,status,attempt_number,error_summary",
         order: "attempt_number.desc",
-        limit: "1"
+        limit: "1000"
     });
     const attempts = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
-    const attemptNumber = Number(attempts?.[0]?.attempt_number || 0) + 1;
+    const latestAttempt = Array.isArray(attempts) ? attempts[0] : null;
+    if (latestAttempt?.id !== previous.id || latestAttempt.status !== "failed") throw new Error("retry_not_allowed");
+    if (attempts.some(attempt => attempt.status === "sent")) throw new Error("retry_not_allowed");
+    if (attempts.length !== latestAttempt.attempt_number || attempts.some(attempt =>
+        attempt.status !== "failed" || !retryableDeliveryFailure(attempt.error_summary)
+    )) throw new Error("mail_outcome_unknown");
+
+    return previous;
+};
+
+const previewScheduleRetry = async (input, fetchImpl = fetch) => {
+    const previous = await prepareDeliveryRetry(input, fetchImpl);
+    if (!isScheduleDelivery(previous.message_type)) throw new Error("retry_not_allowed");
+    const snapshot = scheduleRetrySnapshot(previous);
+    if (input.expectedSnapshot !== snapshot) throw new Error("schedule_retry_changed");
+    return {html:buildCustomerHtml(normalizeCustomerBody(previous.body)), delivery_snapshot:snapshot};
+};
+
+const retryDelivery = async ({actorUserId, expectedSnapshot, expected, ...input}, fetchImpl = fetch) => {
+    if (!isUuid(actorUserId)) throw new Error("invalid_operation");
+    const previous = await prepareDeliveryRetry(input, fetchImpl);
+    if (expectedSnapshot !== undefined) {
+        if (!isScheduleDelivery(previous.message_type) || expectedSnapshot !== scheduleRetrySnapshot(previous)) throw Error("schedule_retry_changed");
+    } else if (expected?.recipient !== previous.recipient || expected.subject !== previous.subject || expected.body !== previous.body) {
+        throw Error("retry_not_allowed");
+    }
+    const attemptNumber = previous.attempt_number + 1;
     return createAndDeliver({
-        inquiry_id: inquiry.id,
+        inquiry_id: input.inquiry.id,
         message_type: previous.message_type,
         dedupe_key: previous.dedupe_key,
         attempt_number: attemptNumber,
@@ -1348,6 +1440,8 @@ module.exports = {
     createAndDeliver,
     createContentHearingDelivery,
     createScheduleDelivery,
+    previewScheduleMail,
+    previewScheduleRetry,
     createScheduleResultDelivery,
     customerReceiptTemplate,
     contentHearingTemplate,
@@ -1373,6 +1467,8 @@ module.exports = {
     requestedServicesText,
     resultForMessageType,
     retryDelivery,
+    assertMailResendOwner,
+    isMailResendOwner,
     safeErrorCode,
     safeOriginalFilename,
     sendContentHearingAndFinalize,

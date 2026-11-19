@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const { isPaCase, requirePaCase } = require("./_ara-case.cjs");
 const {
     OFFICIAL_EMAIL,
+    assertMailResendOwner,
     buildRawMessage,
     buildCustomerHtml,
     cleanBody,
@@ -9,6 +10,7 @@ const {
     getGmailAccessToken,
     getInquiry,
     isUuid,
+    isMailResendOwner,
     mailConfig,
     normalizeReplyAttachments,
     normalizeCustomerBody,
@@ -21,6 +23,8 @@ const {
     originalFilenameFromPart
 } = require("./_pa-filename.cjs");
 const { detectCandidates } = require("./_pa-portal-candidates.cjs");
+const { envelopeHash, freezeMailAttempt, legacyMessageId, mailAttempt, matchSentAttempt, openSnapshot, readMailAttempt,
+    recordMailResult, reserveMailAttempt, resendAttempt, signedResendApproval, verifyResendApproval } = require("./_pa-send-once.cjs");
 
 const GMAIL_ID = /^[A-Za-z0-9_-]{1,200}$/u;
 // Gmail attachment IDs are opaque values.  Their URL-safe-looking examples are
@@ -982,7 +986,7 @@ const buildStandalonePreview = async ({ inquiryId, actorId, body, attachments = 
 const standalonePreview = (input, fetchImpl = fetch) => buildStandalonePreview(input, fetchImpl);
 const standaloneContentPreview = (input, fetchImpl = fetch) => buildStandalonePreview({ ...input, issueConfirmationToken: false }, fetchImpl);
 
-const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], attachmentAuthority, confirmationToken, subjectOverride, jobId, deliveryTrace }, fetchImpl = fetch) => {
+const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], attachmentAuthority, confirmationToken, subjectOverride, jobId, deliveryTrace, deliveryAttempt }, fetchImpl = fetch) => {
     updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const preview = await standalonePreview({ inquiryId, actorId, body, attachments: normalizedAttachments, attachmentAuthority, mode: "confirmation", subjectOverride }, fetchImpl);
@@ -996,9 +1000,10 @@ const sendStandalone = async ({ inquiryId, actorId, body, attachments = [], atta
     const config = mailConfig();
     const token = await getGmailAccessToken(config, fetchImpl);
     const messageId = productionE2eMessageId(jobId);
+    if (deliveryAttempt) await reserveMailAttempt(mailAttempt({ inquiryId, actorId, ...deliveryAttempt, messageId, preview, attachments: normalizedAttachments }), fetchImpl);
     updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
+        method: "POST", redirect: "error",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
             raw: buildRawMessage({
@@ -1059,7 +1064,30 @@ const verifyReplyPreview = ({ confirmationToken, preview, actorId, attachments }
     });
 };
 
-const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, replySourceDeliveryId, subjectOverride, deliveryTrace }, fetchImpl = fetch) => {
+async function submitThreadReply({ raw, threadId, token, attempt, deliveryTrace, strictThread = true }, fetchImpl) {
+    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
+    try {
+        const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+            method: "POST", redirect: "error",
+            headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({ threadId, raw })
+        });
+        updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_response", provider_response_received: true, provider_http_status: response.status });
+        if (!response.ok) throw Error(`gmail_send_${response.status}`);
+        const sent = await response.json();
+        updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
+        if (!validGmailId(sent?.id) || strictThread && sent.threadId !== threadId) throw Error("gmail_send_invalid");
+        const result = { gmail_message_id: sent.id, gmail_thread_id: threadId };
+        updateDeliveryTrace(deliveryTrace, { accepted_reply: result });
+        if (attempt) await recordMailResult(attempt, "sent", result, fetchImpl);
+        return result;
+    } catch (error) {
+        if (attempt) await recordMailResult(attempt, "unknown", null, fetchImpl).catch(() => null);
+        throw error;
+    }
+}
+
+const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "normal", ccAddresses, confirmationToken, replySourceMessageId, replySourceThreadId, replySourceDeliveryId, subjectOverride, deliveryTrace, deliveryAttempt }, fetchImpl = fetch) => {
     updateDeliveryTrace(deliveryTrace, { phase: "preview_validation" });
     const normalizedAttachments = normalizeReplyAttachments(attachments);
     const normalizedMode = replyMode(mode);
@@ -1118,43 +1146,148 @@ const sendReply = async ({ inquiryId, actorId, body, attachments = [], mode = "n
             messages: !preview.reply_source_explicit || implicitApproval ? currentMessages : [source]
         }, fetchImpl);
     }
-    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_request", provider_request_started: true });
-    const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-            threadId: preview.gmail_thread_id,
-            raw: buildRawMessage({
-                to: preview.recipient,
-                cc: preview.cc_addresses,
-                subject: preview.subject,
-                body: preview.body,
-                messageType: "customer_receipt",
-                replyHeaders: { inReplyTo: source.rfc_message_id, references: replyReferences(source.references, source.rfc_message_id) },
-                attachments: normalizedAttachments,
-                config
-            })
-        })
+    const attempt = deliveryAttempt && mailAttempt({ inquiryId, actorId, ...deliveryAttempt, preview, attachments: normalizedAttachments });
+    const raw = buildRawMessage({
+        to: preview.recipient, cc: preview.cc_addresses, subject: preview.subject, body: preview.body,
+        messageType: "customer_receipt", messageId: attempt?.rfc_message_id,
+        replyHeaders: { inReplyTo: source.rfc_message_id, references: replyReferences(source.references, source.rfc_message_id) },
+        attachments: normalizedAttachments, config
     });
-    updateDeliveryTrace(deliveryTrace, { phase: "gmail_api_response", provider_response_received: true, provider_http_status: response.status });
-    if (!response.ok) throw new Error(`gmail_send_${response.status}`);
-    const sent = await response.json();
-    updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
-    if (!validGmailId(sent?.id) || (original && sent.threadId!==preview.gmail_thread_id)) throw new Error("gmail_send_invalid");
+    if (attempt) {
+        freezeMailAttempt(attempt, {
+            mime: Buffer.from(raw, "base64url").toString("utf8"),
+            recipient: preview.recipient, cc: preview.cc_addresses, subject: preview.subject,
+            body: preview.body, attachments: preview.attachments, authority_hash: preview.reply_source_authority_hash,
+            source_id: source.id, delivery_id: replySourceDeliveryId,
+            implicit_source: !preview.reply_source_explicit || implicitApproval,
+            commercial_fingerprint: deliveryAttempt.commercialFingerprint
+        });
+        await reserveMailAttempt(attempt, fetchImpl);
+    }
+    const sent = await submitThreadReply({ raw, threadId: preview.gmail_thread_id, token, attempt, deliveryTrace,
+        strictThread: Boolean(original || deliveryAttempt) }, fetchImpl);
     await audit(inquiryId, actorId, "gmail_case_reply_sent", {
         reply_mode: normalizedMode,
         communication_kind: normalizedMode === "estimate_submission" ? "estimate_submission" : "reply",
         gmail_thread_id: preview.gmail_thread_id,
         reply_source_message_id: preview.reply_source_message_id,
-        gmail_message_id: sent.id,
+        gmail_message_id: sent.gmail_message_id,
         attachment_count: normalizedAttachments.length,
         cc_count: preview.cc_addresses.length,
         attachment_filenames: normalizedAttachments.map((attachment) => attachment.filename)
     }, fetchImpl);
     const synced = await syncCase({ inquiryId, actorId, linkedOnly:Boolean(original) }, fetchImpl);
-    return { gmail_message_id: sent.id, gmail_thread_id: preview.gmail_thread_id, ...synced };
+    return { ...sent, ...synced };
 };
 
-module.exports = { gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, linkIntakeFollowUp, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, readIntakeReplyContext, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
+const readSentProof = (row, fetchImpl) => matchSentAttempt(row, {
+        list: messageId => gmailJson("/messages?" + new URLSearchParams({ q: "in:sent rfc822msgid:" + messageId, maxResults: "2" }), {}, fetchImpl),
+        read: id => gmailMessage(id, fetchImpl), normalize: normalizeMessage
+    });
+const oldEnough = row => row && Date.now() - Date.parse(row.started_at) >= 60_000;
+const reconcileSentAttempt = async (input, fetchImpl = fetch) => {
+    const row = await readMailAttempt({ ...input, latest: true, withSnapshot: isMailResendOwner(input.actorId) }, fetchImpl);
+    return { ...await readSentProof(row, fetchImpl), resend_available: Boolean(oldEnough(row) && row?.snapshot_ciphertext) };
+};
+
+async function preparedResend(input, fetchImpl) {
+    const row = await readMailAttempt({ ...input, latest: true, withSnapshot: true }, fetchImpl);
+    if (!oldEnough(row) || !row.snapshot_ciphertext || !validGmailId(row.thread_id)) throw Error("mail_resend_unavailable");
+    const snapshot = openSnapshot(row);
+    const { inquiryId, validateCommercial } = input;
+    const inquiry = await getInquiry(inquiryId, fetchImpl);
+    if (inquiry.id !== inquiryId || inquiry.deleted_at || ['closed', 'cancelled', 'declined', 'schedule_unavailable'].includes(inquiry.status)
+        || !sameAddress(inquiry.email, snapshot.recipient)) throw Error("mail_resend_source_changed");
+    const link = await getGlobalThreadLink(row.thread_id, fetchImpl);
+    let ctx;
+    if (snapshot.implicit_source) {
+        const thread = await gmailThread(row.thread_id, fetchImpl);
+        const messages = (thread.messages || []).map(normalizeMessage);
+        const source = messages.find(m => m.id === snapshot.source_id && m.thread_id === row.thread_id);
+        if (!source || messages.some(m => m.thread_id !== row.thread_id
+            || !sameAddress(guardReplySource(inquiry, m), inquiry.email))) throw Error("mail_resend_source_changed");
+        await guardMessageAttributions({ inquiryId, messages, allowMissing: true }, fetchImpl);
+        await guardMessageAttributions({ inquiryId, messages: [source] }, fetchImpl);
+        ctx = replyContextFields(inquiryId, source, guardReplySource(inquiry, source), replySourceHash(source), false);
+    } else {
+        ctx = await replyContext({ inquiryId, replySourceMessageId: snapshot.source_id,
+            replySourceThreadId: row.thread_id, replySourceDeliveryId: snapshot.delivery_id }, fetchImpl);
+    }
+    if (link?.inquiry_id !== inquiryId || ctx.reply_source_authority_hash !== snapshot.authority_hash
+        || !sameAddress(ctx.recipient, snapshot.recipient)
+        || snapshot.cc.some(address => !ctx.allowed_cc.some(allowed => sameAddress(allowed, address)))) {
+        throw Error("mail_resend_source_changed");
+    }
+    const sent = await readSentProof(row, fetchImpl);
+    if (input.outboxId) {
+        if (typeof validateCommercial !== "function" || !snapshot.commercial_fingerprint) throw Error("mail_resend_unavailable");
+        await validateCommercial(snapshot.commercial_fingerprint);
+    }
+    return { row, snapshot, sent };
+}
+
+async function resendMailPreview(input, fetchImpl = fetch) {
+    assertMailResendOwner(input.actorId, true);
+    const { row, snapshot, sent } = await preparedResend(input, fetchImpl);
+    return { recipient: snapshot.recipient, cc: snapshot.cc, subject: snapshot.subject, body: snapshot.body,
+        attachments: snapshot.attachments, previous: sent,
+        approval_token: signedResendApproval(row, input.actorId, sent, Date.now() + PREVIEW_TTL_MS) };
+}
+
+async function resendMail(input, fetchImpl = fetch) {
+    assertMailResendOwner(input.actorId, input.acknowledged);
+    const token = await getGmailAccessToken(mailConfig(), fetchImpl);
+    const { row, snapshot, sent } = await preparedResend(input, fetchImpl);
+    verifyResendApproval({ token: input.approvalToken, row, actorId: input.actorId, sent });
+    const attempt = resendAttempt(row, input.actorId, snapshot);
+    const endOfHeaders = snapshot.mime.indexOf("\r\n\r\n");
+    const header = snapshot.mime.slice(0, endOfHeaders).split("\r\n");
+    const oldIds = header.filter(line => /^Message-ID:/iu.test(line));
+    // Each child has a distinct RFC identifier. The frozen MIME retains the
+    // initial identifier so later Owner operations still verify the same bytes.
+    const originalId = row.resend_root ? '<pa-once-' + row.resend_root + '@ara-tech.cc>' : row.rfc_message_id;
+    if (endOfHeaders < 0 || oldIds.length !== 1 || oldIds[0] !== "Message-ID: " + originalId) throw Error("mail_resend_unavailable");
+    const raw = Buffer.from(header.map(line => line === oldIds[0] ? "Message-ID: " + attempt.rfc_message_id : line).join("\r\n")
+        + snapshot.mime.slice(endOfHeaders), "utf8").toString("base64url");
+    await reserveMailAttempt(attempt, fetchImpl);
+    try {
+        const result = await submitThreadReply({ raw, threadId: row.thread_id, token, attempt }, fetchImpl);
+        await syncCase({ inquiryId: input.inquiryId, actorId: input.actorId, linkedOnly: true }, fetchImpl);
+        return { state: "sent", ...result };
+    } catch {
+        return { state: "unknown" };
+    }
+}
+
+async function reconcileLegacyDelivery({ inquiryId, deliveryId }, fetchImpl = fetch) {
+    if (!isUuid(inquiryId) || !isUuid(deliveryId)) throw Error("invalid_mail_attempt");
+    const rows = await supabaseRequest('/rest/v1/pa_email_deliveries?' + new URLSearchParams({
+        id: 'eq.' + deliveryId, inquiry_id: 'eq.' + inquiryId,
+        select: 'id,recipient,subject,status,requested_at,sent_at,gmail_message_id,gmail_thread_id', limit: '2'
+    }), {}, fetchImpl);
+    const row = rows?.length === 1 && rows[0];
+    if (!row || !['sent', 'sending', 'failed', 'unknown'].includes(row.status)) return { state: 'unknown' };
+    const envelope = envelopeHash({ to: [row.recipient], cc: [], subject: row.subject, attachments: [] });
+    if (validGmailId(row.gmail_message_id) && validGmailId(row.gmail_thread_id) && row.sent_at) {
+        try {
+            const raw = await gmailMessage(row.gmail_message_id, fetchImpl);
+            const mail = normalizeMessage(raw);
+            if (raw.labelIds?.includes('SENT') && !raw.labelIds.some(label => ['DRAFT', 'TRASH', 'SPAM'].includes(label))
+                && mail.direction === 'outbound' && mail.id === row.gmail_message_id && mail.thread_id === row.gmail_thread_id
+                && Math.abs(Date.parse(mail.occurred_at) - Date.parse(row.sent_at)) <= 120_000
+                && envelopeHash({ to: mail.to_addresses, cc: mail.cc_addresses, subject: mail.subject,
+                    attachments: mail.attachments.filter(a => !a.inline) }) === envelope) {
+                return { state: 'sent', gmail_message_id: mail.id, gmail_thread_id: mail.thread_id, sent_at: mail.occurred_at };
+            }
+        } catch {
+            return { state: 'unknown' };
+        }
+        return { state: 'unknown' };
+    }
+    return readSentProof({ rfc_message_id: legacyMessageId('legacy-delivery', deliveryId),
+        thread_id: row.gmail_thread_id, started_at: row.requested_at, envelope_hash: envelope }, fetchImpl);
+}
+
+module.exports = { reconcileLegacyDelivery, reconcileSentAttempt, resendMailPreview, resendMail, gmailJson, gmailMessage, getGlobalThreadLink, attachmentContentDisposition, caseReference, detectCandidatesFailIsolated, EMPTY_REPLY_ATTACHMENTS_HASH, findStandaloneDelivery, probeStandaloneDelivery, getAttachment, getAttachmentBinary, getBoundAttachmentVariantBinary, inspectExpiredEmptyStandalonePreview, linkIntakeFollowUp, managedReplyMetadata, manualLink, normalizeMessage, portalDocuments, productionE2eMessageId, reconcileEstimateSubmission, readIntakeReplyContext, replyContentPreview, replyContext, replyPreview, replyReferences, replySubject, restoreManagedOriginalFilenames, safeAttachmentFilename, sendReply, sendStandalone, standaloneContentPreview, standalonePreview, streamAttachmentResponse, syncCase, validGmailAttachmentReference, validGmailId };
 module.exports.mailboxProfile = mailboxProfile;
 module.exports.verifyReplyPreview = verifyReplyPreview;

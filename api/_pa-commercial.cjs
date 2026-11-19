@@ -12,10 +12,12 @@ const CUSTOMER_CONFIRMATION_TEMPLATE_VERSION = 'PA-CUSTOMER-WEB-V3.2';
 const RECEIPT_TEMPLATE_VERSION = 'PA-RECEIPT-V4.1';
 const CONFIRMATION_URL_PLACEHOLDER = '発行時に正式URLが入ります';
 const DIRECT_CONFIRM_WITH_ESTIMATE = 'DIRECT_CONFIRM_WITH_ESTIMATE';
+const DIRECT_CONFIRM_LINK_ONLY = 'DIRECT_CONFIRM_LINK_ONLY';
 const LEGACY_CONFIRMATION = 'LEGACY';
+const isDirectConfirmation = (mode) => mode === DIRECT_CONFIRM_WITH_ESTIMATE || mode === DIRECT_CONFIRM_LINK_ONLY;
 const confirmationMode = (value) => {
   const mode = value == null ? LEGACY_CONFIRMATION : value;
-  if (![LEGACY_CONFIRMATION, DIRECT_CONFIRM_WITH_ESTIMATE].includes(mode)) throw Error('invalid_contract');
+  if (mode !== LEGACY_CONFIRMATION && !isDirectConfirmation(mode)) throw Error('invalid_contract');
   return mode;
 };
 // The confirmation outbox is also the estimate delivery authority in direct mode.
@@ -54,17 +56,19 @@ const estimateDelivery = (estimate, outbox, offers, recoveryEvidence, gmailMessa
     ? { ...pending, state: 'unknown', sent_at: null, evidence_source: null }
     : pending);
 };
+const deliveryNeedsReview = job => ['processing', 'unknown'].includes(job.state)
+  || job.delivery_state === 'unknown_after_provider_start'
+  || (job.state === 'failed' && !(job.delivery_state === 'failed_before_provider'
+    && job.provider_request_started === false && job.provider_response_received === false && job.provider_http_status == null
+    && job.provider_message_id == null && job.provider_thread_id == null))
+  || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked' && job.provider_request_started === true);
 const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offers }) => {
   const related = (operationId && job.operation_id === operationId)
     || (job.job_kind === 'estimate' && job.aggregate_id === estimateId)
     || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
       && (job.aggregate_id === confirmationId
         || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
-  return related && (['processing', 'unknown'].includes(job.state)
-    || job.delivery_state === 'unknown_after_provider_start'
-    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
-      && (!job.provider_response_received || job.provider_http_status >= 500
-        || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
+  return related && deliveryNeedsReview(job);
 };
 const LEGACY_CONFIRMATION_RECOVERY_AUTHORITY = Object.freeze({
   case_id: '21073084-a71f-4892-b97d-7717aeda0672',
@@ -85,7 +89,9 @@ const confirmationBodyTemplate = (inquiry, mode = LEGACY_CONFIRMATION) => {
   const contact = String(inquiry.contact_name || inquiry.customer_name || 'ご担当者').trim().replace(/\s*様\s*$/u, '');
   const request = mode === DIRECT_CONFIRM_WITH_ESTIMATE
     ? '御見積書を添付しております。\n内容およびキャンセル条件・お支払条件等をご確認いただき、正式受注確認ページより正式なご依頼をお願いいたします。'
-    : '対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。';
+    : mode === DIRECT_CONFIRM_LINK_ONLY
+      ? '対象の見積書は正式受注確認ページで閲覧できます。ご依頼内容、キャンセル・変更条件、お支払条件をご確認のうえ、同ページから正式にご依頼ください。'
+      : '対象のお見積り、キャンセル・変更条件、お支払期限をご確認ください。';
   return `${contact} 様\n\nお世話になっております。\nARA-TECHの荒殿です。\n\n「${String(inquiry.event_name || '').trim()}」の正式受注確認をご案内いたします。\n${request}\n\n確認ページ：{{CONFIRMATION_URL}}\n\nご不明な点や調整が必要な事項がございましたら、正式依頼の前にこのメールへご返信ください。\n\nよろしくお願いいたします。\n\nARA-TECH\n荒殿`;
 };
 
@@ -99,7 +105,7 @@ const SAFE = new Set([
   'confirmation_send_owner_approval_required', 'confirmation_send_authority_changed',
   'revoke_reason_required', 'invalid_revision_start', 'outbox_not_found', 'outbox_busy',
   'outbox_unknown_requires_reconciliation', 'outbox_lease_changed', 'invalid_outbox_result',
-  'mail_outcome_unknown',
+  'mail_outcome_unknown', 'mail_resend_unavailable', 'mail_resend_source_changed', 'mail_resend_approval_changed', 'retry_not_allowed',
   'invalid_settlement', 'settlement_not_ready', 'contract_not_found', 'invalid_billing',
   'invalid_billing_mail', 'due_date_evidence_required', 'invoice_document_not_allowed',
   'billing_not_open', 'invalid_payment', 'payment_not_found', 'invalid_payment_adjustment',
@@ -260,9 +266,8 @@ const deliveryFailureDetails = (error, trace = {}) => {
   const providerHttpStatus = Number.isInteger(trace.provider_http_status)
     ? trace.provider_http_status
     : Number(failureCode.match(/^gmail_send_([1-5][0-9]{2})$/u)?.[1]) || null;
-  const deliveryState = !providerRequestStarted
-    ? 'failed_before_provider'
-    : providerResponseReceived ? 'failed_after_provider_response' : 'unknown_after_provider_start';
+  const deliveryState = providerRequestStarted || rawCode === 'mail_outcome_unknown'
+    ? 'unknown_after_provider_start' : 'failed_before_provider';
   const state = deliveryState === 'unknown_after_provider_start' ? 'unknown' : 'failed';
   const safeMessages = {
     invalid_confirmation: '送信内容の確認情報と添付ファイルが一致しません。',
@@ -272,9 +277,8 @@ const deliveryFailureDetails = (error, trace = {}) => {
     invalid_production_e2e_test: 'Production TEST配送の固定条件と一致しません。'
   };
   const safeMessage = safeMessages[failureCode]
-    || (failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。'
-      : failureCode.startsWith('gmail_send_') ? 'Gmail APIが送信リクエストを受理しませんでした。'
-        : deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : 'メール配送開始前に失敗しました。');
+    || (deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。'
+      : failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。' : 'メール配送開始前に失敗しました。');
   const phase = /^[a-z][a-z0-9_]{0,99}$/u.test(String(trace.phase || '')) ? trace.phase : 'dispatch';
   return { state, deliveryState, failureCode, safeMessage, phase, providerRequestStarted, providerResponseReceived, providerHttpStatus };
 };
@@ -504,7 +508,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     ]) : [[], []];
     const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
-    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => item);
+    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) =>
+      ({ ...item, requires_reconciliation: deliveryNeedsReview(item) }));
+    const invoicesToReview = new Set(safeOutbox.filter(job => job.job_kind === 'invoice' && job.requires_reconciliation).map(job => job.aggregate_id));
     return {
       case_status: inquiry.status,
       state: effectiveState,
@@ -513,7 +519,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
-      outbox: safeOutbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
+      outbox: safeOutbox, billings: billings.map(item => ({
+        ...item, invoice_requires_reconciliation: item.invoice_policy === 'separate_pdf' && invoicesToReview.has(item.id)
+      })), payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
       confirmation_preflight: {
         event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
@@ -620,10 +628,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     const agreement = termsForIssue(text(inquiry.event_date, 10));
     const bodyTemplate = confirmationBodyTemplate(inquiry, mode);
     const previewBody = bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER);
-    const confirmationAttachment = [{ filename: documentRow.original_filename, mime_type: documentRow.mime_type, data: quoteBytes.toString('base64url') }];
+    const confirmationAttachment = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [pdfAttachment(documentRow.original_filename, quoteBytes)];
     const email = await confirmationMailPreview({ caseId: safeCaseId, actor, body: previewBody, attachments: confirmationAttachment, contentOnly: true });
     if (emailAddress(email.recipient) !== emailAddress(inquiry.email)) throw Error('invalid_contract');
-    if (mode === DIRECT_CONFIRM_WITH_ESTIMATE && email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id) throw Error('invalid_contract');
+    if (isDirectConfirmation(mode) && email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id) throw Error('invalid_contract');
     const contactName = String(inquiry.contact_name || inquiry.customer_name || '').trim();
     const organization = String(inquiry.organization_name || '').trim();
     const customerDisplay = [organization, contactName].filter(Boolean).join(' ');
@@ -709,8 +717,10 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       one('pa_commercial_outbox', { inquiry_id: 'eq.' + caseId, aggregate_id: 'eq.' + offerId, job_kind: 'eq.confirmation', select: '*' })
     ]);
     if (!offer || !job || !['queued', 'failed'].includes(job.state) || !job.secret_envelope || Number(new Date(offer.expires_at)) <= Date.now()) throw Error('invalid_contract');
+    const mode = confirmationMode(offer.snapshot?.confirmation_mode);
     const estimate = current.estimates.find((item) => item.id === offer.estimate_revision_id);
     const documentRow = estimate && current.documents.find((item) => item.id === estimate.document_id);
+    const expectedAttachments = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [documentRow?.id];
     if (!estimate || !documentRow || current.state.current_estimate_revision_id !== estimate.id
       || offer.snapshot?.estimate?.estimate_id !== estimate.id
       || offer.snapshot?.estimate?.document_id !== documentRow.id
@@ -721,7 +731,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       || offer.snapshot?.estimate?.currency !== estimate.currency
       || current.state.estimate_change_state !== 'ready'
       || offer.quote_sha256 !== documentRow.sha256
-      || !Array.isArray(job.attachment_ids) || job.attachment_ids.length !== 1 || job.attachment_ids[0] !== documentRow.id
+      || !Array.isArray(job.attachment_ids) || canonical(job.attachment_ids) !== canonical(expectedAttachments)
       || pdf.sha(Buffer.from(postgresJsonbText(offer.snapshot), 'utf8')) !== offer.snapshot_sha256) throw Error('document_identity_mismatch');
     const quoteBytes = fromBytea(offer.quote_pdf);
     if (pdf.sha(quoteBytes) !== offer.quote_sha256) throw Error('document_identity_mismatch');
@@ -730,7 +740,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     await pdf.validatePdf(quoteBytes, offer.quote_sha256);
     const bodyTemplate = text(job.body_text, 20000);
     if (!bodyTemplate.includes('{{CONFIRMATION_URL}}')) throw Error('invalid_contract');
-    const attachment = [{ filename: documentRow.original_filename, mime_type: documentRow.mime_type, data: quoteBytes.toString('base64url') }];
+    const attachment = mode === DIRECT_CONFIRM_LINK_ONLY ? [] : [pdfAttachment(documentRow.original_filename, quoteBytes)];
     const email = await confirmationMailPreview({
       caseId, actor, body: bodyTemplate.replace('{{CONFIRMATION_URL}}', CONFIRMATION_URL_PLACEHOLDER), attachments: attachment,
       ccAddresses: job.reply_binding?.cc_addresses || [], contentOnly: true
@@ -739,13 +749,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       || email.gmail_thread_id !== job.reply_binding?.thread_id
       || email.reply_source_message_id !== job.reply_binding?.reply_source_message_id
       || canonical(email.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('stale_confirmation_preview');
-    const mode = confirmationMode(offer.snapshot?.confirmation_mode);
-    if (mode === DIRECT_CONFIRM_WITH_ESTIMATE && (job.reply_binding?.confirmation_mode !== mode
+    if (isDirectConfirmation(mode) && (job.reply_binding?.confirmation_mode !== mode
       || email.gmail_thread_id !== current.confirmation_preflight.gmail_thread_id)) throw Error('stale_confirmation_preview');
     const authority = {
       offer_id: offer.id, offer_version: Number(offer.version), offer_snapshot_sha256: offer.snapshot_sha256,
       outbox_id: job.id, outbox_state: job.state, recipient: job.recipient, subject: job.subject,
-      body_template_sha256: pdf.sha(Buffer.from(bodyTemplate, 'utf8')), attachment_sha256: offer.quote_sha256,
+      body_template_sha256: pdf.sha(Buffer.from(bodyTemplate, 'utf8')),
+      attachment_sha256: attachment.length ? offer.quote_sha256 : null,
       current_estimate_revision_id: current.state.current_estimate_revision_id,
       confirmation_mode: mode, gmail_thread_id: email.gmail_thread_id,
       reply_source_message_id: email.reply_source_message_id, cc: email.cc_addresses || []
@@ -772,7 +782,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         reply_source_message_id: result.email.reply_source_message_id, cc: result.email.cc_addresses || []
       },
       estimate: { ...result.customerSnapshot.estimate, bytes: result.quoteBytes.length },
-      email: { subject: result.email.subject, body: result.email.body, html: result.email.html },
+      email: { subject: result.email.subject, body: result.email.body, html: result.email.html, attachment_count: result.confirmationAttachment.length },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
   }
@@ -801,7 +811,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         reply_source_message_id: prepared.email.reply_source_message_id, cc: prepared.email.cc_addresses || []
       },
       estimate: { ...prepared.offer.snapshot.estimate, bytes: prepared.quoteBytes.length },
-      email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html },
+      email: { subject: prepared.email.subject, body: prepared.email.body, html: prepared.email.html, attachment_count: prepared.attachment.length },
       versions: { customer: CUSTOMER_CONFIRMATION_TEMPLATE_VERSION, receipt: RECEIPT_TEMPLATE_VERSION }
     };
   }
@@ -815,6 +825,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
 
   async function issueEstimate(input, actor) {
     const preparationMode = confirmationMode(input.confirmation_mode);
+    if (preparationMode === DIRECT_CONFIRM_LINK_ONLY) throw Error('invalid_estimate');
     if (preparationMode === DIRECT_CONFIRM_WITH_ESTIMATE && (input.source_kind !== 'managed_send' || input.source_sent_at)) throw Error('invalid_estimate');
     const bytes = Buffer.from(text(input.content_base64, 8000000), 'base64');
     await pdf.validatePdf(bytes, text(input.sha256, 64));
@@ -946,7 +957,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   }
 
   async function issueDirectConfirmationAndSend(input, actor) {
-    if (input.confirmation_mode !== DIRECT_CONFIRM_WITH_ESTIMATE) throw Error('invalid_contract');
+    if (!isDirectConfirmation(input.confirmation_mode)) throw Error('invalid_contract');
     const issued = await issueConfirmation(input, actor);
     // A repeated final operation reports the existing outcome, including unknown.
     // Only a separate, newly approved send operation may retry a definite failure.
@@ -1193,6 +1204,28 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_evidence: object(input.evidence)
   });
 
+  async function deliveryDocuments(job) {
+    if (job.job_kind === 'accept_receipt') return require('./_pa-contract.cjs').createService({ fetchImpl }).receiptAttachments(job.inquiry_id, job.aggregate_id);
+    const attachments = [];
+    for (const id of job.attachment_ids || []) {
+      const source = await document(job.inquiry_id, id);
+      if (job.job_kind === 'confirmation' || job.job_kind === 'confirmation_reminder') {
+        const offer = await one('pa_contract_offers', { id: 'eq.' + job.aggregate_id, inquiry_id: 'eq.' + job.inquiry_id, select: 'quote_pdf,quote_sha256,snapshot' });
+        if (!offer || !source.bytes.equals(fromBytea(offer.quote_pdf)) || pdf.sha(source.bytes) !== offer.quote_sha256
+          || source.filename !== offer.snapshot?.quote?.filename) throw Error('document_identity_mismatch');
+      }
+      attachments.push({ filename: source.filename, mime_type: source.mime_type, data: source.bytes.toString('base64url') });
+    }
+    return attachments;
+  }
+
+  function frozenDeliveryFingerprint(job, attachments) {
+    return pdf.sha(Buffer.from(canonical([
+      job.id, job.inquiry_id, job.aggregate_id, job.job_kind, job.recipient, job.subject, job.body_text,
+      job.secret_envelope, job.attachment_ids, job.reply_binding, mail.replyAttachmentsHash(attachments)
+    ])));
+  }
+
   const defaultTransport = async (job, attachments, deliveryTrace, internal = {}) => {
     deliveryTrace.phase = 'adapter_validation';
     const adapter = String(process.env.PA_MAIL_ADAPTER || '').trim();
@@ -1202,6 +1235,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
     if (adapter !== 'gmail') throw Error('mail_adapter_not_configured');
     deliveryTrace.phase = 'secret_resolution';
+    const deliveryAttempt = { outboxId: job.id, commercialFingerprint: frozenDeliveryFingerprint(job, attachments) };
     let body = job.body_text;
     if (job.secret_envelope) body = body.replace('{{CONFIRMATION_URL}}', decryptSecret(job.secret_envelope));
     if (job.job_kind === 'confirmation' && job.reply_binding?.delivery_mode === 'standalone_production_e2e') {
@@ -1220,12 +1254,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
         confirmationToken: recovery?.confirmation_token || job.reply_binding.confirmation_token,
         attachmentAuthority: recovery?.attachment_authority,
-        subjectOverride: job.subject, jobId: job.id, deliveryTrace
+        subjectOverride: job.subject, jobId: job.id, deliveryTrace, deliveryAttempt
       }, fetchImpl);
     }
     if(job.job_kind==='accept_receipt'){
       const binding=job.reply_binding||{};
-      const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,deliveryTrace,
+      const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,deliveryTrace,deliveryAttempt,
         ...(binding.reply_source_explicit?{replySourceMessageId:binding.reply_source_message_id,replySourceThreadId:binding.reply_source_thread_id}:{})};
       const preview=await gmail.replyPreview(options,fetchImpl);
       if(emailAddress(preview.recipient)!==emailAddress(job.recipient))throw Error('recipient_changed');
@@ -1242,13 +1276,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         || canonical(fresh.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('recipient_changed');
       return gmail.sendReply({
         inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments, mode: 'confirmation',
-        confirmationToken: fresh.confirmation_token, deliveryTrace, ccAddresses: fresh.cc_addresses
+        confirmationToken: fresh.confirmation_token, deliveryTrace, deliveryAttempt, ccAddresses: fresh.cc_addresses
       }, fetchImpl);
     }
     return gmail.sendReply({
       inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
       mode: job.job_kind === 'confirmation' ? 'confirmation' : 'normal', confirmationToken: job.reply_binding.confirmation_token,
-      deliveryTrace,
+      deliveryTrace, deliveryAttempt,
       ccAddresses: job.reply_binding.cc_addresses || [],
       ...(job.reply_binding.reply_source_explicit ? {
         replySourceMessageId: job.reply_binding.reply_source_message_id,
@@ -1262,10 +1296,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     if (internal.legacyRecoveryAuthorization && (jobId !== legacyRecoveryAuthority.outbox_id
       || internal.legacyRecoveryAuthorization.job_id !== jobId)) throw Error('production_e2e_recovery_blocked');
     const staged = await one('pa_commercial_outbox', {
-      id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,provider_message_id'
+      id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,attempt_count,provider_message_id'
     });
     if (!staged) throw Error('outbox_not_found');
     if (input.case_id !== undefined && uuid(input.case_id) !== staged.inquiry_id) throw Error('outbox_not_found');
+    if (staged.state === 'sent') return { state: 'sent', provider_message_id: staged.provider_message_id || null, already_committed: true };
+    if (staged.state === 'cancelled') return { state: 'cancelled' };
+    if (staged.state !== 'queued' || Number(staged.attempt_count || 0) !== 0) throw Error('outbox_unknown_requires_reconciliation');
     if (staged.job_kind === 'confirmation' && !internal.legacyRecoveryAuthorization && staged.state !== 'sent') {
       const caseId = uuid(input.case_id);
       const offerId = uuid(input.offer_id);
@@ -1289,17 +1326,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     let sent;
     const deliveryTrace = { phase: 'attachment_loading', provider_request_started: false, provider_response_received: false, provider_http_status: null };
     try {
-      let documents=[];
-      if(job.job_kind==='accept_receipt')documents=await require('./_pa-contract.cjs').createService({fetchImpl}).receiptAttachments(job.inquiry_id,job.aggregate_id);
-      else for (const id of job.attachment_ids || []) {
-        const source = await document(job.inquiry_id, id);
-        if (job.job_kind === 'confirmation' || job.job_kind === 'confirmation_reminder') {
-          const offer = await one('pa_contract_offers', { id: 'eq.' + job.aggregate_id, inquiry_id: 'eq.' + job.inquiry_id, select: 'quote_pdf,quote_sha256,snapshot' });
-          if (!offer || !source.bytes.equals(fromBytea(offer.quote_pdf)) || pdf.sha(source.bytes) !== offer.quote_sha256
-            || source.filename !== offer.snapshot?.quote?.filename) throw Error('document_identity_mismatch');
-        }
-        documents.push({ filename: source.filename, mime_type: source.mime_type, data: source.bytes.toString('base64url') });
-      }
+      const documents = await deliveryDocuments(job);
       if (sendTransport) {
         deliveryTrace.phase = 'provider_request';
         deliveryTrace.provider_request_started = true;
@@ -1307,6 +1334,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       sent = sendTransport
         ? await sendTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal)
         : await defaultTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal);
+      if (!gmail.validGmailId(sent?.gmail_message_id) || !gmail.validGmailId(sent?.gmail_thread_id)) throw Error('mail_outcome_unknown');
       if (sent?.production_e2e_standalone) {
         deliveryTrace.phase = 'post_send_failpoint';
         const failpoint = await rpc('pa_production_e2e_consume_failpoint', {
@@ -1320,24 +1348,22 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         }, fetchImpl);
       }
     } catch (error) {
-      let failure = deliveryFailureDetails(error, deliveryTrace);
-      if (job.reply_binding?.confirmation_mode === DIRECT_CONFIRM_WITH_ESTIMATE
-        && deliveryTrace.provider_request_started
-        && (deliveryTrace.provider_http_status >= 500
-          || (deliveryTrace.provider_http_status >= 200 && deliveryTrace.provider_http_status < 300))) {
-        // A successful provider response followed by parsing/audit/sync failure
-        // may already have delivered this mail. Never make it retryable.
-        failure = { ...failure, state: 'unknown', deliveryState: 'unknown_after_provider_start' };
-      }
-      await finishOutbox({
+      const failure = deliveryFailureDetails(error, deliveryTrace);
+      const evidence = sent || deliveryTrace.accepted_reply;
+      const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
-        p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
+        p_message: evidence?.gmail_message_id || null, p_thread: evidence?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
         p_delivery_state: failure.deliveryState, p_failure_phase: failure.phase,
         p_failure_code: failure.failureCode, p_safe_message: failure.safeMessage,
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
+      if (failure.state === 'unknown') {
+        await finish.catch(() => null);
+        throw Error('mail_outcome_unknown');
+      }
+      await finish;
       throw error;
     }
     try {
@@ -1361,6 +1387,61 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       }).catch(() => null);
       throw Error('mail_outcome_unknown');
     }
+  }
+
+  async function reconcileDelivery(input, actor) {
+    const caseId = uuid(input.case_id), jobId = uuid(input.job_id);
+    const job = await one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: 'id,state' });
+    if (!job) throw Error('outbox_not_found');
+    return gmail.reconcileSentAttempt({ inquiryId: caseId, actorId: actor.id, outboxId: jobId }, fetchImpl);
+  }
+
+  async function authorizeResendSnapshot(caseId, jobId, fingerprint) {
+    const id = 'eq.' + jobId, inquiryId = 'eq.' + caseId;
+    const job = await one('pa_commercial_outbox', { id, inquiry_id: inquiryId, select: '*' });
+    if (!job || !['sent', 'unknown', 'failed', 'processing'].includes(job.state)
+      || job.reply_binding?.delivery_mode === 'standalone_production_e2e'
+      || (job.state === 'processing' && (!job.lease_expires_at || Date.parse(job.lease_expires_at) > Date.now()))) {
+      throw Error('mail_resend_unavailable');
+    }
+    const query = { id: 'eq.' + job.aggregate_id, inquiry_id: inquiryId };
+    const commercial = await one('pa_case_commercial_state', { inquiry_id: inquiryId,
+      select: 'current_estimate_revision_id,closed_operation_id,estimate_change_state' });
+    if (!commercial || commercial.closed_operation_id) throw Error('mail_resend_source_changed');
+    if (job.job_kind === 'estimate') {
+      if (commercial.current_estimate_revision_id !== job.aggregate_id) throw Error('mail_resend_source_changed');
+    } else if (['confirmation', 'confirmation_reminder', 'accept_receipt'].includes(job.job_kind)) {
+      const token = await one('pa_contract_tokens', { offer_id: query.id, select: 'state' });
+      if (job.job_kind === 'accept_receipt') {
+        if (token?.state !== 'accepted' || !await one('pa_contracts', { ...query, select: 'id' })) throw Error('mail_resend_source_changed');
+      } else {
+        const offer = await one('pa_contract_offers', { ...query, select: 'expires_at,estimate_revision_id,quote_sha256,snapshot' });
+        if (!offer || token?.state !== 'active' || !(Date.parse(offer.expires_at) > Date.now())
+          || offer.estimate_revision_id !== commercial.current_estimate_revision_id) throw Error('mail_resend_source_changed');
+        if (job.job_kind === 'confirmation' && offer.snapshot?.confirmation_mode === DIRECT_CONFIRM_LINK_ONLY) {
+          const quote = await document(caseId, offer.snapshot.estimate.document_id);
+          if (job.attachment_ids.length !== 0 || pdf.sha(quote.bytes) !== offer.quote_sha256
+            || quote.filename !== offer.snapshot.estimate.original_filename) throw Error('mail_resend_source_changed');
+        }
+      }
+    } else if (job.job_kind === 'invoice') {
+      const invoice = await one('pa_billings', { ...query, select: 'state,invoice_policy,invoice_document_id' });
+      if (invoice?.state !== 'open' || invoice.invoice_policy !== 'separate_pdf'
+        || job.attachment_ids?.length !== 1 || job.attachment_ids[0] !== invoice.invoice_document_id) throw Error('mail_resend_source_changed');
+    } else if (job.job_kind === 'change_proposal') {
+      const change = await one('pa_change_orders', { ...query, select: 'state' });
+      if (!['proposal', 'customer_acknowledged'].includes(change?.state)) throw Error('mail_resend_source_changed');
+    } else {
+      throw Error('mail_resend_unavailable');
+    }
+    if (frozenDeliveryFingerprint(job, await deliveryDocuments(job)) !== fingerprint) throw Error('mail_resend_source_changed');
+  }
+
+  function resendDelivery(input, actor, previewOnly) {
+    const inquiryId = uuid(input.case_id), outboxId = uuid(input.job_id);
+    const operation = previewOnly ? gmail.resendMailPreview : gmail.resendMail;
+    return operation({ inquiryId, outboxId, actorId: actor.id, acknowledged: input.acknowledged,
+      approvalToken: input.approval_token, validateCommercial: fingerprint => authorizeResendSnapshot(inquiryId, outboxId, fingerprint) }, fetchImpl);
   }
 
   const createProductionE2eClone = (input, actor) => rpc('pa_production_e2e_clone_case', {
@@ -1568,7 +1649,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   });
 
   return {
-    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,
+    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch, reconcileDelivery, resendDelivery,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,
     productionE2eRecoveryPreview, recoverProductionE2eDelivery, archiveProductionE2eCase,
@@ -1578,7 +1659,14 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     recordPrepayment: (input, actor) => rpc('pa_v5_record_prepayment', { p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id), p_payment_date: text(input.payment_date, 10), p_amount_minor: integer(input.amount_minor, 1), p_method: text(input.payment_method, 30), p_memo: text(input.memo, 5000, true) }),
     adjustPayment: (input, actor) => rpc('pa_v5_adjust_payment', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: input.billing_id ? uuid(input.billing_id) : null, p_payment: uuid(input.payment_id), p_operation: uuid(input.operation_id), p_delta_minor: integer(input.delta_minor, -9999999999, 9999999999), p_reason: text(input.reason, 2000) }),
     close: (input, actor) => rpc('pa_v5_payment_and_close', { p_actor: actor.id, p_case: uuid(input.case_id), p_billing: uuid(input.billing_id), p_expected_revision: integer(input.expected_revision), p_operation: uuid(input.operation_id), p_payment_date: input.payment_date || null, p_new_payment_minor: integer(input.new_payment_minor), p_method: input.payment_method || null, p_memo: text(input.memo, 5000, true) }),
-    reopen: (input, actor) => rpc('pa_v5_reopen_case', { p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id), p_reason: text(input.reason, 2000) })
+    reopen: (input, actor) => {
+      if (!mail.isMailResendOwner(actor.id)) throw Error('not_authorized');
+      if (input.expected_revision == null) throw Error('commercial_state_changed');
+      return rpc('pa_v5_reopen_case', {
+        p_actor: actor.id, p_case: uuid(input.case_id), p_operation: uuid(input.operation_id),
+        p_reason: text(input.reason, 2000), p_expected_revision: integer(input.expected_revision)
+      });
+    }
   };
 }
 

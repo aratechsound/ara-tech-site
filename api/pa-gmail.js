@@ -1,4 +1,4 @@
-const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, replyContext, replyPreview, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
+const { getAttachmentBinary, manualLink, portalDocuments, reconcileEstimateSubmission, reconcileLegacyDelivery, reconcileSentAttempt, replyContext, replyPreview, resendMailPreview, resendMail, sendReply, streamAttachmentResponse, syncCase, validGmailId } = require("./_pa-gmail.cjs");
 const { listUnlinkedMail, syncUnlinkedMail, decideUnlinkedMail, reviewUnlinkedMail } = require("./_ara-unlinked-mail.cjs");
 const { verifyAdmin } = require("./_pa-mail.cjs");
 const { linkIntakeFollowUp, mailboxProfile } = require("./_pa-gmail.cjs");
@@ -24,6 +24,10 @@ const ACTION_POLICY = Object.freeze({
     reply_context: "PA_GMAIL_REPLY_PREVIEW",
     reply_preview: "PA_GMAIL_REPLY_PREVIEW",
     send_reply: "PA_GMAIL_SEND_REPLY",
+    reconcile_reply: "PA_GMAIL_REPLY_PREVIEW",
+    reconcile_legacy_delivery: "PA_GMAIL_REPLY_PREVIEW",
+    resend_reply_preview: "PA_GMAIL_REPLY_PREVIEW",
+    resend_reply: "PA_GMAIL_SEND_REPLY",
     reconcile_estimate_submission: "PA_GMAIL_RECONCILE_ESTIMATE"
 });
 
@@ -127,6 +131,21 @@ module.exports = async (request, response) => {
             });
             return sendJson(response, 200, { ok: true, result });
         }
+        if (input.action === "reconcile_reply") {
+            const result = await reconcileSentAttempt({ inquiryId: input.inquiry_id, actorId: user.id, lookupKey: input.lookup_key });
+            return sendJson(response, 200, { ok: true, result });
+        }
+        if (input.action === "reconcile_legacy_delivery") {
+            const result = await reconcileLegacyDelivery({ inquiryId: input.inquiry_id, deliveryId: input.delivery_id });
+            return sendJson(response, 200, { ok: true, result });
+        }
+        if (input.action === "resend_reply_preview" || input.action === "resend_reply") {
+            const action = input.action === "resend_reply_preview" ? resendMailPreview : resendMail;
+            const result = await action({ inquiryId: input.inquiry_id, actorId: user.id, lookupKey: input.lookup_key,
+                acknowledged: input.acknowledged, approvalToken: input.approval_token });
+            return sendJson(response, 200, { ok: true, result });
+        }
+        const deliveryTrace = {};
         const result = await sendReply({
             inquiryId: input.inquiry_id,
             actorId: user.id,
@@ -135,9 +154,13 @@ module.exports = async (request, response) => {
             mode: input.mode,
             ccAddresses: input.cc_addresses,
             confirmationToken: input.confirmation_token,
+            deliveryAttempt: { lookupKey: input.lookup_key }, deliveryTrace,
             replySourceMessageId: input.reply_source_message_id,
             replySourceThreadId: input.reply_source_thread_id,
             replySourceDeliveryId: input.reply_source_delivery_id
+        }).catch(error => {
+            if (deliveryTrace.provider_request_started) throw new Error("mail_outcome_unknown");
+            throw error;
         });
         return sendJson(response, 200, { ok: true, result });
     } catch (error) {
@@ -145,7 +168,10 @@ module.exports = async (request, response) => {
         if (code === "intake_follow_up_not_linkable") return sendJson(response, 409, { ok: false, code });
         if (["mail_operation_conflict","mail_page_conflict","mail_link_conflict","inquiry_archived"].includes(code)) return sendJson(response, 409, { ok: false, code, phase:error.phase||'candidate_review', database_code:error.databaseCode||null });
         if (code === "gmail_mailbox_mismatch") return sendJson(response, 503, { ok: false, code });
+        if (code === "mail_outcome_unknown") return sendJson(response, 409, { ok: false, code });
         if (code === "not_authorized") return sendJson(response, 401, { ok: false, code });
+        if (code === "retry_not_allowed") return sendJson(response, 403, { ok: false, code });
+        if (["invalid_mail_attempt", "mail_resend_unavailable", "mail_resend_source_changed", "mail_resend_approval_changed"].includes(code)) return sendJson(response, 409, { ok: false, code });
         if (["invalid_mail_decision", "pa_only_operation", "invalid_input", "invalid_action", "invalid_gmail_thread", "invalid_gmail_attachment", "gmail_attachment_not_indexed", "gmail_attachment_not_found", "gmail_attachment_unavailable", "gmail_thread_not_linked", "invalid_reply_source", "reply_target_unavailable", "invalid_reply_cc", "invalid_confirmation", "invalid_reply_attachment", "invalid_reply_mode", "reply_attachments_too_large", "ambiguous_thread_link", "primary_conversation_exists", "inquiry_not_found", "invalid_estimate_reconciliation", "direct_gmail_message_not_indexed"].includes(code)) return sendJson(response, 400, { ok: false, code });
         if (isRateLimitUnavailable(error)) return sendJson(response, 503, { ok: false, code: "service_unavailable" });
         const safe = /^(gmail_(?:read|send|oauth)_\d{3}|gmail_send_invalid|gmail_not_configured)$/u.test(code) ? code : "service_unavailable";

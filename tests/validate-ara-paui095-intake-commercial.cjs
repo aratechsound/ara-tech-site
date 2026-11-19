@@ -42,6 +42,14 @@ function caseTransport(fixture) {
   };
   const fetchImpl = async (target, options = {}) => {
     const url = new URL(target);
+    const sentQuery = /^in:sent rfc822msgid:(.+)$/u.exec(url.searchParams.get('q') || '');
+    if (url.hostname === 'gmail.googleapis.com' && url.pathname.endsWith('/messages') && sentQuery) {
+      const messages = [...fixture.state.messages.values()].filter(message =>
+        message.labelIds.includes('SENT') && message.payload.headers.some(
+          header => header.name === 'Message-ID' && header.value === '<' + sentQuery[1] + '>'
+        )).map(message => ({ id: message.id, threadId: message.threadId }));
+      return { ok: true, status: 200, json: async () => ({ messages }) };
+    }
     if (url.hostname === 'gmail.googleapis.com' && url.pathname.endsWith('/messages/send')) {
       assert.equal(options.method, 'POST');
       const request = JSON.parse(options.body);
@@ -55,11 +63,17 @@ function caseTransport(fixture) {
         (_, value) => Buffer.from(value, 'base64').toString('utf8'));
       const recipient = header('To');
       assert([mailbox, 'public-customer@example.invalid'].includes(recipient), recipient);
+      if (fixture.state.failNextSend) {
+        fixture.state.failNextSend = false;
+        fixture.state.failedSend = { mime, threadId };
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
       const message = fixture.raw(id, threadId, mailbox, '隔離環境で送信したメール');
       message.labelIds = ['SENT'];
       message.internalDate = String(Date.now());
       message.payload.headers.find(row => row.name === 'To').value = recipient;
       message.payload.headers.find(row => row.name === 'Subject').value = subject;
+      if (header('Message-ID')) message.payload.headers.find(row => row.name === 'Message-ID').value = header('Message-ID');
       fixture.state.messages.set(id, message);
       const thread = fixture.state.threadMessages.get(threadId) || [];
       fixture.state.threadMessages.set(threadId, [...thread, message]);
@@ -92,10 +106,15 @@ async function installCommercialMigrations(db) {
   await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
   await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
   await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+  await db.exec(read('20261117165312_paui095_confirmation_link_only.sql'));
+  await db.exec(read('20261117183629_paui095_preserve_active_confirmation_on_estimate.sql'));
+  await db.exec(read('20261117184848_paui095_guard_current_estimate_recovery.sql'));
+  await db.exec(read('20261117190400_paui095_guard_case_reopen.sql'));
 }
 
 async function main() {
   const fixture = await createFixture();
+  const testResend = process.argv.includes('--paui107');
   const { db } = fixture;
   const { fetchImpl, sent, drain } = caseTransport(fixture);
   const originalFetch = global.fetch;
@@ -189,6 +208,69 @@ async function main() {
     const revision = async () => Number((await db.query(
       'select revision from pa_case_commercial_state where inquiry_id=$1', [caseId]
     )).rows[0]?.revision || 0);
+    let manualCount = 0;
+    async function verifyCommercialResend(jobId, previous = sent.at(-1)) {
+      if (!testResend) return;
+      const before = sent.length;
+      const scope = { case_id: caseId, job_id: jobId };
+      await db.query("update pa_mail_send_attempts set started_at=now()-interval '61 seconds' where outbox_id=$1", [jobId]);
+      const [root] = (await db.query('select * from pa_mail_send_attempts where outbox_id=$1', [jobId])).rows;
+      assert(root.snapshot_ciphertext && !root.snapshot_ciphertext.includes('customer@example.invalid'));
+      delete process.env.PA_MAIL_OWNER_USER_ID;
+      await assert.rejects(service.resendDelivery(scope, actor, true), /retry_not_allowed/);
+      process.env.PA_MAIL_OWNER_USER_ID = actor.id;
+      const protectedRecords = async () => JSON.stringify(await Promise.all([
+        db.query('select * from pa_commercial_outbox where id=$1',[jobId]),
+        db.query('select * from pa_case_commercial_state where inquiry_id=$1',[caseId]),
+        db.query('select * from pa_contracts where inquiry_id=$1',[caseId]),
+        db.query('select * from pa_billings where inquiry_id=$1',[caseId])
+      ]));
+      const immutable = await protectedRecords();
+      const preview = await service.resendDelivery(scope, actor, true);
+      assert.equal(preview.recipient, inquiry.email);
+      assert(preview.subject && preview.body && Array.isArray(preview.attachments));
+      assert.equal(sent.length,before);
+      await assert.rejects(service.resendDelivery({...scope,approval_token:preview.approval_token}, actor, false), /retry_not_allowed/);
+      await assert.rejects(service.resendDelivery({...scope,case_id:otherId,approval_token:preview.approval_token,acknowledged:true}, actor, false), /mail_resend_unavailable/);
+      const command = {...scope,approval_token:preview.approval_token,acknowledged:true};
+      const results = await Promise.allSettled([service.resendDelivery(command, actor, false),service.resendDelivery(command, actor, false)]);
+      assert.equal(results.filter(r=>r.status==='fulfilled'&&r.value.state==='sent').length,1,JSON.stringify(results));
+      assert.equal(sent.length,before+1);
+      const manual = sent.at(-1);
+      const strip = mime => mime.replace(/^Message-ID: .+?\r?$/mu,'');
+      assert.equal(strip(manual.mime),strip(previous.mime));
+      assert.equal(manual.threadId,previous.threadId);
+      assert.notEqual(manual.mime,previous.mime);
+      assert.equal(await protectedRecords(),immutable);
+      assert.equal((await db.query('select count(*)::int n from pa_mail_send_attempts where resend_of=$1',[root.operation_key])).rows[0].n,1);
+      const [originalRow] = (await db.query('select state from pa_commercial_outbox where id=$1',[jobId])).rows;
+      const claim = db.query('select pa_v5_outbox_claim($1,$2,$3) result',[actor.id,jobId,randomUUID()]);
+      if (originalRow.state === 'unknown') {
+        await assert.rejects(claim,/outbox_unknown_requires_reconciliation/);
+      } else {
+        assert.equal((await claim).rows[0].result.already_committed,true);
+      }
+      assert.equal(await protectedRecords(),immutable);
+      assert.equal(sent.length,before+1);
+      manualCount++;
+    }
+    if (testResend) {
+      const {reconcileLegacyDelivery}=require('../api/_pa-gmail.cjs');
+      const known = await reconcileLegacyDelivery({inquiryId:caseId,deliveryId:followUp.delivery.id},fetchImpl);
+      assert.equal(known.state,'sent');
+      assert.equal((await reconcileLegacyDelivery({inquiryId:otherId,deliveryId:followUp.delivery.id},fetchImpl)).state,'unknown');
+      const [legacy] = (await db.query("update pa_email_deliveries set status='unknown', requested_at=now()-interval '61 seconds', sent_at=null, gmail_message_id=null, gmail_thread_id=null where inquiry_id=$1 and message_type='customer_receipt' returning *",[caseId])).rows;
+      const legacyScope={inquiryId:caseId,deliveryId:legacy.id};
+      assert.equal((await reconcileLegacyDelivery(legacyScope,fetchImpl)).state,'sent');
+      const messageId = require('../api/_pa-send-once.cjs').legacyMessageId('legacy-delivery',legacy.id);
+      const matching = [...fixture.state.messages.values()].find(m=>m.payload.headers.some(h=>h.name==='Message-ID'&&h.value===messageId));
+      const RFC = matching.payload.headers.find(h=>h.name==='Message-ID');
+      const saved = RFC.value;
+      RFC.value = '<older-without-stable-id@example.invalid>';
+      assert.equal((await reconcileLegacyDelivery(legacyScope,fetchImpl)).state,'unknown');
+      RFC.value = saved;
+      assert.deepEqual((await db.query('select * from pa_email_deliveries where id=$1',[legacy.id])).rows[0],legacy);
+    }
     const estimate = await service.issueEstimate({
       case_id: caseId, expected_revision: await revision(), expected_current: null,
       operation_id: randomUUID(), document_id: randomUUID(), filename: '隔離検証 見積書.pdf',
@@ -201,18 +283,36 @@ async function main() {
     assert.equal((await service.dispatch({ job_id: estimate.outbox_id }, actor)).state, 'sent');
     assert.equal(sent.at(-1).threadId, provider.threadId);
     assert.match(sent.at(-1).mime, /Content-Type: application\/pdf/iu);
+    await verifyCommercialResend(estimate.outbox_id);
     console.log('PASS public intake, duplicate submission, first reply, linked sync and estimate send');
-    const preview = await service.confirmationPreview({ case_id: caseId }, actor);
+    const confirmationMode = testResend ? {confirmation_mode:'DIRECT_CONFIRM_LINK_ONLY'} : {};
+    const preview = await service.confirmationPreview({ case_id: caseId, ...confirmationMode }, actor);
     assert(preview.estimate.sent_at);
-    const offer = await service.issueConfirmation({
-      case_id: caseId, preview_fingerprint: preview.fingerprint, operation_id: randomUUID()
-    }, actor);
+    const confirmationInput = {case_id:caseId,preview_fingerprint:preview.fingerprint,operation_id:randomUUID()};
+    const offer = testResend
+      ? await service.issueDirectConfirmationAndSend({...confirmationInput,...confirmationMode},actor)
+      : await service.issueConfirmation(confirmationInput,actor);
     const binding = { case_id: caseId, offer_id: offer.id };
-    const sendPreview = await service.confirmationSendPreview(binding, actor);
-    assert.equal((await service.dispatch({
-      ...binding, job_id: offer.outbox_id, preview_fingerprint: sendPreview.fingerprint
-    }, actor)).state, 'sent');
+    if (testResend) {
+      assert.equal(offer.state,'sent');
+      assert.equal(preview.email.attachment_count,0);
+      assert.doesNotMatch(sent.at(-1).mime,/Content-Type: application\/pdf|Content-Disposition: attachment/iu);
+    } else {
+      const sendPreview = await service.confirmationSendPreview(binding, actor);
+      assert.equal((await service.dispatch({
+        ...binding, job_id: offer.outbox_id, preview_fingerprint: sendPreview.fingerprint
+      }, actor)).state, 'sent');
+    }
     assert.equal(sent.at(-1).threadId, provider.threadId);
+    await verifyCommercialResend(offer.outbox_id);
+    if (testResend) {
+      const reminder = await service.remindConfirmation({ ...binding, expected_revision:await revision(),
+        operation_id:randomUUID(), body_template:'正式受注の再案内です。\n{{CONFIRMATION_URL}}' }, actor);
+      fixture.state.failNextSend = true;
+      await assert.rejects(service.dispatch({ job_id:reminder.outbox_id },actor), /mail_outcome_unknown/);
+      await assert.rejects(service.dispatch({ job_id:reminder.outbox_id },actor), /outbox_unknown_requires_reconciliation/);
+      await verifyCommercialResend(reminder.outbox_id,fixture.state.failedSend);
+    }
     const storedOffer = (await db.query(
       'select snapshot_sha256,quote_sha256 from pa_contract_offers where inquiry_id=$1 and id=$2',
       [caseId, offer.id]
@@ -230,6 +330,10 @@ async function main() {
     assert.equal(accepted.receipt_status, 'ready');
     assert.equal(accepted.email_status, 'sent');
     assert.equal(sent.at(-1).threadId, provider.threadId);
+    if (testResend) {
+      const [receiptOutbox] = (await db.query("select id from pa_commercial_outbox where inquiry_id=$1 and job_kind='accept_receipt'",[caseId])).rows;
+      await verifyCommercialResend(receiptOutbox.id);
+    }
     const { snapshot } = (await db.query(
       'select snapshot from pa_contracts where id=$1 and inquiry_id=$2', [offer.id, caseId]
     )).rows[0];
@@ -268,21 +372,56 @@ async function main() {
     const [, attachment] = sent.at(-1).mime.split(/Content-Type: application\/pdf/iu);
     const [data] = attachment.split(/\r?\n\r?\n/u)[1].split(/\r?\n--/u);
     assert.deepEqual(Buffer.from(data.replace(/\s/gu, ''), 'base64'), invoice);
+    await verifyCommercialResend(billing.outbox_id);
     const sendCount = sent.length;
     assert.equal((await service.dispatch({ job_id: billing.outbox_id }, actor)).already_committed, true);
     close.expected_revision = await revision();
     assert.equal((await service.close(close, actor)).state, 'closed');
     assert.equal((await service.close(close, actor)).already_committed, true);
     assert.equal(sent.length, sendCount);
-    assert.equal(sendCount, 7, 'only the two acknowledgements, reply, estimate, offer, receipt and invoice');
+    assert.equal(manualCount,testResend?5:0);
+    assert.equal(sendCount, 7+manualCount, 'one request for each explicitly approved operation');
     assert.equal((await db.query(
       'select count(*)::int n from pa_payment_records where inquiry_id=$1 and billing_id=$2',
       [caseId, billing.id]
     )).rows[0].n, 1);
     assert((await db.query('select closed_at from pa_case_progress where inquiry_id=$1', [caseId])).rows[0].closed_at);
+    const reopen = {case_id:caseId,expected_revision:await revision(),operation_id:randomUUID(),reason:'Synthetic V5 reopen'};
+    const ownerSetting = process.env.PA_MAIL_OWNER_USER_ID;
+    delete process.env.PA_MAIL_OWNER_USER_ID;
+    await assert.throws(()=>service.reopen(reopen,actor),/not_authorized/u);
+    process.env.PA_MAIL_OWNER_USER_ID = actor.id;
+    try {
+      await assert.rejects(service.reopen({...reopen,expected_revision:reopen.expected_revision-1},actor),/commercial_state_changed/u);
+      await db.query('update pa_case_progress set is_on_hold=true where inquiry_id=$1',[caseId]);
+      await assert.rejects(service.reopen(reopen,actor),/case_unavailable/u);
+      await db.query('update pa_case_progress set is_on_hold=false where inquiry_id=$1',[caseId]);
+      const originalFacts = (await db.query(
+        'select (select jsonb_agg(to_jsonb(c)) from pa_contracts c where inquiry_id=$1) contracts,'+
+        ' (select jsonb_agg(to_jsonb(p)) from pa_payment_records p where inquiry_id=$1) payments',[caseId])).rows[0];
+      assert.equal((await service.reopen(reopen,actor)).reopen_operation_id,reopen.operation_id);
+      assert.equal((await service.reopen(reopen,actor)).already_committed,true);
+      await assert.rejects(service.reopen({...reopen,operation_id:randomUUID(),expected_revision:await revision()},actor),/case_unavailable/u);
+      const actualFacts = (await db.query(
+        'select (select jsonb_agg(to_jsonb(c)) from pa_contracts c where inquiry_id=$1) contracts,'+
+        ' (select jsonb_agg(to_jsonb(p)) from pa_payment_records p where inquiry_id=$1) payments',[caseId])).rows[0];
+      assert.deepEqual(actualFacts,originalFacts);
+      assert.equal((await db.query('select state from pa_billings where id=$1',[billing.id])).rows[0].state,'open');
+      const audit = (await db.query(
+        "select actor_user_id,details from pa_inquiry_audit where inquiry_id=$1 and action='case_reopened_v5'",[caseId])).rows;
+      assert.equal(audit.length,1);
+      assert.equal(audit[0].actor_user_id,actor.id);
+      assert.equal(audit[0].details.reason,reopen.reason);
+      assert.equal(sent.length,sendCount);
+      console.log('PASS V5 reopen Owner ACL, held and stale rejection, audit exactly once, contract and payments preserved, simulated Gmail 0');
+    } finally {
+      if (ownerSetting === undefined) delete process.env.PA_MAIL_OWNER_USER_ID;
+      else process.env.PA_MAIL_OWNER_USER_ID = ownerSetting;
+    }
     console.log('PASS public intake → first reply → linked sync → estimate sent → confirmation → consent → separate PDF invoice sent → payment → closed');
-    console.log('PASS 7 simulated Gmail sends, 0 live Gmail sends or production DB changes');
+    console.log(`PASS ${sendCount} simulated Gmail acceptances, ${manualCount} Owner resends, ${testResend?1:0} first attempt HTTP 503, 0 live Gmail sends or production DB changes`);
   } finally {
+    if (testResend) delete process.env.PA_MAIL_OWNER_USER_ID;
     global.fetch = originalFetch;
     await drain();
     await db.close();

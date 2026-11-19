@@ -1,4 +1,5 @@
 let active=null,epoch=0;
+const receiptChecks=new Set();
 const errors={quote_case_mismatch:'この案件のお客様に送付済みの見積PDFを選択してください。',quote_identity_mismatch:'見積書が一致しません。PDFを選び直してください。',invalid_pdf:'PDFが壊れているか、対応範囲（1.5 MB・30ページ以内）を超えています。',unsafe_pdf:'フォーム・注釈・署名・動作を含むPDFは結合できません。固定ページの最終見積をご用意ください。',recipient_changed:'契約時のお客様と現在のGmail返信先が異なります。連携先をご確認ください。',invalid_contract:'入力内容と必須項目をご確認ください。',delivery_in_progress:'送信結果を確認中です。10分以上経過しても変わらない場合は、Gmailの送信済みを確認してください。',resend_ack_required:'再送前にGmailの送信済みと重複送信の可能性をご確認ください。',case_changed:'案件内容が更新されています。案件を開き直してください。'};
 Object.assign(errors,{invalid_payment_date:'別の支払条件には、開催日以降の承認済み支払期限日を指定してください。',payment_calendar_unavailable:'対象年の銀行休業日カレンダーが未対応です。管理者による更新後に発行してください。',related_document_invalid:'関連資料の案件・選択・一致をご確認ください。最終見積との重複、同一資料の重複、6件以上は選べません。',related_documents_too_large:'関連資料のPDFは合計1.5 MB以内で選択してください。'});
 export function renderContractPanel(context){
@@ -66,8 +67,25 @@ export function renderContractPanel(context){
    if(h.state==='accepted'){
     card.append(button(h.receipt?'契約控えPDFをダウンロード':'契約控えPDFを生成',async()=>{download(await api('receipt',{contract_id:h.id},true),`契約控え-v${h.version}.pdf`);await refresh();}));
     card.append(button('控え送信・再送のプレビュー',async()=>{clearMail();const revision=mailEpoch,preview=await api('mail_preview',{contract_id:h.id});if(!valid()||revision!==mailEpoch)return;if(!preview.html)throw Error('preview_unavailable');mailPreview={id:h.id,preview,attempt:crypto.randomUUID()};mailMeta.textContent=`To: ${preview.recipient} ／ 件名: ${preview.subject}`;mailAttachments.textContent=`添付PDF: ${preview.attachments.map(a=>a.filename).join(', ')}`;mailFrame.srcdoc=preview.html;mailFrame.hidden=false;$('preview').textContent=preview.body;plain.open=false;$('ack').checked=false;$('mail').hidden=false;}));
-    const mail=document.createElement('p');mail.textContent='控え送信：'+({sent:'送信済み',failed:'失敗（再送可能）',uncertain:'結果不明（Gmailの送信済みを確認）',sending:'処理中・結果確認中'}[h.delivery?.status]||'未送信');card.append(mail);
-    if(h.delivery?.status==='sending'&&Date.now()-Date.parse(h.delivery.created_at)>600000)card.append(button('結果不明として再送確認へ進む',async()=>{await api('mark_uncertain',{contract_id:h.id});await refresh();}));
+    const mail=document.createElement('p');mail.textContent='控え送信：'+({sent:'送信済み',failed:'送信失敗',uncertain:'送信結果未確認',sending:'送信結果を確認中'}[h.delivery?.status]||'未送信');card.append(mail);
+    if(h.delivery?.id){
+     let pending=false;
+     const reconcile=async()=>{
+      if(pending||!valid()||!card.isConnected)return;
+      pending=true;
+      mail.textContent='控え送信：送信結果を確認中';
+      const proof=await api('reconcile_receipt',{contract_id:h.id,delivery_id:h.delivery.id}).catch(()=>null);
+      if(valid()&&card.isConnected)mail.textContent='控え送信：'+(proof?.state==='sent'?'送信済み（Gmailで確認）':'送信結果未確認');
+      pending=false;
+     };
+     card.append(button('Gmail送信済みを再確認',reconcile));
+     if(['uncertain','sending'].includes(h.delivery.status)&&!receiptChecks.has(h.delivery.id)){
+      setTimeout(()=>{
+       if(!valid()||!card.isConnected||receiptChecks.has(h.delivery.id))return;
+       receiptChecks.add(h.delivery.id);void reconcile();
+      },60_000);
+     }
+    }
    }
    (historyIndex===0?$('history'):older).append(card);
   }
