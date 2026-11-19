@@ -1,9 +1,9 @@
 export const followUpType = 'content_hearing_follow_up';
 
-export function createIntakeComposer({inquiry, requestPreview, send, close}) {
+export function createIntakeComposer({inquiry, requestPreview, send, close, draft, embedded = false, readOnly = false, title = "お問い合わせへの返信"}) {
   const form = document.createElement('form');
   form.className = 'reply-composer';
-  form.setAttribute('aria-label', 'お問い合わせへの返信');
+  form.setAttribute('aria-label', title);
   form.innerHTML = `<div class="reply-heading"><h2>お問い合わせへの返信</h2>
     <button type="button" class="lightbtn" data-intake-close>閉じる</button></div>
     <label>宛先<input type="email" name="recipient" readonly></label>
@@ -17,13 +17,20 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
       <button type="submit" class="action blue" disabled>確認した内容で送信する</button>
     </section><p role="status" hidden></p>`;
   const {recipient, subject, body, confirmed} = form.elements;
+  subject.readOnly = body.readOnly = readOnly;
   const preview = form.querySelector('[data-intake-preview]');
   const review = form.querySelector('[data-intake-review]');
   const submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]');
+  if (readOnly) submit.textContent = '確認した内容で再送する';
+
   recipient.value = inquiry.email.trim();
-  subject.value = ('お問い合わせについて｜' + inquiry.inquiry_number).slice(0, 240);
+  subject.value = (draft?.subject || ('お問い合わせについて｜' + inquiry.inquiry_number)).slice(0, 240);
+  body.value = draft?.body ?? '';
+  form.querySelector('h2').textContent = title;
+  form.querySelector('.reply-heading').hidden = embedded;
   const frame = review.querySelector('iframe');
+  frame.title = title + 'プレビュー';
   let snapshot;
   let revision = 0;
   const message = text => {
@@ -54,8 +61,9 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
       const result = await requestPreview(draft);
       if (revision !== requestRevision || !form.isConnected) return;
       if (typeof result.html !== 'string' || !result.html) throw Error('preview_unavailable');
+      if (readOnly && !/^[a-f0-9]{64}$/u.test(result.delivery_snapshot || '')) throw Error('preview_unavailable');
       frame.srcdoc = result.html;
-      snapshot = draft;
+      snapshot = {...draft, deliverySnapshot:result.delivery_snapshot};
     } catch {
       if (revision === requestRevision) message('プレビューを表示できません。宛先と内容を確認してください。');
       return;
@@ -75,9 +83,13 @@ export function createIntakeComposer({inquiry, requestPreview, send, close}) {
     message('送信中です…');
     try {
       const result = await send(payload);
+      if (result.delivery.status === 'failed') {
+        message('送信に失敗しました。配送履歴を確認してください。');
+        return;
+      }
       message(result.delivery.status === 'sent' ? '送信しました。' : '送信結果を確認できません。配送記録を確認してください。');
     } catch (error) {
-      if (error.message === 'follow_up_recipient_changed') {
+      if (['follow_up_recipient_changed','schedule_recipient_changed'].includes(error.message)) {
         message('登録済みの宛先が変わりました。画面を再読み込みして確認してください。');
       } else if (error.message === 'send_already_attempted') {
         message('この案件の送信は試行済みです。配送記録を確認してください。');
