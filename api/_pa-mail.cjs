@@ -523,7 +523,7 @@ const buildRawMessage = ({ to, cc = [], subject, body, messageType, replyHeaders
         ...(carbonCopy.length ? [`Cc: ${carbonCopy.join(", ")}`] : []),
         `Reply-To: ${replyTo}`,
         `Subject: ${encodeWord(safeSubject)}`,
-        ...(messageId && /^<pa-e2e-[0-9a-f-]{36}@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
+        ...(messageId && /^<pa-(?:e2e-[0-9a-f-]{36}|once-[0-9a-f]{64})@ara-tech\.cc>$/u.test(String(messageId)) ? [`Message-ID: ${messageId}`] : []),
         "MIME-Version: 1.0"
     ];
     const inReplyTo = String(replyHeaders.inReplyTo || "").trim();
@@ -604,17 +604,19 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body, messageType }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType, deliveryTrace }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
+    const raw = buildRawMessage({ to, subject, body, messageType, config });
+    if (deliveryTrace) deliveryTrace.providerStarted = true;
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
+        method: "POST", redirect: "error",
         headers: {
             authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
             accept: "application/json"
         },
-        body: JSON.stringify({ raw: buildRawMessage({ to, subject, body, messageType, config }) })
+        body: JSON.stringify({ raw })
     });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const payload = await response.json();
@@ -667,14 +669,16 @@ const safeErrorCode = (error) => {
 };
 
 const deliver = async (row, fetchImpl = fetch) => {
+    const deliveryTrace = { providerStarted: false };
     try {
         const gmail = await sendGmail({
             to: row.recipient,
             subject: row.subject,
             body: row.body,
-            messageType: row.message_type
+            messageType: row.message_type,
+            deliveryTrace
         }, fetchImpl);
-        return updateDelivery(row.id, {
+        return await updateDelivery(row.id, {
             status: "sent",
             sent_at: new Date().toISOString(),
             failed_at: null,
@@ -683,10 +687,10 @@ const deliver = async (row, fetchImpl = fetch) => {
             error_summary: null
         }, fetchImpl);
     } catch (error) {
-        const code = safeErrorCode(error);
+        const code = deliveryTrace.providerStarted ? "mail_outcome_unknown" : safeErrorCode(error);
         try {
             return await updateDelivery(row.id, {
-                status: "failed",
+                status: deliveryTrace.providerStarted ? "unknown" : "failed",
                 failed_at: new Date().toISOString(),
                 gmail_message_id: null,
                 gmail_thread_id: null,
@@ -1272,14 +1276,22 @@ const getDelivery = async (deliveryId, fetchImpl = fetch) => {
     return rows[0];
 };
 
-const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = fetch) => {
+const assertMailResendOwner = (actorId, confirmed) => {
+    const ownerId = process.env.PA_MAIL_OWNER_USER_ID;
+    if (confirmed !== true || !isUuid(ownerId) || actorId !== ownerId) throw Error("retry_not_allowed");
+};
+
+const retryDelivery = async ({ deliveryId, inquiry, actorUserId, expected }, fetchImpl = fetch) => {
     if (!isUuid(actorUserId)) throw new Error("invalid_operation");
     const previous = await getDelivery(deliveryId, fetchImpl);
-    if (previous.inquiry_id !== inquiry.id || previous.status !== "failed") throw new Error("retry_not_allowed");
+    if (previous.inquiry_id !== inquiry.id || previous.status !== "failed"
+        || !/^(gmail_not_configured|gmail_oauth_(?:\d{3}|invalid))$/u.test(previous.error_summary || "")
+        || cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
     if (previous.message_type === "schedule_request") {
-        if (cleanHeader(inquiry.email).toLowerCase() !== previous.recipient.toLowerCase()) throw new Error("retry_not_allowed");
         await requireOpenScheduleToken(inquiry.id, scheduleUrlInMessage(previous.body), fetchImpl);
     }
+    if (expected?.recipient !== previous.recipient || expected.subject !== previous.subject
+        || expected.body !== previous.body) throw Error("retry_not_allowed");
 
     const successLookup = new URLSearchParams({
         dedupe_key: `eq.${previous.dedupe_key}`,
@@ -1290,14 +1302,7 @@ const retryDelivery = async ({ deliveryId, inquiry, actorUserId }, fetchImpl = f
     const successes = await supabaseRequest(`/rest/v1/pa_email_deliveries?${successLookup}`, {}, fetchImpl);
     if (Array.isArray(successes) && successes[0]) throw new Error("retry_not_allowed");
 
-    const parameters = new URLSearchParams({
-        dedupe_key: `eq.${previous.dedupe_key}`,
-        select: "attempt_number",
-        order: "attempt_number.desc",
-        limit: "1"
-    });
-    const attempts = await supabaseRequest(`/rest/v1/pa_email_deliveries?${parameters}`, {}, fetchImpl);
-    const attemptNumber = Number(attempts?.[0]?.attempt_number || 0) + 1;
+    const attemptNumber = Number(previous.attempt_number) + 1;
     return createAndDeliver({
         inquiry_id: inquiry.id,
         message_type: previous.message_type,
@@ -1373,6 +1378,7 @@ module.exports = {
     requestedServicesText,
     resultForMessageType,
     retryDelivery,
+    assertMailResendOwner,
     safeErrorCode,
     safeOriginalFilename,
     sendContentHearingAndFinalize,

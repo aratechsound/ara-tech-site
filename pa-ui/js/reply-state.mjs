@@ -17,6 +17,7 @@ export function createAttemptStore(storage, storageKey=keyFor){
     begin(key,caseId){const rows=read();if(rows.some(r=>r.key===key||r.caseId===caseId&&r.status!=='sent'))throw Error('send_already_attempted');rows.push({key,caseId,status:'pending',at:new Date().toISOString()});write(rows);},
     release(key){write(read().filter(r=>r.key!==key||r.status!=='pending'));},
     finish(key,status,receipt){const rows=read(),row=rows.find(r=>r.key===key);if(!row)throw Error('send_lock_unavailable');row.status=status;if(receipt){if(receipt.caseId!==row.caseId||!validMailId(receipt.messageId)||!validMailId(receipt.threadId))throw Error('invalid_reply_binding');row.receipt={caseId:row.caseId,messageId:receipt.messageId,threadId:receipt.threadId};row.verified=false;}write(rows);},
+    pendingFor:caseId=>read().find(r=>r.caseId===caseId&&['pending','unknown'].includes(r.status))?.key||null,
     receipts:caseId=>read().filter(r=>r.caseId===caseId&&r.status==='sent'&&r.receipt&&!r.verified).map(r=>({key:r.key,...r.receipt})),
     verify(key){const rows=read(),row=rows.find(r=>r.key===key);if(!row||row.status!=='sent')throw Error('send_lock_unavailable');row.verified=true;write(rows);}
   };
@@ -46,8 +47,8 @@ export function verifiedSentMail(receipt,value){
   return {...value,messages:[...unique.values()].sort((a,b)=>time(b)-time(a)||a.gmail_message_id.localeCompare(b.gmail_message_id))};
 }
 
-export function createReplyState({request,attempts,readSent=async()=>{throw Error('sent_readback_unavailable');},applySent=()=>{},changed=()=>{},now=Date.now,hash=digest,readOnly=false}){
-  const drafts=new Map(),sentJobs=new Map(),sendingCases=new Set();let generation=0,revision=0,authGeneration=0,listener=()=>{};
+export function createReplyState({request,attempts,readSent=async()=>{throw Error('sent_readback_unavailable');},applySent=()=>{},changed=()=>{},now=Date.now,hash=digest,readOnly=false,schedule=setTimeout}){
+  const drafts=new Map(),sentJobs=new Map(),sendingCases=new Set(),sentChecks=new Set();let generation=0,revision=0,authGeneration=0,listener=()=>{};
   let state={caseId:null,open:false,phase:'idle',body:'',cc:'',attachments:[],context:null,source:null,preview:null,confirmed:false,error:null,history:null};
   const notify=()=>{changed(state);listener(state);};
   function invalidate(){revision++;state.preview=null;state.confirmed=false;}
@@ -75,7 +76,31 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
       finally{job.promise=null;if(auth===authGeneration)notify();}
     });notify();return job.promise;
   }
+  function pendingLookup(caseId){
+    try{return attempts.pendingFor?.(caseId)||null;}catch{return null;}
+  }
+  async function reconcileUnknown(){
+    const caseId=state.caseId, key=pendingLookup(caseId), auth=authGeneration;
+    if(readOnly||!caseId||!key||sendingCases.has(caseId)||sentChecks.has(caseId))return;
+    const current=()=>auth===authGeneration&&state.caseId===caseId;
+    sentChecks.add(caseId);state.phase='checking-unknown';notify();
+    try{
+      const {result}=await request({action:'reconcile_reply',inquiry_id:caseId,lookup_key:key},current);
+      if(!current())return;
+      if(result?.state!=='sent'||!validMailId(result.gmail_message_id)||!validMailId(result.gmail_thread_id)){
+        state.phase='unknown';return;
+      }
+      const receipt={caseId,messageId:result.gmail_message_id,threadId:result.gmail_thread_id};
+      attempts.finish(key,'sent',receipt);
+      const job={key,receipt,phase:'sent-unverified',promise:null};
+      sentJobs.set(caseId,job);drafts.delete(caseId);reflect(job);
+      await refreshSent(caseId);
+    }catch{if(current())state.phase='unknown';}
+    finally{sentChecks.delete(caseId);if(current())notify();}
+  }
   return {
+    reconcileUnknown,
+    pendingLookup:()=>!readOnly&&pendingLookup(state.caseId),
     get:()=>state,
     readOnly,
     subscribe(fn){listener=fn;notify();return()=>{listener=()=>{};};},
@@ -131,13 +156,15 @@ export function createReplyState({request,attempts,readSent=async()=>{throw Erro
       // Lock synchronously before awaiting authentication or starting a POST.
       try{attempts.begin(p.key,c);}catch{state.error='send_lock_unavailable';state.confirmed=false;notify();return;}
       sendingCases.add(c);state.phase='sending';state.confirmed=false;notify();
-      try{const data=await request({action:'send_reply',...p.payload,confirmation_token:p.confirmation_token},()=>valid(g,r,c));
+      try{const data=await request({action:'send_reply',...p.payload,confirmation_token:p.confirmation_token,lookup_key:p.key},()=>valid(g,r,c));
         if(!validMailId(data.result?.gmail_message_id)||!validMailId(data.result?.gmail_thread_id)||data.result.gmail_thread_id!==p.gmail_thread_id)throw Error('send_outcome_unknown');
         const receipt={caseId:c,messageId:data.result.gmail_message_id,threadId:data.result.gmail_thread_id};
         try{attempts.finish(p.key,'sent',receipt);}catch{}
         if(authGeneration!==auth)return;
         const job={key:p.key,receipt,phase:'sent-refreshing',promise:null};sentJobs.set(c,job);drafts.delete(c);reflect(job);notify();await refreshSent(c);
-      }catch{try{attempts.finish(p.key,'unknown');}catch{}if(auth!==authGeneration||state.caseId!==c)return;state.phase='unknown';state.error='send_outcome_unknown';state.preview=null;}
+      }catch{try{attempts.finish(p.key,'unknown');}catch{}if(auth!==authGeneration||state.caseId!==c)return;state.phase='unknown';state.error='send_outcome_unknown';state.preview=null;
+        const timer=schedule(()=>{if(auth===authGeneration&&state.caseId===c&&state.open)void reconcileUnknown();},60_000);timer?.unref?.();
+      }
       finally{sendingCases.delete(c);}
       notify();
     },

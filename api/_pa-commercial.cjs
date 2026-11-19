@@ -260,9 +260,8 @@ const deliveryFailureDetails = (error, trace = {}) => {
   const providerHttpStatus = Number.isInteger(trace.provider_http_status)
     ? trace.provider_http_status
     : Number(failureCode.match(/^gmail_send_([1-5][0-9]{2})$/u)?.[1]) || null;
-  const deliveryState = !providerRequestStarted
-    ? 'failed_before_provider'
-    : providerResponseReceived ? 'failed_after_provider_response' : 'unknown_after_provider_start';
+  const deliveryState = providerRequestStarted || rawCode === 'mail_outcome_unknown'
+    ? 'unknown_after_provider_start' : 'failed_before_provider';
   const state = deliveryState === 'unknown_after_provider_start' ? 'unknown' : 'failed';
   const safeMessages = {
     invalid_confirmation: '送信内容の確認情報と添付ファイルが一致しません。',
@@ -272,9 +271,8 @@ const deliveryFailureDetails = (error, trace = {}) => {
     invalid_production_e2e_test: 'Production TEST配送の固定条件と一致しません。'
   };
   const safeMessage = safeMessages[failureCode]
-    || (failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。'
-      : failureCode.startsWith('gmail_send_') ? 'Gmail APIが送信リクエストを受理しませんでした。'
-        : deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。' : 'メール配送開始前に失敗しました。');
+    || (deliveryState === 'unknown_after_provider_start' ? '送信開始後の結果を確定できません。'
+      : failureCode.startsWith('gmail_oauth_') ? 'Gmail認証に失敗しました。' : 'メール配送開始前に失敗しました。');
   const phase = /^[a-z][a-z0-9_]{0,99}$/u.test(String(trace.phase || '')) ? trace.phase : 'dispatch';
   return { state, deliveryState, failureCode, safeMessage, phase, providerRequestStarted, providerResponseReceived, providerHttpStatus };
 };
@@ -1202,6 +1200,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     }
     if (adapter !== 'gmail') throw Error('mail_adapter_not_configured');
     deliveryTrace.phase = 'secret_resolution';
+    const deliveryAttempt = { outboxId: job.id };
     let body = job.body_text;
     if (job.secret_envelope) body = body.replace('{{CONFIRMATION_URL}}', decryptSecret(job.secret_envelope));
     if (job.job_kind === 'confirmation' && job.reply_binding?.delivery_mode === 'standalone_production_e2e') {
@@ -1220,12 +1219,12 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
         confirmationToken: recovery?.confirmation_token || job.reply_binding.confirmation_token,
         attachmentAuthority: recovery?.attachment_authority,
-        subjectOverride: job.subject, jobId: job.id, deliveryTrace
+        subjectOverride: job.subject, jobId: job.id, deliveryTrace, deliveryAttempt
       }, fetchImpl);
     }
     if(job.job_kind==='accept_receipt'){
       const binding=job.reply_binding||{};
-      const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,deliveryTrace,
+      const options={inquiryId:job.inquiry_id,actorId:job.actor_id,body,attachments,mode:'normal',ccAddresses:binding.cc_addresses||[],subjectOverride:job.subject,deliveryTrace,deliveryAttempt,
         ...(binding.reply_source_explicit?{replySourceMessageId:binding.reply_source_message_id,replySourceThreadId:binding.reply_source_thread_id}:{})};
       const preview=await gmail.replyPreview(options,fetchImpl);
       if(emailAddress(preview.recipient)!==emailAddress(job.recipient))throw Error('recipient_changed');
@@ -1242,13 +1241,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         || canonical(fresh.cc_addresses || []) !== canonical(job.reply_binding?.cc_addresses || [])) throw Error('recipient_changed');
       return gmail.sendReply({
         inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments, mode: 'confirmation',
-        confirmationToken: fresh.confirmation_token, deliveryTrace, ccAddresses: fresh.cc_addresses
+        confirmationToken: fresh.confirmation_token, deliveryTrace, deliveryAttempt, ccAddresses: fresh.cc_addresses
       }, fetchImpl);
     }
     return gmail.sendReply({
       inquiryId: job.inquiry_id, actorId: job.actor_id, body, attachments,
       mode: job.job_kind === 'confirmation' ? 'confirmation' : 'normal', confirmationToken: job.reply_binding.confirmation_token,
-      deliveryTrace,
+      deliveryTrace, deliveryAttempt,
       ccAddresses: job.reply_binding.cc_addresses || [],
       ...(job.reply_binding.reply_source_explicit ? {
         replySourceMessageId: job.reply_binding.reply_source_message_id,
@@ -1262,10 +1261,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     if (internal.legacyRecoveryAuthorization && (jobId !== legacyRecoveryAuthority.outbox_id
       || internal.legacyRecoveryAuthorization.job_id !== jobId)) throw Error('production_e2e_recovery_blocked');
     const staged = await one('pa_commercial_outbox', {
-      id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,provider_message_id'
+      id: 'eq.' + jobId, select: 'id,inquiry_id,aggregate_id,job_kind,state,attempt_count,provider_message_id'
     });
     if (!staged) throw Error('outbox_not_found');
     if (input.case_id !== undefined && uuid(input.case_id) !== staged.inquiry_id) throw Error('outbox_not_found');
+    if (staged.state === 'sent') return { state: 'sent', provider_message_id: staged.provider_message_id || null, already_committed: true };
+    if (staged.state === 'cancelled') return { state: 'cancelled' };
+    if (staged.state !== 'queued' || Number(staged.attempt_count || 0) !== 0) throw Error('outbox_unknown_requires_reconciliation');
     if (staged.job_kind === 'confirmation' && !internal.legacyRecoveryAuthorization && staged.state !== 'sent') {
       const caseId = uuid(input.case_id);
       const offerId = uuid(input.offer_id);
@@ -1307,6 +1309,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       sent = sendTransport
         ? await sendTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal)
         : await defaultTransport({ ...job, actor_id: actor.id }, documents, deliveryTrace, internal);
+      if (!gmail.validGmailId(sent?.gmail_message_id) || !gmail.validGmailId(sent?.gmail_thread_id)) throw Error('mail_outcome_unknown');
       if (sent?.production_e2e_standalone) {
         deliveryTrace.phase = 'post_send_failpoint';
         const failpoint = await rpc('pa_production_e2e_consume_failpoint', {
@@ -1320,15 +1323,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         }, fetchImpl);
       }
     } catch (error) {
-      let failure = deliveryFailureDetails(error, deliveryTrace);
-      if (job.reply_binding?.confirmation_mode === DIRECT_CONFIRM_WITH_ESTIMATE
-        && deliveryTrace.provider_request_started
-        && (deliveryTrace.provider_http_status >= 500
-          || (deliveryTrace.provider_http_status >= 200 && deliveryTrace.provider_http_status < 300))) {
-        // A successful provider response followed by parsing/audit/sync failure
-        // may already have delivered this mail. Never make it retryable.
-        failure = { ...failure, state: 'unknown', deliveryState: 'unknown_after_provider_start' };
-      }
+      const failure = deliveryFailureDetails(error, deliveryTrace);
       await finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
         p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
@@ -1338,7 +1333,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
-      throw error;
+      throw failure.state === 'unknown' ? Error('mail_outcome_unknown') : error;
     }
     try {
       await finishOutbox({
@@ -1361,6 +1356,13 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       }).catch(() => null);
       throw Error('mail_outcome_unknown');
     }
+  }
+
+  async function reconcileDelivery(input, actor) {
+    const caseId = uuid(input.case_id), jobId = uuid(input.job_id);
+    const job = await one('pa_commercial_outbox', { id: 'eq.' + jobId, inquiry_id: 'eq.' + caseId, select: 'id,state' });
+    if (!job) throw Error('outbox_not_found');
+    return gmail.reconcileSentAttempt({ inquiryId: caseId, actorId: actor.id, outboxId: jobId }, fetchImpl);
   }
 
   const createProductionE2eClone = (input, actor) => rpc('pa_production_e2e_clone_case', {
@@ -1568,7 +1570,7 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
   });
 
   return {
-    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch,
+    snapshot, document, confirmationPreview, confirmationReceiptPreview, confirmationSendPreview, confirmationSendReceiptPreview, issueEstimate, beginRevision, issueConfirmation, issueDirectConfirmationAndSend, replaceConfirmation, createBilling, dispatch, reconcileDelivery,
     recoveryCandidates, recoveryPreview, recoverEstimate, correctEstimate, remindConfirmation, createChangeProposal, recordChangeAgreement, composerPreview,
     createProductionE2eClone, armProductionE2eFailpoint, reconcileProductionE2eUnknown,
     productionE2eRecoveryPreview, recoverProductionE2eDelivery, archiveProductionE2eCase,

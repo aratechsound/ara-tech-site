@@ -409,6 +409,35 @@ const api = async (context, action, input = {}, binary = false) => {
     if (!response.ok || !payload.ok) throw Error(payload.code || "commercial_request_failed");
     return payload.result;
 };
+const scheduledDeliveryChecks = new Set();
+function appendDeliveryReadback(root, context, job, alert, label) {
+    let pending = false;
+    const check = async () => {
+        if (pending || !root.isConnected || context.signal?.aborted) return;
+        pending = true;
+        control.disabled = true;
+        alert.textContent = label + "：送信結果を確認できません。Gmail送信済みを照合します。";
+        try {
+            const result = await api(context, "reconcile_delivery", { job_id: job.id });
+            alert.textContent = label + (result.state === "sent" ? "：Gmailで送信を確認しました。" : "：送信結果未確認。自動再送は行っていません。");
+        } catch {
+            alert.textContent = label + "：送信結果未確認。自動再送は行っていません。";
+        } finally {
+            pending = false;
+            control.disabled = false;
+        }
+    };
+    const control = button("Gmail送信済みを確認", check, "button button--small");
+    root.append(control);
+    if (!["unknown", "processing"].includes(job.state) || scheduledDeliveryChecks.has(job.id)) return;
+    const timer = setTimeout(() => {
+        if (!control.isConnected || context.signal?.aborted) return;
+        if (scheduledDeliveryChecks.has(job.id)) return;
+        scheduledDeliveryChecks.add(job.id);
+        void check();
+    }, 60_000);
+    context.signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
+}
 const contractApi = async (context, action, input = {}, binary = false) => {
     const { caseId, token } = await caseAccess(context);
     const response = await fetch("/api/pa-contract", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...input, action, case_id: caseId }), cache: "no-store", signal: context.signal });
@@ -1204,7 +1233,6 @@ const render = async (context, data, epoch) => {
         actions.append(button("正式受注確認書PDF", async () => saveBlob(await contractApi(context, "receipt", { contract_id: accepted.id }, true), `正式受注確認書_v${accepted.version}.pdf`)));
         if (acceptedEstimate) actions.append(button("見積PDF", async () => saveBlob(await api(context, "document", { document_id: acceptedEstimate.document_id }, true), data.documents.find((item) => item.id === acceptedEstimate.document_id)?.original_filename || "見積書.pdf")));
         actions.append(button("実施準備へ", () => context.focusBilling()));
-        if (receiptJob?.state === "failed") actions.append(button("確認メールを再送", async () => { await api(context, "dispatch_outbox", { job_id: receiptJob.id }); await context.refreshCommercial(); }));
         if ((!change || change.state === "agreed") && !billing) actions.append(button("受注後の変更提案", () => openChangeProposal(context, state, accepted)));
         if (change && change.state !== "agreed") actions.append(button("変更合意を記録", async () => {
             const values = await formDialog("変更合意を記録", [
@@ -1252,7 +1280,10 @@ const render = async (context, data, epoch) => {
             : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内` }[pendingJob.job_kind] || safeJobKind;
         const alert = element("p", pendingJob.state === "unknown" ? "pa-commercial__error" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", pendingJob.state)}`);
         nextRoot.append(alert);
-        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && ["queued", "failed"].includes(pendingJob.state)) nextRoot.append(button("固定済み内容を送信", async () => {
+        if (["unknown", "processing", "failed"].includes(pendingJob.state)) {
+            appendDeliveryReadback(nextRoot, context, pendingJob, alert, kind);
+        }
+        if (pendingJob.delivery_scope === DELIVERY_SCOPE.CURRENT && ["estimate", "invoice", "confirmation_reminder"].includes(pendingJob.job_kind) && pendingJob.state === "queued") nextRoot.append(button("固定済み内容を送信", async () => {
             if (!window.confirm("表示中の固定済み宛先・本文・添付を送信しますか？")) return;
             await api(context, "dispatch_outbox", { job_id: pendingJob.id });
             await context.refreshCommercial();

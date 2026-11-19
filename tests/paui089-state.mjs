@@ -6,9 +6,9 @@ const A='case-a',B='case-b';
 const row=(id='m1',thread='t1',caseId=A)=>({inquiry_id:caseId,gmail_message_id:id,gmail_thread_id:thread,direction:'inbound',subject:'Fixture'});
 const memory=()=>{const m=new Map();return {getItem:k=>m.get(k),setItem:(k,v)=>m.set(k,v),m};};
 const context=p=>({inquiry_id:p.inquiry_id,gmail_thread_id:p.reply_source_thread_id,reply_source_message_id:p.reply_source_message_id,reply_source_explicit:true,reply_source_authority_hash:'source-'+p.reply_source_message_id,recipient:'customer@example.invalid',subject:'Re: Fixture',cc_addresses:[],allowed_cc:[]});
-function fixture({storage=memory(),transport}={}){let time=1000;const calls=[];const response=p=>p.action==='reply_context'?{context:context(p)}:p.action==='reply_preview'?{preview:{...context(p),cc_addresses:p.cc_addresses,body:p.body,mode:p.mode,html:'<p>ARA-TECH</p>',attachments:p.attachments.map(a=>({...a,size:3})),confirmation_token:'fixture-only',expires_at:new Date(time+60000).toISOString()}}:{result:{gmail_message_id:'sent-fixture',gmail_thread_id:p.reply_source_thread_id}};
+function fixture({storage=memory(),transport,schedule}={}){let time=1000;const calls=[];const response=p=>p.action==='reply_context'?{context:context(p)}:p.action==='reply_preview'?{preview:{...context(p),cc_addresses:p.cc_addresses,body:p.body,mode:p.mode,html:'<p>ARA-TECH</p>',attachments:p.attachments.map(a=>({...a,size:3})),confirmation_token:'fixture-only',expires_at:new Date(time+60000).toISOString()}}:{result:{gmail_message_id:'sent-fixture',gmail_thread_id:p.reply_source_thread_id}};
  const request=async(p,valid)=>{calls.push(structuredClone(p));assert(valid());return transport?transport(p,valid,response):response(p);};
- const state=createReplyState({request,attempts:createAttemptStore(storage),readSent:async r=>({links:[{inquiry_id:r.caseId,gmail_thread_id:r.threadId}],messages:[{inquiry_id:r.caseId,gmail_message_id:r.messageId,gmail_thread_id:r.threadId,direction:'outbound',sent_at:'2026-11-07T00:00:00Z'}]}),now:()=>time});state.setCase(A);
+ const state=createReplyState({request,attempts:createAttemptStore(storage),readSent:async r=>({links:[{inquiry_id:r.caseId,gmail_thread_id:r.threadId}],messages:[{inquiry_id:r.caseId,gmail_message_id:r.messageId,gmail_thread_id:r.threadId,direction:'outbound',sent_at:'2026-11-07T00:00:00Z'}]}),now:()=>time,schedule});state.setCase(A);
  return {state,calls,storage,tick:()=>{time+=61000;state.expire();}};
 }
 async function ready(f){await f.state.open(row());f.state.edit('body','Unsent local fixture');await f.state.preview();assert.equal(f.state.get().phase,'ready');f.state.confirm(true);}
@@ -48,6 +48,24 @@ await check('expiry and Auth invalidation revoke final confirmation',async()=>{f
 await check('explicit checkbox required; double click reaches send transport once',async()=>{let release;const f=fixture({transport:(p,v,res)=>p.action==='send_reply'?new Promise(r=>{release=()=>r(res(p));}):res(p)});await ready(f);f.state.confirm(false);await f.state.send();assert.equal(f.calls.filter(p=>p.action==='send_reply').length,0);f.state.confirm(true);const sent=f.state.send();await f.state.send();release();await sent;assert.equal(f.calls.filter(p=>p.action==='send_reply').length,1);assert.equal(f.state.get().phase,'sent');});
 await check('response loss blocks retry after edit source change close and reload; no secrets in attempt store',async()=>{const storage=memory(),f=fixture({storage,transport:(p,v,res)=>{if(p.action==='send_reply')throw Error('response lost');return res(p);}});await ready(f);await f.state.send();assert.equal(f.state.get().phase,'unknown');f.state.edit('body','new');await f.state.open(row('m2','t2'));await f.state.preview();await f.state.send();assert.equal(f.calls.filter(p=>p.action==='send_reply').length,1);const reloaded=fixture({storage});await reloaded.state.open(row());assert.equal(reloaded.state.blocked(),true);const raw=[...storage.m.values()].join();assert.doesNotMatch(raw,/fixture-only|Unsent local|customer@example|access_token/);});
 await check('history read never clears UNKNOWN lock or sends',async()=>{const f=fixture({transport:(p,v,res)=>{if(p.action==='send_reply')throw Error('lost');return res(p);}});await ready(f);await f.state.send();await f.state.history(async()=>({messages:[],audit:[]}));assert.equal(f.state.blocked(),true);assert.equal(f.calls.filter(c=>c.action==='send_reply').length,1);});
+await check('unknown schedules one read-only check and a matching SENT unlocks subsequent replies',async()=>{
+ const timers=[];
+ const f=fixture({schedule:(callback,delay)=>timers.push({callback,delay}),transport:(p,v,res)=>{
+  if(p.action==='send_reply')throw Error('lost');
+  if(p.action==='reconcile_reply')return {result:{state:'sent',gmail_message_id:'sent-fixture',gmail_thread_id:'t1'}};
+  return res(p);
+ }});
+ await ready(f);
+ await f.state.send();
+ assert.deepEqual(timers.map(timer=>timer.delay),[60_000]);
+ assert.equal(f.state.blocked(),true);
+ timers[0].callback();
+ await new Promise(setImmediate);
+ assert.equal(f.state.get().phase,'sent');
+ assert.equal(f.state.blocked(),false);
+ assert.deepEqual(f.calls.map(call=>call.action),['reply_context','reply_preview','send_reply','reconcile_reply']);
+ assert.equal(f.calls[2].lookup_key,f.calls[3].lookup_key);
+});
 await check('unavailable persistent lock fails closed',async()=>{const f=fixture({storage:{getItem(){throw Error('disabled');},setItem(){throw Error('disabled');}}});await f.state.open(row());f.state.edit('body','fixture');await f.state.preview();assert.equal(f.state.canSend(),false);assert.equal(f.calls.length,1);});
 await check('attachments encode exact base64url and reject empty/count/byte limits',async()=>{const files=[new File([new Uint8Array([251,255,0])],'資料.bin',{type:'application/octet-stream'})];const a=await encodeAttachments(files);assert.equal(a[0].data,'-_8A');assert.equal(a[0].filename,'資料.bin');for(const bad of [[{size:0}],Array(11).fill({size:1}),[{size:3*1024*1024+1}]])await assert.rejects(()=>encodeAttachments(bad));});
 console.log(JSON.stringify({scope:'PAUI089_ISOLATED_STATE',passed:checks.length,checks,real_sends:0}));

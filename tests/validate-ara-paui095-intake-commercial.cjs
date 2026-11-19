@@ -60,6 +60,7 @@ function caseTransport(fixture) {
       message.internalDate = String(Date.now());
       message.payload.headers.find(row => row.name === 'To').value = recipient;
       message.payload.headers.find(row => row.name === 'Subject').value = subject;
+      if (header('Message-ID')) message.payload.headers.find(row => row.name === 'Message-ID').value = header('Message-ID');
       fixture.state.messages.set(id, message);
       const thread = fixture.state.threadMessages.get(threadId) || [];
       fixture.state.threadMessages.set(threadId, [...thread, message]);

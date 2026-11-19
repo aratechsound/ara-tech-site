@@ -227,20 +227,18 @@ function createService({fetchImpl=fetch,createReceipt=pdf.createReceipt,mergeRec
  async function send(input,actor){
   const data=await mailData(input.case_id,input.contract_id,actor);
   await rpc('pa_contract_delivery_claim',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_attempt:uuid(input.attempt_id),p_ack:input.acknowledge_resend===true});
-  let sent,dispatched=false,rejected=false;
+  let sent,dispatched=false;
   const trackedFetch=async(url,options)=>{
    if(url==='https://gmail.googleapis.com/gmail/v1/users/me/messages/send'&&options?.method==='POST'){
     dispatched=true;
-    const response=await fetchImpl(url,options);
-    rejected=!response.ok&&response.status>=400&&response.status<500;
-    return response;
+    return fetchImpl(url,options);
    }
    return fetchImpl(url,options);
   };
   try{
    sent=await gmail.sendReply({inquiryId:input.case_id,actorId:actor.id,body:data.body,attachments:data.attachments,confirmationToken:input.confirmation_token},trackedFetch);
   }catch(e){
-   const failed=!dispatched||rejected;
+   const failed=!dispatched;
    const status=failed?'failed':'uncertain';
    await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${input.attempt_id}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status,finished_at:new Date().toISOString(),error_code:failed?'mail_failed':'mail_outcome_unknown'})});
    return {state:'accepted',delivery_status:status};

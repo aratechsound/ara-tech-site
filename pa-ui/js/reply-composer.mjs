@@ -5,7 +5,7 @@ export function createReplyComposer({state,readHistory}){
   let detach=()=>{};
   function mount(host){
     detach();if(!host)return;
-    host.innerHTML=`<div class="notice" data-reply-notice role="status" aria-live="polite" hidden><span data-reply-notice-text></span> <button type="button" class="lightbtn" data-reply-recheck hidden>履歴を読取再確認</button></div><section class="reply-composer" aria-label="メール返信Composer" hidden>
+    host.innerHTML=`<div class="notice" data-reply-notice role="status" aria-live="polite" hidden><span data-reply-notice-text></span> <button type="button" class="lightbtn" data-reply-recheck hidden>履歴を読取再確認</button> <button type="button" class="lightbtn" data-reply-check-sent hidden>Gmail送信済みを確認</button></div><section class="reply-composer" aria-label="メール返信Composer" hidden>
       <div class="reply-heading"><h2>メールに返信</h2><button type="button" class="lightbtn" data-reply-close>閉じる（本文は保持）</button></div>
       <p class="hint">${state.readOnly?'閲覧専用です。プレビューは表示確認用のサンプルです。':'選択したメールと同じスレッドに返信します。プレビュー後、送信内容を確認して最終送信するまで送信されません。'}</p>
       <p data-reply-source class="reply-source"></p><p data-reply-status role="status" aria-live="polite"></p>
@@ -30,10 +30,13 @@ export function createReplyComposer({state,readHistory}){
     q('[data-reply-confirm]').onchange=e=>state.confirm(e.target.checked);q('[data-reply-send]').onclick=()=>state.send();
     q('[data-reply-history]').onclick=()=>state.history(readHistory);
     q('[data-reply-recheck]').onclick=()=>state.retrySent();
+    q('[data-reply-check-sent]').onclick=()=>state.reconcileUnknown();
     detach=state.subscribe(s=>{
       const sent=s.phase==='sent',unverified=s.phase==='sent-unverified',refreshing=s.phase==='sent-refreshing';
-      q('[data-reply-notice]').hidden=!(sent||unverified||refreshing);
-      q('[data-reply-notice-text]').textContent=sent?'送信しました':unverified?'送信済み・履歴更新未確認':'送信済みです。履歴を確認中…';
+      const pending=Boolean(state.pendingLookup()),checking=s.phase==='checking-unknown';
+      q('[data-reply-notice]').hidden=!(sent||unverified||refreshing||pending);
+      q('[data-reply-notice-text]').textContent=sent?'送信しました':unverified?'送信済み・履歴更新未確認':refreshing?'送信済みです。履歴を確認中…':checking?'送信結果を確認できません。Gmail送信済みを照合します。':s.phase==='sending'?'メールを送信しています。':'送信結果未確認。自動再送は行っていません。';
+      q('[data-reply-check-sent]').hidden=!pending;q('[data-reply-check-sent]').disabled=checking||s.phase==='sending';
       q('[data-reply-recheck]').hidden=!unverified;q('[data-reply-recheck]').disabled=refreshing;
       panel.hidden=!s.open;
       if(!s.open){q('[data-reply-body]').value=s.body;q('[data-reply-cc]').value=s.cc;q('[data-reply-to]').value='';q('[data-reply-subject]').value='';q('[data-reply-files]').value='';q('[data-reply-files-list]').innerHTML='';q('[data-reply-preview-box]').hidden=true;q('[data-reply-frame]').removeAttribute('srcdoc');q('[data-reply-confirm]').checked=false;q('[data-reply-send]').disabled=true;renderedToken=null;return;}

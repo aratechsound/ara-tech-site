@@ -117,8 +117,8 @@ const urlFor = token => 'https://ara-tech.cc/pa-schedule-confirm.html?token=' + 
         assert.equal((await submit(foreign.token,crypto.randomUUID())).result,'invalid');
         const retryToken=await issue(other);
         const latestOther=await readInquiry(other);
-        const simulateGmailFailure=(url,options)=>new URL(url).pathname.endsWith('/messages/send')
-            ? new Response('{}',{status:400}) : fetchImpl(url,options);
+        const simulateGmailFailure=(url,options)=>new URL(url).hostname === 'oauth2.googleapis.com'
+            ? new Response('{}',{status:503}) : fetchImpl(url,options);
         const failed=await createScheduleDelivery(prepare(latestOther,retryToken.token),simulateGmailFailure);
         assert.equal(failed.status,'failed');
         await assert.rejects(()=>retryDelivery({deliveryId:failed.id,inquiry:{...latestOther,email:'changed@example.invalid'},actorUserId:actor},fetchImpl),/retry_not_allowed/);

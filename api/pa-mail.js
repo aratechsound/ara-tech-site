@@ -1,6 +1,7 @@
 const {
     CONTENT_HEARING_TYPE,
     assertContentHearingMessage,
+    assertMailResendOwner,
     buildCustomerHtml,
     cleanBody,
     cleanHeader,
@@ -137,10 +138,12 @@ const paMailHandler = async (request, response) => {
             delivery = outcome.delivery;
             caseState = outcome.caseState;
         } else if (input.action === "retry") {
+            assertMailResendOwner(user.id, input.acknowledge_resend);
             delivery = await retryDelivery({
                 deliveryId: input.delivery_id,
                 inquiry,
-                actorUserId: user.id
+                actorUserId: user.id,
+                expected: input.expected
             });
             const result = resultForMessageType(delivery.message_type);
             if (result && delivery.status === "sent") {

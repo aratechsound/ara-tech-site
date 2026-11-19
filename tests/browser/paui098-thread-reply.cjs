@@ -85,12 +85,16 @@ async function verifyIntakeThreadReply({page, context, origin, inquiry, delivery
     assert.equal(transport.sent.length,before+i);
     assert.equal((await links()).length,i===0?0:1);
     await editor.locator('[data-reply-confirm]').check();
+    const sendResponse=page.waitForResponse(r=>r.url().endsWith('/api/pa-gmail')&&r.request().method()==='POST'&&r.request().postDataJSON().action==='send_reply');
     await editor.locator('[data-reply-send]').evaluate(button=>{button.click();button.click();});
+    const response=await sendResponse;
+    assert.equal(response.status(),200,(await response.json()).code);
     await page.locator('[data-reply-notice-text]').getByText('送信しました',{exact:true}).waitFor();
     const sent=transport.sent.at(-1);
     assert.equal(transport.sent.length,before+i+1);
     assert.equal(sent.threadId,followUp.threadId);
     assert.equal(sent.recipient,inquiry.email);
+    assert.match(sent.mime,/^Message-ID: <pa-once-[a-f0-9]{64}@ara-tech\.cc>\r?$/mu);
     const rfc=actual.payload.headers.find(h=>h.name==='Message-ID').value;
     assert(sent.mime.includes('In-Reply-To: '+rfc));
     assert(sent.mime.includes('References: '+rfc));

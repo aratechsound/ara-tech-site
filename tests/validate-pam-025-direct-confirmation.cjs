@@ -24,8 +24,12 @@ async function setup({ transport, migrate = true } = {}) {
   await f.db.exec(r7.slice(0, cut) + '\ncommit;');
   await f.db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
   if (migrate) await f.db.exec(read(MIGRATION));
+  await f.db.exec(read('20261119074500_paui106_single_send.sql'));
   f.actor = { id: f.actorId };
   const fetchImpl = async (url, options) => {
+    if (f.failFinish && /\/rpc\/pa_v5_outbox_finish(?:_v2)?$/u.test(new URL(url).pathname)) {
+      return { ok: false, status: 503, json: async () => ({}) };
+    }
     const response = await f.fetchImpl(url, options);
     if (f.missingDocument && new URL(url).pathname.endsWith('/pa_commercial_documents') && (!options?.method || options.method === 'GET')) {
       const original = await response.json();
@@ -201,7 +205,7 @@ async function main() {
       if (outcome === 'success') await f.service.issueDirectConfirmationAndSend(input, f.actor);
       else await assert.rejects(f.service.issueDirectConfirmationAndSend(input, f.actor));
       const replay = await f.service.issueDirectConfirmationAndSend(input, f.actor);
-      assert.equal(calls, 1); assert.equal(replay.state, { success: 'sent', failure: 'failed', ambiguous: 'unknown', post_send_failure: 'unknown', server_error: 'unknown' }[outcome]);
+      assert.equal(calls, 1); assert.equal(replay.state, outcome === 'success' ? 'sent' : 'unknown');
       assert.equal(attachments.length, 1); assert.deepEqual(Buffer.from(attachments[0].data, 'base64url'), f.quote);
       const state = await f.service.snapshot(f.inquiryId);
       assert.equal(state.estimates[0].delivery.state, replay.state);
@@ -209,13 +213,28 @@ async function main() {
       assert.equal(state.outbox.find(j => j.id === estimate.outbox_id).state, 'cancelled');
       assert.equal((await f.service.dispatch({ job_id: estimate.outbox_id }, f.actor)).state, 'cancelled');
       assert.equal(calls, 1);
-      if (['ambiguous', 'post_send_failure', 'server_error'].includes(outcome)) {
+      if (outcome !== 'success') {
         await assert.rejects(f.service.dispatch({ case_id: f.inquiryId, offer_id: replay.id, job_id: replay.outbox_id, preview_fingerprint: p.fingerprint }, f.actor));
         assert.equal(calls, 1); evidence.AUTO_RESEND = 0;
       }
       evidence['DELIVERY_' + outcome.toUpperCase()] = 'PASS';
     } finally { await f.db.close(); }
   }
+  const lostSave = await setup();
+  try {
+    await lostSave.createEstimate('LEGACY');
+    const p = await lostSave.service.confirmationPreview({ case_id: lostSave.inquiryId, confirmation_mode: MODE }, lostSave.actor);
+    const input = { case_id: lostSave.inquiryId, confirmation_mode: MODE, preview_fingerprint: p.fingerprint, operation_id: crypto.randomUUID() };
+    lostSave.failFinish = true;
+    await assert.rejects(lostSave.service.issueDirectConfirmationAndSend(input, lostSave.actor), /mail_outcome_unknown/);
+    assert.equal(lostSave.state.sendCount, 1);
+    const replay = await lostSave.service.issueDirectConfirmationAndSend(input, lostSave.actor);
+    assert.equal(replay.state, 'processing');
+    await lostSave.db.query("update pa_commercial_outbox set lease_expires_at=now()-interval '1 minute' where id=$1", [replay.outbox_id]);
+    await assert.rejects(lostSave.service.dispatch({ job_id: replay.outbox_id }, lostSave.actor), /outbox_unknown_requires_reconciliation/);
+    assert.equal(lostSave.state.sendCount, 1);
+    evidence.GMAIL_ACCEPTED_FINISH_WRITE_UNAVAILABLE = 'PASS_ONE_FAKE_SEND';
+  } finally { await lostSave.db.close(); }
   const legacyFixture = await setup({ transport: async () => ({ gmail_message_id: 'fake-legacy-1', gmail_thread_id: 'thread_123' }) });
   try {
     const e = await legacyFixture.createEstimate('LEGACY');

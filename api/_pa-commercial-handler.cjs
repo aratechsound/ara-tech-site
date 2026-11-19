@@ -7,7 +7,7 @@ const ACTIONS = new Set([
   'issue_direct_confirmation_and_send',
   'snapshot', 'document', 'confirmation_preview', 'confirmation_receipt_preview', 'confirmation_send_preview', 'confirmation_send_receipt_preview', 'begin_revision', 'issue_estimate', 'issue_confirmation', 'replace_confirmation', 'revoke_confirmation',
   'confirm_settlement', 'create_billing', 'record_payment', 'record_prepayment', 'adjust_payment',
-  'close_case', 'reopen_case', 'dispatch_outbox', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
+  'close_case', 'reopen_case', 'dispatch_outbox', 'reconcile_delivery', 'recovery_candidates', 'recovery_preview', 'recover_estimate',
   'correct_estimate', 'remind_confirmation', 'create_change_proposal', 'record_change_agreement', 'composer_preview',
   'create_production_e2e_clone', 'arm_production_e2e_failpoint', 'reconcile_production_e2e_unknown',
   'production_e2e_recovery_preview', 'recover_production_e2e_delivery', 'archive_production_e2e_case'
@@ -59,6 +59,7 @@ function createHandler({ service = createService(), admin = verifyAdmin, rate = 
         case 'close_case': result = await service.close(input, actor); break;
         case 'reopen_case': result = await service.reopen(input, actor); break;
         case 'dispatch_outbox': result = await service.dispatch(input, actor); break;
+        case 'reconcile_delivery': result = await service.reconcileDelivery(input, actor); break;
         case 'recovery_candidates': result = await service.recoveryCandidates(input.case_id); break;
         case 'recovery_preview': result = await service.recoveryPreview(input); break;
         case 'recover_estimate': result = await service.recoverEstimate(input, actor); break;

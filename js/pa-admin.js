@@ -2332,6 +2332,9 @@ const renderResponse = () => {
     appendDetail("規約バージョン", currentResponse.terms_version);
 };
 
+const canReviewLegacyResend = delivery => delivery?.status === "failed"
+    && /^(gmail_not_configured|gmail_oauth_(?:\d{3}|invalid))$/u.test(delivery.error_summary || "");
+
 const retryButton = (delivery) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2365,7 +2368,7 @@ const renderAutomaticMailStatus = () => {
             ? `${mailStatusLabels[delivery.status] || delivery.status}${delivery.sent_at ? ` ／ ${formatDateTime(delivery.sent_at)}` : ""}`
             : "送信記録なし（既存案件）";
         card.append(title, status);
-        if (delivery?.status === "failed") card.append(retryButton(delivery));
+        if (canReviewLegacyResend(delivery)) card.append(retryButton(delivery));
         automaticMailStatus.append(card);
     });
 };
@@ -2484,7 +2487,7 @@ const renderEmailHistory = () => {
         const when = delivery.sent_at || delivery.failed_at || delivery.requested_at;
         meta.textContent = `${formatDateTime(when)} ／ Gmail送信履歴${delivery.gmail_message_id ? "（Gmail同期でthreadを取得できます）" : ""}`;
         item.append(title, subject, meta);
-        if (delivery.status === "failed") item.append(retryButton(delivery));
+        if (canReviewLegacyResend(delivery)) item.append(retryButton(delivery));
         emailHistory.append(item);
     });
 
@@ -3939,18 +3942,26 @@ const sendEmail = async () => {
 const retryEmail = async (deliveryId) => {
     if (!currentCase || mailActionInProgress) return;
     const delivery = currentDeliveries.find((item) => item.id === deliveryId);
-    if (!delivery || delivery.status !== "failed") return;
-    if (!window.confirm(`${mailTypeLabels[delivery.message_type] || "メール"}を同じ宛先・件名・本文で再送しますか？`)) return;
+    if (!canReviewLegacyResend(delivery)) return;
+    const caseId = currentCase.id;
 
     mailActionInProgress = true;
     setMailButtonsDisabled(true);
     clearMessage($("#email-message"));
     try {
+        const { data: expected, error } = await supabase.from("pa_email_deliveries")
+            .select("recipient, subject, body").eq("id", delivery.id).eq("inquiry_id", caseId).single();
+        if (currentCase?.id !== caseId) return;
+        if (error || !expected?.body) throw Error("retry_not_allowed");
+        if (!window.confirm(`Gmailの送信済みを確認しましたか？ 重複する可能性があります。\n宛先：${expected.recipient}\n件名：${expected.subject}\n添付：なし\n\n${expected.body}\n\n確認した内容で再送しますか？`)) return;
         const result = await callMailApi({
             action: "retry",
-            inquiry_id: currentCase.id,
-            delivery_id: delivery.id
+            inquiry_id: caseId,
+            delivery_id: delivery.id,
+            acknowledge_resend: true,
+            expected
         });
+        if (currentCase?.id !== caseId) return;
         recordDeliveryResult(result.delivery);
         if (result.delivery.status === "sent") {
             if (result.case_state) {
@@ -3977,7 +3988,7 @@ const retryEmail = async (deliveryId) => {
             setMessage($("#email-message"), mailErrorMessage(result.delivery.error_summary), "error");
         }
     } catch (error) {
-        setMessage($("#email-message"), mailErrorMessage(error.message), "error");
+        if (currentCase?.id === caseId) setMessage($("#email-message"), mailErrorMessage(error.message), "error");
     } finally {
         mailActionInProgress = false;
         setMailButtonsDisabled(false);
