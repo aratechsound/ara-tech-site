@@ -1,4 +1,5 @@
 import { createMaterialPreview } from "./pa-material-preview.js";
+import { reviewMailResend } from "../pa-ui/js/mail-resend-review.mjs";
 import {
     DELIVERY_SCOPE,
     confirmationDisplayState,
@@ -412,23 +413,54 @@ const api = async (context, action, input = {}, binary = false) => {
 const scheduledDeliveryChecks = new Set();
 function appendDeliveryReadback(root, context, job, alert, label) {
     let pending = false;
+    const scope = { job_id: job.id };
+    const valid = () => root.isConnected && !context.signal?.aborted;
+    const unavailable = "送信結果未確認。自動再送は行っていません。";
     const check = async () => {
-        if (pending || !root.isConnected || context.signal?.aborted) return;
+        if (pending || !valid()) return;
         pending = true;
         control.disabled = true;
         alert.textContent = label + "：送信結果を確認できません。Gmail送信済みを照合します。";
         try {
-            const result = await api(context, "reconcile_delivery", { job_id: job.id });
-            alert.textContent = label + (result.state === "sent" ? "：Gmailで送信を確認しました。" : "：送信結果未確認。自動再送は行っていません。");
+            const result = await api(context, "reconcile_delivery", scope);
+            alert.textContent = label + (result.state === "sent" ? "：送信済み（Gmailで確認）" : "：" + unavailable);
+            resend.hidden = result.resend_available !== true;
         } catch {
-            alert.textContent = label + "：送信結果未確認。自動再送は行っていません。";
+            alert.textContent = label + "：" + unavailable;
+            resend.hidden = true;
         } finally {
             pending = false;
             control.disabled = false;
         }
     };
-    const control = button("Gmail送信済みを確認", check, "button button--small");
-    root.append(control);
+    const control = button("Gmail送信済みを再確認", check, "button button--small");
+    const resend = button("手動再送", async () => {
+        if (pending || !valid()) return;
+        pending = true;
+        control.disabled = resend.disabled = true;
+        let dispatched = false;
+        try {
+            const preview = await api(context, "resend_delivery_preview", scope);
+            if (!valid() || !await reviewMailResend(preview, { signal: context.signal }) || !valid()) return;
+            resend.hidden = true;
+            dispatched = true;
+            alert.textContent = label + "：メールを送信しています。";
+            const result = await api(context, "resend_delivery", { ...scope, approval_token: preview.approval_token, acknowledged: true });
+            if (result.state !== "sent") throw Error("mail_outcome_unknown");
+            alert.textContent = label + "：手動再送の送信済み（Gmailで確認）";
+        } catch {
+            alert.textContent = label + (dispatched ? "：" + unavailable : "：権限または送信内容を確認できません。");
+            if (dispatched) {
+                const timer = setTimeout(() => { if (valid()) void check(); }, 60_000);
+                context.signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
+            }
+        } finally {
+            pending = false;
+            control.disabled = resend.disabled = false;
+        }
+    }, "button button--small");
+    resend.hidden = true;
+    root.append(control, resend);
     if (!["unknown", "processing"].includes(job.state) || scheduledDeliveryChecks.has(job.id)) return;
     const timer = setTimeout(() => {
         if (!control.isConnected || context.signal?.aborted) return;

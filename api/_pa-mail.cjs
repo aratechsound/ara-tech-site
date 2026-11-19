@@ -604,10 +604,10 @@ const getGmailAccessToken = async (config = mailConfig(), fetchImpl = fetch) => 
     return payload.access_token;
 };
 
-const sendGmail = async ({ to, subject, body, messageType, deliveryTrace }, fetchImpl = fetch) => {
+const sendGmail = async ({ to, subject, body, messageType, messageId, deliveryTrace }, fetchImpl = fetch) => {
     const config = mailConfig();
     const accessToken = await getGmailAccessToken(config, fetchImpl);
-    const raw = buildRawMessage({ to, subject, body, messageType, config });
+    const raw = buildRawMessage({ to, subject, body, messageType, config, messageId });
     if (deliveryTrace) deliveryTrace.providerStarted = true;
     const response = await fetchImpl("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST", redirect: "error",
@@ -620,8 +620,10 @@ const sendGmail = async ({ to, subject, body, messageType, deliveryTrace }, fetc
     });
     if (!response.ok) throw new Error(`gmail_send_${response.status}`);
     const payload = await response.json();
-    if (!payload?.id) throw new Error("gmail_send_invalid");
-    return { id: String(payload.id), threadId: payload.threadId ? String(payload.threadId) : null };
+    if (![payload?.id, payload?.threadId].every(id => typeof id === "string" && /^[A-Za-z0-9_-]{1,200}$/u.test(id))) {
+        throw new Error("gmail_send_invalid");
+    }
+    return { id: payload.id, threadId: payload.threadId };
 };
 
 const insertDelivery = async (delivery, fetchImpl = fetch) => {
@@ -676,6 +678,7 @@ const deliver = async (row, fetchImpl = fetch) => {
             subject: row.subject,
             body: row.body,
             messageType: row.message_type,
+            messageId: require('./_pa-send-once.cjs').legacyMessageId('legacy-delivery', row.id),
             deliveryTrace
         }, fetchImpl);
         return await updateDelivery(row.id, {
@@ -1276,9 +1279,12 @@ const getDelivery = async (deliveryId, fetchImpl = fetch) => {
     return rows[0];
 };
 
-const assertMailResendOwner = (actorId, confirmed) => {
+const isMailResendOwner = actorId => {
     const ownerId = process.env.PA_MAIL_OWNER_USER_ID;
-    if (confirmed !== true || !isUuid(ownerId) || actorId !== ownerId) throw Error("retry_not_allowed");
+    return isUuid(ownerId) && actorId === ownerId;
+};
+const assertMailResendOwner = (actorId, confirmed) => {
+    if (confirmed !== true || !isMailResendOwner(actorId)) throw Error("retry_not_allowed");
 };
 
 const retryDelivery = async ({ deliveryId, inquiry, actorUserId, expected }, fetchImpl = fetch) => {
@@ -1379,6 +1385,7 @@ module.exports = {
     resultForMessageType,
     retryDelivery,
     assertMailResendOwner,
+    isMailResendOwner,
     safeErrorCode,
     safeOriginalFilename,
     sendContentHearingAndFinalize,

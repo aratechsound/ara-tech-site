@@ -302,7 +302,36 @@ function deliveryAttempts(deliveries) {
       / ${escape(timelineDate(deliveryDate(row)))} / 試行 ${escape(row.attempt_number ?? '未取得')}
       ${row.error_summary ? ' / ' + escape(row.error_summary) : ''}
       ${row.gmail_message_id ? '<br>Gmail ID ' + escape(row.gmail_message_id) : ''}
+      ${!passiveMail && /^[0-9a-f-]{36}$/iu.test(row.id) && ['sent','sending','failed','unknown'].includes(row.status)
+        ? '<br><button type="button" class="lightbtn" data-legacy-sent-check="'+escape(row.id)+'" data-delivery-state="'+escape(row.status)+'">Gmail送信済みを再確認</button> <span role="status"></span>' : ''}
     </p>`).join('')}</details>`;
+}
+
+const legacySentTimers=new Map();
+async function checkLegacySent(control){
+  if(passiveMail||control.disabled||!control.isConnected)return;
+  const id=selected,deliveryId=control.dataset.legacySentCheck,result=control.nextElementSibling;
+  const valid=()=>selected===id&&control.isConnected;
+  control.disabled=true;
+  result.textContent='送信結果を確認中';
+  try{
+    const {result:proof}=await authenticatedMailRequest({action:'reconcile_legacy_delivery',inquiry_id:id,delivery_id:deliveryId},valid,{track:replyRequests});
+    if(valid())result.textContent=proof.state==='sent'?'送信済み（Gmailで確認）':'送信結果未確認';
+  }catch{
+    if(valid())result.textContent='送信結果未確認';
+  }finally{control.disabled=false;}
+}
+function scheduleLegacySentChecks(){
+  for(const control of central.querySelectorAll('[data-legacy-sent-check][data-delivery-state="sending"],[data-legacy-sent-check][data-delivery-state="unknown"]')){
+    const id=selected,epoch=authEpoch,key=id+':'+control.dataset.legacySentCheck;
+    if(legacySentTimers.get(key)===epoch) continue;
+    legacySentTimers.set(key,epoch);
+    setTimeout(()=>{
+      const target=[...central.querySelectorAll('[data-legacy-sent-check]')].find(e=>e.dataset.legacySentCheck===control.dataset.legacySentCheck);
+      if(target&&id===selected&&epoch===authEpoch) void checkLegacySent(target);
+      else legacySentTimers.delete(key);
+    },60_000);
+  }
 }
 
 function canStartFollowUp(inquiry) {
@@ -759,6 +788,7 @@ function render(){
   const c=current();if(!c){central.innerHTML='<div class="empty-state">案件を選択すると、保存済みの実案件情報を表示します。</div>';return;}
   const html=({overview,conversation,estimate,invoice,documents,history,schedule}[tab]||overview)(c);
   central.innerHTML=(html.includes('PRIVATE_MONEY_')&&!html.includes('data-money-toggle')?moneyBar():'')+html;
+  if(tab==='conversation')scheduleLegacySentChecks();
   if(detail.commercialPanel) ($('commercial-actions-host')||central).append(detail.commercialPanel.panel);
   if(!passiveMail)central.insertAdjacentHTML('beforeend','<div class="inlinebtns">'+button('既存の業務操作を開く','','quiet',true)+'</div>');
   if(tab==='documents')renderGallery();
@@ -1000,6 +1030,8 @@ document.addEventListener('click',e=>{
   }
   const historyHtml=e.target.closest('[data-history-mail-html]');
   if(historyHtml){void openHistoryMailHtml(historyHtml);return;}
+  const legacyCheck=e.target.closest('[data-legacy-sent-check]');
+  if(legacyCheck){void checkLegacySent(legacyCheck);return;}
   const intakeLink=e.target.closest('[data-action="link-intake-follow-up"]');
   if(intakeLink){if(!intakeLink.disabled)void linkIntakeFollowUp();return;}
   const reply=e.target.closest('[data-reply-message],[data-reply-latest]');
@@ -1081,7 +1113,7 @@ async function authenticatedMailRequest(input,isCurrent,{track=requests,timeout=
   }finally{clearTimeout(timer);track.delete(controller);}
 }
 async function replyRequest(input,isCurrent){
-  if(!passiveMail)return authenticatedMailRequest(input,isCurrent,{track:replyRequests,timeout:input.action==='send_reply'?65000:25000});
+  if(!passiveMail)return authenticatedMailRequest(input,isCurrent,{track:replyRequests,timeout:['send_reply','resend_reply'].includes(input.action)?65000:25000});
   if(input.action!=='reply_context'||!input.reply_source_delivery_id||input.inquiry_id!==selected||!isCurrent())throw Error('mail_readonly');
   return api('/data/mail-intake-reply/'+encodeURIComponent(input.inquiry_id)+'/'+encodeURIComponent(input.reply_source_delivery_id),{track:replyRequests});
 }

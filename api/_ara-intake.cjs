@@ -1,6 +1,7 @@
 const {createHash}=require('node:crypto');
 const {CASE_TYPES}=require('./_ara-case.cjs');
 const {supabaseRequest,sendGmail,OFFICIAL_EMAIL,isUuid}=require('./_pa-mail.cjs');
+const {legacyMessageId}=require('./_pa-send-once.cjs');
 const clean=(v,max,required=false)=>{if(typeof v!=='string' || v.length>max || /\u0000/.test(v))throw Error('invalid_input');const s=v.trim().replace(/\r\n?/g,'\n');if(required&&!s)throw Error('invalid_input');return s;};
 function policy(){
  if(process.env.ARA_GENERAL_INQUIRY_ENABLED!=='true')throw Error('general_intake_disabled');
@@ -38,7 +39,7 @@ async function accept(input,fetchImpl=fetch){
    const claimed=await supabaseRequest('/rest/v1/rpc/ara_claim_intake_delivery',{method:'POST',body:JSON.stringify({p_id:row.id})},fetchImpl);
    if(!claimed?.[0])continue;
    let update;
-   try{await require('./_ara-unlinked-mail.cjs').assertBusinessMailbox(fetchImpl);const sent=await sendGmail({to:row.recipient,subject:row.subject,body:row.body,messageType:row.message_type},fetchImpl);update={status:'sent',sent_at:new Date().toISOString(),gmail_message_id:sent.id,gmail_thread_id:sent.threadId};}
+   try{await require('./_ara-unlinked-mail.cjs').assertBusinessMailbox(fetchImpl);const sent=await sendGmail({to:row.recipient,subject:row.subject,body:row.body,messageType:row.message_type,messageId:legacyMessageId('legacy-delivery',row.id)},fetchImpl);update={status:'sent',sent_at:new Date().toISOString(),gmail_message_id:sent.id,gmail_thread_id:sent.threadId};}
    catch(e){const code=/^gmail_(?:oauth|send)_\d{3}$|^gmail_not_configured$/.test(e.message)?e.message:'provider_result_unknown';update={status:'unknown',error_summary:code};}
    await supabaseRequest(`/rest/v1/pa_email_deliveries?id=eq.${row.id}`,{method:'PATCH',body:JSON.stringify(update)},fetchImpl);
   }

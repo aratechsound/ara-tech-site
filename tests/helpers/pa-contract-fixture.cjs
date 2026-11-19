@@ -18,6 +18,7 @@ async function createFixture(){
  await db.exec(read('20260907130000_pa_formal_contract.sql'));
  await db.exec(read('20261119074600_paui106_gmail_attempts.sql'));
  await db.exec(read('20261119074700_paui106_legacy_receipt_ack.sql'));
+ await db.exec(read('20261119091848_paui107_owner_mail_resend.sql'));
  // The contract fixture exercises linked-mail synchronization, independently of
  // the mailbox-wide discovery function changed later in the same migration.
  const linkedMailMigration=read('20261106090000_paui088_linked_mail_sync.sql');

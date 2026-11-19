@@ -2,11 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { chromium } = require('C:/Users/user/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.js');
+const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '../..');
-const outputDir = process.env.PA_EST_010R3_OUTPUT_DIR || path.join(root, 'tmp', 'pa-est-010r3-display');
-fs.mkdirSync(outputDir, { recursive: true });
+const outputDir = process.env.PA_EST_010R3_OUTPUT_DIR;
 
 const oldOffer = { id: 'offer-6', version: 6, state: 'revoked', estimate_revision_id: 'estimate-2', snapshot: { estimate_revision_number: 2 } };
 const activeOffer = { id: 'offer-7', version: 7, state: 'active', estimate_revision_id: 'estimate-2', expires_at: '2026-09-22T01:56:42Z', snapshot: { estimate_revision_number: 2 } };
@@ -45,6 +44,8 @@ async function main() {
     let server;
     let browser;
     let activeScenario = 'unknown';
+    let isOwner = false;
+    let sends = 0;
     const apiActions = [];
     const pageErrors = [];
     try {
@@ -54,7 +55,20 @@ async function main() {
             if (url.pathname === '/harness.html') { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return response.end(harness); }
             if (url.pathname === '/api/pa-mail') {
                 const body = await readBody(request); apiActions.push(body.action);
-                response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ ok: true, result: snapshot(activeScenario) }));
+                let result;
+                if (body.action === 'snapshot') result = snapshot(activeScenario);
+                else if (body.action === 'reconcile_delivery') result = { state: 'unknown', resend_available: isOwner };
+                else if (body.action === 'resend_delivery_preview') result = {
+                    recipient: 'customer@example.invalid', cc: [], subject: '確認用の請求書', body: 'これは隔離テストの原文です。',
+                    attachments: [{ filename: 'fixture.pdf', size: 47 }], previous: { state: 'unknown' }, approval_token: 'synthetic'
+                };
+                else if (body.action === 'resend_delivery') {
+                    assert(isOwner);
+                    assert.equal(body.approval_token, 'synthetic');
+                    assert.equal(body.acknowledged, true);
+                    sends++;result={ state: 'sent' };
+                } else throw Error('Unexpected action: '+body.action);
+                response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ ok: true, result }));
             }
             const target = path.resolve(root, decodeURIComponent(url.pathname.slice(1)));
             if (!target.startsWith(root + path.sep) || !fs.existsSync(target) || !fs.statSync(target).isFile()) { response.writeHead(404); return response.end('not found'); }
@@ -63,8 +77,8 @@ async function main() {
         });
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         const base = `http://127.0.0.1:${server.address().port}`;
-        browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' });
-        const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+        browser = await chromium.launch({ headless: true, ...(process.env.PA_CHROME_EXECUTABLE ? { executablePath: process.env.PA_CHROME_EXECUTABLE } : {}) });
+        const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
         const page = await context.newPage();
         page.on('pageerror', (error) => pageErrors.push(error.message));
         await page.goto(`${base}/harness.html`);
@@ -83,7 +97,10 @@ async function main() {
             assert.match(next, /関連先を確認できない配送（種別：confirmation）：/u);
             assert.equal(await page.getByRole('button', { name: '固定済み内容を送信' }).count(), 0, `unclassified ${scenario} has no send action`);
         }
-        await page.screenshot({ path: path.join(outputDir, 'local-unclassified-warning-no-action.png'), fullPage: true });
+        if (outputDir) {
+            fs.mkdirSync(outputDir, { recursive: true });
+            await page.screenshot({ path: path.join(outputDir, 'local-unclassified-warning-no-action.png'), fullPage: true });
+        }
 
         activeScenario = 'sent';
         await page.evaluate(() => window.__context.refreshCommercial());
@@ -98,10 +115,32 @@ async function main() {
         activeScenario = 'current-invoice-failed';
         await page.evaluate(() => window.__context.refreshCommercial());
         await page.waitForFunction(() => document.querySelector('#pa-next-action-summary')?.innerText.includes('現在の請求書：送信失敗'));
-        assert.equal(await page.getByRole('button', { name: '固定済み内容を送信' }).count(), 1, 'proven current invoice keeps its existing action');
+        assert.equal(await page.getByRole('button', { name: '固定済み内容を送信' }).count(), 0, 'failed invoice has no direct re-dispatch action');
         assert.equal(pageErrors.length, 0);
         assert.ok(apiActions.every((action) => action === 'snapshot'));
-        console.log(JSON.stringify({ pass: true, unclassified_states: ['unknown', 'queued', 'failed'], unclassified_send_action_count: 0, same_page_redraw: 'PASS', current_invoice_action_preserved: true, mutation_api_calls: 0, screenshot: path.join(outputDir, 'local-unclassified-warning-no-action.png') }));
+        for (const width of [1440,390]) {
+            await page.setViewportSize({width,height:900});
+            isOwner=false;
+            const scope = page.locator('#pa-next-action-summary');
+            const check = scope.getByRole('button',{name:'Gmail送信済みを再確認'});
+            const manual = scope.getByRole('button',{name:'手動再送'});
+            await check.click();
+            await scope.getByText(/現在の請求書：送信結果未確認/).waitFor();
+            assert.equal(await manual.count(),0);
+            isOwner=true;
+            await check.click();
+            await manual.click();
+            const review=page.getByRole('dialog',{name:'手動再送の確認'});
+            await review.getByText('これは隔離テストの原文です。',{exact:true}).waitFor();
+            await review.getByText(/fixture\.pdf/).waitFor();
+            assert.equal(await review.getByRole('button',{name:'確認した内容で再送'}).isDisabled(),true);
+            await review.getByRole('checkbox').check();
+            await review.getByRole('button',{name:'確認した内容で再送'}).evaluate(button=>{button.click();button.click();});
+            await scope.getByText(/手動再送の送信済み/).waitFor();
+        }
+        assert.equal(sends,2);
+        assert.equal(pageErrors.length,0);
+        console.log(JSON.stringify({ pass: true, readback_only_until_owner_ack: true, mobile_and_desktop:[1440,390], mocked_resend_commands:sends, live_gmail_sends:0 }));
     } finally {
         if (browser) await browser.close();
         if (server) await new Promise((resolve) => server.close(resolve));

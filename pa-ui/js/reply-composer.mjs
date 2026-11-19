@@ -1,5 +1,6 @@
 import {escape} from './model.mjs';
 import {encodeAttachments} from './reply-state.mjs';
+import {reviewMailResend} from './mail-resend-review.mjs';
 const errors={intake_follow_up_not_linkable:'保存済みの初回返信とGmailの一致を確認できません。',login_required:'認証を確認できません。再ログイン後にプレビューしてください。',preview_expired:'プレビューの有効期限が切れました。もう一度プレビューしてください。',body_required:'本文を入力してください（20,000文字以内）。',attachment_limit:'添付は10件・合計3 MB以内の空でないファイルを選択してください。',invalid_reply_binding:'返信元・宛先の一致を確認できません。返信元を選び直してください。',send_already_attempted:'この内容の送信は試行済みです。再送せず送信履歴を確認してください。',send_lock_unavailable:'二重送信防止の記録を利用できません。送信は停止しています。',invalid_reply_cc:'CCは選択したメールの参加者だけを指定できます。',send_outcome_unknown:'送信結果UNKNOWN。再送せず、送信記録とGmail履歴を確認してください。'};
 export function createReplyComposer({state,readHistory}){
   let detach=()=>{};
@@ -31,12 +32,17 @@ export function createReplyComposer({state,readHistory}){
     q('[data-reply-history]').onclick=()=>state.history(readHistory);
     q('[data-reply-recheck]').onclick=()=>state.retrySent();
     q('[data-reply-check-sent]').onclick=()=>state.reconcileUnknown();
+    q('[data-reply-notice]').insertAdjacentHTML('beforeend',' <button type="button" class="lightbtn" data-reply-resend hidden>手動再送</button><span data-reply-resend-error hidden>送信内容や権限を確認できません。送信済みを再確認してください。</span>');
+    q('[data-reply-resend]').onclick=()=>state.ownerResend(reviewMailResend);
     detach=state.subscribe(s=>{
       const sent=s.phase==='sent',unverified=s.phase==='sent-unverified',refreshing=s.phase==='sent-refreshing';
       const pending=Boolean(state.pendingLookup()),checking=s.phase==='checking-unknown';
       q('[data-reply-notice]').hidden=!(sent||unverified||refreshing||pending);
       q('[data-reply-notice-text]').textContent=sent?'送信しました':unverified?'送信済み・履歴更新未確認':refreshing?'送信済みです。履歴を確認中…':checking?'送信結果を確認できません。Gmail送信済みを照合します。':s.phase==='sending'?'メールを送信しています。':'送信結果未確認。自動再送は行っていません。';
-      q('[data-reply-check-sent]').hidden=!pending;q('[data-reply-check-sent]').disabled=checking||s.phase==='sending';
+      q('[data-reply-check-sent]').textContent='Gmail送信済みを再確認';
+      q('[data-reply-check-sent]').hidden=!pending&&!sent;q('[data-reply-check-sent]').disabled=checking||s.phase==='sending';
+      q('[data-reply-resend]').hidden=!s.resendKey;q('[data-reply-resend]').disabled=checking||s.phase==='sending';
+      q('[data-reply-resend-error]').hidden=!s.resendError;
       q('[data-reply-recheck]').hidden=!unverified;q('[data-reply-recheck]').disabled=refreshing;
       panel.hidden=!s.open;
       if(!s.open){q('[data-reply-body]').value=s.body;q('[data-reply-cc]').value=s.cc;q('[data-reply-to]').value='';q('[data-reply-subject]').value='';q('[data-reply-files]').value='';q('[data-reply-files-list]').innerHTML='';q('[data-reply-preview-box]').hidden=true;q('[data-reply-frame]').removeAttribute('srcdoc');q('[data-reply-confirm]').checked=false;q('[data-reply-send]').disabled=true;renderedToken=null;return;}

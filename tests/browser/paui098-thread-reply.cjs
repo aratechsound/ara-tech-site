@@ -115,14 +115,19 @@ async function verifyIntakeThreadReply({page, context, origin, inquiry, delivery
   await form(page).click();
   const editor=await verifyContext(page);
   await editor.locator('[data-reply-body]').fill('不明結果の合成試験です。');
+  await editor.locator('[data-reply-files]').setInputFiles({
+    name:'再送確認-fixture.txt',mimeType:'text/plain',buffer:Buffer.from('Isolated resend attachment')
+  });
   await editor.locator('[data-reply-preview]').click();
   await editor.frameLocator('iframe').getByText('不明結果の合成試験です。',{exact:true}).waitFor();
   await editor.locator('[data-reply-confirm]').check();
   const originalFetch=global.fetch;
   let unknownAttempts=0;
+  let firstRaw;
   global.fetch=(url,options)=>{
     if(new URL(url).hostname==='gmail.googleapis.com'&&new URL(url).pathname.endsWith('/messages/send')){
       unknownAttempts++;
+      firstRaw=Buffer.from(JSON.parse(options.body).raw,'base64url').toString('utf8');
       return Promise.resolve(new Response('{}',{status:503}));
     }
     return originalFetch(url,options);
@@ -136,9 +141,47 @@ async function verifyIntakeThreadReply({page, context, origin, inquiry, delivery
     assert.equal(unknownAttempts,1);
     assert.equal(transport.sent.length,before+2);
   }finally{global.fetch=originalFetch;}
+  const [originalAttempt]=await rows("update pa_mail_send_attempts set started_at=now()-interval '61 seconds' where inquiry_id=$1 and operation_key=(select a.operation_key from pa_mail_send_attempts a join pa_mail_send_results r using(operation_key) where a.inquiry_id=$1 and r.state='unknown') returning *",[inquiry.id]);
+  assert(originalAttempt?.lookup_key);
+  const scope={inquiry_id:inquiry.id,lookup_key:originalAttempt.lookup_key};
+  const previousOwner=process.env.PA_MAIL_OWNER_USER_ID;
+  try{
+    delete process.env.PA_MAIL_OWNER_USER_ID;
+    assert.equal((await post({...scope,action:'resend_reply_preview'})).status(),403);
+    process.env.PA_MAIL_OWNER_USER_ID=originalAttempt.actor_id;
+    await page.locator('[data-reply-check-sent]').click();
+    const manual=page.locator('[data-reply-resend]');
+    await manual.waitFor();
+    await manual.click();
+    const review=page.getByRole('dialog',{name:'手動再送の確認'});
+    await review.waitFor();
+    await review.getByText(/同じメールが届く可能性/).waitFor();
+    await review.getByText('不明結果の合成試験です。',{exact:false}).waitFor();
+    await review.getByText(/再送確認-fixture\.txt/).waitFor();
+    assert.equal(await review.getByRole('button',{name:'確認した内容で再送'}).isDisabled(),true);
+    await review.getByRole('checkbox').check();
+    const response=page.waitForResponse(r=>r.url().endsWith('/api/pa-gmail')&&r.request().postDataJSON().action==='resend_reply');
+    await review.getByRole('button',{name:'確認した内容で再送'}).evaluate(button=>{button.click();button.click();});
+    const approved=await response;
+    assert.equal(approved.status(),200,(await approved.json()).code);
+    await page.locator('[data-reply-notice-text]').getByText('送信しました',{exact:true}).waitFor();
+    const firstHeaders=firstRaw.match(/^Message-ID: (.+?)\r?$/mu);
+    const resent=transport.sent.at(-1);
+    assert.match(resent.mime,/^Message-ID: <pa-once-[a-f0-9]{64}@ara-tech\.cc>\r?$/mu);
+    assert.notEqual(resent.mime.match(/^Message-ID: (.+?)\r?$/mu)[1],firstHeaders[1]);
+    assert.equal(resent.mime.replace(/^Message-ID: .*?\r?$/mu,''),firstRaw.replace(/^Message-ID: .*?\r?$/mu,''));
+    const replays=await Promise.all([post(approved.request().postDataJSON()),post(approved.request().postDataJSON())]);
+    assert(replays.every(r=>r.status()===409));
+    assert.equal(transport.sent.length,before+3);
+    const audit=await rows('select r.state,a.resend_of from pa_mail_send_attempts a join pa_mail_send_results r using(operation_key) where a.operation_key=$1 or a.resend_of=$1 order by resend_number',[originalAttempt.operation_key]);
+    assert.deepEqual(audit,[{state:'unknown',resend_of:null},{state:'sent',resend_of:originalAttempt.operation_key}]);
+  }finally{
+    if(previousOwner===undefined)delete process.env.PA_MAIL_OWNER_USER_ID;
+    else process.env.PA_MAIL_OWNER_USER_ID=previousOwner;
+  }
   console.log(JSON.stringify({scope:'PAUI098_MOCK_GMAIL_E2E',width:page.viewportSize().width,
     verifiedOriginalOutbound:true,linkedOnlyAtFinalSend:true,confirmedNewMessages:2,threadSentMessages:3,
-    linkedCaseHistory:true,unknownAttempts,readonlyPosts:0,liveSends:0,productionWrites:0}));
+    linkedCaseHistory:true,unknownAttempts,ownerResendOnce:true,exactMimeExceptMessageId:true,readonlyPosts:0,liveSends:0,productionWrites:0}));
 }
 
 module.exports={verifyIntakeThreadReply};
