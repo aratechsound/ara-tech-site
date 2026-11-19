@@ -173,8 +173,13 @@ async function main() {
         await openPreview();
         await page.screenshot({ path: path.join(out, 'desk-confirmation-1366.png') });
         await page.getByLabel('上記の内容を確認しました。').check(); await ownerButton().click();
+        const observeDeskIssue = page.waitForResponse(response => new URL(response.url()).pathname === '/api/pa-mail'
+            && response.request().postDataJSON()?.action === 'issue_confirmation');
         await page.getByRole('button', { name: '正式受注確認を発行する（送信しない）' }).click();
-        await page.getByRole('button', { name: '正式受注確認を送る' }).waitFor({ state: 'visible' });
+        const issueResponse = await observeDeskIssue;
+        assert.ok(issueResponse.ok(), 'formal confirmation issue must succeed before sent-state readback');
+        await deskPreview.waitFor({ state: 'detached' });
+        await page.getByRole('button', { name: '正式受注確認を送る', exact: true }).waitFor({ state: 'visible' });
         assert.equal(new URL(page.url()).pathname, '/pa-admin.html');
         assert.equal(context.pages().length, 1, 'CASE DESK must not open the legacy admin');
         const afterIssue = await counts(fixture.db, fixture.inquiryId);
