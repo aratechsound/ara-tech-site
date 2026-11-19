@@ -56,17 +56,19 @@ const estimateDelivery = (estimate, outbox, offers, recoveryEvidence, gmailMessa
     ? { ...pending, state: 'unknown', sent_at: null, evidence_source: null }
     : pending);
 };
+const deliveryNeedsReview = job => ['processing', 'unknown'].includes(job.state)
+  || job.delivery_state === 'unknown_after_provider_start'
+  || (job.state === 'failed' && !(job.delivery_state === 'failed_before_provider'
+    && job.provider_request_started === false && job.provider_response_received === false && job.provider_http_status == null
+    && job.provider_message_id == null && job.provider_thread_id == null))
+  || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked' && job.provider_request_started === true);
 const deliveryConflicts = (job, { operationId, estimateId, confirmationId, offers }) => {
   const related = (operationId && job.operation_id === operationId)
     || (job.job_kind === 'estimate' && job.aggregate_id === estimateId)
     || (['confirmation', 'confirmation_reminder'].includes(job.job_kind)
       && (job.aggregate_id === confirmationId
         || offers.some((offer) => offer.id === job.aggregate_id && offer.estimate_revision_id === estimateId)));
-  return related && (['processing', 'unknown'].includes(job.state)
-    || job.delivery_state === 'unknown_after_provider_start'
-    || ((job.state === 'failed' || (job.state === 'cancelled' && job.last_error_code === 'confirmation_revoked')) && job.provider_request_started
-      && (!job.provider_response_received || job.provider_http_status >= 500
-        || (job.provider_http_status >= 200 && job.provider_http_status < 300))));
+  return related && deliveryNeedsReview(job);
 };
 const LEGACY_CONFIRMATION_RECOVERY_AUTHORITY = Object.freeze({
   case_id: '21073084-a71f-4892-b97d-7717aeda0672',
@@ -506,7 +508,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
     ]) : [[], []];
     const effectiveState = state || { inquiry_id: caseId, revision: 0, estimate_change_state: 'ready', fulfillment_state: 'not_confirmed', settlement_state: 'unsettled', unresolved_changes: false };
     const contractIds = new Set(contracts.map((item) => item.id));
-    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) => item);
+    const safeOutbox = outbox.map(({ body_text: _bodyText, secret_envelope: _secretEnvelope, ...item }) =>
+      ({ ...item, requires_reconciliation: deliveryNeedsReview(item) }));
+    const invoicesToReview = new Set(safeOutbox.filter(job => job.job_kind === 'invoice' && job.requires_reconciliation).map(job => job.aggregate_id));
     return {
       case_status: inquiry.status,
       state: effectiveState,
@@ -515,7 +519,9 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
         state: contractIds.has(offer.id) ? 'accepted' : tokens.find((token) => token.offer_id === offer.id)?.state || 'unknown',
         confirmed_at: contracts.find((contract) => contract.id === offer.id)?.confirmed_at || null
       })),
-      outbox: safeOutbox, billings, payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
+      outbox: safeOutbox, billings: billings.map(item => ({
+        ...item, invoice_requires_reconciliation: item.invoice_policy === 'separate_pdf' && invoicesToReview.has(item.id)
+      })), payments: payments.map((item) => ({ ...item, amount_minor: Number(item.amount) })), adjustments, change_orders: changeOrders,
       estimate_delivery_evidence: deliveryEvidence, estimate_import_corrections: importCorrections,
       confirmation_preflight: {
         event_name: inquiry.event_name, event_date: inquiry.event_date, event_time: inquiry.event_time || null,
@@ -1343,16 +1349,22 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       }
     } catch (error) {
       const failure = deliveryFailureDetails(error, deliveryTrace);
-      await finishOutbox({
+      const evidence = sent || deliveryTrace.accepted_reply;
+      const finish = finishOutbox({
         p_actor: actor.id, p_job: jobId, p_lease: lease, p_state: failure.state,
-        p_message: sent?.gmail_message_id || null, p_thread: sent?.gmail_thread_id || null,
+        p_message: evidence?.gmail_message_id || null, p_thread: evidence?.gmail_thread_id || null,
         p_error: failure.state === 'unknown' ? 'mail_outcome_unknown' : failure.failureCode,
         p_delivery_state: failure.deliveryState, p_failure_phase: failure.phase,
         p_failure_code: failure.failureCode, p_safe_message: failure.safeMessage,
         p_provider_started: failure.providerRequestStarted, p_provider_response: failure.providerResponseReceived,
         p_provider_status: failure.providerHttpStatus
       });
-      throw failure.state === 'unknown' ? Error('mail_outcome_unknown') : error;
+      if (failure.state === 'unknown') {
+        await finish.catch(() => null);
+        throw Error('mail_outcome_unknown');
+      }
+      await finish;
+      throw error;
     }
     try {
       await finishOutbox({
@@ -1403,9 +1415,14 @@ function createService({ fetchImpl = fetch, sendTransport, termsForIssue = issua
       if (job.job_kind === 'accept_receipt') {
         if (token?.state !== 'accepted' || !await one('pa_contracts', { ...query, select: 'id' })) throw Error('mail_resend_source_changed');
       } else {
-        const offer = await one('pa_contract_offers', { ...query, select: 'expires_at,estimate_revision_id' });
+        const offer = await one('pa_contract_offers', { ...query, select: 'expires_at,estimate_revision_id,quote_sha256,snapshot' });
         if (!offer || token?.state !== 'active' || !(Date.parse(offer.expires_at) > Date.now())
           || offer.estimate_revision_id !== commercial.current_estimate_revision_id) throw Error('mail_resend_source_changed');
+        if (job.job_kind === 'confirmation' && offer.snapshot?.confirmation_mode === DIRECT_CONFIRM_LINK_ONLY) {
+          const quote = await document(caseId, offer.snapshot.estimate.document_id);
+          if (job.attachment_ids.length !== 0 || pdf.sha(quote.bytes) !== offer.quote_sha256
+            || quote.filename !== offer.snapshot.estimate.original_filename) throw Error('mail_resend_source_changed');
+        }
       }
     } else if (job.job_kind === 'invoice') {
       const invoice = await one('pa_billings', { ...query, select: 'state,invoice_policy,invoice_document_id' });

@@ -1,5 +1,20 @@
 begin;
 
+-- A historical failure is retryable only when the record proves Gmail was never called.
+create or replace function public.pa_commercial_delivery_requires_review(p_job public.pa_commercial_outbox)
+returns boolean language sql immutable set search_path=pg_catalog,public as $$
+ select p_job.state in ('processing','unknown')
+   or coalesce(p_job.delivery_state='unknown_after_provider_start',false)
+   or (p_job.state='failed' and not (
+     p_job.delivery_state is not distinct from 'failed_before_provider'
+     and p_job.provider_request_started is false and p_job.provider_response_received is false
+     and p_job.provider_http_status is null and p_job.provider_message_id is null and p_job.provider_thread_id is null))
+   or (p_job.state='cancelled' and p_job.last_error_code is not distinct from 'confirmation_revoked'
+     and p_job.provider_request_started is true);
+$$;
+revoke all on function public.pa_commercial_delivery_requires_review(public.pa_commercial_outbox) from public,anon,authenticated;
+grant execute on function public.pa_commercial_delivery_requires_review(public.pa_commercial_outbox) to service_role;
+
 -- Keep the immutable quote and consent checks. Only the confirmation email
 -- attachment list varies for the explicitly chosen link-only mode.
 
@@ -88,11 +103,7 @@ begin
      or (x.job_kind in ('confirmation','confirmation_reminder') and (x.aggregate_id=p_offer or exists(
        select 1 from public.pa_contract_offers o where o.id=x.aggregate_id
          and o.inquiry_id=p_case and o.estimate_revision_id=p_estimate))))
-   and (x.state in ('processing','unknown') or x.delivery_state='unknown_after_provider_start'
-     -- The existing replacement RPC cancels failed rows before calling here.
-     -- That cancellation must not erase an ambiguous provider outcome.
-     or ((x.state='failed' or (x.state='cancelled' and x.last_error_code='confirmation_revoked')) and x.provider_request_started
-       and (not x.provider_response_received or x.provider_http_status>=500 or x.provider_http_status between 200 and 299))))
+   and public.pa_commercial_delivery_requires_review(x))
  then raise exception 'delivery_outcome_unresolved'; end if;
 
  select * into v_est from public.pa_estimate_revisions where id=p_estimate and inquiry_id=p_case;

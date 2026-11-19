@@ -1078,6 +1078,7 @@ async function submitThreadReply({ raw, threadId, token, attempt, deliveryTrace,
         updateDeliveryTrace(deliveryTrace, { phase: "gmail_response_validation" });
         if (!validGmailId(sent?.id) || strictThread && sent.threadId !== threadId) throw Error("gmail_send_invalid");
         const result = { gmail_message_id: sent.id, gmail_thread_id: threadId };
+        updateDeliveryTrace(deliveryTrace, { accepted_reply: result });
         if (attempt) await recordMailResult(attempt, "sent", result, fetchImpl);
         return result;
     } catch (error) {

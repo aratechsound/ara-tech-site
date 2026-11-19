@@ -1079,7 +1079,7 @@ function renderBilling(billingRoot, context, data, { state, current, accepted, b
     } else {
         billingRoot.append(element("span", "pa-commercial__status pa-commercial__status--ok", `請求 #${billing.billing_number}`));
         billingRoot.append(element("p", "pa-commercial__amount", formatAmount(billing.amount_minor, billing.currency)));
-        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", billing.invoice_delivery_state)}` : "既存書類を使用／別途発行なし");
+        appendLine(billingRoot, "書類", billing.invoice_policy === "separate_pdf" ? `請求書PDF・${stateLabel("invoice", billing.invoice_requires_reconciliation && billing.invoice_delivery_state === "failed" ? "unknown" : billing.invoice_delivery_state)}` : "既存書類を使用／別途発行なし");
         appendLine(billingRoot, "支払期限", billing.due_date || "期日未確定");
         appendLine(billingRoot, "先方予定日", billing.customer_planned_payment_on || "連絡なし");
         appendLine(billingRoot, "確認済み入金", formatAmount(paid, billing.currency));
@@ -1435,7 +1435,8 @@ const render = async (context, data, epoch) => {
             : { estimate: "現在の見積", confirmation: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}`, accept_receipt: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の受領メール`, invoice: "現在の請求書", confirmation_reminder: `現在の正式受注確認${confirmationVersion ? ` #${confirmationVersion}` : ""}の再案内`, change_proposal: "変更提案メール" }[job.job_kind] || safeJobKind;
         const row = element("div", "pa-commercial__delivery");
         row.dataset.deliveryReadback = job.id;
-        const alert = element("p", job.state === "unknown" ? "pa-commercial__error" : job.state === "sent" ? "pa-commercial__label" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", job.state)}`);
+        const displayState = job.requires_reconciliation && job.state === "failed" ? "unknown" : job.state;
+        const alert = element("p", displayState === "unknown" ? "pa-commercial__error" : displayState === "sent" ? "pa-commercial__label" : "pa-commercial__warning", `${kind}：${stateLabel("outbox", displayState)}`);
         row.append(alert);
         nextRoot.append(row);
         if (["unknown", "processing", "failed", "sent"].includes(job.state)) {

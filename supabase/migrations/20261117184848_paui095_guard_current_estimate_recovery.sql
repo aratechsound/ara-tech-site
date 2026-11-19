@@ -75,9 +75,7 @@ begin
         or (x.job_kind in ('confirmation','confirmation_reminder') and exists(
           select 1 from public.pa_contract_offers o where o.id=x.aggregate_id
             and o.inquiry_id=p_case and o.estimate_revision_id=p_expected_current)))
-      and (x.state in ('processing','unknown') or x.delivery_state='unknown_after_provider_start'
-        or ((x.state='failed' or (x.state='cancelled' and x.last_error_code='confirmation_revoked')) and x.provider_request_started
-          and (not x.provider_response_received or x.provider_http_status>=500 or x.provider_http_status between 200 and 299))))
+      and public.pa_commercial_delivery_requires_review(x))
     then raise exception 'delivery_outcome_unresolved'; end if;
   end if;
   if v_existing_estimate.id is null then

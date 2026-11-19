@@ -106,6 +106,10 @@ async function installCommercialMigrations(db) {
   await db.exec(recovery.slice(0, fixturesStart) + '\ncommit;');
   await db.exec(read('20260915093000_pa_est_010r1_safe_confirmation_reissue.sql'));
   await db.exec(read('20261008090000_pam025_direct_confirmation_with_estimate.sql'));
+  await db.exec(read('20261117165312_paui095_confirmation_link_only.sql'));
+  await db.exec(read('20261117183629_paui095_preserve_active_confirmation_on_estimate.sql'));
+  await db.exec(read('20261117184848_paui095_guard_current_estimate_recovery.sql'));
+  await db.exec(read('20261117190400_paui095_guard_case_reopen.sql'));
 }
 
 async function main() {
@@ -281,16 +285,24 @@ async function main() {
     assert.match(sent.at(-1).mime, /Content-Type: application\/pdf/iu);
     await verifyCommercialResend(estimate.outbox_id);
     console.log('PASS public intake, duplicate submission, first reply, linked sync and estimate send');
-    const preview = await service.confirmationPreview({ case_id: caseId }, actor);
+    const confirmationMode = testResend ? {confirmation_mode:'DIRECT_CONFIRM_LINK_ONLY'} : {};
+    const preview = await service.confirmationPreview({ case_id: caseId, ...confirmationMode }, actor);
     assert(preview.estimate.sent_at);
-    const offer = await service.issueConfirmation({
-      case_id: caseId, preview_fingerprint: preview.fingerprint, operation_id: randomUUID()
-    }, actor);
+    const confirmationInput = {case_id:caseId,preview_fingerprint:preview.fingerprint,operation_id:randomUUID()};
+    const offer = testResend
+      ? await service.issueDirectConfirmationAndSend({...confirmationInput,...confirmationMode},actor)
+      : await service.issueConfirmation(confirmationInput,actor);
     const binding = { case_id: caseId, offer_id: offer.id };
-    const sendPreview = await service.confirmationSendPreview(binding, actor);
-    assert.equal((await service.dispatch({
-      ...binding, job_id: offer.outbox_id, preview_fingerprint: sendPreview.fingerprint
-    }, actor)).state, 'sent');
+    if (testResend) {
+      assert.equal(offer.state,'sent');
+      assert.equal(preview.email.attachment_count,0);
+      assert.doesNotMatch(sent.at(-1).mime,/Content-Type: application\/pdf|Content-Disposition: attachment/iu);
+    } else {
+      const sendPreview = await service.confirmationSendPreview(binding, actor);
+      assert.equal((await service.dispatch({
+        ...binding, job_id: offer.outbox_id, preview_fingerprint: sendPreview.fingerprint
+      }, actor)).state, 'sent');
+    }
     assert.equal(sent.at(-1).threadId, provider.threadId);
     await verifyCommercialResend(offer.outbox_id);
     if (testResend) {
@@ -374,6 +386,38 @@ async function main() {
       [caseId, billing.id]
     )).rows[0].n, 1);
     assert((await db.query('select closed_at from pa_case_progress where inquiry_id=$1', [caseId])).rows[0].closed_at);
+    const reopen = {case_id:caseId,expected_revision:await revision(),operation_id:randomUUID(),reason:'Synthetic V5 reopen'};
+    const ownerSetting = process.env.PA_MAIL_OWNER_USER_ID;
+    delete process.env.PA_MAIL_OWNER_USER_ID;
+    await assert.throws(()=>service.reopen(reopen,actor),/not_authorized/u);
+    process.env.PA_MAIL_OWNER_USER_ID = actor.id;
+    try {
+      await assert.rejects(service.reopen({...reopen,expected_revision:reopen.expected_revision-1},actor),/commercial_state_changed/u);
+      await db.query('update pa_case_progress set is_on_hold=true where inquiry_id=$1',[caseId]);
+      await assert.rejects(service.reopen(reopen,actor),/case_unavailable/u);
+      await db.query('update pa_case_progress set is_on_hold=false where inquiry_id=$1',[caseId]);
+      const originalFacts = (await db.query(
+        'select (select jsonb_agg(to_jsonb(c)) from pa_contracts c where inquiry_id=$1) contracts,'+
+        ' (select jsonb_agg(to_jsonb(p)) from pa_payment_records p where inquiry_id=$1) payments',[caseId])).rows[0];
+      assert.equal((await service.reopen(reopen,actor)).reopen_operation_id,reopen.operation_id);
+      assert.equal((await service.reopen(reopen,actor)).already_committed,true);
+      await assert.rejects(service.reopen({...reopen,operation_id:randomUUID(),expected_revision:await revision()},actor),/case_unavailable/u);
+      const actualFacts = (await db.query(
+        'select (select jsonb_agg(to_jsonb(c)) from pa_contracts c where inquiry_id=$1) contracts,'+
+        ' (select jsonb_agg(to_jsonb(p)) from pa_payment_records p where inquiry_id=$1) payments',[caseId])).rows[0];
+      assert.deepEqual(actualFacts,originalFacts);
+      assert.equal((await db.query('select state from pa_billings where id=$1',[billing.id])).rows[0].state,'open');
+      const audit = (await db.query(
+        "select actor_user_id,details from pa_inquiry_audit where inquiry_id=$1 and action='case_reopened_v5'",[caseId])).rows;
+      assert.equal(audit.length,1);
+      assert.equal(audit[0].actor_user_id,actor.id);
+      assert.equal(audit[0].details.reason,reopen.reason);
+      assert.equal(sent.length,sendCount);
+      console.log('PASS V5 reopen Owner ACL, held and stale rejection, audit exactly once, contract and payments preserved, simulated Gmail 0');
+    } finally {
+      if (ownerSetting === undefined) delete process.env.PA_MAIL_OWNER_USER_ID;
+      else process.env.PA_MAIL_OWNER_USER_ID = ownerSetting;
+    }
     console.log('PASS public intake → first reply → linked sync → estimate sent → confirmation → consent → separate PDF invoice sent → payment → closed');
     console.log(`PASS ${sendCount} simulated Gmail acceptances, ${manualCount} Owner resends, ${testResend?1:0} first attempt HTTP 503, 0 live Gmail sends or production DB changes`);
   } finally {

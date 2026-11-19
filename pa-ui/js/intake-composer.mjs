@@ -12,8 +12,9 @@ export function createIntakeComposer({inquiry, requestPreview, send, close, draf
     <div class="inlinebtns"><button type="button" class="action blue" data-intake-preview>プレビュー</button></div>
     <section class="reply-preview" data-intake-review hidden>
       <h3>送信前プレビュー</h3><p data-intake-address></p>
+      <p data-resend-warning hidden>元のメールが届いている場合、再送すると同じ内容が重複して届きます。</p>
       <iframe title="お問い合わせへの返信プレビュー" sandbox="" referrerpolicy="no-referrer"></iframe>
-      <label class="reply-confirm"><input type="checkbox" name="confirmed">宛先・件名・本文を確認しました</label>
+      <label class="reply-confirm"><input type="checkbox" name="confirmed"><span>宛先・件名・本文を確認しました</span></label>
       <button type="submit" class="action blue" disabled>確認した内容で送信する</button>
     </section><p role="status" hidden></p>`;
   const {recipient, subject, body, confirmed} = form.elements;
@@ -22,7 +23,11 @@ export function createIntakeComposer({inquiry, requestPreview, send, close, draf
   const review = form.querySelector('[data-intake-review]');
   const submit = form.querySelector('[type=submit]');
   const status = form.querySelector('[role=status]');
-  if (readOnly) submit.textContent = '確認した内容で再送する';
+  if (readOnly) {
+    review.querySelector('[data-resend-warning]').hidden = false;
+    confirmed.nextElementSibling.textContent = '宛先・件名・本文と二重送信の可能性を確認しました';
+    submit.textContent = '確認した内容で再送する';
+  }
 
   recipient.value = inquiry.email.trim();
   subject.value = (draft?.subject || ('お問い合わせについて｜' + inquiry.inquiry_number)).slice(0, 240);

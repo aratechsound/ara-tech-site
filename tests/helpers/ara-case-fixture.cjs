@@ -35,7 +35,7 @@ async function createFixture() {
    const name = ident(u.pathname.split('/').at(-1));
    const args = Object.keys(input).map((key, i) => `${ident(key)}=>$${i+1}`).join(',');
    const params = Object.values(input).map(value => value && typeof value === 'object' ? JSON.stringify(value) : value);
-   const returnsRows = ['consume_rate_limit', 'finalize_pa_content_hearing_delivery', 'submit_pa_schedule_response'].includes(name);
+   const returnsRows = ['consume_rate_limit', 'finalize_pa_content_hearing_delivery', 'submit_pa_schedule_response', 'pa_claim_schedule_invitation'].includes(name);
    try {
     const call = `public.${name}(${args})`;
     const { rows } = await db.query(returnsRows ? `select * from ${call}` : `select ${call} result`, params);

@@ -1,5 +1,54 @@
 begin;
 
+create or replace function public.enforce_pa_schedule_result_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_expected_type text;
+begin
+  if new.status in ('schedule_confirmed', 'schedule_unavailable')
+    and new.status is distinct from old.status
+  then
+    if coalesce(auth.role(), '') <> 'service_role' then
+      raise exception 'result state requires a sent Gmail delivery';
+    end if;
+
+    -- An audited V5 paid-case reopen restores its working status without a new result email.
+    if old.status='closed' and new.status='schedule_confirmed'
+      and exists(
+        select 1 from public.pa_inquiry_audit a
+          join public.pa_case_commercial_state c on c.inquiry_id=a.inquiry_id
+        where a.inquiry_id=old.id and a.action='case_reopened_v5'
+          and a.details->>'operation_id'=current_setting('ara_tech.pa_v5_reopen_operation',true)
+          and a.details->>'closed_operation_id'=c.closed_operation_id::text
+      ) then return new; end if;
+
+    v_expected_type := case new.status
+      when 'schedule_confirmed' then 'schedule_result_confirmed'
+      else 'schedule_result_unavailable'
+    end;
+
+    perform 1
+    from public.pa_email_deliveries
+    where id = new.schedule_result_delivery_id
+      and inquiry_id = new.id
+      and message_type = v_expected_type
+      and status = 'sent'
+      and sent_at is not null
+      and gmail_message_id is not null;
+
+    if not found then
+      raise exception 'result state requires a sent Gmail delivery';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
 create function public.pa_v5_reopen_case(
   p_actor uuid, p_case uuid, p_operation uuid, p_reason text, p_expected_revision bigint
 ) returns jsonb
@@ -43,9 +92,15 @@ begin
     for update of b;
   if not found then raise exception 'case_unavailable'; end if;
 
+  insert into public.pa_inquiry_audit(inquiry_id,actor_user_id,action,details)
+    values(p_case,p_actor,'case_reopened_v5',jsonb_build_object('reason',btrim(p_reason),
+      'operation_id',p_operation,'closed_operation_id',v_state.closed_operation_id,'billing_id',v_billing,'payments_preserved',true,'contract_preserved',true));
+  perform set_config('ara_tech.pa_v5_reopen_operation',p_operation::text,true);
+
   -- Clear the paid-close marker before the generic status guard runs.
   update public.pa_case_progress set close_reason=null where inquiry_id=p_case;
   update public.pa_inquiries set status='schedule_confirmed' where id=p_case;
+  perform set_config('ara_tech.pa_v5_reopen_operation','',true);
   -- The status trigger recalculates from legacy milestones. A commercial reopen
   -- resumes at payment review even when those milestones were skipped.
   update public.pa_case_progress
@@ -56,9 +111,6 @@ begin
     set closed_operation_id=null,reopen_operation_id=p_operation,reopened_at=now(),revision=revision+1,
         updated_at=now(),updated_by=p_actor
     where inquiry_id=p_case returning * into v_state;
-  insert into public.pa_inquiry_audit(inquiry_id,actor_user_id,action,details)
-    values(p_case,p_actor,'case_reopened_v5',jsonb_build_object('reason',btrim(p_reason),
-      'operation_id',p_operation,'billing_id',v_billing,'payments_preserved',true,'contract_preserved',true));
   return to_jsonb(v_state);
 end $$;
 
