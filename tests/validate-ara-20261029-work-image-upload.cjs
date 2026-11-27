@@ -43,20 +43,42 @@ const path = require('node:path');
     await assert.rejects(context.prepare(post, true, displayedImages.get(89)), /状態が古く/u);
     assert.equal(updates.length, 1);
     const source = 'https://example.org/event';
-    const sha256 = 'f'.repeat(64);
+    const { publishStoredFlyer } = await import('../js/work-existing-flyer.mjs');
+    // The production module verifies real bytes and calls the existing administrator helper.
+    // Only the browser decoder and Supabase transport are mocked in this Node fixture.
+    const storedImage = new File([Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AJGAYI//2Q==', 'base64')], 'stored.jpg', { type: 'image/jpeg' });
+    const actualSha = async (file) => require('node:crypto').createHash('sha256').update(Buffer.from(await file.arrayBuffer())).digest('hex');
+    const sha256 = await actualSha(storedImage);
+    const originalBitmap = globalThis.createImageBitmap;
+    globalThis.createImageBitmap = async (file) => {
+        assert.equal(file.type, 'image/jpeg');
+        return { width: 1, height: 1, close() {} };
+    };
     const imageOnlyChanges = [];
     const imagesRead = [];
     let uploaded = 0;
-    let state = { id: 100, slug: 'hiroshima', event_date: '2026-11-15', is_published: true,
+    let actor = 'admin', member = true, storageBytes = storedImage, failWrite = false;
+    const imageAudits = [];
+    let state = { id: 100, slug: 'hiroshima', event_date: '2026-11-15', lifecycle_status: 'upcoming', is_published: true,
         publication_review_status: null, use_image_on_public_page: false, flyer_path: '', updated_at: 'before', image_owner_instruction_ref: null, approved_hash: 'original' };
     const imageContext = vm.createContext({
         WORKS_BUCKET: 'work-flyers',
-        fileSha256: async (file) => file.sha256 || sha256,
+        publishStoredFlyer,
+        fileSha256: async (file) => file.sha256 || actualSha(file),
         readWorksAdministrator: async () => ({ status: 'ready', user: { id: 'admin' } }),
         validateFlyerFile: async () => {},
         uploadFlyer: async () => { uploaded++; return 'flyers/new.webp'; },
         supabase: {
+            auth: { async getUser() { return { data: { user: actor ? { id: actor } : null } }; } },
             from(table) {
+                if (table === 'work_admins') return { select(fields) {
+                    assert.equal(fields, 'user_id');
+                    return { eq(key, value) {
+                        assert.equal(key, 'user_id');
+                        assert.equal(value, actor);
+                        return { async maybeSingle() { return { data: member ? { user_id: actor } : null }; } };
+                    } };
+                } };
                 assert.equal(table, 'work_posts');
                 return { update(value) {
                     const filters = {};
@@ -66,11 +88,21 @@ const path = require('node:path');
                         select() { return this; },
                         async maybeSingle() {
                             if (Object.entries(filters).some(([key, expected]) => state[key] !== expected)) return { data: null };
-                            assert.deepEqual(Object.keys(filters).sort(), ['id', 'is_published', 'publication_review_status', 'updated_at', 'use_image_on_public_page']);
+                            const originalFilters = ['id', 'is_published', 'publication_review_status', 'updated_at', 'use_image_on_public_page'];
+                            const storedRepair = 'image_owner_instruction_ref' in value && !('flyer_path' in value);
+                            assert.deepEqual(Object.keys(filters).sort(), storedRepair
+                                ? [...originalFilters, 'flyer_path', 'public_image_sha256', 'public_image_source_url', 'image_owner_instruction_ref', 'image_usage_status'].sort()
+                                : originalFilters);
+                            if (storedRepair) assert.deepEqual(Object.keys(value).sort(), ['image_owner_instruction_ref', 'image_usage_status', 'use_image_on_public_page']);
+                            if (failWrite || !actor || !member) return { data: null, error: { message: 'permission denied' } };
                             imageOnlyChanges.push(JSON.parse(JSON.stringify(value)));
                             state = { ...state, ...value, updated_at: String(imageOnlyChanges.length) };
                             if ('flyer_path' in value) state.image_usage_status = 'unknown';
-                            if (value.use_image_on_public_page) state.image_publication_confirmed_by = 'admin';
+                            if (value.use_image_on_public_page) {
+                                state.image_publication_confirmed_by = actor;
+                                state.image_publication_confirmed_at = '2026-11-28T00:00:00Z';
+                                imageAudits.push({ work_id: state.id, actor_user_id: actor });
+                            }
                             return { data: { ...state } };
                         }
                     };
@@ -80,7 +112,7 @@ const path = require('node:path');
                 assert.equal(bucket, 'work-flyers');
                 return { async download(key) {
                     imagesRead.push(key);
-                    return { data: new Blob(['readback']) };
+                    return { data: storageBytes };
                 } };
             } }
         }
@@ -95,9 +127,9 @@ const path = require('node:path');
     for (const otherSha of ['1', '2', '3']) {
         await assert.rejects(imageContext.add(state, { sha256: otherSha.repeat(64) }, evidence), /SHA-256/u);
     }
-    await assert.rejects(imageContext.add(state, {}, { ...evidence, rights: 'not_permitted' }), /明示的/u);
+    await assert.rejects(imageContext.add(state, storedImage, { ...evidence, rights: 'not_permitted' }), /明示的/u);
     assert.equal(uploaded, 0);
-    const attached = await imageContext.add(state, {}, evidence);
+    const attached = await imageContext.add(state, storedImage, evidence);
     assert.equal(uploaded, 1);
     assert.deepEqual(imagesRead, ['flyers/new.webp']);
     assert.deepEqual(imageOnlyChanges, [
@@ -107,11 +139,55 @@ const path = require('node:path');
     assert.equal(attached.is_published, true);
     assert.equal(attached.event_date, '2026-11-15');
     assert.equal(attached.approved_hash, 'original');
-    await assert.rejects(imageContext.add(state, {}, evidence), /掲載画像のない/u);
+    await assert.rejects(imageContext.add(state, storedImage, evidence), /掲載画像のない/u);
     state = { ...state, use_image_on_public_page: false };
-    await assert.rejects(imageContext.add(state, {}, { ...evidence, sourceUrl: 'https://example.org/different' }), /一致しません/u);
-    await assert.rejects(imageContext.add({ ...state, updated_at: 'stale' }, {}, evidence), /状態が変わりました/u);
-    await imageContext.add(state, {}, evidence);
+    const beforeStored = structuredClone(state);
+    const writesBefore = imageOnlyChanges.length;
+    const auditBefore = imageAudits.length;
+    await assert.rejects(imageContext.add(state, storedImage, { ...evidence, sourceUrl: 'https://example.org/different' }), /一致しません/u);
+    await assert.rejects(imageContext.add({ ...state, updated_at: 'stale' }, storedImage, evidence), /更新結果を確認できません/u);
+    assert.equal(imageOnlyChanges.length, writesBefore);
+    assert.equal(imageAudits.length, auditBefore);
+    // Existing matching adoption record: no upload and no repeat publication of the article.
+    const reused = await imageContext.add(state, storedImage, evidence);
+    assert.equal(reused.approved_hash, beforeStored.approved_hash);
     assert.equal(uploaded, 1, 'retry must reuse the already stored image');
+    // WKS-017: previously uploaded image with no adoption record; select without a local file.
+    state = { ...state, use_image_on_public_page: false, image_owner_instruction_ref: null };
+    const pin = structuredClone(state);
+    const writesBeforeRepair = imageOnlyChanges.length;
+    const auditsBeforeRepair = imageAudits.length;
+    actor = null;
+    await assert.rejects(imageContext.add(pin, undefined, evidence), /管理者権限/u);
+    actor = 'admin'; member = false;
+    await assert.rejects(imageContext.add(pin, undefined, evidence), /管理者権限/u);
+    member = true;
+    await assert.rejects(imageContext.add(pin, undefined, { ...evidence, rights: 'confirmed' }), /確認済みへ変更/u);
+    await assert.rejects(imageContext.add({ ...pin, image_usage_status: 'not_permitted' }, undefined, evidence), /明示的/u);
+    await assert.rejects(imageContext.add(pin, undefined, { ...evidence, instructionRef: '' }), /採用指示/u);
+    storageBytes = new File([new Uint8Array([255,216,255,1])], 'different.jpg', { type: 'image/jpeg' });
+    await assert.rejects(imageContext.add(pin, undefined, evidence), /一致しません/u);
+    storageBytes = storedImage;
+    failWrite = true;
+    await assert.rejects(imageContext.add(pin, undefined, evidence), /更新結果を確認できません/u);
+    failWrite = false;
+    assert.equal(imageOnlyChanges.length, writesBeforeRepair);
+    assert.equal(imageAudits.length, auditsBeforeRepair);
+    const repaired = await imageContext.add(pin, undefined, evidence);
+    assert.equal(repaired.image_owner_instruction_ref, evidence.instructionRef);
+    assert.equal(repaired.image_usage_status, 'unknown');
+    assert.equal(repaired.use_image_on_public_page, true);
+    assert.equal(repaired.flyer_path, pin.flyer_path);
+    assert.equal(repaired.slug, pin.slug);
+    assert.equal(repaired.lifecycle_status, pin.lifecycle_status);
+    assert.equal(repaired.approved_hash, pin.approved_hash);
+    assert.equal(repaired.image_publication_confirmed_by, actor);
+    assert.ok(repaired.image_publication_confirmed_at);
+    assert.deepEqual(imageOnlyChanges.slice(writesBeforeRepair), [{ image_owner_instruction_ref: evidence.instructionRef, image_usage_status: 'unknown', use_image_on_public_page: true }]);
+    assert.deepEqual(imageAudits.slice(auditsBeforeRepair), [{ work_id: pin.id, actor_user_id: actor }]);
+    await assert.rejects(imageContext.add(pin, undefined, evidence), /更新結果を確認できません/u);
+    assert.equal(imageAudits.length, auditsBeforeRepair + 1);
+    assert.equal(uploaded, 1, 'stored image repair must never upload again');
+    globalThis.createImageBitmap = originalBitmap;
     console.log('WORKS local image validation, provenance, neutral placeholders and existing-object preservation passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
