@@ -16,6 +16,9 @@ async function createFixture(){
   update public.pa_inquiries set email='customer@example.invalid',customer_name='管理下テスト担当者',contact_name='管理下テスト担当者',organization_name='テスト実行委員会',event_name='龍姫湖まつり2026（検証用）',event_date='2026-10-18',event_time='10:00〜15:00',venue='管理下テスト会場',inquiry_number='PA-20260907-00001',request_summary='屋外イベントPA・設営・本番対応';
  update public.pa_gmail_message_index set to_addresses='["customer@example.invalid"]',cc_addresses='["venue@example.invalid"]',attachment_metadata='[{"id":"attachment_1","filename":"____.pdf","mime_type":"application/pdf"}]';`);
  await db.exec(read('20260907130000_pa_formal_contract.sql'));
+ await db.exec(read('20261119074600_paui106_gmail_attempts.sql'));
+ await db.exec(read('20261119074700_paui106_legacy_receipt_ack.sql'));
+ await db.exec(read('20261119091848_paui107_owner_mail_resend.sql'));
  // The contract fixture exercises linked-mail synchronization, independently of
  // the mailbox-wide discovery function changed later in the same migration.
  const linkedMailMigration=read('20261106090000_paui088_linked_mail_sync.sql');
@@ -85,7 +88,8 @@ async function createFixture(){
    }
    assert.equal(options.method,'POST');const keys=Object.keys(input);keys.forEach(k=>assert(/^[a-z0-9_]+$/.test(k)));
    const upsert=options.headers?.prefer?.includes('resolution=merge-duplicates');
-   const conflict=upsert?' on conflict ('+(u.searchParams.get('on_conflict')||keys[0])+') do update set '+keys.map(k=>`${k}=excluded.${k}`).join(','):'';
+   const ignore=options.headers?.prefer?.includes('resolution=ignore-duplicates');
+   const conflict=ignore?' on conflict ('+u.searchParams.get('on_conflict')+') do nothing':upsert?' on conflict ('+(u.searchParams.get('on_conflict')||keys[0])+') do update set '+keys.map(k=>`${k}=excluded.${k}`).join(','):'';
    const rows=(await db.query(`insert into public.${table}(${keys.join(',')}) values(${keys.map((_,i)=>'$'+(i+1)).join(',')})${conflict} returning *`,Object.values(input))).rows;
    return json(rows);
   }catch(e){return json({message:e.message},400);}

@@ -53,6 +53,12 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    if(p.action==='sync'){assert.equal(p.linked_only,true);const result=await syncCase({...args,linkedOnly:true},transport);if(holdSync)await new Promise(r=>{releaseSync=r;});return json({ok:true,result});}
    if(p.action==='reply_context')return json({ok:true,context:await replyContext(args,transport)});
    if(p.action==='reply_preview')return json({ok:true,preview:await replyPreview({...args,body:p.body,ccAddresses:p.cc_addresses,attachments:p.attachments,mode:p.mode},transport)});
+   if(p.action==='reconcile_reply'){
+    const previous=[...posts].reverse().find(entry=>entry.action==='send_reply');
+    assert.match(p.lookup_key,/^[a-f0-9]{64}$/u);
+    assert.equal(p.lookup_key,previous.lookup_key);
+    return json({ok:true,result:{state:'unknown'}});
+   }
    if(p.action==='send_reply'){
     outgoingBody=p.body;const result=await sendReply({...args,body:p.body,ccAddresses:p.cc_addresses,attachments:p.attachments,mode:p.mode,confirmationToken:p.confirmation_token},transport);
     if(holdSend)await new Promise(r=>{releaseSend=r;});if(loseReply)return json({ok:false,code:'send_outcome_unknown'},502);return json({ok:true,result});
@@ -70,7 +76,8 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
       {...receipt,id:'receipt',message_type:'customer_receipt',gmail_message_id:'receipt'},
       {...receipt,id:'internal',message_type:'internal_new_inquiry',gmail_message_id:'internal'},
       {...receipt,id:'unknown',message_type:'schedule_request',status:'sending',gmail_message_id:null},
-      {...receipt,id:'failed',message_type:'schedule_request',status:'failed',gmail_message_id:null}
+      {...receipt,id:'failed',message_type:'schedule_request',status:'failed',error_summary:'gmail_oauth_503',gmail_message_id:null},
+      {...receipt,id:'historical-failed',message_type:'schedule_request',status:'failed',error_summary:'gmail_send_400',gmail_message_id:null}
     ];
     if(followUpDelivery)result.push(followUpDelivery);
    }
@@ -232,6 +239,7 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    assert.equal(await page.locator('[data-timeline-kind="delivery"] [data-intake-reply]').count(),0);
    await page.getByText('内部通知・送信済み',{exact:false}).first().waitFor();
    await page.getByText('業務案内・配送・配送結果未確定',{exact:false}).first().waitFor();
+   await page.locator('[data-delivery-id="historical-failed"] .mail-heading').filter({hasText:'業務案内・配送・配送結果未確定'}).waitFor();
    await page.getByText('業務案内・配送・送信失敗',{exact:false}).first().waitFor();
    await page.locator('[data-customer-mail-empty]').waitFor();
    assert.equal(await page.locator('[data-reply-message]').count(),0);
@@ -284,7 +292,31 @@ const root=path.resolve(__dirname,'../..'),A='11111111-1111-4111-8111-1111111111
    }finally{holdSend=false;releaseSend();await page.close();}
   }
   {
-   const page=await pageAt({width:390,height:844});await draft(page,'Lost send response');await approve(page);loseReply=true;const before=sendCount();await page.locator('[data-reply-send]').click();await page.waitForFunction(()=>document.querySelector('[data-reply-status]').textContent.includes('UNKNOWN'));assert.equal(await page.locator('.reply-composer').isVisible(),true);assert.equal(await page.locator('[data-reply-notice]').isHidden(),true);await page.locator('[data-reply-history]').click();assert.equal(sendCount(),before+1);loseReply=false;await page.reload();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Do not resend after reload');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({unknown_stays_open:true,unknown_reload_no_resend:true});await page.close();
+   const page=await pageAt({width:390,height:844});
+   await draft(page,'Lost send response');
+   await approve(page);
+   loseReply=true;
+   const before=sendCount();
+   await page.locator('[data-reply-send]').click();
+   await page.waitForFunction(()=>document.querySelector('[data-reply-status]').textContent.includes('UNKNOWN'));
+   assert.equal(await page.locator('.reply-composer').isVisible(),true);
+   const status=page.locator('[data-reply-notice-text]').getByText(/送信結果未確認/u);
+   await status.waitFor();
+   const readback=page.waitForResponse(r=>r.url().endsWith('/api/pa-gmail')&&r.request().postDataJSON().action==='reconcile_reply');
+   await page.locator('[data-reply-check-sent]').click();
+   assert.equal((await readback).status(),200);
+   await status.waitFor();
+   await page.locator('[data-reply-history]').click();
+   assert.equal(sendCount(),before+1);
+   loseReply=false;
+   await page.reload();
+   await page.locator('[data-mail-sync-state="success"]').waitFor();
+   await draft(page,'Do not resend after reload');
+   assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);
+   assert.equal(sendCount(),before+1);
+   assert.deepEqual(page.errors,[]);
+   checks.push({unknown_stays_open:true,unknown_readback_no_resend:true,unknown_reload_no_resend:true});
+   await page.close();
   }
   {
    const page=await pageAt({width:1440,height:1000});await draft(page,'Reload while send response is held');await approve(page);holdSend=true;releaseSend=null;const before=sendCount();await page.locator('[data-reply-send]').click();await waitForRelease('send');await page.reload();holdSend=false;releaseSend();await page.locator('[data-mail-sync-state="success"]').waitFor();await draft(page,'Never replay after interrupted send');assert.equal(await page.locator('[data-reply-preview]').isDisabled(),true);assert.equal(sendCount(),before+1);assert.deepEqual(page.errors,[]);checks.push({send_in_flight_reload_lock_survives:true,no_automatic_resend:true});await page.close();

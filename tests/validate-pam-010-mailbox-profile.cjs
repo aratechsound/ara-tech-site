@@ -85,7 +85,7 @@ async function browserConfig(body, ok){
     checks.push({name:'profile helper zero DB',db_calls:0,gmail_get:1,result:'PASS'});
     const source=fs.readFileSync(path.join(__dirname,'../api/pa-gmail.js'),'utf8');
     const policies=[...source.slice(source.indexOf('const ACTION_POLICY'),source.indexOf('const parseBody')).matchAll(/\s+(\w+): "(PA_[A-Z_]+)"/g)];
-    assert.equal(policies.length,14);
+    assert.equal(policies.length,18);
     assert.deepEqual(Object.fromEntries(policies.map(([,action,policy])=>[action,policy])),{
         inbox_list:'PA_GMAIL_SYNC',
         inbox_review:'PA_GMAIL_ATTACHMENT_GET',
@@ -100,6 +100,10 @@ async function browserConfig(body, ok){
         reply_context:'PA_GMAIL_REPLY_PREVIEW',
         reply_preview:'PA_GMAIL_REPLY_PREVIEW',
         send_reply:'PA_GMAIL_SEND_REPLY',
+        reconcile_reply:'PA_GMAIL_REPLY_PREVIEW',
+        reconcile_legacy_delivery:'PA_GMAIL_REPLY_PREVIEW',
+        resend_reply_preview:'PA_GMAIL_REPLY_PREVIEW',
+        resend_reply:'PA_GMAIL_SEND_REPLY',
         reconcile_estimate_submission:'PA_GMAIL_RECONCILE_ESTIMATE'
     });
     for(const [,action,policy] of policies){

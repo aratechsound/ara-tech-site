@@ -1,9 +1,9 @@
 const {createService,SAFE}=require('./_pa-contract.cjs');
-const {verifyAdmin}=require('./_pa-mail.cjs');
+const {verifyAdmin,assertMailResendOwner}=require('./_pa-mail.cjs');
 const {streamAttachmentResponse}=require('./_pa-gmail.cjs');
 const {applyOriginPolicy,checkRateLimit}=require('./_request-security.cjs');
 const PUBLIC={view:['action','token'],quote:['action','token'],customer_receipt:['action','token'],related_document:['action','token','index'],accept:['action','token','offer_id','snapshot_sha256','confirmer_name','agree']};
-const ADMIN=new Set(['list','inspect_quote','inspect_related','preview_conditions','issue','receipt','mail_preview','send','mark_uncertain']);
+const ADMIN=new Set(['list','inspect_quote','inspect_related','preview_conditions','issue','receipt','mail_preview','send','mark_uncertain','reconcile_receipt']);
 const headers=res=>{
  for(const [k,v] of Object.entries({'Cache-Control':'private, no-store, max-age=0','X-Robots-Tag':'noindex, nofollow, noarchive, nosnippet','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}))res.setHeader(k,v);
 };
@@ -38,13 +38,16 @@ function createHandler({service=createService(),admin=verifyAdmin,rate=checkRate
     case 'issue':result=await service.issue(input,actor);break;
     case 'receipt':return streamAttachmentResponse(res,await service.ensureReceipt(input.case_id,input.contract_id));
     case 'mail_preview':result=await service.mailPreview(input,actor);break;
-    case 'send':result=await service.send(input,actor);break;
+    case 'send':
+     if(input.acknowledge_resend===true)assertMailResendOwner(actor.id,true);
+     result=await service.send(input,actor);break;
     case 'mark_uncertain':result=await service.markUncertain(input,actor);break;
+    case 'reconcile_receipt':result=await service.reconcileReceipt(input,actor);break;
    }
    return json(200,{ok:true,result});
   }catch(e){
    const code=String(e?.message||'');
-   const allowed=SAFE.has(code)||['invalid_pdf','unsafe_pdf','quote_missing','receipt_identity_mismatch','receipt_layout_overflow','recipient_changed','receipt_too_large'].includes(code);
+   const allowed=SAFE.has(code)||['retry_not_allowed','invalid_pdf','unsafe_pdf','quote_missing','receipt_identity_mismatch','receipt_layout_overflow','recipient_changed','receipt_too_large'].includes(code);
    return json(code==='not_authorized'?401:allowed?400:503,{ok:false,code:allowed?code:'service_unavailable'});
   }
  };

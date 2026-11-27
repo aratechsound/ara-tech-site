@@ -226,28 +226,39 @@ function createService({fetchImpl=fetch,createReceipt=pdf.createReceipt,mergeRec
  }
  async function send(input,actor){
   const data=await mailData(input.case_id,input.contract_id,actor);
-  await rpc('pa_contract_delivery_claim',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_attempt:uuid(input.attempt_id),p_ack:input.acknowledge_resend===true});
-  let sent,dispatched=false,rejected=false;
+  const attemptId=uuid(input.attempt_id);
+  const acknowledged=input.acknowledge_resend===true;
+  // The same approval must never acquire a new legacy attempt by changing a
+  // client-generated ID. The database claim still serializes the contract.
+  const digest=acknowledged?pdf.sha(Buffer.from(JSON.stringify([actor.id,input.case_id,input.contract_id,input.confirmation_token]))):null;
+  const deliveryId=digest?`${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-a${digest.slice(17,20)}-${digest.slice(20,32)}`:attemptId;
+  await rpc('pa_contract_delivery_claim',{p_actor:actor.id,p_case:input.case_id,p_contract:input.contract_id,p_attempt:deliveryId,p_ack:acknowledged});
+  let sent,dispatched=false;
   const trackedFetch=async(url,options)=>{
    if(url==='https://gmail.googleapis.com/gmail/v1/users/me/messages/send'&&options?.method==='POST'){
     dispatched=true;
-    const response=await fetchImpl(url,options);
-    rejected=!response.ok&&response.status>=400&&response.status<500;
-    return response;
+    return fetchImpl(url,options);
    }
    return fetchImpl(url,options);
   };
   try{
-   sent=await gmail.sendReply({inquiryId:input.case_id,actorId:actor.id,body:data.body,attachments:data.attachments,confirmationToken:input.confirmation_token},trackedFetch);
+   sent=await gmail.sendReply({inquiryId:input.case_id,actorId:actor.id,body:data.body,attachments:data.attachments,confirmationToken:input.confirmation_token,deliveryAttempt:{legacyId:deliveryId}},trackedFetch);
   }catch(e){
-   const failed=!dispatched||rejected;
+   const failed=!dispatched;
    const status=failed?'failed':'uncertain';
-   await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${input.attempt_id}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status,finished_at:new Date().toISOString(),error_code:failed?'mail_failed':'mail_outcome_unknown'})});
+   await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${deliveryId}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status,finished_at:new Date().toISOString(),error_code:failed?'mail_failed':'mail_outcome_unknown'})});
    return {state:'accepted',delivery_status:status};
   }
-  await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${input.attempt_id}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status:'sent',finished_at:new Date().toISOString(),gmail_message_id:sent.gmail_message_id})});
+  await db('pa_contract_deliveries?'+new URLSearchParams({id:`eq.${deliveryId}`,status:'eq.sending'}),{method:'PATCH',body:JSON.stringify({status:'sent',finished_at:new Date().toISOString(),gmail_message_id:sent.gmail_message_id})});
   return {state:'accepted',delivery_status:'sent'};
  }
- return {offers,quoteSource,relatedSource,previewConditions,issue,view,customerQuote,customerRelated,customerReceipt,accept,ensureReceipt,receiptAttachments,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
+ async function reconcileReceipt(input,actor){
+  const inquiryId=uuid(input.case_id),contractId=uuid(input.contract_id),legacyId=uuid(input.delivery_id);
+  const contract=await one('pa_contracts',{id:`eq.${contractId}`,inquiry_id:`eq.${inquiryId}`,select:'id'});
+  const delivery=contract&&await one('pa_contract_deliveries',{id:`eq.${legacyId}`,contract_id:`eq.${contractId}`,select:'id'});
+  if(!delivery)throw Error('invalid_contract');
+  return gmail.reconcileSentAttempt({inquiryId,actorId:actor.id,legacyId},fetchImpl);
+ }
+ return {offers,quoteSource,relatedSource,previewConditions,issue,view,customerQuote,customerRelated,customerReceipt,accept,ensureReceipt,receiptAttachments,mailPreview:async(input,actor)=>(await mailData(input.case_id,input.contract_id,actor)).preview,send,reconcileReceipt,markUncertain:(input,actor)=>rpc('pa_contract_delivery_uncertain',{p_actor:actor.id,p_case:uuid(input.case_id),p_contract:uuid(input.contract_id)})};
 }
 module.exports={createService,SAFE,normalizeSnapshot,FORMAL_SNAPSHOT_VERSION};
