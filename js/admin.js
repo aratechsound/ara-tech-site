@@ -9,6 +9,7 @@ import { resolveImageConfirmation } from './image-confirmation.mjs';
 import { imageSourceUrl, validateFlyerFile } from './work-image-upload.mjs';
 import { createReviewedPublishPanel } from './work-publish-panel.mjs';
 import { readWorksAdministrator, restoreWorksAdministrator } from './work-reviewed-publish.mjs';
+import { publishStoredFlyer } from './work-existing-flyer.mjs';
 
 const { getJstDateString, isUpcomingWork } = window.AraTechWorkLifecycle;
 
@@ -300,6 +301,8 @@ const updatePublicationControls = () => {
     candidateActions.classList.toggle('hidden', !candidate);
     const publishedFlyer = canAddPublishedFlyer(editingPost);
     savePublishedFlyerButton.classList.toggle('hidden', !publishedFlyer);
+    savePublishedFlyerButton.textContent = publishedFlyer && editingPost.flyer_path
+        ? '保存済み画像を掲載' : '画像だけ追加';
     const supportsOwnerRef = Object.hasOwn(editingPost || posts[0] || {}, 'image_owner_instruction_ref');
     publishedFlyerEvidence.classList.toggle('hidden', !(publishedFlyer || (pendingForm && supportsOwnerRef)));
     if (pendingForm) {
@@ -395,6 +398,10 @@ const updatePublishedFlyer = async (post, imageFields, newPath = null) => {
 const addPublishedFlyer = async (post, file, { sourceUrl, alt, instructionRef, expectedSha, rights }) => {
     if (!canAddPublishedFlyer(post) || !post.updated_at) throw new Error('公開済みで掲載画像のない投稿を開いてください。');
     if (!['unknown', 'confirmed'].includes(rights)) throw new Error('明示的な画像利用制限があります。');
+    if (post.flyer_path) {
+        return publishStoredFlyer({ client: supabase, bucket: WORKS_BUCKET, post, file,
+            sourceUrl, instructionRef, expectedSha, rights });
+    }
     if (!instructionRef || !sourceUrl || !/^[a-f0-9]{64}$/.test(expectedSha)) {
         throw new Error('採用指示の参照・画像出典・SHA-256を入力してください。');
     }
@@ -1027,7 +1034,7 @@ if (!isSupabaseConfigured) {
         const file = flyerInput.files?.[0];
         if (saveButton.disabled || savePublishedFlyerButton.disabled) return;
         if (!canAddPublishedFlyer(post)) return;
-        if (!file) {
+        if (!file && !post.flyer_path) {
             setMessage(postStatus, 'Ownerが採用した画像ファイルを選択してください。', 'error');
             return;
         }
